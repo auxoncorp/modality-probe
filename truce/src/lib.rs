@@ -9,6 +9,7 @@ pub struct Tracer<'a> {
 
 /// Public-but-opaque blob of causal history
 #[repr(C)]
+#[derive(Debug, PartialEq, PartialOrd)]
 pub struct CausalHistory {
     // IntervalTreeClock or maybe BloomClock state goes here
 // This is the publicly-visible-and-transmittable causal
@@ -35,7 +36,7 @@ impl<'a> Tracer<'a> {
 
     /// Record that an event occurred. The end user is responsible
     /// for associating meaning with each event_id.
-    pub fn record_event(&mut self, event_id: u32) {
+    pub fn record_event(&mut self, event_id: core::num::NonZeroU32) {
         unimplemented!()
     }
 
@@ -63,6 +64,8 @@ impl<'a> Tracer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::num::NonZeroU32;
+
     #[test]
     fn tracer_lifecycle_does_not_panic() {
         let node_id = 1;
@@ -75,14 +78,31 @@ mod tests {
         }
 
         let mut backend = DevNull;
-        let mut t = Tracer::initialize(node_id, &mut backend);
-        let event_a = 2;
-        let event_b = 3;
-        t.record_event(event_a);
-        t.record_event(event_a);
-        t.record_event(event_b);
-        t.record_event(event_a);
+        let mut tracer = Tracer::initialize(node_id, &mut backend);
+        let event_a = NonZeroU32::new(2).expect("Should be non-zero");
+        let event_b = NonZeroU32::new(3).expect("Should be non-zero");
 
-        t.service();
+        let q = tracer.snapshot_history();
+        tracer.record_event(event_a);
+        let r = tracer.snapshot_history();
+        assert!(q < r);
+        assert_ne!(q, r);
+        tracer.record_event(event_a);
+        let s = tracer.snapshot_history();
+        assert!(r < s);
+        assert_ne!(r, s);
+        tracer.record_event(event_b);
+        let t = tracer.snapshot_history();
+        assert!(s < t);
+        assert_ne!(s, t);
+        tracer.record_event(event_a);
+        let u = tracer.snapshot_history();
+        assert!(t < u);
+        assert_ne!(t, u);
+        tracer.service();
+        let v = tracer.snapshot_history();
+        // Should service calls affect the outcome of snapshot_history()?
+        assert!(u < v);
+        assert_ne!(u, v);
     }
 }
