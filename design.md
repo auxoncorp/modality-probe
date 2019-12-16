@@ -17,14 +17,20 @@ thread sends the locally stored events to the collector.
 When a system cannot directly connect back to a collector, it may instead
 communicate with a proxy running on a machine it can connect to.
 
-## Logical Clock: ITC
-We will use Interval Tree Clocks. Each 'event' in the ITC corresponds to a
-single thread; it increments the event counter each time the clock is sent to a
-collaborating thread, and each time a clock message is received.
+## Logical Clock: Neighborhood Vector Clocks
+At the system level, we represent causality using a vector clock. Each 'event',
+or slot in the vector clock, corresponds to one thread in the system. The thread
+increments its slot in the vector clock whenever a message is sent to or
+received from another thread.
 
-When a thread first sends its clock to a new thread which does not currently own
-a clock interval, it splits its own interval to transfer ownership of a subset
-to the other thread.
+Sending the entire vector clock around the system scales poorly as the number of
+threads in the system increases. To mitigate this, each thread tracks the ids of
+threads with which it has directly collaborated, for causality purposes (those
+that sent it a logical clock). It uses this to limit the scope of the vector
+clock recorded in the event log; it only records the local segment and those
+from which it received logical clock messages.
+
+To accommodate this dynamic storage mechanism, we store key-value pairs.
 
 ## Local log structure
 Local to each thread, a log is stored as an array of any of the following:
@@ -68,15 +74,20 @@ be formatted to be independently usable - the first entry will be a fully
 qualified logical clock.
 
 ### Linux-based daemon
-We will provide a collector daemon which runs on a regular computer, and stores
-event logs into a trace corpus. It receives incremental collections of log
-events via a TCP-based network interface.
+We will provide a collector daemon which runs on a regular computer. It receives
+incremental collections of log events via a TCP-based network interface. It
+stores this information in a plain-text file.
 
-TODO What should this really do? It needs to be somehow useful, if we want
-anybody to use this open source thing.
+### Basic CLI tooling
+We will provide some kind of primitive command line tooling.
+- Interpret an event id -> name map
+- View log events
+- Basic filtering
+- Some kind of interpretation of the causal relationships between events.
+  - Perhaps a textual sequence diagram
 
 ### Proxy library
-We will provide a library which supports implementing a linux-based collector
+We will provide a library which supports implementing a Linux-based collector
 proxy; the incoming transport to the proxy is expected to be application
 specific, but the outgoing transport will connect to the Linux-based collector.
 
@@ -86,6 +97,7 @@ specific, but the outgoing transport will connect to the Linux-based collector.
 - Plain vector clocks (not desirable because of global allocation requirement, but maybe a fallback.)
 - Put the events in the causal context (too much data)
 - DVVSets (for storage, not events)
+- ITC won't work, as it can't handle multiple roots.
 
 ## Log structure
 We considered storing event multisets, instead of discrete events. We backed off
@@ -94,10 +106,10 @@ the future, as multisets degrade much more gracefully in the face of high
 frequency events. We would additionally supply a threshold, beyond which a
 saturation value would be stored for any given entry in the multiset.
 
+We may want to add a regular timestamp to the logical clock rows, to help
+interpretability.
+
 # Costs
-1. Prototype the dynamic ITC layout mechanism; see that it actually converges.
-2. Figure out how big an ITC has to get; if it's bad, start looking for alternatives
-   - Does the bloom clock paper talk about this?
 
 # Open Questions
 - What does a diff look like for an ITC?
