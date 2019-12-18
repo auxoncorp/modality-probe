@@ -6,8 +6,9 @@ use history::History;
 
 use core::num::NonZeroU32;
 
-pub const BACKEND_TRANSMISSION_SUCCESSFUL_EVENT: EventId =
-    EventId(unsafe { NonZeroU32::new_unchecked(1) });
+pub const BACKEND_SEND_SUCCESSFUL_EVENT: EventId = EventId(unsafe { NonZeroU32::new_unchecked(1) });
+pub const MERGE_INBAND_CAUSALITY_EVENT: EventId = EventId(unsafe { NonZeroU32::new_unchecked(2) });
+pub const SHARED_INBAND_CAUSALITY_EVENT: EventId = EventId(unsafe { NonZeroU32::new_unchecked(3) });
 
 /// Snapshot of causal history for transmission around the system
 ///
@@ -88,10 +89,22 @@ impl<'a> Tracer<'a> {
     /// Produce a transmittable summary of this tracer's
     /// causal history for use by another Tracer elsewhere
     /// in the system.
-    ///
-    /// TODO - where to implement pruning of history for transmission
-    pub fn snapshot_history(&mut self) -> CausalSnapshot {
+    pub fn snapshot(&mut self) -> CausalSnapshot {
         self.history.snapshot()
+    }
+
+    /// Produce a transmittable summary of this tracer's
+    /// causal history for use by another Tracer elsewhere
+    /// in the system, filtered down to just the history
+    /// of this node and its immediate inbound neighbors.
+    pub fn neighborhood_snapshot(&mut self) -> CausalSnapshot {
+        self.history.neighborhood_snapshot()
+    }
+
+    /// Convenience function that the end user can press when they
+    /// manage to transmit a snapshot to another part of the system
+    pub fn record_snapshot_shared(&mut self) {
+        self.record_event(SHARED_INBAND_CAUSALITY_EVENT)
     }
 
     /// Consume a causal history summary structure provided

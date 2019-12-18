@@ -1,4 +1,5 @@
 use super::{CausalSnapshot, EventId, LogicalClockBucket, TracerId};
+use crate::MERGE_INBAND_CAUSALITY_EVENT;
 use arrayvec::ArrayVec;
 use core::cmp::{max, Ordering, PartialEq};
 use core::fmt::{Error as FmtError, Formatter};
@@ -141,9 +142,9 @@ impl PartialOrd for CausalSnapshot {
 #[derive(Debug, PartialEq, PartialOrd)]
 pub(crate) struct History {
     tracer_id: TracerId,
-    /// Collection of node_ids which are immediate neighbors to this instance
-    known_immediate_neighbors: ArrayVec<[TracerId; 32]>,
-    has_overflowed_known_immediate_neighbors: bool,
+    /// Collection of ids which represent this instance and its immediate neighbors
+    in_the_neighborhood: ArrayVec<[TracerId; 32]>,
+    has_overflowed_neighborhood: bool,
 
     /// A partial cache of events that have occurred at this site,
     /// pulled aside to avoid lookups on the record path.
@@ -166,10 +167,12 @@ struct Bucket {
 
 impl History {
     pub(crate) fn new(tracer_id: TracerId) -> Self {
+        let mut in_the_neighborhood = ArrayVec::new();
+        in_the_neighborhood.push(tracer_id);
         History {
             tracer_id,
-            known_immediate_neighbors: ArrayVec::new(),
-            has_overflowed_known_immediate_neighbors: false,
+            in_the_neighborhood,
+            has_overflowed_neighborhood: false,
             local_event_count: 0,
             buckets: ArrayVec::new(),
             event_log: ArrayVec::new(),
@@ -207,10 +210,34 @@ impl History {
         self.local_event_count = 0;
     }
 
+    /// Produce a full snapshot of the causal state
     pub(crate) fn snapshot(&mut self) -> CausalSnapshot {
         let mut buckets = arr_macro::arr![LogicalClockBucket { id: 0, count: 0}; 256];
         self.flush_local_event_count_into_buckets();
         for (source, sink) in self.buckets.iter().zip(buckets.iter_mut()) {
+            sink.id = source.id.0.get();
+            sink.count = source.count;
+        }
+
+        CausalSnapshot {
+            tracer_id: self.tracer_id.0.get(),
+            buckets,
+            // N.B. If we increase the size of the buckets storage, this cast may become invalid
+            buckets_len: self.buckets.len() as u8,
+        }
+    }
+
+    /// Produce a limited snapshot of the internal state which only contains
+    /// buckets relating to neighboring tracers (and this tracer itself)
+    pub(crate) fn neighborhood_snapshot(&mut self) -> CausalSnapshot {
+        let mut buckets = arr_macro::arr![LogicalClockBucket { id: 0, count: 0}; 256];
+        self.flush_local_event_count_into_buckets();
+        for (source, sink) in self
+            .buckets
+            .iter()
+            .filter(|b| self.in_the_neighborhood.contains(&b.id))
+            .zip(buckets.iter_mut())
+        {
             sink.id = source.id.0.get();
             sink.count = source.count;
         }
@@ -231,13 +258,10 @@ impl History {
             // Invalid external id, can't trust anything it says
             None => return,
         };
-        if !self.known_immediate_neighbors.contains(&external_id)
-            && self
-                .known_immediate_neighbors
-                .try_push(external_id)
-                .is_err()
+        if !self.in_the_neighborhood.contains(&external_id)
+            && self.in_the_neighborhood.try_push(external_id).is_err()
         {
-            self.has_overflowed_known_immediate_neighbors = true;
+            self.has_overflowed_neighborhood = true;
         }
         let num_incoming_buckets = usize::from(external_history.buckets_len);
         for external_bucket in external_history.buckets.iter().take(num_incoming_buckets) {
@@ -271,6 +295,7 @@ impl History {
             }
         }
         self.buckets.as_mut().sort_unstable_by_key(|b| b.id);
+        self.record_event(MERGE_INBAND_CAUSALITY_EVENT)
     }
 
     pub(crate) fn send_to_backend(&mut self, backend: &mut dyn super::Backend) {
@@ -287,7 +312,7 @@ impl History {
         if send_succeeded {
             self.event_log.clear();
             // TODO - Should we use some other mechanism for recording/identifying this internal event?
-            self.record_event(super::BACKEND_TRANSMISSION_SUCCESSFUL_EVENT);
+            self.record_event(super::BACKEND_SEND_SUCCESSFUL_EVENT);
         }
     }
 }
