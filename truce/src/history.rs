@@ -282,15 +282,22 @@ impl History {
             self.has_overflowed_neighborhood = true;
         }
         let num_incoming_buckets = usize::from(external_history.buckets_len);
-        for external_bucket in external_history.buckets.iter().take(num_incoming_buckets) {
-            if external_bucket.count == 0 {
-                continue;
-            }
+        for external_bucket in external_history
+            .buckets
+            .iter()
+            .take(num_incoming_buckets)
+            .filter(|b| b.count != 0)
+        {
             let id = match NonZeroU32::new(external_bucket.id) {
                 Some(id) => TracerId(id),
                 // Can't add this bucket to the state if we don't have a valid id for it
                 None => continue,
             };
+            // N.B During early tracing, may cause us to drop data from an indirect neighbor that
+            // is also a direct neighbor (but has not yet sent us a message).
+            if !self.in_the_neighborhood.contains(&id) {
+                continue;
+            }
             let mut found_matching_bucket = false;
             for internal_bucket in self.buckets.iter_mut() {
                 if internal_bucket.id == id {
