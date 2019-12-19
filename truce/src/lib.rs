@@ -37,14 +37,62 @@ pub struct LogicalClockBucket {
 /// Ought to uniquely identify a location for where events occur within a system under test.
 ///
 /// Typically represents a single thread.
+///
+/// Must be backed by a value greater than 0 and less than 0b1000_0000_0000_0000
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct TracerId(pub NonZeroU32);
+pub struct TracerId(NonZeroU32);
+
+impl TracerId {
+    const MAX_RAW_ID: u32 = 0b0111_1111_1111_1111;
+
+    /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000
+    #[inline]
+    pub fn new(raw_id: u32) -> Option<Self> {
+        if raw_id > Self::MAX_RAW_ID {
+            return None;
+        }
+        NonZeroU32::new(raw_id).map(|id| Self(id))
+    }
+
+    #[inline]
+    pub fn get(&self) -> NonZeroU32 {
+        self.0
+    }
+
+    #[inline]
+    pub fn get_raw(&self) -> u32 {
+        self.0.get()
+    }
+}
 
 /// Uniquely identify an event or kind of event.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct EventId(pub NonZeroU32);
+pub struct EventId(NonZeroU32);
+
+impl EventId {
+    const MAX_RAW_ID: u32 = 0b0111_1111_1111_1111;
+
+    /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000
+    #[inline]
+    pub fn new(raw_id: u32) -> Option<Self> {
+        if raw_id > Self::MAX_RAW_ID {
+            return None;
+        }
+        NonZeroU32::new(raw_id).map(|id| Self(id))
+    }
+
+    #[inline]
+    pub fn get(&self) -> NonZeroU32 {
+        self.0
+    }
+
+    #[inline]
+    pub fn get_raw(&self) -> u32 {
+        self.0.get()
+    }
+}
 
 /// Public interface to tracing.
 #[repr(C)]

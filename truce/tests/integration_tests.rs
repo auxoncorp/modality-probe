@@ -1,4 +1,3 @@
-use core::num::NonZeroU32;
 use truce::*;
 
 struct DevNull;
@@ -10,12 +9,12 @@ impl Backend for DevNull {
 
 #[test]
 fn tracer_lifecycle_does_not_panic() {
-    let tracer_id = TracerId(NonZeroU32::new(1).expect("Could not make tracer_id"));
+    let tracer_id = TracerId::new(1).expect("Could not make tracer_id");
 
     let mut backend = DevNull;
     let mut tracer = Tracer::initialize(tracer_id, &mut backend);
-    let event_a = EventId(NonZeroU32::new(2).expect("Should be non-zero"));
-    let event_b = EventId(NonZeroU32::new(3).expect("Should be non-zero"));
+    let event_a = EventId::new(2).expect("Should be non-zero");
+    let event_b = EventId::new(3).expect("Should be non-zero");
 
     let p = tracer.snapshot();
     let q = tracer.snapshot();
@@ -46,12 +45,12 @@ fn tracer_lifecycle_does_not_panic() {
 
 #[test]
 fn round_trip_merge_snapshot() {
-    let tracer_id_foo = TracerId(NonZeroU32::new(1).expect("Could not make tracer_id"));
-    let tracer_id_bar = TracerId(NonZeroU32::new(2).expect("Could not make tracer_id"));
+    let tracer_id_foo = TracerId::new(1).expect("Could not make tracer_id");
+    let tracer_id_bar = TracerId::new(2).expect("Could not make tracer_id");
 
     let mut backend = DevNull;
     let mut tracer_foo = Tracer::initialize(tracer_id_foo, &mut backend);
-    let event = EventId(NonZeroU32::new(314).expect("Should be non-zero"));
+    let event = EventId::new(314).expect("Should be non-zero");
     tracer_foo.record_event(event);
     let snap_foo_a = tracer_foo.snapshot();
 

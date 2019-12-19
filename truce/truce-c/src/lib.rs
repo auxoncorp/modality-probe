@@ -1,6 +1,5 @@
 #![no_std]
 #![feature(lang_items, core_intrinsics)]
-use core::num::NonZeroU32;
 use libc::{c_int, c_uchar, c_void, size_t};
 use truce::*;
 pub use truce::{CausalSnapshot, Tracer};
@@ -51,7 +50,7 @@ pub extern "C" fn tracer_initialize(
     let tracer_destination = destination as *mut Tracer<'static>;
     unsafe {
         *tracer_destination = Tracer::initialize(
-            TracerId(NonZeroU32::new(tracer_id).expect("tracer_id was zero")),
+            TracerId::new(tracer_id).expect("tracer_id was zero or over the max allowed value"),
             backend.as_mut().expect("backend pointer was null"),
         );
     }
@@ -62,9 +61,7 @@ pub extern "C" fn tracer_initialize(
 pub extern "C" fn tracer_record_event(tracer: *mut Tracer<'static>, event_id: u32) {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
-        .record_event(EventId(
-            NonZeroU32::new(event_id).expect("Could not create a non-zero EventId"),
-        ))
+        .record_event(EventId::new(event_id).expect("Could not create a non-zero EventId"))
 }
 
 #[no_mangle]
