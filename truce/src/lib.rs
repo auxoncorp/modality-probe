@@ -28,7 +28,9 @@ pub struct CausalSnapshot {
 #[repr(C)]
 #[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub struct LogicalClockBucket {
+    /// The tracer node that this clock is tracking
     pub id: u32,
+    /// Clock tick count
     pub count: u32,
 }
 
@@ -75,6 +77,7 @@ impl<'a> Tracer<'a> {
 
     /// Record that an event occurred. The end user is responsible
     /// for associating meaning with each event_id.
+    #[inline]
     pub fn record_event(&mut self, event_id: EventId) {
         self.history.record_event(event_id);
     }
@@ -109,7 +112,7 @@ impl<'a> Tracer<'a> {
 
     /// Consume a causal history summary structure provided
     /// by some other Tracer.
-    pub fn merge_history(&mut self, external_history: CausalSnapshot) {
+    pub fn merge_history(&mut self, external_history: &CausalSnapshot) {
         self.history.merge(external_history);
     }
 }

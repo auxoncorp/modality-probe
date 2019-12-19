@@ -1,0 +1,17 @@
+[package]
+name = "truce-c"
+version = "0.1.0"
+authors = ["Zachary Pierce <zack@auxon.io>"]
+edition = "2018"
+
+[lib]
+name = "trucec"
+crate-type = ["lib", "staticlib", "cdylib"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+truce = { path = "../" }
+libc = "0.2"
+
+[build-dependencies]

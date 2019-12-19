@@ -1,5 +1,6 @@
 use core::num::NonZeroU32;
 use truce::*;
+
 struct DevNull;
 impl Backend for DevNull {
     fn send_tracer_data(&mut self, _data: &[u8]) -> bool {
@@ -56,7 +57,7 @@ fn round_trip_merge_snapshot() {
     // Re-initialize a tracer with no previous history
     let mut backend = DevNull;
     let mut tracer_bar = Tracer::initialize(tracer_id_bar, &mut backend);
-    tracer_bar.merge_history(snap_foo_a.clone());
+    tracer_bar.merge_history(&snap_foo_a);
     let snap_bar_b = tracer_bar.snapshot();
 
     assert!(snap_foo_a < snap_bar_b);
@@ -67,11 +68,11 @@ fn round_trip_merge_snapshot() {
     assert!(snap_foo_a < snap_foo_c);
     assert_eq!(None, snap_bar_b.partial_cmp(&snap_foo_c));
 
-    tracer_bar.merge_history(snap_foo_c.clone());
+    tracer_bar.merge_history(&snap_foo_c);
     let snap_bar_d = tracer_bar.snapshot();
     assert!(snap_foo_c < snap_bar_d);
 
-    tracer_bar.merge_history(snap_foo_c);
+    tracer_bar.merge_history(&snap_foo_c);
 
     assert!(
         tracer_foo.snapshot() < tracer_bar.snapshot(),

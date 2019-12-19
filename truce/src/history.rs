@@ -153,7 +153,7 @@ pub(crate) struct History {
     local_event_count: u32,
     buckets: ArrayVec<[Bucket; 256]>,
 
-    event_log: ArrayVec<[EventId; 1024]>,
+    event_log: ArrayVec<[(EventId, u16); 512]>,
     has_overflowed_event_log: bool,
     has_overflowed_num_buckets: bool,
 }
@@ -181,14 +181,32 @@ impl History {
         }
     }
 
+    #[inline]
     pub(crate) fn record_event(&mut self, event_id: EventId) {
         self.local_event_count = self.local_event_count.saturating_add(1);
-        if self.event_log.try_push(event_id).is_err() {
+        let needs_new_entry = if let Some(last_event) = self.event_log.last_mut() {
+            if last_event.0 == event_id {
+                if last_event.1 == core::u16::MAX {
+                    true
+                } else {
+                    last_event.1 += 1;
+                    false
+                }
+            } else {
+                true
+            }
+        } else {
+            true
+        };
+        if needs_new_entry && self.event_log.try_push((event_id, 1)).is_err() {
             self.has_overflowed_event_log = true;
         }
     }
 
     fn flush_local_event_count_into_buckets(&mut self) {
+        if self.local_event_count == 0 {
+            return;
+        }
         let mut found_myself = false;
         for b in self.buckets.iter_mut() {
             if b.id == self.tracer_id {
@@ -251,7 +269,7 @@ impl History {
     }
 
     /// Merge a publicly-transmittable causal history into our specialized local in-memory storage
-    pub(crate) fn merge(&mut self, external_history: CausalSnapshot) {
+    pub(crate) fn merge(&mut self, external_history: &CausalSnapshot) {
         self.flush_local_event_count_into_buckets();
         let external_id = match NonZeroU32::new(external_history.tracer_id) {
             Some(id) => TracerId(id),
