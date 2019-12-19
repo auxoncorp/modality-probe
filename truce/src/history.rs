@@ -146,11 +146,7 @@ pub(crate) struct History {
     in_the_neighborhood: ArrayVec<[TracerId; 32]>,
     has_overflowed_neighborhood: bool,
 
-    /// A partial cache of events that have occurred at this site,
-    /// pulled aside to avoid lookups on the record path.
-    /// should be added into the buckets storage before
-    /// any operations need to observe the buckets field state.
-    local_event_count: u32,
+    local_bucket_index: usize,
     buckets: ArrayVec<[Bucket; 256]>,
 
     event_log: ArrayVec<[(EventId, u16); 512]>,
@@ -169,12 +165,17 @@ impl History {
     pub(crate) fn new(tracer_id: TracerId) -> Self {
         let mut in_the_neighborhood = ArrayVec::new();
         in_the_neighborhood.push(tracer_id);
+        let mut buckets = ArrayVec::new();
+        buckets.push(Bucket {
+            id: tracer_id,
+            count: 0,
+        });
         History {
             tracer_id,
             in_the_neighborhood,
             has_overflowed_neighborhood: false,
-            local_event_count: 0,
-            buckets: ArrayVec::new(),
+            local_bucket_index: 0,
+            buckets,
             event_log: ArrayVec::new(),
             has_overflowed_event_log: false,
             has_overflowed_num_buckets: false,
@@ -183,7 +184,8 @@ impl History {
 
     #[inline]
     pub(crate) fn record_event(&mut self, event_id: EventId) {
-        self.local_event_count = self.local_event_count.saturating_add(1);
+        let my_bucket = unsafe { self.buckets.get_unchecked_mut(self.local_bucket_index) };
+        my_bucket.count = my_bucket.count.saturating_add(1);
         let needs_new_entry = if let Some(last_event) = self.event_log.last_mut() {
             if last_event.0 == event_id {
                 if last_event.1 == core::u16::MAX {
@@ -203,74 +205,31 @@ impl History {
         }
     }
 
-    fn flush_local_event_count_into_buckets(&mut self) {
-        if self.local_event_count == 0 {
-            return;
-        }
-        let mut found_myself = false;
-        for b in self.buckets.iter_mut() {
-            if b.id == self.tracer_id {
-                found_myself = true;
-                b.count = b.count.saturating_add(self.local_event_count);
-            }
-        }
-        if !found_myself
-            && self
-                .buckets
-                .try_push(Bucket {
-                    id: self.tracer_id,
-                    count: self.local_event_count,
-                })
-                .is_err()
-        {
-            self.has_overflowed_num_buckets = true;
-        }
-        self.local_event_count = 0;
-    }
-
-    /// Produce a full snapshot of the causal state
+    /// Produce a snapshot of the causal state
     pub(crate) fn snapshot(&mut self) -> CausalSnapshot {
         let mut buckets = arr_macro::arr![LogicalClockBucket { id: 0, count: 0}; 256];
-        self.flush_local_event_count_into_buckets();
-        for (source, sink) in self.buckets.iter().zip(buckets.iter_mut()) {
-            sink.id = source.id.0.get();
-            sink.count = source.count;
-        }
-
-        CausalSnapshot {
-            tracer_id: self.tracer_id.0.get(),
-            buckets,
-            // N.B. If we increase the size of the buckets storage, this cast may become invalid
-            buckets_len: self.buckets.len() as u8,
-        }
-    }
-
-    /// Produce a limited snapshot of the internal state which only contains
-    /// buckets relating to neighboring tracers (and this tracer itself)
-    pub(crate) fn neighborhood_snapshot(&mut self) -> CausalSnapshot {
-        let mut buckets = arr_macro::arr![LogicalClockBucket { id: 0, count: 0}; 256];
-        self.flush_local_event_count_into_buckets();
+        // N.B. If we increase the size of the buckets storage, this cast may become invalid
+        let mut non_empty_buckets_count: u8 = 0;
         for (source, sink) in self
             .buckets
             .iter()
-            .filter(|b| self.in_the_neighborhood.contains(&b.id))
+            .filter(|b| b.count > 0)
             .zip(buckets.iter_mut())
         {
             sink.id = source.id.0.get();
             sink.count = source.count;
+            non_empty_buckets_count += 1;
         }
 
         CausalSnapshot {
             tracer_id: self.tracer_id.0.get(),
             buckets,
-            // N.B. If we increase the size of the buckets storage, this cast may become invalid
-            buckets_len: self.buckets.len() as u8,
+            buckets_len: non_empty_buckets_count,
         }
     }
 
     /// Merge a publicly-transmittable causal history into our specialized local in-memory storage
     pub(crate) fn merge(&mut self, external_history: &CausalSnapshot) {
-        self.flush_local_event_count_into_buckets();
         let external_id = match NonZeroU32::new(external_history.tracer_id) {
             Some(id) => TracerId(id),
             // Invalid external id, can't trust anything it says
@@ -320,6 +279,14 @@ impl History {
             }
         }
         self.buckets.as_mut().sort_unstable_by_key(|b| b.id);
+        self.local_bucket_index = self
+            .buckets
+            .iter()
+            .position(|b| b.id == self.tracer_id)
+            .expect(
+                "The History.buckets field should always contain a bucket for this tracer instance",
+            );
+
         self.record_event(MERGE_INBAND_CAUSALITY_EVENT)
     }
 

@@ -82,13 +82,6 @@ pub extern "C" fn tracer_snapshot(tracer: *mut Tracer<'static>) -> CausalSnapsho
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_neighborhood_snapshot(tracer: *mut Tracer<'static>) -> CausalSnapshot {
-    unsafe { tracer.as_mut() }
-        .expect("tracer pointer was null")
-        .neighborhood_snapshot()
-}
-
-#[no_mangle]
 pub extern "C" fn tracer_record_snapshot_shared(tracer: *mut Tracer<'static>) {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
@@ -178,7 +171,7 @@ mod tests {
         // internally when we successfully transmitted the state to the backend.
         assert!(snap_a < snap_b);
         assert!(!(snap_b < snap_a));
-        let snap_b_neighborhood = tracer_neighborhood_snapshot(tracer);
+        let snap_b_neighborhood = tracer_snapshot(tracer);
         assert_eq!(1, snap_b_neighborhood.buckets_len);
         assert_eq!(snap_b, snap_b_neighborhood);
 
@@ -223,7 +216,7 @@ mod tests {
 
     #[test]
     fn confirm_tracer_size() {
-        assert_eq!(6320, core::mem::size_of::<Tracer<'static>>());
+        assert_eq!(6328, core::mem::size_of::<Tracer<'static>>());
     }
 }
 // TODO - static assertions?

@@ -78,17 +78,10 @@ void tracer_service(tracer *tracer);
 /*
  * Produce a transmittable summary of this tracer's
  * causal history for use by another tracer elsewhere
- * in the system.
- */
-causal_snapshot tracer_snapshot(tracer *tracer);
-
-/*
- * Produce a transmittable summary of this tracer's
- * causal history for use by another tracer elsewhere
  * in the system, filtered down to just the history
  * of this node and its immediate inbound neighbors.
  */
-causal_snapshot tracer_neighborhood_snapshot(tracer *tracer);
+causal_snapshot tracer_snapshot(tracer *tracer);
 
 /*
  * Convenience function that the end user can press when they

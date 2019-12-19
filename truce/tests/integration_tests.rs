@@ -20,6 +20,7 @@ fn tracer_lifecycle_does_not_panic() {
     let p = tracer.snapshot();
     let q = tracer.snapshot();
     assert_eq!(p, q);
+    assert_eq!(0, p.buckets_len);
     tracer.record_event(event_a);
     let r = tracer.snapshot();
     assert!(q < r);
