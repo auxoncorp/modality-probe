@@ -1,5 +1,6 @@
 use truce::*;
 
+#[derive(Debug)]
 struct DevNull;
 impl Backend for DevNull {
     fn send_tracer_data(&mut self, _data: &[u8]) -> bool {
@@ -12,7 +13,9 @@ fn tracer_lifecycle_does_not_panic() {
     let tracer_id = TracerId::new(1).expect("Could not make tracer_id");
 
     let mut backend = DevNull;
-    let mut tracer = Tracer::initialize(tracer_id, &mut backend);
+    let mut storage = [0u8; 1024];
+    let tracer =
+        Tracer::initialize_at(&mut storage, tracer_id, &mut backend).expect("Could not init");
     let event_a = EventId::new(2).expect("Should be non-zero");
     let event_b = EventId::new(3).expect("Should be non-zero");
 
@@ -49,14 +52,18 @@ fn round_trip_merge_snapshot() {
     let tracer_id_bar = TracerId::new(2).expect("Could not make tracer_id");
 
     let mut backend = DevNull;
-    let mut tracer_foo = Tracer::initialize(tracer_id_foo, &mut backend);
+    let mut storage_foo = [0u8; 1024];
+    let tracer_foo = Tracer::initialize_at(&mut storage_foo, tracer_id_foo, &mut backend)
+        .expect("Could not init");
     let event = EventId::new(314).expect("Should be non-zero");
     tracer_foo.record_event(event);
     let snap_foo_a = tracer_foo.snapshot();
 
     // Re-initialize a tracer with no previous history
     let mut backend = DevNull;
-    let mut tracer_bar = Tracer::initialize(tracer_id_bar, &mut backend);
+    let mut storage_bar = [0u8; 1024];
+    let tracer_bar = Tracer::initialize_at(&mut storage_bar, tracer_id_bar, &mut backend)
+        .expect("Could not init");
     tracer_bar.merge_history(&snap_foo_a);
     let snap_bar_b = tracer_bar.snapshot();
 

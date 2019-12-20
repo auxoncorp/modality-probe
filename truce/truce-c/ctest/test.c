@@ -114,7 +114,9 @@ int main() {
     run_test(test_event_recording, "test_event_recording", &passed);
     run_test(test_event_recording, "test_merge", &passed);
     if (!passed) {
+        fprintf(stderr, "FAILED c test suite\n");
         exit(1);
     }
+    fprintf(stderr, "PASSED c test suite\n");
     return 0;
 }

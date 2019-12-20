@@ -1,9 +1,13 @@
 #![no_std]
 
+use static_assertions::assert_cfg;
+assert_cfg!(not(target_pointer_width = "16"));
+
 mod history;
 
-use history::History;
+use history::DynamicHistory;
 
+use core::mem::{align_of, size_of};
 use core::num::NonZeroU32;
 
 pub const BACKEND_SEND_SUCCESSFUL_EVENT: EventId = EventId(unsafe { NonZeroU32::new_unchecked(1) });
@@ -25,8 +29,8 @@ pub struct CausalSnapshot {
     pub buckets_len: u8,
 }
 
-#[repr(C)]
 #[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[repr(C)]
 pub struct LogicalClockBucket {
     /// The tracer node that this clock is tracking
     pub id: u32,
@@ -94,16 +98,24 @@ impl EventId {
     }
 }
 
+#[derive(Debug)]
+pub enum LocalStorageCreationError {
+    UnderMinimumAllowedSize,
+    ExceededMaximumAddressableSize,
+    NullDestination,
+}
+
 /// Public interface to tracing.
+#[derive(Debug)]
 #[repr(C)]
-pub struct Tracer<'a> {
+pub struct Tracer<'a, 'b> {
     id: TracerId,
-    backend: &'a mut dyn Backend,
-    history: History,
+    history: &'a mut DynamicHistory,
+    backend: &'b mut dyn Backend,
 }
 
 /// Trace data collection interface
-pub trait Backend {
+pub trait Backend: core::fmt::Debug {
     /// Transmits a Tracer's internal state according to the
     /// tracing data protocol to some storage or presentation
     /// or retransmission backend.
@@ -112,15 +124,43 @@ pub trait Backend {
     fn send_tracer_data(&mut self, data: &[u8]) -> bool;
 }
 
-impl<'a> Tracer<'a> {
+impl<'a, 'b> Tracer<'a, 'b> {
     /// Initialize tracing for this location.
     /// `tracer_id` ought to be unique throughout the system.
-    pub fn initialize(tracer_id: TracerId, backend: &'a mut dyn Backend) -> Self {
-        Tracer::<'a> {
-            id: tracer_id,
-            backend,
-            history: History::new(tracer_id),
+    pub fn initialize_at(
+        memory: &'a mut [u8],
+        tracer_id: TracerId,
+        backend: &'b mut dyn Backend,
+    ) -> Result<&'a mut Tracer<'a, 'b>, LocalStorageCreationError> {
+        let tracer_align_offset = memory
+            .as_mut_ptr()
+            .align_offset(align_of::<Tracer<'_, '_>>());
+        let tracer_bytes = tracer_align_offset + size_of::<Tracer<'_, '_>>();
+        if tracer_bytes > memory.len() {
+            return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
         }
+        let tracer_ptr =
+            unsafe { memory.as_mut_ptr().add(tracer_align_offset) as *mut Tracer<'_, '_> };
+        unsafe {
+            *tracer_ptr =
+                Tracer::new_with_storage(&mut memory[tracer_bytes..], tracer_id, backend)?;
+            Ok(tracer_ptr
+                .as_mut()
+                .expect("Tracer pointer should not be null"))
+        }
+    }
+
+    pub fn new_with_storage(
+        history_memory: &'a mut [u8],
+        tracer_id: TracerId,
+        backend: &'b mut dyn Backend,
+    ) -> Result<Tracer<'a, 'b>, LocalStorageCreationError> {
+        let t = Tracer::<'a, 'b> {
+            id: tracer_id,
+            history: DynamicHistory::new_at(history_memory, tracer_id)?,
+            backend,
+        };
+        Ok(t)
     }
 
     /// Record that an event occurred. The end user is responsible
