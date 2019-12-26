@@ -138,7 +138,7 @@ mod tests {
         );
         let snap_empty = tracer_snapshot(tracer);
         assert_eq!(snap_empty.tracer_id, tracer_id);
-        assert_eq!(0, snap_empty.buckets_len);
+        assert_eq!(1, snap_empty.buckets_len);
         tracer_record_event(tracer, 100);
         let snap_a = tracer_snapshot(tracer);
         assert!(snap_empty < snap_a);
@@ -155,7 +155,7 @@ mod tests {
         assert!(!(snap_b < snap_a));
         let snap_b_neighborhood = tracer_snapshot(tracer);
         assert_eq!(1, snap_b_neighborhood.buckets_len);
-        assert_eq!(snap_b, snap_b_neighborhood);
+        assert!(snap_b < snap_b_neighborhood);
 
         // Share that snapshot with another component in the system, pretend it lives on some other thread.
         let remote_tracer_id = tracer_id + 1;
@@ -169,11 +169,14 @@ mod tests {
             &mut trace_backend as *mut TraceBackend,
         );
         let remote_snap_pre_merge = tracer_snapshot(remote_tracer);
-        // Since we haven't manually combined history information yet, the remote thinks it is living in the past
-        assert!(remote_snap_pre_merge < snap_b_neighborhood);
+        // Since we haven't manually combined history information yet, the remote's history is disjoint
+        assert_eq!(
+            None,
+            remote_snap_pre_merge.partial_cmp(&snap_b_neighborhood)
+        );
         assert!(!(snap_b_neighborhood < remote_snap_pre_merge));
         assert_eq!(remote_snap_pre_merge.tracer_id, remote_tracer_id);
-        assert_eq!(0, remote_snap_pre_merge.buckets_len);
+        assert_eq!(1, remote_snap_pre_merge.buckets_len);
 
         tracer_merge_history(remote_tracer, &snap_b_neighborhood as *const CausalSnapshot);
 

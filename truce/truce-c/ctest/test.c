@@ -23,7 +23,7 @@ static uint32_t EVENT_A = 100;
 bool test_backend_piping() {
     bool passed = true;
     counting_backend counter = { .count = 0 };
-    trace_backend backend = trace_backend_new(update_counting_backend, &counter);
+    trace_backend backend = { .state = &counter, .send_fn = update_counting_backend };
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     tracer * t = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &backend);
     tracer_service(t);
@@ -43,14 +43,14 @@ bool update_noop_backend(void *state, const uint8_t *data, size_t len) {
 bool test_event_recording() {
     bool passed = true;
     noop_backend noop = {  };
-    trace_backend backend = trace_backend_new(update_noop_backend, &noop);
+    trace_backend backend = { .state = &noop, .send_fn = update_noop_backend };
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     tracer * t = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &backend);
     causal_snapshot snap_a = tracer_snapshot(t);
     if (snap_a.tracer_id != DEFAULT_TRACER_ID) {
         passed = false;
     }
-    if (snap_a.buckets_len != 0) {
+    if (snap_a.buckets_len != 1) {
         passed = false;
     }
     tracer_record_event(t, EVENT_A);
@@ -65,7 +65,7 @@ bool test_event_recording() {
 bool test_merge() {
     bool passed = true;
     noop_backend noop = {  };
-    trace_backend backend = trace_backend_new(update_noop_backend, &noop);
+    trace_backend backend = { .state = &noop, .send_fn = update_noop_backend };
     uint8_t * destination_a = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     tracer * tracer_a = tracer_initialize(destination_a, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &backend);
     uint8_t * destination_b = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
