@@ -1,5 +1,4 @@
 use super::{CausalSnapshot, EventId, LocalStorageCreationError, LogicalClockBucket, TracerId};
-use crate::MERGE_INBAND_CAUSALITY_EVENT;
 use core::cmp::{max, Ordering, PartialEq};
 use core::fmt::{Error as FmtError, Formatter};
 use core::mem::{align_of, size_of};
@@ -202,8 +201,7 @@ struct BucketsFullError;
 ///     if the first bit is not set, treat it as recording an Event
 ///     if the first bit is set, treat the rest of the value as a TracerId for a LogicalClockBucket
 ///         AND the next item in the stream should be interpreted as a count for that bucket.
-//#[repr(transparent)]
-#[repr(C)]
+#[repr(transparent)]
 pub struct CompactLogItem(u32);
 
 impl CompactLogItem {
@@ -347,7 +345,7 @@ impl DynamicHistory {
         }
     }
 
-    fn get_buckets_slice_mut(&self) -> &mut [LogicalClockBucket] {
+    fn get_buckets_slice_mut(&mut self) -> &mut [LogicalClockBucket] {
         unsafe {
             core::slice::from_raw_parts_mut(
                 self.buckets as *mut LogicalClockBucket,
@@ -363,11 +361,6 @@ impl DynamicHistory {
 
     #[inline]
     pub(crate) fn record_event(&mut self, event_id: EventId) {
-        // N.B. We rely on the fact that the first member of the buckets
-        // collection is always the bucket for this tracer
-        unsafe {
-            (*self.buckets).count = (*self.buckets).count.saturating_add(1);
-        }
         if self.has_overflowed_log {
             return;
         }
@@ -382,10 +375,19 @@ impl DynamicHistory {
         }
     }
 
+    fn increment_local_bucket_count(&mut self) {
+        // N.B. We rely on the fact that the first member of the buckets
+        // collection is always the bucket for this tracer
+        unsafe {
+            (*self.buckets).count = (*self.buckets).count.saturating_add(1);
+        }
+    }
+
     /// Produce a snapshot of the causal state
     ///
     /// N.B. For future improvement, give a way to write with a cursor
     pub(crate) fn snapshot(&mut self) -> CausalSnapshot {
+        self.increment_local_bucket_count();
         let mut buckets = arr_macro::arr![LogicalClockBucket { id: 0, count: 0}; 256];
         let mut non_empty_buckets_count: usize = 0;
         for (source, sink) in self
@@ -455,8 +457,7 @@ impl DynamicHistory {
                 }
             }
         }
-        // TODO - do we still need this event if we're also capturing the logical clock?
-        self.record_event(MERGE_INBAND_CAUSALITY_EVENT);
+        self.increment_local_bucket_count();
         self.write_current_buckets_to_log();
     }
 

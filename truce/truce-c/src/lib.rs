@@ -22,17 +22,6 @@ impl Backend for TraceBackend {
 }
 
 #[no_mangle]
-pub extern "C" fn trace_backend_new(
-    send_to_backend_fn: SendToBackendFn,
-    backend_state: *mut c_void,
-) -> TraceBackend {
-    TraceBackend {
-        send_fn: send_to_backend_fn,
-        state: backend_state,
-    }
-}
-
-#[no_mangle]
 pub extern "C" fn tracer_initialize(
     destination: *mut u8,
     destination_size_bytes: size_t,
@@ -77,13 +66,6 @@ pub extern "C" fn tracer_snapshot(tracer: *mut Tracer<'static, 'static>) -> Caus
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
         .snapshot()
-}
-
-#[no_mangle]
-pub extern "C" fn tracer_record_snapshot_shared(tracer: *mut Tracer<'static, 'static>) {
-    unsafe { tracer.as_mut() }
-        .expect("tracer pointer was null")
-        .record_snapshot_shared()
 }
 
 #[no_mangle]
@@ -140,8 +122,10 @@ mod tests {
         let mut raw_backend = SendCounter::default();
         let be_fn: SendToBackendFn = send_to_counter_be;
 
-        let mut trace_backend =
-            trace_backend_new(be_fn, &mut raw_backend as *mut SendCounter as *mut c_void);
+        let mut trace_backend = TraceBackend {
+            state: &mut raw_backend as *mut SendCounter as *mut c_void,
+            send_fn: be_fn,
+        };
 
         let tracer_id = 2;
         let mut storage = [0u8; 1024];
@@ -204,10 +188,6 @@ mod tests {
         );
         assert!(snap_b_neighborhood < remote_snap_post_merge);
         assert!(!(remote_snap_post_merge < snap_b_neighborhood));
-
-        // Since we shared one of our snapshots with another component in the system,
-        // we want to commemorate that.
-        tracer_record_snapshot_shared(tracer);
 
         let snap_c = tracer_snapshot(tracer);
         assert!(snap_b < snap_c);

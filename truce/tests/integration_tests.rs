@@ -16,26 +16,23 @@ fn tracer_lifecycle_does_not_panic() {
     let mut storage = [0u8; 1024];
     let tracer =
         Tracer::initialize_at(&mut storage, tracer_id, &mut backend).expect("Could not init");
-    let event_a = EventId::new(2).expect("Should be non-zero");
-    let event_b = EventId::new(3).expect("Should be non-zero");
 
     let p = tracer.snapshot();
     let q = tracer.snapshot();
-    assert_eq!(p, q);
-    assert_eq!(0, p.buckets_len);
-    tracer.record_event(event_a);
+
+    // Snapshotting moves the tracer history forward, so two consecutive snapshots
+    // are not exactly the same.
+    assert_ne!(p, q);
+    assert_eq!(1, p.buckets_len);
     let r = tracer.snapshot();
     assert!(q < r);
     assert_ne!(q, r);
-    tracer.record_event(event_a);
     let s = tracer.snapshot();
     assert!(r < s);
     assert_ne!(r, s);
-    tracer.record_event(event_b);
     let t = tracer.snapshot();
     assert!(s < t);
     assert_ne!(s, t);
-    tracer.record_event(event_a);
     let u = tracer.snapshot();
     assert!(t < u);
     assert_ne!(t, u);
@@ -55,8 +52,6 @@ fn round_trip_merge_snapshot() {
     let mut storage_foo = [0u8; 1024];
     let tracer_foo = Tracer::initialize_at(&mut storage_foo, tracer_id_foo, &mut backend)
         .expect("Could not init");
-    let event = EventId::new(314).expect("Should be non-zero");
-    tracer_foo.record_event(event);
     let snap_foo_a = tracer_foo.snapshot();
 
     // Re-initialize a tracer with no previous history
@@ -69,7 +64,6 @@ fn round_trip_merge_snapshot() {
 
     assert!(snap_foo_a < snap_bar_b);
 
-    tracer_foo.record_event(event);
     let snap_foo_c = tracer_foo.snapshot();
 
     assert!(snap_foo_a < snap_foo_c);
@@ -82,7 +76,7 @@ fn round_trip_merge_snapshot() {
     tracer_bar.merge_history(&snap_foo_c);
 
     assert!(
-        tracer_foo.snapshot() < tracer_bar.snapshot(),
+        &snap_foo_c < &tracer_bar.snapshot(),
         "After merging, the bar should be just a bit ahead of foo"
     );
 }

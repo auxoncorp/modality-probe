@@ -11,8 +11,6 @@ use core::mem::{align_of, size_of};
 use core::num::NonZeroU32;
 
 pub const BACKEND_SEND_SUCCESSFUL_EVENT: EventId = EventId(unsafe { NonZeroU32::new_unchecked(1) });
-pub const MERGE_INBAND_CAUSALITY_EVENT: EventId = EventId(unsafe { NonZeroU32::new_unchecked(2) });
-pub const SHARED_INBAND_CAUSALITY_EVENT: EventId = EventId(unsafe { NonZeroU32::new_unchecked(3) });
 
 /// Snapshot of causal history for transmission around the system
 ///
@@ -187,11 +185,11 @@ impl<'a, 'b> Tracer<'a, 'b> {
         self.history.snapshot()
     }
 
-    /// Convenience function that the end user can press when they
-    /// manage to transmit a snapshot to another part of the system
-    pub fn record_snapshot_shared(&mut self) {
-        self.record_event(SHARED_INBAND_CAUSALITY_EVENT)
-    }
+    ///// Convenience function that the end user can press when they
+    ///// manage to transmit a snapshot to another part of the system
+    //pub fn record_snapshot_shared(&mut self) {
+    //    self.record_event(SHARED_INBAND_CAUSALITY_EVENT)
+    //}
 
     /// Consume a causal history summary structure provided
     /// by some other Tracer.

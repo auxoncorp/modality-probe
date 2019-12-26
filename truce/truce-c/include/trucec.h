@@ -53,11 +53,6 @@ typedef struct trace_backend {
 } trace_backend;
 
 /*
- * Create a trace backend
- */
-trace_backend trace_backend_new(SendToBackendFn send_to_backend_fn, void *backend_state);
-
-/*
  * Create a tracer instance. tracer_id must be non-zero
  */
 tracer * tracer_initialize(uint8_t *destination, size_t destination_size_bytes, uint32_t tracer_id, trace_backend *backend);
@@ -82,12 +77,6 @@ void tracer_service(tracer *tracer);
  * of this node and its immediate inbound neighbors.
  */
 causal_snapshot tracer_snapshot(tracer *tracer);
-
-/*
- * Convenience function that the end user can press when they
- * manage to transmit a snapshot to another part of the system
- */
-void tracer_record_snapshot_shared(tracer *tracer);
 
 /*
  * Consume a causal history summary structure provided
