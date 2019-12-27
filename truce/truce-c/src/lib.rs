@@ -62,20 +62,66 @@ pub extern "C" fn tracer_service(tracer: *mut Tracer<'static, 'static>) {
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_snapshot(tracer: *mut Tracer<'static, 'static>) -> CausalSnapshot {
+pub extern "C" fn tracer_share_history(
+    tracer: *mut Tracer<'static, 'static>,
+    history_destination: *mut u8,
+    history_destination_bytes: size_t,
+) -> c_int {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
-        .snapshot()
+        .share_history(unsafe {
+            core::slice::from_raw_parts_mut(history_destination, history_destination_bytes)
+        })
+        .is_ok()
+        .as_c_int_bool()
+}
+
+#[no_mangle]
+pub extern "C" fn tracer_share_fixed_size_history(
+    tracer: *mut Tracer<'static, 'static>,
+) -> CausalSnapshot {
+    unsafe { tracer.as_mut() }
+        .expect("tracer pointer was null")
+        .share_fixed_size_history()
 }
 
 #[no_mangle]
 pub extern "C" fn tracer_merge_history(
     tracer: *mut Tracer<'static, 'static>,
-    snapshot: *const CausalSnapshot,
-) {
+    history_source: *const u8,
+    history_source_bytes: size_t,
+) -> c_int {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
-        .merge_history(unsafe { &*snapshot })
+        .merge_history(unsafe { core::slice::from_raw_parts(history_source, history_source_bytes) })
+        .is_ok()
+        .as_c_int_bool()
+}
+
+#[no_mangle]
+pub extern "C" fn tracer_merge_fixed_size_history(
+    tracer: *mut Tracer<'static, 'static>,
+    snapshot: *const CausalSnapshot,
+) -> c_int {
+    unsafe { tracer.as_mut() }
+        .expect("tracer pointer was null")
+        .merge_fixed_size_history(unsafe { &*snapshot })
+        .is_ok()
+        .as_c_int_bool()
+}
+
+trait AsCIntBool {
+    fn as_c_int_bool(self) -> c_int;
+}
+
+impl AsCIntBool for bool {
+    fn as_c_int_bool(self) -> i32 {
+        if self {
+            1
+        } else {
+            0
+        }
+    }
 }
 
 #[cfg(not(test))]
@@ -136,11 +182,11 @@ mod tests {
             tracer_id,
             &mut trace_backend as *mut TraceBackend,
         );
-        let snap_empty = tracer_snapshot(tracer);
+        let snap_empty = tracer_share_fixed_size_history(tracer);
         assert_eq!(snap_empty.tracer_id, tracer_id);
         assert_eq!(1, snap_empty.buckets_len);
         tracer_record_event(tracer, 100);
-        let snap_a = tracer_snapshot(tracer);
+        let snap_a = tracer_share_fixed_size_history(tracer);
         assert!(snap_empty < snap_a);
         assert!(!(snap_a < snap_empty));
         assert_eq!(1, snap_a.buckets_len);
@@ -148,12 +194,12 @@ mod tests {
         assert_eq!(0, raw_backend.count);
         tracer_service(tracer);
         assert_eq!(1, raw_backend.count);
-        let snap_b = tracer_snapshot(tracer);
+        let snap_b = tracer_share_fixed_size_history(tracer);
         // We expect the local clock to have progressed thanks to recording an event
         // internally when we successfully transmitted the state to the backend.
         assert!(snap_a < snap_b);
         assert!(!(snap_b < snap_a));
-        let snap_b_neighborhood = tracer_snapshot(tracer);
+        let snap_b_neighborhood = tracer_share_fixed_size_history(tracer);
         assert_eq!(1, snap_b_neighborhood.buckets_len);
         assert!(snap_b < snap_b_neighborhood);
 
@@ -168,7 +214,7 @@ mod tests {
             remote_tracer_id,
             &mut trace_backend as *mut TraceBackend,
         );
-        let remote_snap_pre_merge = tracer_snapshot(remote_tracer);
+        let remote_snap_pre_merge = tracer_share_fixed_size_history(remote_tracer);
         // Since we haven't manually combined history information yet, the remote's history is disjoint
         assert_eq!(
             None,
@@ -178,9 +224,12 @@ mod tests {
         assert_eq!(remote_snap_pre_merge.tracer_id, remote_tracer_id);
         assert_eq!(1, remote_snap_pre_merge.buckets_len);
 
-        tracer_merge_history(remote_tracer, &snap_b_neighborhood as *const CausalSnapshot);
+        tracer_merge_fixed_size_history(
+            remote_tracer,
+            &snap_b_neighborhood as *const CausalSnapshot,
+        );
 
-        let remote_snap_post_merge = tracer_snapshot(remote_tracer);
+        let remote_snap_post_merge = tracer_share_fixed_size_history(remote_tracer);
         assert_eq!(
             Some(Ordering::Greater),
             remote_snap_post_merge.partial_cmp(&snap_b_neighborhood)
@@ -192,7 +241,7 @@ mod tests {
         assert!(snap_b_neighborhood < remote_snap_post_merge);
         assert!(!(remote_snap_post_merge < snap_b_neighborhood));
 
-        let snap_c = tracer_snapshot(tracer);
+        let snap_c = tracer_share_fixed_size_history(tracer);
         assert!(snap_b < snap_c);
         assert!(!(snap_c < snap_b));
     }

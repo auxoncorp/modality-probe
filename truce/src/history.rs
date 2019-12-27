@@ -359,6 +359,9 @@ impl DynamicHistory {
         self.has_overflowed_log = false;
     }
 
+    /// Add an item to the internal log that records this event occurred
+    ///
+    /// May silently drop events if the log has overflowed
     #[inline]
     pub(crate) fn record_event(&mut self, event_id: EventId) {
         if self.has_overflowed_log {
@@ -375,6 +378,7 @@ impl DynamicHistory {
         }
     }
 
+    /// Increments the bucket in the logical clock corresponding to this tracer instance
     fn increment_local_bucket_count(&mut self) {
         // N.B. We rely on the fact that the first member of the buckets
         // collection is always the bucket for this tracer
@@ -383,10 +387,18 @@ impl DynamicHistory {
         }
     }
 
-    /// Produce a snapshot of the causal state
+    /// Produce an opaque snapshot of the causal state for transmission
+    /// within the system under test
     ///
-    /// N.B. For future improvement, give a way to write with a cursor
-    pub(crate) fn snapshot(&mut self) -> CausalSnapshot {
+    /// If the write was successful, returns the number of bytes written
+    pub(crate) fn write_lcm_logical_clock(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+        self.increment_local_bucket_count();
+        unimplemented!()
+    }
+
+    /// Produce a transparent but limited snapshot of the causal state for transmission
+    /// within the system under test
+    pub(crate) fn fixed_size_snapshot(&mut self) -> CausalSnapshot {
         self.increment_local_bucket_count();
         let mut buckets = arr_macro::arr![LogicalClockBucket { id: 0, count: 0}; 256];
         let mut non_empty_buckets_count: usize = 0;
@@ -407,13 +419,34 @@ impl DynamicHistory {
             buckets_len: non_empty_buckets_count as u8,
         }
     }
+    pub(crate) fn merge_from_bytes(&mut self, source: &[u8]) -> Result<(), ()> {
+        // TODO - interpret as LCM and merge
+        let neighbor_id = unimplemented!();
+        let buckets_iterator = core::iter::empty();
+        self.merge_internal(neighbor_id, buckets_iterator)
+    }
 
     /// Merge a publicly-transmittable causal history into our specialized local in-memory storage
-    pub(crate) fn merge(&mut self, external_history: &CausalSnapshot) {
-        let external_id = match TracerId::new(external_history.tracer_id) {
+    pub(crate) fn merge_fixed_size(&mut self, external_history: &CausalSnapshot) -> Result<(), ()> {
+        let num_incoming_buckets = usize::from(external_history.buckets_len);
+        self.merge_internal(
+            external_history.tracer_id,
+            external_history.buckets.iter().take(num_incoming_buckets),
+        )
+    }
+
+    fn merge_internal<'a, B>(
+        &'a mut self,
+        raw_neighbor_id: u32,
+        buckets_iterator: B,
+    ) -> Result<(), ()>
+    where
+        B: Iterator<Item = &'a LogicalClockBucket>,
+    {
+        let external_id = match TracerId::new(raw_neighbor_id) {
             Some(id) => id,
             // Invalid external id, can't trust anything it says
-            None => return,
+            None => return Err(()),
         };
         let raw_neighbor_id = external_id.get_raw();
         // Ensure that there is a bucket for the neighbor that sent the snapshot
@@ -433,13 +466,7 @@ impl DynamicHistory {
             }
         }
 
-        let num_incoming_buckets = usize::from(external_history.buckets_len);
-        for external_bucket in external_history
-            .buckets
-            .iter()
-            .take(num_incoming_buckets)
-            .filter(|b| b.count != 0)
-        {
+        for external_bucket in buckets_iterator.filter(|b| b.count != 0) {
             let id = match NonZeroU32::new(external_bucket.id) {
                 Some(id) => TracerId(id),
                 // Can't add this bucket to the state if we don't have a valid id for it
@@ -459,6 +486,11 @@ impl DynamicHistory {
         }
         self.increment_local_bucket_count();
         self.write_current_buckets_to_log();
+        if self.has_overflowed_num_buckets {
+            Err(())
+        } else {
+            Ok(())
+        }
     }
 
     fn write_current_buckets_to_log(&mut self) {
@@ -487,10 +519,16 @@ impl DynamicHistory {
         self.has_overflowed_log |= has_overflowed_log;
     }
 
+    /// Send the log to the backend, containing:
+    ///   * The local tracer id
+    ///   * Error flags
+    ///   * Event ids for events that have happened since the last backend send
+    ///   * Interspersed snapshots of the logical clock
     pub(crate) fn send_to_backend(&mut self, backend: &mut dyn super::Backend) {
-        let snapshot = self.snapshot();
-        // TODO - proper serialization per the selected format
-        // TODO - incorporate event log and error flags, not just causal snapshot.
+        // TODO - proper LCM serialization of all the docs-mentioned content
+        // TODO - do we need to reserve space in our dynamically allocated memory for use
+        // in writing our LCM message out?
+        let snapshot = self.fixed_size_snapshot();
         let snapshot_slice: &[u8] = unsafe {
             core::slice::from_raw_parts(
                 (&snapshot as *const CausalSnapshot) as *const u8,
@@ -500,8 +538,9 @@ impl DynamicHistory {
         let send_succeeded = backend.send_tracer_data(snapshot_slice);
         if send_succeeded {
             self.clear_log();
-            // TODO - Should we use some other mechanism for recording/identifying this internal event?
             self.record_event(super::BACKEND_SEND_SUCCESSFUL_EVENT);
+            self.write_current_buckets_to_log();
+            // TODO - Should we use some other mechanism for recording/identifying this internal event?
         }
     }
 }

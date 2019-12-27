@@ -175,25 +175,43 @@ impl<'a, 'b> Tracer<'a, 'b> {
         self.history.send_to_backend(self.backend);
     }
 
+    /// Write a summary of this tracer's causal history for use
+    /// by another Tracer elsewhere in the system.
+    ///
+    /// This summary can be treated as an opaque blob of data
+    /// that ought to be passed around to be `merge`d, though
+    /// it will conform to an internal schema for the interested.
+    ///
+    /// Pre-pruned to the causal history of just this node
+    ///  and its immediate inbound neighbors.
+    ///
+    /// If the write was successful, returns the number of bytes written
+    pub fn share_history(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+        self.history.write_lcm_logical_clock(destination)
+    }
+
+    /// Consume a causal history summary structure provided
+    /// by some other Tracer.
+    pub fn merge_history(&mut self, source: &[u8]) -> Result<(), ()> {
+        self.history.merge_from_bytes(source)
+    }
+
     /// Produce a transmittable summary of this tracer's
     /// causal history for use by another Tracer elsewhere
     /// in the system.
     ///
     /// Pre-pruned to the causal history of just this node
     ///  and its immediate inbound neighbors.
-    pub fn snapshot(&mut self) -> CausalSnapshot {
-        self.history.snapshot()
+    pub fn share_fixed_size_history(&mut self) -> CausalSnapshot {
+        self.history.fixed_size_snapshot()
     }
 
-    ///// Convenience function that the end user can press when they
-    ///// manage to transmit a snapshot to another part of the system
-    //pub fn record_snapshot_shared(&mut self) {
-    //    self.record_event(SHARED_INBAND_CAUSALITY_EVENT)
-    //}
-
-    /// Consume a causal history summary structure provided
+    /// Consume a fixed-sized causal history summary structure provided
     /// by some other Tracer.
-    pub fn merge_history(&mut self, external_history: &CausalSnapshot) {
-        self.history.merge(external_history);
+    pub fn merge_fixed_size_history(
+        &mut self,
+        external_history: &CausalSnapshot,
+    ) -> Result<(), ()> {
+        self.history.merge_fixed_size(external_history)
     }
 }

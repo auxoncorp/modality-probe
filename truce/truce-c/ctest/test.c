@@ -46,7 +46,7 @@ bool test_event_recording() {
     trace_backend backend = { .state = &noop, .send_fn = update_noop_backend };
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     tracer * t = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &backend);
-    causal_snapshot snap_a = tracer_snapshot(t);
+    causal_snapshot snap_a = tracer_share_fixed_size_history(t);
     if (snap_a.tracer_id != DEFAULT_TRACER_ID) {
         passed = false;
     }
@@ -54,7 +54,7 @@ bool test_event_recording() {
         passed = false;
     }
     tracer_record_event(t, EVENT_A);
-    causal_snapshot snap_b = tracer_snapshot(t);
+    causal_snapshot snap_b = tracer_share_fixed_size_history(t);
     if (snap_b.buckets_len != 1) {
         passed = false;
     }
@@ -72,9 +72,9 @@ bool test_merge() {
     uint32_t tracer_b_id = DEFAULT_TRACER_ID + 1;
     tracer * tracer_b = tracer_initialize(destination_b, DEFAULT_TRACER_SIZE, tracer_b_id, &backend);
     tracer_record_event(tracer_a, EVENT_A);
-    causal_snapshot snap_a = tracer_snapshot(tracer_a);
-    tracer_merge_history(tracer_b, &snap_a);
-    causal_snapshot snap_b = tracer_snapshot(tracer_b);
+    causal_snapshot snap_a = tracer_share_fixed_size_history(tracer_a);
+    tracer_merge_fixed_size_history(tracer_b, &snap_a);
+    causal_snapshot snap_b = tracer_share_fixed_size_history(tracer_b);
     if (snap_b.buckets_len != 1) {
         passed = false;
     }
@@ -82,7 +82,7 @@ bool test_merge() {
         passed = false;
     }
     tracer_record_event(tracer_b, EVENT_A);
-    causal_snapshot snap_c = tracer_snapshot(tracer_b);
+    causal_snapshot snap_c = tracer_share_fixed_size_history(tracer_b);
     if (snap_c.buckets_len != 2) {
         passed = false;
     }
