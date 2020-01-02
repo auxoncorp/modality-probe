@@ -10,5 +10,7 @@ edition = "2018"
 arrayvec = { version = "0.5.1", default-features = false }
 arr_macro = "0.1.3"
 static_assertions = "1.1.0"
+rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "primitive_decoding"}
 
 [build-dependencies]
+rust-lcm-codegen = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "primitive_decoding"}

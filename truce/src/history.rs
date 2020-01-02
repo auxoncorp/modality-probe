@@ -393,7 +393,28 @@ impl DynamicHistory {
     /// If the write was successful, returns the number of bytes written
     pub(crate) fn write_lcm_logical_clock(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
         self.increment_local_bucket_count();
-        unimplemented!()
+        let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
+        // TODO - more error piping? Right now we assume remediation is largely infeasible.
+        // TODO - all this borrowing of Copy-type primitives for writes is an anti-pattern,
+        // need to fix in codegen
+        let w = lcm::in_system::Causal_snapshot::begin_write(&mut buffer_writer).map_err(|_| ())?;
+        let mut w = w
+            .write_tracer_id(&(self.tracer_id as i64))
+            .map_err(|_| ())?
+            .write_n_clock_buckets(&(self.buckets_len as i32))
+            .map_err(|_| ())?;
+        for (i, item_writer) in (&mut w).enumerate() {
+            let bucket: &mut LogicalClockBucket = unsafe { &mut *self.buckets.add(i) };
+            item_writer
+                .write(|bw| {
+                    Ok(bw
+                        .write_tracer_id(&(bucket.id as i32))?
+                        .write_count(&(bucket.count as i32))?)
+                })
+                .map_err(|_| ())?
+        }
+        let _w = w.done().map_err(|_| ())?;
+        Ok(buffer_writer.cursor())
     }
 
     /// Produce a transparent but limited snapshot of the causal state for transmission
@@ -543,4 +564,9 @@ impl DynamicHistory {
             // TODO - Should we use some other mechanism for recording/identifying this internal event?
         }
     }
+}
+
+mod lcm {
+    include!(concat!(env!("OUT_DIR"), "/in_system.rs"));
+    include!(concat!(env!("OUT_DIR"), "/log_reporting.rs"));
 }

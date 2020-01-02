@@ -1,0 +1,26 @@
+package log_reporting;
+
+struct log_report {
+    int64_t tracer_id;
+    error_flags flags;
+    int32_t n_segments;
+    log_segment segments[n_segments];
+}
+
+struct error_flags {
+    boolean has_overflowed_log;
+    boolean has_overflowed_num_buckets;
+}
+
+struct log_segment {
+    int32_t n_clock_buckets;
+    int32_t n_events;
+    logical_clock_bucket clock_buckets[n_clock_buckets];
+    int32_t events[n_events];
+}
+
+struct logical_clock_bucket {
+    int32_t tracer_id;
+    int32_t count; // Semantically cannot be negative - interpret as u32
+}
+
