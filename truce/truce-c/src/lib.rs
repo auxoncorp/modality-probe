@@ -1,6 +1,5 @@
 #![no_std]
 #![feature(lang_items, core_intrinsics)]
-use core::num::NonZeroU32;
 use libc::{c_int, c_uchar, c_void, size_t};
 use truce::*;
 pub use truce::{CausalSnapshot, Tracer};
@@ -9,6 +8,7 @@ pub use truce::{CausalSnapshot, Tracer};
 /// trace data to the backend
 pub type SendToBackendFn = extern "C" fn(*mut c_void, *const c_uchar, size_t) -> c_int;
 
+#[derive(Debug)]
 #[repr(C)]
 pub struct TraceBackend {
     pub state: *mut c_void,
@@ -22,80 +22,106 @@ impl Backend for TraceBackend {
 }
 
 #[no_mangle]
-pub extern "C" fn trace_backend_new(
-    send_to_backend_fn: SendToBackendFn,
-    backend_state: *mut c_void,
-) -> TraceBackend {
-    TraceBackend {
-        send_fn: send_to_backend_fn,
-        state: backend_state,
-    }
-}
-
-#[no_mangle]
 pub extern "C" fn tracer_initialize(
     destination: *mut u8,
     destination_size_bytes: size_t,
     tracer_id: u32,
     backend: *mut TraceBackend,
-) -> *mut Tracer<'static> {
+) -> *mut Tracer<'static, 'static> {
     assert!(
         !destination.is_null(),
         "tracer destination pointer was null"
     );
     assert!(!backend.is_null(), "tracer backend pointer was null");
     assert!(
-        destination_size_bytes >= core::mem::size_of::<Tracer<'static>>(),
+        destination_size_bytes >= core::mem::size_of::<Tracer<'static, 'static>>(),
         "insufficient tracer destination bytes to store the tracer"
     );
-    let tracer_destination = destination as *mut Tracer<'static>;
     unsafe {
-        *tracer_destination = Tracer::initialize(
-            TracerId(NonZeroU32::new(tracer_id).expect("tracer_id was zero")),
+        Tracer::initialize_at(
+            core::slice::from_raw_parts_mut(destination, destination_size_bytes),
+            TracerId::new(tracer_id).expect("tracer_id was zero or over the max allowed value"),
             backend.as_mut().expect("backend pointer was null"),
-        );
+        )
+        .expect("Could not initialize Tracer")
     }
-    tracer_destination
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_record_event(tracer: *mut Tracer<'static>, event_id: u32) {
+pub extern "C" fn tracer_record_event(tracer: *mut Tracer<'static, 'static>, event_id: u32) {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
-        .record_event(EventId(
-            NonZeroU32::new(event_id).expect("Could not create a non-zero EventId"),
-        ))
+        .record_event(EventId::new(event_id).expect("Could not create a non-zero EventId"))
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_service(tracer: *mut Tracer<'static>) {
+pub extern "C" fn tracer_service(tracer: *mut Tracer<'static, 'static>) {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
         .service()
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_snapshot(tracer: *mut Tracer<'static>) -> CausalSnapshot {
+pub extern "C" fn tracer_share_history(
+    tracer: *mut Tracer<'static, 'static>,
+    history_destination: *mut u8,
+    history_destination_bytes: size_t,
+) -> c_int {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
-        .snapshot()
+        .share_history(unsafe {
+            core::slice::from_raw_parts_mut(history_destination, history_destination_bytes)
+        })
+        .is_ok()
+        .as_c_int_bool()
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_record_snapshot_shared(tracer: *mut Tracer<'static>) {
+pub extern "C" fn tracer_share_fixed_size_history(
+    tracer: *mut Tracer<'static, 'static>,
+) -> CausalSnapshot {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
-        .record_snapshot_shared()
+        .share_fixed_size_history()
 }
 
 #[no_mangle]
 pub extern "C" fn tracer_merge_history(
-    tracer: *mut Tracer<'static>,
-    snapshot: *const CausalSnapshot,
-) {
+    tracer: *mut Tracer<'static, 'static>,
+    history_source: *const u8,
+    history_source_bytes: size_t,
+) -> c_int {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
-        .merge_history(unsafe { &*snapshot })
+        .merge_history(unsafe { core::slice::from_raw_parts(history_source, history_source_bytes) })
+        .is_ok()
+        .as_c_int_bool()
+}
+
+#[no_mangle]
+pub extern "C" fn tracer_merge_fixed_size_history(
+    tracer: *mut Tracer<'static, 'static>,
+    snapshot: *const CausalSnapshot,
+) -> c_int {
+    unsafe { tracer.as_mut() }
+        .expect("tracer pointer was null")
+        .merge_fixed_size_history(unsafe { &*snapshot })
+        .is_ok()
+        .as_c_int_bool()
+}
+
+trait AsCIntBool {
+    fn as_c_int_bool(self) -> c_int;
+}
+
+impl AsCIntBool for bool {
+    fn as_c_int_bool(self) -> i32 {
+        if self {
+            1
+        } else {
+            0
+        }
+    }
 }
 
 #[cfg(not(test))]
@@ -142,23 +168,25 @@ mod tests {
         let mut raw_backend = SendCounter::default();
         let be_fn: SendToBackendFn = send_to_counter_be;
 
-        let mut trace_backend =
-            trace_backend_new(be_fn, &mut raw_backend as *mut SendCounter as *mut c_void);
+        let mut trace_backend = TraceBackend {
+            state: &mut raw_backend as *mut SendCounter as *mut c_void,
+            send_fn: be_fn,
+        };
 
         let tracer_id = 2;
-        use core::mem::{size_of, MaybeUninit};
-        let mut tracer_on_the_stack = MaybeUninit::<Tracer<'static>>::uninit();
+        let mut storage = [0u8; 1024];
+        let storage_slice = &mut storage;
         let tracer = tracer_initialize(
-            tracer_on_the_stack.as_mut_ptr() as *mut u8,
-            size_of::<Tracer<'static>>(),
+            storage_slice.as_mut_ptr() as *mut u8,
+            storage_slice.len(),
             tracer_id,
             &mut trace_backend as *mut TraceBackend,
         );
-        let snap_empty = tracer_snapshot(tracer);
+        let snap_empty = tracer_share_fixed_size_history(tracer);
         assert_eq!(snap_empty.tracer_id, tracer_id);
-        assert_eq!(0, snap_empty.buckets_len);
+        assert_eq!(1, snap_empty.buckets_len);
         tracer_record_event(tracer, 100);
-        let snap_a = tracer_snapshot(tracer);
+        let snap_a = tracer_share_fixed_size_history(tracer);
         assert!(snap_empty < snap_a);
         assert!(!(snap_a < snap_empty));
         assert_eq!(1, snap_a.buckets_len);
@@ -166,34 +194,42 @@ mod tests {
         assert_eq!(0, raw_backend.count);
         tracer_service(tracer);
         assert_eq!(1, raw_backend.count);
-        let snap_b = tracer_snapshot(tracer);
+        let snap_b = tracer_share_fixed_size_history(tracer);
         // We expect the local clock to have progressed thanks to recording an event
         // internally when we successfully transmitted the state to the backend.
         assert!(snap_a < snap_b);
         assert!(!(snap_b < snap_a));
-        let snap_b_neighborhood = tracer_snapshot(tracer);
+        let snap_b_neighborhood = tracer_share_fixed_size_history(tracer);
         assert_eq!(1, snap_b_neighborhood.buckets_len);
-        assert_eq!(snap_b, snap_b_neighborhood);
+        assert!(snap_b < snap_b_neighborhood);
 
         // Share that snapshot with another component in the system, pretend it lives on some other thread.
         let remote_tracer_id = tracer_id + 1;
 
-        let mut remote_tracer_on_the_stack = MaybeUninit::<Tracer<'static>>::uninit();
+        let mut remote_storage = [0u8; 1024];
+        let remote_storage_slice = &mut remote_storage;
         let remote_tracer = tracer_initialize(
-            remote_tracer_on_the_stack.as_mut_ptr() as *mut u8,
-            size_of::<Tracer<'static>>(),
+            remote_storage_slice.as_mut_ptr() as *mut u8,
+            remote_storage_slice.len(),
             remote_tracer_id,
             &mut trace_backend as *mut TraceBackend,
         );
-        let remote_snap_pre_merge = tracer_snapshot(remote_tracer);
-        // Since we haven't manually combined history information yet, the remote thinks it is living in the past
-        assert!(remote_snap_pre_merge < snap_b_neighborhood);
+        let remote_snap_pre_merge = tracer_share_fixed_size_history(remote_tracer);
+        // Since we haven't manually combined history information yet, the remote's history is disjoint
+        assert_eq!(
+            None,
+            remote_snap_pre_merge.partial_cmp(&snap_b_neighborhood)
+        );
         assert!(!(snap_b_neighborhood < remote_snap_pre_merge));
         assert_eq!(remote_snap_pre_merge.tracer_id, remote_tracer_id);
-        assert_eq!(0, remote_snap_pre_merge.buckets_len);
+        assert_eq!(1, remote_snap_pre_merge.buckets_len);
 
-        tracer_merge_history(remote_tracer, &snap_b_neighborhood as *const CausalSnapshot);
-        let remote_snap_post_merge = tracer_snapshot(remote_tracer);
+        tracer_merge_fixed_size_history(
+            remote_tracer,
+            &snap_b_neighborhood as *const CausalSnapshot,
+        );
+
+        let remote_snap_post_merge = tracer_share_fixed_size_history(remote_tracer);
         assert_eq!(
             Some(Ordering::Greater),
             remote_snap_post_merge.partial_cmp(&snap_b_neighborhood)
@@ -205,18 +241,14 @@ mod tests {
         assert!(snap_b_neighborhood < remote_snap_post_merge);
         assert!(!(remote_snap_post_merge < snap_b_neighborhood));
 
-        // Since we shared one of our snapshots with another component in the system,
-        // we want to commemorate that.
-        tracer_record_snapshot_shared(tracer);
-
-        let snap_c = tracer_snapshot(tracer);
+        let snap_c = tracer_share_fixed_size_history(tracer);
         assert!(snap_b < snap_c);
         assert!(!(snap_c < snap_b));
     }
 
     #[test]
     fn confirm_tracer_size() {
-        assert_eq!(6328, core::mem::size_of::<Tracer<'static>>());
+        assert_eq!(32, core::mem::size_of::<Tracer<'static, 'static>>());
     }
 }
 // TODO - static assertions?

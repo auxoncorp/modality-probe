@@ -53,11 +53,6 @@ typedef struct trace_backend {
 } trace_backend;
 
 /*
- * Create a trace backend
- */
-trace_backend trace_backend_new(SendToBackendFn send_to_backend_fn, void *backend_state);
-
-/*
  * Create a tracer instance. tracer_id must be non-zero
  */
 tracer * tracer_initialize(uint8_t *destination, size_t destination_size_bytes, uint32_t tracer_id, trace_backend *backend);
@@ -76,24 +71,32 @@ void tracer_record_event(tracer *tracer, uint32_t event_id);
 void tracer_service(tracer *tracer);
 
 /*
+ * Produce a transmittable opaque blob of this tracer's
+ * causal history for use by another tracer elsewhere
+ * in the system, filtered down to just the history
+ * of this node and its immediate inbound neighbors.
+ */
+bool tracer_share_history(tracer *tracer, uint8_t *history_destination, size_t history_destination_bytes);
+
+/*
  * Produce a transmittable summary of this tracer's
  * causal history for use by another tracer elsewhere
  * in the system, filtered down to just the history
  * of this node and its immediate inbound neighbors.
  */
-causal_snapshot tracer_snapshot(tracer *tracer);
+causal_snapshot tracer_share_fixed_size_history(tracer *tracer);
 
 /*
- * Convenience function that the end user can press when they
- * manage to transmit a snapshot to another part of the system
- */
-void tracer_record_snapshot_shared(tracer *tracer);
-
-/*
- * Consume a causal history summary structure provided
+ * Consume an opaque causal history blob provided
  * by some other Tracer.
  */
-void tracer_merge_history(tracer *tracer, causal_snapshot *snapshot);
+bool tracer_merge_history(tracer *tracer, uint8_t *history_source, size_t history_source_bytes);
+
+/*
+ * Consume a fixed-size causal history summary structure provided
+ * by some other Tracer.
+ */
+bool tracer_merge_fixed_size_history(tracer *tracer, causal_snapshot *snapshot);
 
 #ifdef __cplusplus
 } // extern "C"
