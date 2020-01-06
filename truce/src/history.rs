@@ -2,6 +2,7 @@ use super::{
     CausalSnapshot, EventId, LocalStorageCreationError, LogicalClockBucket, MergeError, ShareError,
     TracerId,
 };
+use crate::compact_log::{self, CompactLogItem};
 use core::cmp::{max, Ordering, PartialEq};
 use core::fmt::{Error as FmtError, Formatter};
 use core::mem::{align_of, size_of};
@@ -203,33 +204,6 @@ pub struct DynamicHistory {
 #[derive(Debug)]
 struct BucketsFullError;
 
-/// In a stream of these:
-///     if the first bit is not set, treat it as recording an Event
-///     if the first bit is set, treat the rest of the value as a TracerId for a LogicalClockBucket
-///         AND the next item in the stream should be interpreted as a count for that bucket.
-#[derive(Clone, Copy)]
-#[repr(transparent)]
-pub struct CompactLogItem(u32);
-
-impl CompactLogItem {
-    #[must_use]
-    fn event(event_id: EventId) -> Self {
-        // The construction checks for EventId should prevent the top bit from being set
-        CompactLogItem(event_id.get_raw())
-    }
-    #[must_use]
-    fn bucket(bucket: LogicalClockBucket) -> (Self, Self) {
-        // Set the top bit for id to indicate that it is not an event but a logical clock bucket,
-        // and to treat the next item as the count. Don't separate these two!
-        let id = bucket.id | 0b1000_0000_0000_0000;
-        (CompactLogItem(id), CompactLogItem(bucket.count))
-    }
-
-    fn is_first_bit_set(&self) -> bool {
-        (self.0 & 0b1000_0000_0000_0000) != 0
-    }
-}
-
 impl DynamicHistory {
     pub fn new_at(
         destination: &mut [u8],
@@ -242,7 +216,6 @@ impl DynamicHistory {
         if destination.as_ptr().is_null() {
             return Err(LocalStorageCreationError::NullDestination);
         }
-
         let (header_ptr, header_bytes) = {
             let header_align_offset = destination
                 .as_mut_ptr()
@@ -277,16 +250,15 @@ impl DynamicHistory {
             if buckets_bytes > remaining_bytes {
                 return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
             }
-            (
-                unsafe { dynamic_region_ptr.add(buckets_align_offset) as *mut LogicalClockBucket },
-                buckets_bytes,
-                max_buckets_len,
-            )
+            let buckets_ptr =
+                unsafe { dynamic_region_ptr.add(buckets_align_offset) as *mut LogicalClockBucket };
+            assert!(
+                header_ptr as usize + size_of::<DynamicHistory>() <= buckets_ptr as usize,
+                "buckets pointer {:#X} should not overlap header [{:#X}..{:#X}] bytes, but they overlapped by {} bytes",
+                buckets_ptr as usize, header_ptr as usize, header_ptr as usize + header_bytes, (header_ptr as usize + header_bytes - buckets_ptr as usize)
+            );
+            (buckets_ptr, buckets_bytes, max_buckets_len)
         };
-        assert!(
-            header_ptr as usize + header_bytes <= buckets_ptr as usize,
-            "buckets pointer should not overlap header bytes"
-        );
 
         let dynamic_region_ptr = unsafe { dynamic_region_ptr.add(buckets_bytes) };
         let remaining_bytes = remaining_bytes - buckets_bytes;
@@ -416,24 +388,8 @@ impl DynamicHistory {
         &mut self,
         destination: &mut [u8],
     ) -> Result<usize, ShareError> {
-        impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for ShareError {
-            fn from(e: EncodeValueError<rust_lcm_codec::BufferWriterError>) -> Self {
-                match e {
-                    EncodeValueError::ArrayLengthMismatch(_) => ShareError::Encoding,
-                    EncodeValueError::InvalidValue(_) => ShareError::Encoding,
-                    EncodeValueError::WriterError(_) => ShareError::InsufficientDestinationSize,
-                }
-            }
-        }
-        impl From<rust_lcm_codec::BufferWriterError> for ShareError {
-            fn from(_: BufferWriterError) -> Self {
-                ShareError::InsufficientDestinationSize
-            }
-        }
         self.increment_local_bucket_count();
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
-        // TODO - all this borrowing of Copy-type primitives for writes is an anti-pattern,
-        // need to fix in codegen
         let w = lcm::in_system::begin_causal_snapshot_write(&mut buffer_writer)?;
         let mut w = w
             .write_tracer_id(self.tracer_id as i32)?
@@ -452,7 +408,7 @@ impl DynamicHistory {
 
     /// Produce a transparent but limited snapshot of the causal state for transmission
     /// within the system under test
-    pub(crate) fn fixed_size_snapshot(&mut self) -> Result<CausalSnapshot, ShareError> {
+    pub(crate) fn write_fixed_size_logical_clock(&mut self) -> Result<CausalSnapshot, ShareError> {
         let mut buckets = arr_macro::arr![LogicalClockBucket { id: 0, count: 0}; 256];
         if self.buckets_len > buckets.len() {
             return Err(ShareError::InsufficientDestinationSize);
@@ -633,11 +589,10 @@ impl DynamicHistory {
     ///   * Error flags
     ///   * Event ids for events that have happened since the last backend send
     ///   * Interspersed snapshots of the logical clock
-    pub(crate) fn send_to_backend(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
-        // TODO - proper LCM serialization of all the docs-mentioned content
+    pub(crate) fn write_lcm_log_report(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+        self.increment_local_bucket_count();
+        self.write_current_buckets_to_log();
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
-        // TODO - all this borrowing of Copy-type primitives for writes is an anti-pattern,
-        // need to fix in codegen
         let w = lcm::log_reporting::begin_log_report_write(&mut buffer_writer).map_err(|_| ())?;
         let w = w.write_tracer_id(self.tracer_id as i32).map_err(|_| ())?;
         let w = w
@@ -648,61 +603,38 @@ impl DynamicHistory {
             })
             .map_err(|_| ())?;
 
-        /// Helper enum for interpreting the log
-        #[derive(Copy, Clone, Debug)]
-        enum LogItemType {
-            None,
-            Event,
-            ClockId,
-            ClockCount,
-        }
-        let mut last_item_type: LogItemType = LogItemType::None;
-        let mut num_switches = 0;
-        let log_slice = self.get_log_slice();
-        for log_item in log_slice {
-            match last_item_type {
-                LogItemType::None => {
-                    num_switches += 1;
-                    if log_item.is_first_bit_set() {
-                        last_item_type = LogItemType::ClockId;
-                    } else {
-                        last_item_type = LogItemType::Event;
-                    }
-                }
-                LogItemType::ClockId => {
-                    last_item_type = LogItemType::ClockCount;
-                }
-                LogItemType::ClockCount => {
-                    if log_item.is_first_bit_set() {
-                        last_item_type = LogItemType::ClockId;
-                    } else {
-                        num_switches += 1;
-                        last_item_type = LogItemType::Event
-                    }
-                }
-                LogItemType::Event => {
-                    if log_item.is_first_bit_set() {
-                        num_switches += 1;
-                        last_item_type = LogItemType::ClockId;
-                    } else {
-                        last_item_type = LogItemType::Event
-                    }
-                }
-            }
-        }
-        let expected_n_segments = (num_switches / 2) + (num_switches % 2);
-        let mut w = w.write_n_segments(expected_n_segments).map_err(|_| ())?;
+        let mut log_items = self.get_log_slice();
+        let expected_n_segments = compact_log::count_segments(log_items);
+        let mut w = w
+            .write_n_segments(expected_n_segments as i32)
+            .map_err(|_| ())?;
         let mut actually_written_segments = 0;
         let mut actually_written_log_items = 0;
-        let mut log_item_index: usize = 0;
         for segment_item_writer in &mut w {
+            let segment = compact_log::split_next_segment(log_items);
+            log_items = segment.rest;
             segment_item_writer
                 .write(|sw| {
-                    // TODO - search ahead from log_item_index to figure out the contents of this segment
-                    // how many clock buckets, how many events
-                    // TODO - actually write those clock buckets and events
-                    // TODO - update the log_item_index
-                    unimplemented!()
+                    let sw = sw.write_n_clock_buckets(segment.clock_region.len() as i32 / 2)?;
+                    let mut sw = sw.write_n_events(segment.event_region.len() as i32)?;
+                    for (bucket_item_writer, bucket_parts) in
+                        (&mut sw).zip(segment.clock_region.chunks_exact(2))
+                    {
+                        bucket_item_writer.write(|bw| {
+                            let tracer_id =
+                                bucket_parts[0].interpret_as_logical_clock_bucket_tracer_id();
+                            Ok(bw
+                                .write_tracer_id(tracer_id as i32)?
+                                .write_count(bucket_parts[1].raw() as i32)?)
+                        })?;
+                    }
+                    actually_written_log_items += segment.clock_region.len();
+                    let mut sw = sw.done()?;
+                    for (event_item_writer, event) in (&mut sw).zip(segment.event_region) {
+                        event_item_writer.write(event.raw() as i32)?;
+                    }
+                    actually_written_log_items += segment.event_region.len();
+                    Ok(sw.done()?)
                 })
                 .map_err(|_| ())?;
             actually_written_segments += 1;
@@ -712,70 +644,34 @@ impl DynamicHistory {
             "number of written segments should match the amount we tried"
         );
         assert_eq!(
-            log_item_index, self.log_len,
+            actually_written_log_items, self.log_len,
             "we should have written all of the log items into the segments"
         );
         let _w = w.done().map_err(|_| ())?;
 
         self.clear_log();
-        self.record_event(super::BACKEND_SEND_SUCCESSFUL_EVENT);
         self.write_current_buckets_to_log();
+        self.record_event(super::PRODUCED_BACKEND_LOG_REPORT);
         Ok(buffer_writer.cursor())
     }
 }
 
-fn split_next_segment(items: &'_ [CompactLogItem]) -> SplitSegment<'_> {
-    // Split off the clock segments
-    let mut num_clock_items = 0;
-    for item in items.iter().step_by(2) {
-        if item.is_first_bit_set() {
-            num_clock_items += 2;
-        } else {
-            break;
+impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for ShareError {
+    fn from(e: EncodeValueError<rust_lcm_codec::BufferWriterError>) -> Self {
+        match e {
+            EncodeValueError::ArrayLengthMismatch(_) => ShareError::Encoding,
+            EncodeValueError::InvalidValue(_) => ShareError::Encoding,
+            EncodeValueError::WriterError(_) => ShareError::InsufficientDestinationSize,
         }
     }
-    let (clock_region, events_and_rest) = items.split_at(num_clock_items);
-
-    // Find how many events there are before we either run out of items
-    // or bump into another clock region
-    let mut num_event_items = 0;
-    for item in events_and_rest {
-        if item.is_first_bit_set() {
-            break;
-        } else {
-            num_event_items += 1;
-        }
-    }
-    let (event_region, rest) = events_and_rest.split_at(num_event_items);
-    SplitSegment {
-        clock_region,
-        event_region,
-        rest,
+}
+impl From<rust_lcm_codec::BufferWriterError> for ShareError {
+    fn from(_: BufferWriterError) -> Self {
+        ShareError::InsufficientDestinationSize
     }
 }
 
-fn count_segments(mut items: &[CompactLogItem]) -> usize {
-    let mut num_segments = 0;
-    let mut segment = split_next_segment(items);
-    while !segment.is_empty() {
-        num_segments += 1;
-        segment = split_next_segment(segment.rest);
-    }
-    num_segments
-}
-
-struct SplitSegment<'a> {
-    clock_region: &'a [CompactLogItem],
-    event_region: &'a [CompactLogItem],
-    rest: &'a [CompactLogItem],
-}
-
-impl<'a> SplitSegment<'a> {
-    fn is_empty(&self) -> bool {
-        self.clock_region.is_empty() && self.event_region.is_empty() && self.rest.is_empty()
-    }
-}
-
+#[allow(dead_code)]
 mod lcm {
     include!(concat!(env!("OUT_DIR"), "/in_system.rs"));
     include!(concat!(env!("OUT_DIR"), "/log_reporting.rs"));

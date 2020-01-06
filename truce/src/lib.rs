@@ -1,8 +1,9 @@
-#![no_std]
+//#![no_std] // TODO - RESTORE - DEBUG
 
 use static_assertions::assert_cfg;
 assert_cfg!(not(target_pointer_width = "16"));
 
+mod compact_log;
 mod history;
 
 use history::DynamicHistory;
@@ -10,9 +11,9 @@ use history::DynamicHistory;
 use core::mem::{align_of, size_of};
 use core::num::NonZeroU32;
 
-pub const BACKEND_SEND_SUCCESSFUL_EVENT: EventId =
+pub const PRODUCED_BACKEND_LOG_REPORT: EventId =
     EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_RAW_ID - 1) });
-pub const EVENT_LOG_OVERFLOWED: EventId =
+pub const LOG_OVERFLOWED: EventId =
     EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_RAW_ID - 2) });
 pub const LOGICAL_CLOCK_OVERFLOWED: EventId =
     EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_RAW_ID - 3) });
@@ -175,7 +176,7 @@ impl<'a> Tracer<'a> {
     ///
     /// If the write was successful, returns the number of bytes written
     pub fn write_reporting(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
-        self.history.send_to_backend(destination)
+        self.history.write_lcm_log_report(destination)
     }
 
     /// Write a summary of this tracer's causal history for use
@@ -206,7 +207,7 @@ impl<'a> Tracer<'a> {
     /// Pre-pruned to the causal history of just this node
     ///  and its immediate inbound neighbors.
     pub fn share_fixed_size_history(&mut self) -> Result<CausalSnapshot, ShareError> {
-        self.history.fixed_size_snapshot()
+        self.history.write_fixed_size_logical_clock()
     }
 
     /// Consume a fixed-sized causal history summary structure provided
@@ -241,8 +242,6 @@ pub enum MergeError {
     /// The local tracer does not have enough space to track all
     /// of direct neighbors attempting to communicate with it.
     ExceededAvailableClocks,
-    /// The local tracer's causal history of at least one clock has overflowed.
-    IndividualClockOverflowed,
     /// The the external history we attempted to merge was encoded
     /// in an invalid fashion.
     ExternalHistoryEncoding,
