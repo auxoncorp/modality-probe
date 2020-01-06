@@ -10,7 +10,12 @@ use history::DynamicHistory;
 use core::mem::{align_of, size_of};
 use core::num::NonZeroU32;
 
-pub const BACKEND_SEND_SUCCESSFUL_EVENT: EventId = EventId(unsafe { NonZeroU32::new_unchecked(1) });
+pub const BACKEND_SEND_SUCCESSFUL_EVENT: EventId =
+    EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_RAW_ID - 1) });
+pub const EVENT_LOG_OVERFLOWED: EventId =
+    EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_RAW_ID - 2) });
+pub const LOGICAL_CLOCK_OVERFLOWED: EventId =
+    EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_RAW_ID - 3) });
 
 /// Snapshot of causal history for transmission around the system
 ///
@@ -75,11 +80,13 @@ pub struct EventId(NonZeroU32);
 
 impl EventId {
     const MAX_RAW_ID: u32 = 0b0111_1111_1111_1111;
+    const NUM_RESERVED_IDS: u32 = 256;
+    const MAX_ID: u32 = EventId::MAX_RAW_ID - EventId::NUM_RESERVED_IDS;
 
     /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000
     #[inline]
     pub fn new(raw_id: u32) -> Option<Self> {
-        if raw_id > Self::MAX_RAW_ID {
+        if raw_id > Self::MAX_ID {
             return None;
         }
         NonZeroU32::new(raw_id).map(|id| Self(id))
@@ -106,10 +113,9 @@ pub enum LocalStorageCreationError {
 /// Public interface to tracing.
 #[derive(Debug)]
 #[repr(C)]
-pub struct Tracer<'a, 'b> {
+pub struct Tracer<'a> {
     id: TracerId,
     history: &'a mut DynamicHistory,
-    backend: &'b mut dyn Backend,
 }
 
 /// Trace data collection interface
@@ -122,26 +128,21 @@ pub trait Backend: core::fmt::Debug {
     fn send_tracer_data(&mut self, data: &[u8]) -> bool;
 }
 
-impl<'a, 'b> Tracer<'a, 'b> {
+impl<'a> Tracer<'a> {
     /// Initialize tracing for this location.
     /// `tracer_id` ought to be unique throughout the system.
     pub fn initialize_at(
         memory: &'a mut [u8],
         tracer_id: TracerId,
-        backend: &'b mut dyn Backend,
-    ) -> Result<&'a mut Tracer<'a, 'b>, LocalStorageCreationError> {
-        let tracer_align_offset = memory
-            .as_mut_ptr()
-            .align_offset(align_of::<Tracer<'_, '_>>());
-        let tracer_bytes = tracer_align_offset + size_of::<Tracer<'_, '_>>();
+    ) -> Result<&'a mut Tracer<'a>, LocalStorageCreationError> {
+        let tracer_align_offset = memory.as_mut_ptr().align_offset(align_of::<Tracer<'_>>());
+        let tracer_bytes = tracer_align_offset + size_of::<Tracer<'_>>();
         if tracer_bytes > memory.len() {
             return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
         }
-        let tracer_ptr =
-            unsafe { memory.as_mut_ptr().add(tracer_align_offset) as *mut Tracer<'_, '_> };
+        let tracer_ptr = unsafe { memory.as_mut_ptr().add(tracer_align_offset) as *mut Tracer<'_> };
         unsafe {
-            *tracer_ptr =
-                Tracer::new_with_storage(&mut memory[tracer_bytes..], tracer_id, backend)?;
+            *tracer_ptr = Tracer::new_with_storage(&mut memory[tracer_bytes..], tracer_id)?;
             Ok(tracer_ptr
                 .as_mut()
                 .expect("Tracer pointer should not be null"))
@@ -151,12 +152,10 @@ impl<'a, 'b> Tracer<'a, 'b> {
     pub fn new_with_storage(
         history_memory: &'a mut [u8],
         tracer_id: TracerId,
-        backend: &'b mut dyn Backend,
-    ) -> Result<Tracer<'a, 'b>, LocalStorageCreationError> {
-        let t = Tracer::<'a, 'b> {
+    ) -> Result<Tracer<'a>, LocalStorageCreationError> {
+        let t = Tracer::<'a> {
             id: tracer_id,
             history: DynamicHistory::new_at(history_memory, tracer_id)?,
-            backend,
         };
         Ok(t)
     }
@@ -168,11 +167,15 @@ impl<'a, 'b> Tracer<'a, 'b> {
         self.history.record_event(event_id);
     }
 
-    /// Conduct necessary background activities, such as transmission
-    /// of the the recorded events to a collection backend or
-    /// optimization of local data.
-    pub fn service(&mut self) {
-        self.history.send_to_backend(self.backend);
+    /// Conduct necessary background activities and write
+    /// the recorded reporting log to a collection backend.
+    ///
+    /// Writes the Tracer's internal state according to the
+    /// log reporting schema.
+    ///
+    /// If the write was successful, returns the number of bytes written
+    pub fn write_reporting(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+        self.history.send_to_backend(destination)
     }
 
     /// Write a summary of this tracer's causal history for use
@@ -186,13 +189,13 @@ impl<'a, 'b> Tracer<'a, 'b> {
     ///  and its immediate inbound neighbors.
     ///
     /// If the write was successful, returns the number of bytes written
-    pub fn share_history(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+    pub fn share_history(&mut self, destination: &mut [u8]) -> Result<usize, ShareError> {
         self.history.write_lcm_logical_clock(destination)
     }
 
     /// Consume a causal history summary structure provided
     /// by some other Tracer.
-    pub fn merge_history(&mut self, source: &[u8]) -> Result<(), ()> {
+    pub fn merge_history(&mut self, source: &[u8]) -> Result<(), MergeError> {
         self.history.merge_from_bytes(source)
     }
 
@@ -202,7 +205,7 @@ impl<'a, 'b> Tracer<'a, 'b> {
     ///
     /// Pre-pruned to the causal history of just this node
     ///  and its immediate inbound neighbors.
-    pub fn share_fixed_size_history(&mut self) -> CausalSnapshot {
+    pub fn share_fixed_size_history(&mut self) -> Result<CausalSnapshot, ShareError> {
         self.history.fixed_size_snapshot()
     }
 
@@ -211,7 +214,39 @@ impl<'a, 'b> Tracer<'a, 'b> {
     pub fn merge_fixed_size_history(
         &mut self,
         external_history: &CausalSnapshot,
-    ) -> Result<(), ()> {
+    ) -> Result<(), MergeError> {
         self.history.merge_fixed_size(external_history)
     }
+}
+
+/// The errors than can occur when sharing (exporting / serializing)
+/// a tracer's causal history for use by some other tracer instance.
+#[derive(Debug, Clone, Copy)]
+pub enum ShareError {
+    /// The destination that is receiving the history is not big enough.
+    ///
+    /// Indicates that the end user should provide a larger destination buffer.
+    InsufficientDestinationSize,
+    /// An unexpected error occurred while writing out causal history.
+    ///
+    /// Indicates a logical error in the implementation of this library
+    /// (or its dependencies).
+    Encoding,
+}
+
+/// The errors than can occur when merging in the causal history from some
+/// other tracer instance.
+#[derive(Debug, Clone, Copy)]
+pub enum MergeError {
+    /// The local tracer does not have enough space to track all
+    /// of direct neighbors attempting to communicate with it.
+    ExceededAvailableClocks,
+    /// The local tracer's causal history of at least one clock has overflowed.
+    IndividualClockOverflowed,
+    /// The the external history we attempted to merge was encoded
+    /// in an invalid fashion.
+    ExternalHistoryEncoding,
+    /// The external history violated a semantic rule of the protocol,
+    /// such as by having a tracer_id out of the allowed value range.
+    ExternalHistorySemantics,
 }
