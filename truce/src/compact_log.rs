@@ -30,6 +30,7 @@ impl CompactLogItem {
         self.0
     }
 
+    /// Unset that top bit to get the original tracer id back out
     pub(crate) fn interpret_as_logical_clock_bucket_tracer_id(self) -> u32 {
         self.0 & 0b0111_1111_1111_1111
     }
@@ -104,6 +105,7 @@ mod tests {
 
     #[test]
     fn happy_path_segment_counting() {
+        assert_eq!(0, count_segments(&[]));
         assert_eq!(1, count_segments(&[ce(1)]));
         assert_eq!(1, count_segments(&[ce(1), ce(1)]));
         assert_eq!(1, count_segments(&[ce(1), ce(2), ce(1)]));

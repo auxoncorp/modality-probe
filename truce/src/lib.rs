@@ -1,4 +1,4 @@
-//#![no_std] // TODO - RESTORE - DEBUG
+#![no_std]
 
 use static_assertions::assert_cfg;
 assert_cfg!(not(target_pointer_width = "16"));
@@ -175,7 +175,7 @@ impl<'a> Tracer<'a> {
     /// log reporting schema.
     ///
     /// If the write was successful, returns the number of bytes written
-    pub fn write_reporting(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+    pub fn write_log_report(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
         self.history.write_lcm_log_report(destination)
     }
 

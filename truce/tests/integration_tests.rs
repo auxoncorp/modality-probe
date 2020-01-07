@@ -43,7 +43,7 @@ fn tracer_lifecycle_does_not_panic() {
     assert!(t < u);
     assert_ne!(t, u);
     tracer
-        .write_reporting(backend.as_bytes_mut())
+        .write_log_report(backend.as_bytes_mut())
         .expect("Could not write reporting");
     let v = tracer.share_fixed_size_history().unwrap();
     // Should write_reporting calls affect the outcome of snapshot_history()?
@@ -113,7 +113,7 @@ fn happy_path_backend_service() {
         .expect("Could not make new tracer");
     let mut backend = [0u8; 1024];
     let bytes_written = tracer
-        .write_reporting(&mut backend)
+        .write_log_report(&mut backend)
         .expect("Could not write reporting message");
     let log_report =
         materialize_log_report(&backend[..bytes_written]).expect("Could not read log report");
