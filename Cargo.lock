@@ -614,12 +614,12 @@ dependencies = [
 [[package]]
 name = "rust-lcm-codec"
 version = "0.1.0"
-source = "git+ssh://git@github.com/auxoncorp/rust-lcm-codec.git?branch=primitive_decoding#33ceb26476eccf636e0e9b55411aedfa2c111938"
+source = "git+ssh://git@github.com/auxoncorp/rust-lcm-codec.git#896d758d6146b374f39a715e540a5cef08c0a778"
 
 [[package]]
 name = "rust-lcm-codegen"
 version = "0.1.0"
-source = "git+ssh://git@github.com/auxoncorp/rust-lcm-codec.git?branch=primitive_decoding#33ceb26476eccf636e0e9b55411aedfa2c111938"
+source = "git+ssh://git@github.com/auxoncorp/rust-lcm-codec.git#896d758d6146b374f39a715e540a5cef08c0a778"
 dependencies = [
  "nom",
  "proc-macro2",

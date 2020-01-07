@@ -17,36 +17,47 @@ bool update_counting_backend(void *state, const uint8_t *data, size_t len) {
 }
 
 static size_t DEFAULT_TRACER_SIZE = 7000;
+static size_t DEFAULT_LOG_STORAGE = 4096;
 static uint32_t DEFAULT_TRACER_ID = 314;
 static uint32_t EVENT_A = 100;
 
 bool test_backend_piping() {
     bool passed = true;
-    counting_backend counter = { .count = 0 };
-    trace_backend backend = { .state = &counter, .send_fn = update_counting_backend };
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
-    tracer * t = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &backend);
-    tracer_service(t);
-    if (counter.count != 1) {
+    tracer * t = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID);
+
+    uint8_t * log_storage = (uint8_t*)malloc(DEFAULT_LOG_STORAGE);
+    bool write_success = false;
+    write_success = tracer_write_log_report(t, log_storage, DEFAULT_LOG_STORAGE);
+    if (!write_success) {
         passed = false;
     }
-    free(t);
+    bool all_zeros = true;
+    int i;
+    for (i = 0; i < DEFAULT_LOG_STORAGE; i++) {
+        if (log_storage[i] != 0) {
+            all_zeros = false;
+            break;
+        }
+    }
+    if (all_zeros) {
+        passed = false;
+    }
+    free(destination);
+    free(log_storage);
     return passed;
-}
-
-typedef struct noop_backend {} noop_backend;
-
-bool update_noop_backend(void *state, const uint8_t *data, size_t len) {
-    return true;
 }
 
 bool test_event_recording() {
     bool passed = true;
-    noop_backend noop = {  };
-    trace_backend backend = { .state = &noop, .send_fn = update_noop_backend };
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
-    tracer * t = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &backend);
-    causal_snapshot snap_a = tracer_share_fixed_size_history(t);
+    tracer * t = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID);
+
+    causal_snapshot snap_a;
+    bool make_snap_success = tracer_share_fixed_size_history(t, &snap_a);
+    if (!make_snap_success) {
+        passed = false;
+    }
     if (snap_a.tracer_id != DEFAULT_TRACER_ID) {
         passed = false;
     }
@@ -54,7 +65,11 @@ bool test_event_recording() {
         passed = false;
     }
     tracer_record_event(t, EVENT_A);
-    causal_snapshot snap_b = tracer_share_fixed_size_history(t);
+    causal_snapshot snap_b;
+    make_snap_success = tracer_share_fixed_size_history(t, &snap_b);
+    if (!make_snap_success) {
+        passed = false;
+    }
     if (snap_b.buckets_len != 1) {
         passed = false;
     }
@@ -64,17 +79,23 @@ bool test_event_recording() {
 }
 bool test_merge() {
     bool passed = true;
-    noop_backend noop = {  };
-    trace_backend backend = { .state = &noop, .send_fn = update_noop_backend };
     uint8_t * destination_a = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
-    tracer * tracer_a = tracer_initialize(destination_a, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &backend);
+    tracer * tracer_a = tracer_initialize(destination_a, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID);
     uint8_t * destination_b = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     uint32_t tracer_b_id = DEFAULT_TRACER_ID + 1;
-    tracer * tracer_b = tracer_initialize(destination_b, DEFAULT_TRACER_SIZE, tracer_b_id, &backend);
+    tracer * tracer_b = tracer_initialize(destination_b, DEFAULT_TRACER_SIZE, tracer_b_id);
     tracer_record_event(tracer_a, EVENT_A);
-    causal_snapshot snap_a = tracer_share_fixed_size_history(tracer_a);
+    causal_snapshot snap_a;
+    bool make_snap_success = tracer_share_fixed_size_history(tracer_a, &snap_a);
+    if (!make_snap_success) {
+        passed = false;
+    }
     tracer_merge_fixed_size_history(tracer_b, &snap_a);
-    causal_snapshot snap_b = tracer_share_fixed_size_history(tracer_b);
+    causal_snapshot snap_b;
+    make_snap_success = tracer_share_fixed_size_history(tracer_b, &snap_b);
+    if (!make_snap_success) {
+        passed = false;
+    }
     if (snap_b.buckets_len != 1) {
         passed = false;
     }
@@ -82,7 +103,11 @@ bool test_merge() {
         passed = false;
     }
     tracer_record_event(tracer_b, EVENT_A);
-    causal_snapshot snap_c = tracer_share_fixed_size_history(tracer_b);
+    causal_snapshot snap_c;
+    make_snap_success = tracer_share_fixed_size_history(tracer_b, &snap_c);
+    if (!make_snap_success) {
+        passed = false;
+    }
     if (snap_c.buckets_len != 2) {
         passed = false;
     }

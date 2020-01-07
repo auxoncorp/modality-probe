@@ -1,7 +1,7 @@
 package in_system;
 
 struct causal_snapshot {
-    int64_t tracer_id;
+    int32_t tracer_id;
     int32_t n_clock_buckets;
     logical_clock_bucket clock_buckets[n_clock_buckets];
 }

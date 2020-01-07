@@ -40,22 +40,10 @@ typedef struct causal_snapshot {
     uint8_t buckets_len;
 } causal_snapshot;
 
-
-typedef bool (*SendToBackendFn)(void *state, const uint8_t *data, size_t len);
-
-/*
- * Wrapper around user-defined function pointer and state blob for sending
- * trace data to the backend.
- */
-typedef struct trace_backend {
-    void * state;
-    SendToBackendFn send_fn;
-} trace_backend;
-
 /*
  * Create a tracer instance. tracer_id must be non-zero
  */
-tracer * tracer_initialize(uint8_t *destination, size_t destination_size_bytes, uint32_t tracer_id, trace_backend *backend);
+tracer * tracer_initialize(uint8_t *destination, size_t destination_size_bytes, uint32_t tracer_id);
 
 /*
  * Record an event.
@@ -64,19 +52,22 @@ tracer * tracer_initialize(uint8_t *destination, size_t destination_size_bytes, 
 void tracer_record_event(tracer *tracer, uint32_t event_id);
 
 /*
- * Conduct necessary background activities, such as transmission
- * of the the recorded events to a collection backend or
- * optimization of local data.
+ * Conduct necessary background activities, then
+ * write recorded events and logical clock data to a
+ * supplied destination.
  */
-void tracer_service(tracer *tracer);
+size_t tracer_write_log_report(tracer *tracer, uint8_t *log_report_destination, size_t log_report_destination_bytes);
 
 /*
  * Produce a transmittable opaque blob of this tracer's
  * causal history for use by another tracer elsewhere
  * in the system, filtered down to just the history
  * of this node and its immediate inbound neighbors.
+ *
+ * Returns 0 if an error occurred during writing.
+ * Otherwise, returns the number of bytes written.
  */
-bool tracer_share_history(tracer *tracer, uint8_t *history_destination, size_t history_destination_bytes);
+size_t tracer_share_history(tracer *tracer, uint8_t *history_destination, size_t history_destination_bytes);
 
 /*
  * Produce a transmittable summary of this tracer's
@@ -84,7 +75,7 @@ bool tracer_share_history(tracer *tracer, uint8_t *history_destination, size_t h
  * in the system, filtered down to just the history
  * of this node and its immediate inbound neighbors.
  */
-causal_snapshot tracer_share_fixed_size_history(tracer *tracer);
+bool tracer_share_fixed_size_history(tracer *tracer, causal_snapshot *snapshot);
 
 /*
  * Consume an opaque causal history blob provided

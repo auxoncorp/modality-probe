@@ -1,8 +1,15 @@
-use super::{CausalSnapshot, EventId, LocalStorageCreationError, LogicalClockBucket, TracerId};
+use super::{
+    CausalSnapshot, EventId, LocalStorageCreationError, LogicalClockBucket, MergeError, ShareError,
+    TracerId,
+};
+use crate::compact_log::{self, CompactLogItem};
 use core::cmp::{max, Ordering, PartialEq};
 use core::fmt::{Error as FmtError, Formatter};
 use core::mem::{align_of, size_of};
 use core::num::NonZeroU32;
+use rust_lcm_codec::{
+    BufferWriterError, DecodeFingerprintError, DecodeValueError, EncodeValueError,
+};
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert_eq};
 
 impl LogicalClockBucket {
@@ -197,27 +204,6 @@ pub struct DynamicHistory {
 #[derive(Debug)]
 struct BucketsFullError;
 
-/// In a stream of these:
-///     if the first bit is not set, treat it as recording an Event
-///     if the first bit is set, treat the rest of the value as a TracerId for a LogicalClockBucket
-///         AND the next item in the stream should be interpreted as a count for that bucket.
-#[repr(transparent)]
-pub struct CompactLogItem(u32);
-
-impl CompactLogItem {
-    fn event(event_id: EventId) -> Self {
-        // The construction checks for EventId should prevent the top bit from being set
-        CompactLogItem(event_id.get_raw())
-    }
-    #[must_use]
-    fn bucket(bucket: LogicalClockBucket) -> (Self, Self) {
-        // Set the top bit for id to indicate that it is not an event but a logical clock bucket,
-        // and to treat the next item as the count. Don't separate these two!
-        let id = bucket.id | 0b1000_0000_0000_0000;
-        (CompactLogItem(id), CompactLogItem(bucket.count))
-    }
-}
-
 impl DynamicHistory {
     pub fn new_at(
         destination: &mut [u8],
@@ -230,7 +216,6 @@ impl DynamicHistory {
         if destination.as_ptr().is_null() {
             return Err(LocalStorageCreationError::NullDestination);
         }
-
         let (header_ptr, header_bytes) = {
             let header_align_offset = destination
                 .as_mut_ptr()
@@ -265,16 +250,15 @@ impl DynamicHistory {
             if buckets_bytes > remaining_bytes {
                 return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
             }
-            (
-                unsafe { dynamic_region_ptr.add(buckets_align_offset) as *mut LogicalClockBucket },
-                buckets_bytes,
-                max_buckets_len,
-            )
+            let buckets_ptr =
+                unsafe { dynamic_region_ptr.add(buckets_align_offset) as *mut LogicalClockBucket };
+            assert!(
+                header_ptr as usize + size_of::<DynamicHistory>() <= buckets_ptr as usize,
+                "buckets pointer {:#X} should not overlap header [{:#X}..{:#X}] bytes, but they overlapped by {} bytes",
+                buckets_ptr as usize, header_ptr as usize, header_ptr as usize + header_bytes, (header_ptr as usize + header_bytes - buckets_ptr as usize)
+            );
+            (buckets_ptr, buckets_bytes, max_buckets_len)
         };
-        assert!(
-            header_ptr as usize + header_bytes <= buckets_ptr as usize,
-            "buckets pointer should not overlap header bytes"
-        );
 
         let dynamic_region_ptr = unsafe { dynamic_region_ptr.add(buckets_bytes) };
         let remaining_bytes = remaining_bytes - buckets_bytes;
@@ -354,6 +338,15 @@ impl DynamicHistory {
         }
     }
 
+    fn get_log_slice(&self) -> &[CompactLogItem] {
+        unsafe {
+            core::slice::from_raw_parts(
+                self.log_pointer as *mut CompactLogItem as *const CompactLogItem,
+                self.log_len,
+            )
+        }
+    }
+
     fn clear_log(&mut self) {
         self.log_len = 0;
         self.has_overflowed_log = false;
@@ -391,37 +384,36 @@ impl DynamicHistory {
     /// within the system under test
     ///
     /// If the write was successful, returns the number of bytes written
-    pub(crate) fn write_lcm_logical_clock(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+    pub(crate) fn write_lcm_logical_clock(
+        &mut self,
+        destination: &mut [u8],
+    ) -> Result<usize, ShareError> {
         self.increment_local_bucket_count();
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
-        // TODO - more error piping? Right now we assume remediation is largely infeasible.
-        // TODO - all this borrowing of Copy-type primitives for writes is an anti-pattern,
-        // need to fix in codegen
-        let w = lcm::in_system::Causal_snapshot::begin_write(&mut buffer_writer).map_err(|_| ())?;
+        let w = lcm::in_system::begin_causal_snapshot_write(&mut buffer_writer)?;
         let mut w = w
-            .write_tracer_id(&(self.tracer_id as i64))
-            .map_err(|_| ())?
-            .write_n_clock_buckets(&(self.buckets_len as i32))
-            .map_err(|_| ())?;
+            .write_tracer_id(self.tracer_id as i32)?
+            .write_n_clock_buckets(self.buckets_len as i32)?;
         for (i, item_writer) in (&mut w).enumerate() {
             let bucket: &mut LogicalClockBucket = unsafe { &mut *self.buckets.add(i) };
-            item_writer
-                .write(|bw| {
-                    Ok(bw
-                        .write_tracer_id(&(bucket.id as i32))?
-                        .write_count(&(bucket.count as i32))?)
-                })
-                .map_err(|_| ())?
+            item_writer.write(|bw| {
+                Ok(bw
+                    .write_tracer_id(bucket.id as i32)?
+                    .write_count(bucket.count as i32)?)
+            })?
         }
-        let _w = w.done().map_err(|_| ())?;
+        let _w = w.done()?;
         Ok(buffer_writer.cursor())
     }
 
     /// Produce a transparent but limited snapshot of the causal state for transmission
     /// within the system under test
-    pub(crate) fn fixed_size_snapshot(&mut self) -> CausalSnapshot {
-        self.increment_local_bucket_count();
+    pub(crate) fn write_fixed_size_logical_clock(&mut self) -> Result<CausalSnapshot, ShareError> {
         let mut buckets = arr_macro::arr![LogicalClockBucket { id: 0, count: 0}; 256];
+        if self.buckets_len > buckets.len() {
+            return Err(ShareError::InsufficientDestinationSize);
+        }
+        self.increment_local_bucket_count();
         let mut non_empty_buckets_count: usize = 0;
         for (source, sink) in self
             .get_buckets_slice()
@@ -434,40 +426,81 @@ impl DynamicHistory {
             non_empty_buckets_count += 1;
         }
 
-        CausalSnapshot {
+        Ok(CausalSnapshot {
             tracer_id: self.tracer_id,
             buckets,
             buckets_len: non_empty_buckets_count as u8,
-        }
+        })
     }
-    pub(crate) fn merge_from_bytes(&mut self, source: &[u8]) -> Result<(), ()> {
-        // TODO - interpret as LCM and merge
-        let neighbor_id = unimplemented!();
-        let buckets_iterator = core::iter::empty();
-        self.merge_internal(neighbor_id, buckets_iterator)
+    pub(crate) fn merge_from_bytes(&mut self, source: &[u8]) -> Result<(), MergeError> {
+        impl From<DecodeValueError<rust_lcm_codec::BufferReaderError>> for MergeError {
+            fn from(_: DecodeValueError<rust_lcm_codec::BufferReaderError>) -> Self {
+                MergeError::ExternalHistoryEncoding
+            }
+        }
+        impl From<DecodeFingerprintError<rust_lcm_codec::BufferReaderError>> for MergeError {
+            fn from(_: DecodeFingerprintError<rust_lcm_codec::BufferReaderError>) -> Self {
+                MergeError::ExternalHistoryEncoding
+            }
+        }
+        let mut buffer_reader = rust_lcm_codec::BufferReader::new(source);
+        let r = lcm::in_system::begin_causal_snapshot_read(&mut buffer_reader)?;
+        let (neighbor_id, r) = r.read_tracer_id()?;
+        let (_n_clock_buckets, mut r) = r.read_n_clock_buckets()?;
+        let buckets_iterator = (&mut r).filter_map(|item_reader| {
+            let mut found_id = 0;
+            let mut found_count = 0;
+            if item_reader
+                .read(|ir| {
+                    let (id, ir) = ir.read_tracer_id()?;
+                    found_id = id;
+                    let (count, ir) = ir.read_count()?;
+                    found_count = count;
+                    Ok(ir)
+                })
+                .is_err()
+            {
+                Some(Err(MergeError::ExternalHistoryEncoding))
+            } else {
+                Some(Ok(LogicalClockBucket {
+                    id: found_id as u32,
+                    count: found_count as u32,
+                }))
+            }
+        });
+        let merge_result = self.merge_internal(neighbor_id as u32, buckets_iterator);
+        // Confirm we have fully read the causal snapshot message
+        let _read_done_result: lcm::in_system::causal_snapshot_read_done<_> = r.done()?;
+        merge_result
     }
 
     /// Merge a publicly-transmittable causal history into our specialized local in-memory storage
-    pub(crate) fn merge_fixed_size(&mut self, external_history: &CausalSnapshot) -> Result<(), ()> {
+    pub(crate) fn merge_fixed_size(
+        &mut self,
+        external_history: &CausalSnapshot,
+    ) -> Result<(), MergeError> {
         let num_incoming_buckets = usize::from(external_history.buckets_len);
         self.merge_internal(
             external_history.tracer_id,
-            external_history.buckets.iter().take(num_incoming_buckets),
+            external_history
+                .buckets
+                .iter()
+                .take(num_incoming_buckets)
+                .map(|b| Ok(*b)),
         )
     }
 
-    fn merge_internal<'a, B>(
-        &'a mut self,
+    fn merge_internal<B>(
+        &mut self,
         raw_neighbor_id: u32,
         buckets_iterator: B,
-    ) -> Result<(), ()>
+    ) -> Result<(), MergeError>
     where
-        B: Iterator<Item = &'a LogicalClockBucket>,
+        B: Iterator<Item = Result<LogicalClockBucket, MergeError>>,
     {
         let external_id = match TracerId::new(raw_neighbor_id) {
             Some(id) => id,
-            // Invalid external id, can't trust anything it says
-            None => return Err(()),
+            None => return Err(MergeError::ExternalHistorySemantics),
         };
         let raw_neighbor_id = external_id.get_raw();
         // Ensure that there is a bucket for the neighbor that sent the snapshot
@@ -484,14 +517,29 @@ impl DynamicHistory {
                 .is_err()
             {
                 self.has_overflowed_num_buckets = true;
+                return Err(MergeError::ExceededAvailableClocks);
             }
         }
 
-        for external_bucket in buckets_iterator.filter(|b| b.count != 0) {
+        let mut outcome = Ok(());
+        for external_bucket in buckets_iterator {
+            let external_bucket = match external_bucket {
+                Ok(b) => b,
+                Err(e) => {
+                    outcome = Err(e);
+                    break;
+                }
+            };
+            if external_bucket.count == 0 {
+                continue;
+            }
             let id = match NonZeroU32::new(external_bucket.id) {
                 Some(id) => TracerId(id),
                 // Can't add this bucket to the state if we don't have a valid id for it
-                None => continue,
+                None => {
+                    outcome = Err(MergeError::ExternalHistorySemantics);
+                    break;
+                }
             };
             let raw_id = id.get_raw();
             for internal_bucket in self.get_buckets_slice_mut() {
@@ -507,11 +555,7 @@ impl DynamicHistory {
         }
         self.increment_local_bucket_count();
         self.write_current_buckets_to_log();
-        if self.has_overflowed_num_buckets {
-            Err(())
-        } else {
-            Ok(())
-        }
+        outcome
     }
 
     fn write_current_buckets_to_log(&mut self) {
@@ -545,27 +589,89 @@ impl DynamicHistory {
     ///   * Error flags
     ///   * Event ids for events that have happened since the last backend send
     ///   * Interspersed snapshots of the logical clock
-    pub(crate) fn send_to_backend(&mut self, backend: &mut dyn super::Backend) {
-        // TODO - proper LCM serialization of all the docs-mentioned content
-        // TODO - do we need to reserve space in our dynamically allocated memory for use
-        // in writing our LCM message out?
-        let snapshot = self.fixed_size_snapshot();
-        let snapshot_slice: &[u8] = unsafe {
-            core::slice::from_raw_parts(
-                (&snapshot as *const CausalSnapshot) as *const u8,
-                core::mem::size_of::<CausalSnapshot>(),
-            )
-        };
-        let send_succeeded = backend.send_tracer_data(snapshot_slice);
-        if send_succeeded {
-            self.clear_log();
-            self.record_event(super::BACKEND_SEND_SUCCESSFUL_EVENT);
-            self.write_current_buckets_to_log();
-            // TODO - Should we use some other mechanism for recording/identifying this internal event?
+    pub(crate) fn write_lcm_log_report(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+        self.increment_local_bucket_count();
+        self.write_current_buckets_to_log();
+        let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
+        let w = lcm::log_reporting::begin_log_report_write(&mut buffer_writer).map_err(|_| ())?;
+        let w = w.write_tracer_id(self.tracer_id as i32).map_err(|_| ())?;
+        let w = w
+            .write_flags(|fw| {
+                let fw = fw.write_has_overflowed_log(self.has_overflowed_log)?;
+                let fw = fw.write_has_overflowed_num_buckets(self.has_overflowed_num_buckets)?;
+                Ok(fw)
+            })
+            .map_err(|_| ())?;
+
+        let mut log_items = self.get_log_slice();
+        let expected_n_segments = compact_log::count_segments(log_items);
+        let mut w = w
+            .write_n_segments(expected_n_segments as i32)
+            .map_err(|_| ())?;
+        let mut actually_written_segments = 0;
+        let mut actually_written_log_items = 0;
+        for segment_item_writer in &mut w {
+            let segment = compact_log::split_next_segment(log_items);
+            log_items = segment.rest;
+            segment_item_writer
+                .write(|sw| {
+                    let sw = sw.write_n_clock_buckets(segment.clock_region.len() as i32 / 2)?;
+                    let mut sw = sw.write_n_events(segment.event_region.len() as i32)?;
+                    for (bucket_item_writer, bucket_parts) in
+                        (&mut sw).zip(segment.clock_region.chunks_exact(2))
+                    {
+                        bucket_item_writer.write(|bw| {
+                            let tracer_id =
+                                bucket_parts[0].interpret_as_logical_clock_bucket_tracer_id();
+                            Ok(bw
+                                .write_tracer_id(tracer_id as i32)?
+                                .write_count(bucket_parts[1].raw() as i32)?)
+                        })?;
+                    }
+                    actually_written_log_items += segment.clock_region.len();
+                    let mut sw = sw.done()?;
+                    for (event_item_writer, event) in (&mut sw).zip(segment.event_region) {
+                        event_item_writer.write(event.raw() as i32)?;
+                    }
+                    actually_written_log_items += segment.event_region.len();
+                    Ok(sw.done()?)
+                })
+                .map_err(|_| ())?;
+            actually_written_segments += 1;
         }
+        assert_eq!(
+            expected_n_segments, actually_written_segments,
+            "number of written segments should match the amount we tried"
+        );
+        assert_eq!(
+            actually_written_log_items, self.log_len,
+            "we should have written all of the log items into the segments"
+        );
+        let _w = w.done().map_err(|_| ())?;
+
+        self.clear_log();
+        self.write_current_buckets_to_log();
+        self.record_event(super::PRODUCED_BACKEND_LOG_REPORT);
+        Ok(buffer_writer.cursor())
     }
 }
 
+impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for ShareError {
+    fn from(e: EncodeValueError<rust_lcm_codec::BufferWriterError>) -> Self {
+        match e {
+            EncodeValueError::ArrayLengthMismatch(_) => ShareError::Encoding,
+            EncodeValueError::InvalidValue(_) => ShareError::Encoding,
+            EncodeValueError::WriterError(_) => ShareError::InsufficientDestinationSize,
+        }
+    }
+}
+impl From<rust_lcm_codec::BufferWriterError> for ShareError {
+    fn from(_: BufferWriterError) -> Self {
+        ShareError::InsufficientDestinationSize
+    }
+}
+
+#[allow(dead_code)]
 mod lcm {
     include!(concat!(env!("OUT_DIR"), "/in_system.rs"));
     include!(concat!(env!("OUT_DIR"), "/log_reporting.rs"));

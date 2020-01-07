@@ -1,7 +1,7 @@
 package log_reporting;
 
 struct log_report {
-    int64_t tracer_id;
+    int32_t tracer_id;
     error_flags flags;
     int32_t n_segments;
     log_segment segments[n_segments];
