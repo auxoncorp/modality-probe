@@ -126,7 +126,7 @@ impl From<csv::Error> for ReadError {
     }
 }
 
-pub fn read_csv_log_entries<'a, R: Read>(r: &mut R) -> Result<Vec<model::LogEntry>, ReadError> {
+pub fn read_csv_log_entries<R: Read>(r: &mut R) -> Result<Vec<model::LogEntry>, ReadError> {
     let mut csv = csv::Reader::from_reader(r);
     csv.deserialize()
         .map(|line| Ok(model::LogEntry::try_from(&line?)?))
