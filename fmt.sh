@@ -1,10 +1,9 @@
 #!/bin/sh
 
 set -ex
-
-cargo fmt
+cargo fmt --all
 
 (
-    cd truce-c
+    cd truce/truce-c
     cargo fmt
 )

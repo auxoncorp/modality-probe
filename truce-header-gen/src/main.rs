@@ -1,10 +1,10 @@
 use csv;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use std::fs::File;
+use std::io;
 use std::path::{Path, PathBuf};
 use structopt::StructOpt;
-use sha2::{Sha256, Digest};
-use std::io;
 
 #[derive(Debug, Deserialize)]
 struct EventId(u32);
@@ -18,7 +18,6 @@ struct Event {
     name: String,
     description: String,
 }
-
 
 #[derive(Debug, Deserialize)]
 struct Tracer {
@@ -59,7 +58,8 @@ impl Opt {
 }
 
 fn file_sha256(path: &Path) -> String {
-    let mut file = File::open(path).expect(&format!("Can't open file {} for hashing", path.display()));
+    let mut file =
+        File::open(path).expect(&format!("Can't open file {} for hashing", path.display()));
     let mut sha256 = Sha256::new();
     io::copy(&mut file, &mut sha256).expect(&format!("Error hashing file {}", path.display()));
     format!("{:x}", sha256.result())
@@ -80,7 +80,6 @@ fn main() {
         File::open(&opt.events_csv_file).expect("Can't open events csv file"),
     );
 
-
     println!("//");
     println!("// GENERATED CODE, DO NOT EDIT");
     println!("//");
@@ -95,11 +94,10 @@ fn main() {
         let const_name = format!("TR_{}", t.name.to_uppercase());
 
         println!("");
-        println!("/// Tracer: {}",  t.name);
-        println!("/// {}",  t.description);
+        println!("/// Tracer: {}", t.name);
+        println!("/// {}", t.description);
         println!("#define {} {}", const_name, t.id.0);
     }
-
 
     println!("");
     println!("//");
@@ -111,8 +109,8 @@ fn main() {
         let const_name = format!("EV_{}", e.name.to_uppercase());
 
         println!("");
-        println!("/// Trace event: {}",  e.name);
-        println!("/// {}",  e.description);
+        println!("/// Trace event: {}", e.name);
+        println!("/// {}", e.description);
         println!("#define {} {}", const_name, e.id.0);
     }
 }
