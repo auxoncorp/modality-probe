@@ -830,14 +830,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "truce-c"
-version = "0.1.0"
-dependencies = [
- "libc",
- "truce",
-]
-
-[[package]]
 name = "truce-header-gen"
 version = "0.1.0"
 dependencies = [

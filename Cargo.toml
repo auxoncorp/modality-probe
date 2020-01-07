@@ -1,7 +1,7 @@
 [workspace]
 members = [
   "truce",
-  "truce/truce-c",
   "truce-header-gen",
   "truce-analysis",
 ]
+
