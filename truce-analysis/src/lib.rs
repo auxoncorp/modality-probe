@@ -3,10 +3,12 @@ use serde;
 use std::convert::TryFrom;
 use std::io::{Read, Write};
 
-mod model;
+pub mod model;
 
+/// Serialization record for CSV storage
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
 struct LogFileLine {
+    session_id: u32,
     id: u64,
     receive_time: DateTime<Utc>,
     tracer_id: u32,
@@ -19,6 +21,7 @@ struct LogFileLine {
 impl From<&model::LogEntry> for LogFileLine {
     fn from(e: &model::LogEntry) -> LogFileLine {
         LogFileLine {
+            session_id: e.session_id.0,
             id: e.id.0,
             tracer_id: e.tracer_id.0,
             event_id: match &e.data {
@@ -39,21 +42,6 @@ impl From<&model::LogEntry> for LogFileLine {
             },
             receive_time: e.receive_time,
         }
-    }
-}
-
-#[derive(Debug)]
-pub enum ReadError {
-    InvalidContent {
-        log_entry_id: model::LogEntryId,
-        message: &'static str,
-    },
-    Csv(csv::Error),
-}
-
-impl From<csv::Error> for ReadError {
-    fn from(e: csv::Error) -> ReadError {
-        ReadError::Csv(e)
     }
 }
 
@@ -95,6 +83,7 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
         };
 
         Ok(model::LogEntry {
+            session_id: l.session_id.into(),
             id: log_entry_id,
             tracer_id: l.tracer_id.into(),
             data,
@@ -122,6 +111,21 @@ pub fn write_csv_log_entries<'a, W: Write, E: IntoIterator<Item = &'a model::Log
     Ok(())
 }
 
+#[derive(Debug)]
+pub enum ReadError {
+    InvalidContent {
+        log_entry_id: model::LogEntryId,
+        message: &'static str,
+    },
+    Csv(csv::Error),
+}
+
+impl From<csv::Error> for ReadError {
+    fn from(e: csv::Error) -> ReadError {
+        ReadError::Csv(e)
+    }
+}
+
 pub fn read_csv_log_entries<'a, R: Read>(r: &mut R) -> Result<Vec<model::LogEntry>, ReadError> {
     let mut csv = csv::Reader::from_reader(r);
     csv.deserialize()
@@ -131,13 +135,12 @@ pub fn read_csv_log_entries<'a, R: Read>(r: &mut R) -> Result<Vec<model::LogEntr
 
 #[cfg(test)]
 mod test {
-    //use super::model::*;
     use super::*;
-    //use chrono::prelude::*;
     use proptest::prelude::*;
 
     fn arb_log_file_line() -> impl Strategy<Value = LogFileLine> {
         (
+            any::<u32>(),
             any::<u64>(),
             model::test::arb_datetime(),
             any::<u32>(),
@@ -148,6 +151,7 @@ mod test {
         )
             .prop_map(
                 |(
+                    session_id,
                     id,
                     receive_time,
                     tracer_id,
@@ -156,6 +160,7 @@ mod test {
                     lc_clock,
                     preceding_entry,
                 )| LogFileLine {
+                    session_id,
                     id,
                     receive_time,
                     tracer_id,
