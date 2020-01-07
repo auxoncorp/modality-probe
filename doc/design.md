@@ -158,6 +158,36 @@ We will provide a library which supports implementing a Linux-based collector
 proxy; the incoming transport to the proxy is expected to be application
 specific, but the outgoing transport will connect to the Linux-based collector.
 
+## Developer tooling
+### System Id Definitions
+The tracing system relies on two sets of globally unique IDs: tracer ids and
+event ids. While the system can work with nothing but numbers, we provide a way
+to define named tracers and events via CSV files. This allows managing these
+files as spreadsheets, which is handy because the events file in particular may
+become quite large.
+
+Each row defines the ID, a short name used for code generation, and a free-form
+description. An example event csv definition (note that the file must start with
+a header row):
+
+```csv
+id,name,description
+1245,reached_waypoint,The robot reached a designated waypoint
+1246,lost_network_connectivity,The network signal dropped below usable levels
+```
+
+An example tracers csv definition:
+```csv
+id,name,description
+0,hpc,The HPC responsible for planning
+1,sensor_relay,The MPU which aggregates sensor sensor readings for the HPC
+```
+
+### Code generation
+`truce-header-gen` uses the `events.csv` and `tracers.csv` files to generate a C
+header file containing constants for each tracer and event.
+
+
 # Alternatives
 ## Causality tracking
 - Bloom clock (too new, but maybe a fallback if ITCs don't work)
