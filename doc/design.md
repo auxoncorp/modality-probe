@@ -14,6 +14,9 @@ threads (in the local process, or others) as a causality tracking mechanism. The
 library stores a sequence of events and logical clock snapshots; a separate
 thread sends the locally stored events to the collector.
 
+We call each of these serial event streams a "tracer", and each one gets a
+system-wide unique id.
+
 When a system cannot directly connect back to a collector, it may instead
 communicate with a proxy running on a machine it can connect to.
 
@@ -30,16 +33,49 @@ that sent it a logical clock). It uses this to limit the scope of the vector
 clock recorded in the event log; it only records the local segment and those
 from which it received logical clock messages.
 
-To accommodate this dynamic storage mechanism, we store key-value pairs.
+To accommodate this dynamic storage mechanism, we store key-value pairs. The key
+is the globally unique tracer id, and is logically a 31 bit unsigned integer.
+(that's not a typo, it's 31. See 'Compact log representation' below.). The value
+is a 32 bit unsigned integer representing the logical clock for that tracer.
 
-## Local log structure
-Local to each thread, a log is stored as an array of any of the following:
-- A logical clock snapshot (the log must start with this entry)
-- A logged event (number)
-- A logical clock diff
+### Logical clock overflow
+When incrementing the logical clock, we use a saturating addition. So once the
+maximum value of 0xffffffff is reached, it doesn't move anymore. We additionally
+set a boolean overflow flag, which is transimitted back to the collector.
 
-A single chunk of memory is allocated for log storage by the host application;
-we will define a compact local representation to maximize use off this buffer.
+### Logical clock transmission and encoding
+
+When using the library, the user must share the tracer-managed logical clock
+with other tracers. This should be done in-band with existing communications
+channels. From the API perspective, this payload is opaque; it simply needs to
+arrive at the other end intact, and be merged in to that side's tracer.
+
+Internally, we encode this payload using LCM. In consists of the tracer's own ID
+and logical clock, along with the logical clocks of each of each of its
+immediate neighbors. In principle, we should be able to get away with just
+transmitting the tracer's own clock, but this adds some redundancy in the case
+where the sending and receiving tracers have shared neighbors.
+
+The schema is defined in [in_system.lcm](file:../truce/schemas/in_system.lcm).
+
+## Compact log representation
+Local to each thread, we store a compact sequence of interleaved events and
+logical clock snapshots. We use a compact encoding for this:
+
+- The log is stored as an array of 32-bit unsigned integers
+
+- Events are stored as a single array entry, but the high bit must be zero (so
+  you only get 31 bits of resolution).
+
+- If the high bit is 1, then the remainder of the integer represents a tracer
+  id. In this case, the following array entry is the value of the logical clock
+  for that tracer, at this point in the log.
+
+This data structure supports the partial storage of logical clocks, so only the
+part that is changed needs to be recorded.
+
+Future versions of this data structure may use a variable-length integer
+representation (protobuf-style) for even more compact storage.
 
 ## Tracing library
 We will provide a no-std compatible Rust library to locally manage the log
@@ -47,13 +83,21 @@ structure, produce and consume logical clock messages, and to manage
 communication with the collector. Additional std-only features will allow
 starting an independent thread to communicate with the collector.
 
-### Coarse API
-When the user integrates the tracing library, they have to:
- - Provide init stuff
- - Provide a way to move around the logical clock: get the current value, ingest
-   a peer's clock
- - Log an event
- - Do collector comms
+### C API
+While implemented in Rust, the tracing library provides a C API for easy
+integration with embedded development stacks. There are three basic points of
+interaction, post-initialization:
+
+1. Event logging: `tracer_record_event` is used to add an event to the log.
+
+2. Causality tracking: `tracer_share_history` will produce a causality payload
+   which should be passed to other tracers, and `tracer_merge_history` can be
+   used to consume the payload when it is received.
+
+3. Reporting: `tracer_export_log` will fill a user-provided buffer with
+   LCM-formatted log data that is ready to be transmitted to the collector.
+
+The C API is defined in [trucec.h](file:../truce/truce-c/include/trucec.h).
 
 ### Concurrency
 Each thread has its own logical clock and local log, which it entirely owns.
@@ -66,12 +110,30 @@ across threads in a single process. This would layer a process-wide mutex (or
 similar) on top of the normal lock-free api.
 
 ## Collector
-### Protocol
-We will define a unidirectional message-based protocol for delivering log data
-back to the collector. Multiple messages may be required to deliver spooled log
-data - each message should fit in a standard MTU TCP packet. Each message will
-be formatted to be independently usable - the first entry will be a fully
-qualified logical clock.
+### Log Reporting Messages
+LCM is used as the the message serialization format and schema language.
+
+When log data is sent from tracers back to the collector, it uses a slightly
+different data structure. While the compact in-memory representation could be
+shipped directly as a binary payload, that format cannot be represented by any
+schema language we know of. Instead, we define a slightly less efficient
+structure that /can/ be described by the schema, gaining the documentation and
+interoperability benefits it provides.
+
+In the transport format, we observe that typical log data will have sparse
+logical clock snapshots, separated by large sequences of regular events. We
+split the sequence on the logical clock snapshots. A *segment* begins with a
+logical clock snapshot, and is then followed by a sequence of events. When
+another snapshot is reached, another segment begins.
+
+At the top level of the log message, we also send the source tracer id and some
+top-level overflow flags.
+
+The schema is defined in [log_reporting.lcm](file:../truce/schemas/log_reporting.lcm).
+
+### TCP Transport
+TODO Define a TCP-based transport for this.
+
 
 ### Linux-based daemon
 We will provide a collector daemon which runs on a regular computer. It receives
@@ -80,16 +142,51 @@ stores this information in a plain-text file.
 
 ### Basic CLI tooling
 We will provide some kind of primitive command line tooling.
+
 - Interpret an event id -> name map
+
 - View log events
+
 - Basic filtering
+
 - Some kind of interpretation of the causal relationships between events.
+
   - Perhaps a textual sequence diagram
 
 ### Proxy library
 We will provide a library which supports implementing a Linux-based collector
 proxy; the incoming transport to the proxy is expected to be application
 specific, but the outgoing transport will connect to the Linux-based collector.
+
+## Developer tooling
+### System Id Definitions
+The tracing system relies on two sets of globally unique IDs: tracer ids and
+event ids. While the system can work with nothing but numbers, we provide a way
+to define named tracers and events via CSV files. This allows managing these
+files as spreadsheets, which is handy because the events file in particular may
+become quite large.
+
+Each row defines the ID, a short name used for code generation, and a free-form
+description. An example event csv definition (note that the file must start with
+a header row):
+
+```csv
+id,name,description
+1245,reached_waypoint,The robot reached a designated waypoint
+1246,lost_network_connectivity,The network signal dropped below usable levels
+```
+
+An example tracers csv definition:
+```csv
+id,name,description
+0,hpc,The HPC responsible for planning
+1,sensor_relay,The MPU which aggregates sensor sensor readings for the HPC
+```
+
+### Code generation
+`truce-header-gen` uses the `events.csv` and `tracers.csv` files to generate a C
+header file containing constants for each tracer and event.
+
 
 # Alternatives
 ## Causality tracking
@@ -112,4 +209,3 @@ interpretability.
 # Costs
 
 # Open Questions
-- What does a diff look like for an ITC?
