@@ -117,7 +117,6 @@ pub struct LogEntry {
     /// None should only be used for LogicalClock entries.
     pub preceding_entry: Option<LogEntryId>,
 
-
     /// The time this entry was received by the collector
     ///
     /// This is the collector's system clock at the time the entry data was
@@ -207,7 +206,12 @@ pub mod test {
     }
 
     pub fn arb_derived_log_edge() -> impl Strategy<Value = DerivedLogEdge> {
-        (arb_session_id(), arb_log_entry_id(), arb_log_entry_id())
-            .prop_map(|(session_id, before, after)| DerivedLogEdge { session_id, before, after })
+        (arb_session_id(), arb_log_entry_id(), arb_log_entry_id()).prop_map(
+            |(session_id, before, after)| DerivedLogEdge {
+                session_id,
+                before,
+                after,
+            },
+        )
     }
 }
