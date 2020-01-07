@@ -1,8 +1,9 @@
 use chrono::prelude::*;
 
 macro_rules! newtype {
-    (pub struct $name:ident(pub $t:ty);) => {
+   ($(#[$meta:meta])* pub struct $name:ident(pub $t:ty);) => {
         #[derive(Debug, Eq, PartialEq)]
+        $(#[$meta])*
         pub struct $name(pub $t);
 
         impl From<$t> for $name {
@@ -19,9 +20,29 @@ macro_rules! newtype {
     };
 }
 
-newtype! { pub struct EventId(pub u32); }
-newtype! { pub struct TracerId(pub u32); }
-newtype! { pub struct LogEntryId(pub u32); }
+newtype! {
+    /// A log event
+    ///
+    /// This is event id as used in the events.csv file, used in the tracing
+    /// library on each client, and transmitted in the wire protocol.
+    pub struct EventId(pub u32);
+}
+
+newtype! {
+    /// The id of a tracer
+    ///
+    /// This is the tracer id as represented in the wire protocol.
+    pub struct TracerId(pub u32);
+}
+
+newtype! {
+    /// The id of a single entry in the log
+    ///
+    /// This identifies a single entry in the event log, which may either be an
+    /// event or a piece of a logical clock. These ids are unique within a
+    /// session. It is used to represent known orderings between events.
+    pub struct LogEntryId(pub u64);
+}
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Event {
@@ -92,7 +113,7 @@ pub mod test {
     }
 
     pub fn arb_log_entry_id() -> impl Strategy<Value = LogEntryId> {
-        any::<u32>().prop_map_into()
+        any::<u64>().prop_map_into()
     }
 
     pub fn arb_event() -> impl Strategy<Value = Event> {

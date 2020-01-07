@@ -7,13 +7,13 @@ mod model;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
 struct LogFileLine {
-    id: u32,
+    id: u64,
     receive_time: DateTime<Utc>,
     tracer_id: u32,
     event_id: Option<u32>,
     lc_tracer_id: Option<u32>,
     lc_clock: Option<u32>,
-    preceding_entry: Option<u32>,
+    preceding_entry: Option<u64>,
 }
 
 impl From<&model::LogEntry> for LogFileLine {
@@ -138,13 +138,13 @@ mod test {
 
     fn arb_log_file_line() -> impl Strategy<Value = LogFileLine> {
         (
-            any::<u32>(),
+            any::<u64>(),
             model::test::arb_datetime(),
             any::<u32>(),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
-            proptest::option::of(any::<u32>()),
+            proptest::option::of(any::<u64>()),
         )
             .prop_map(
                 |(
