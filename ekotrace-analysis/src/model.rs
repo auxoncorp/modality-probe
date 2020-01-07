@@ -2,7 +2,6 @@ use chrono::prelude::*;
 
 macro_rules! newtype {
    ($(#[$meta:meta])* pub struct $name:ident(pub $t:ty);) => {
-        #[derive(Debug, Eq, PartialEq)]
         $(#[$meta])*
         pub struct $name(pub $t);
 
@@ -26,8 +25,18 @@ newtype! {
     /// A session is an arbitrary scope for log events. Event ordering is (via
     /// sequence and logical clocks) is resolved between events in the same
     /// session.
-    #[derive(Clone, Copy)]
+    #[derive(Debug, Eq, PartialEq, Copy, Clone)]
     pub struct SessionId(pub u32);
+}
+
+newtype! {
+    /// A log segment
+    ///
+    /// The log is divided into segments, each of which begins with some logical
+    /// clock entries and ends with a sequence of events. The id must be unique
+    /// within the session.
+    #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
+    pub struct SegmentId(pub u32);
 }
 
 newtype! {
@@ -35,7 +44,7 @@ newtype! {
     ///
     /// This is event id as used in the events.csv file, used in the tracing
     /// library on each client, and transmitted in the wire protocol.
-    #[derive(Clone, Copy)]
+    #[derive(Debug, Eq, PartialEq, Copy, Clone)]
     pub struct EventId(pub u32);
 }
 
@@ -43,18 +52,8 @@ newtype! {
     /// The id of a tracer
     ///
     /// This is the tracer id as represented in the wire protocol.
-    #[derive(Clone, Copy)]
+    #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone, PartialOrd, Ord)]
     pub struct TracerId(pub u32);
-}
-
-newtype! {
-    /// The id of a single entry in the log
-    ///
-    /// This identifies a single entry in the event log, which may either be an
-    /// event or a piece of a logical clock. These ids are unique within a
-    /// session. It is used to represent known orderings between events.
-    #[derive(Clone, Copy)]
-    pub struct LogEntryId(pub u64);
 }
 
 /// Map an event id to its name and description
@@ -104,22 +103,17 @@ pub struct LogEntry {
     /// The session in which this entry was made. Used to qualify the id field.
     pub session_id: SessionId,
 
-    /// The id of this entry. Unique with in the session given by session_id.
-    pub id: LogEntryId,
+    /// The segment to which this entry belongs
+    pub segment_id: SegmentId,
+
+    /// Where this entry occurs within the segment
+    pub segment_index: u32,
 
     /// The tracer that supplied this entry
     pub tracer_id: TracerId,
 
     /// This entry's data; an event, or a logical clock snapshot
     pub data: LogEntryData,
-
-    /// The entry which immediately precedes this one in the log.
-    ///
-    /// The preceding entry must be in the same session as this one, and should
-    /// have the same tracer id. If there is no immediate predecessor available
-    /// when the entry is written, None should be used. If the data is well-formed,
-    /// None should only be used for LogicalClock entries.
-    pub preceding_entry: Option<LogEntryId>,
 
     /// The time this entry was received by the collector
     ///
@@ -129,11 +123,28 @@ pub struct LogEntry {
     pub receive_time: DateTime<Utc>,
 }
 
+impl LogEntry {
+    pub fn is_event(&self) -> bool {
+        match self.data {
+            LogEntryData::Event(_) => true,
+            LogEntryData::LogicalClock(_, _) => false
+        }
+    }
+
+    pub fn is_clock(&self) -> bool {
+        match self.data {
+            LogEntryData::Event(_) => false,
+            LogEntryData::LogicalClock(_, _) => true
+        }
+    }
+}
+
+
 #[derive(Debug, Eq, PartialEq)]
-pub struct DerivedLogEdge {
+pub struct CrossSegmentLink {
     pub session_id: SessionId,
-    pub before: LogEntryId,
-    pub after: LogEntryId,
+    pub before: SegmentId,
+    pub after: SegmentId,
 }
 
 #[cfg(test)]
@@ -146,16 +157,20 @@ pub mod test {
         any::<u32>().prop_map_into()
     }
 
+    pub fn arb_segment_id() -> impl Strategy<Value = SegmentId> {
+        any::<u32>().prop_map_into()
+    }
+
+    pub fn arb_segment_index() -> impl Strategy<Value = u32> {
+        any::<u32>()
+    }
+
     pub fn arb_event_id() -> impl Strategy<Value = EventId> {
         proptest::bits::u32::masked(0x7fffffff).prop_map_into()
     }
 
     pub fn arb_tracer_id() -> impl Strategy<Value = TracerId> {
         proptest::bits::u32::masked(0x7fffffff).prop_map_into()
-    }
-
-    pub fn arb_log_entry_id() -> impl Strategy<Value = LogEntryId> {
-        any::<u64>().prop_map_into()
     }
 
     pub fn arb_event_mapping() -> impl Strategy<Value = EventMapping> {
@@ -191,31 +206,31 @@ pub mod test {
     pub fn arb_log_entry() -> impl Strategy<Value = LogEntry> {
         (
             arb_session_id(),
-            arb_log_entry_id(),
+            arb_segment_id(),
+            arb_segment_index(),
             arb_tracer_id(),
             arb_log_entry_data(),
-            proptest::option::of(arb_log_entry_id()),
             arb_datetime(),
         )
             .prop_map(
-                |(session_id, id, tracer_id, data, preceding_entry, receive_time)| LogEntry {
+                |(session_id, segment_id, segment_index, tracer_id, data, receive_time)| LogEntry {
                     session_id,
-                    id,
+                    segment_id,
+                    segment_index,
                     tracer_id,
                     data,
-                    preceding_entry,
                     receive_time,
                 },
             )
     }
 
-    pub fn arb_derived_log_edge() -> impl Strategy<Value = DerivedLogEdge> {
-        (arb_session_id(), arb_log_entry_id(), arb_log_entry_id()).prop_map(
-            |(session_id, before, after)| DerivedLogEdge {
-                session_id,
-                before,
-                after,
-            },
-        )
-    }
+    // pub fn arb_derived_log_edge() -> impl Strategy<Value = DerivedLogEdge> {
+    //     (arb_session_id(), arb_log_entry_id(), arb_log_entry_id()).prop_map(
+    //         |(session_id, before, after)| DerivedLogEdge {
+    //             session_id,
+    //             before,
+    //             after,
+
+    //     )
+    // }
 }

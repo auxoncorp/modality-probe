@@ -1,5 +1,7 @@
 use chrono::prelude::*;
+use itertools::Itertools;
 use serde;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io::{Read, Write};
 
@@ -9,20 +11,21 @@ pub mod model;
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
 struct LogFileLine {
     session_id: u32,
-    id: u64,
+    segment_id: u32,
+    segment_index: u32,
     receive_time: DateTime<Utc>,
     tracer_id: u32,
     event_id: Option<u32>,
     lc_tracer_id: Option<u32>,
     lc_clock: Option<u32>,
-    preceding_entry: Option<u64>,
 }
 
 impl From<&model::LogEntry> for LogFileLine {
     fn from(e: &model::LogEntry) -> LogFileLine {
         LogFileLine {
             session_id: e.session_id.0,
-            id: e.id.0,
+            segment_id: e.segment_id.0,
+            segment_index: e.segment_index,
             tracer_id: e.tracer_id.0,
             event_id: match &e.data {
                 model::LogEntryData::Event(id) => Some(id.0),
@@ -36,10 +39,6 @@ impl From<&model::LogEntry> for LogFileLine {
                 model::LogEntryData::LogicalClock(_, clock) => Some(*clock),
                 _ => None,
             },
-            preceding_entry: match &e.preceding_entry {
-                Some(id) => Some(id.0),
-                None => None,
-            },
             receive_time: e.receive_time,
         }
     }
@@ -49,17 +48,23 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
     type Error = ReadError;
 
     fn try_from(l: &LogFileLine) -> Result<model::LogEntry, Self::Error> {
-        let log_entry_id: model::LogEntryId = l.id.into();
+        let session_id: model::SessionId = l.session_id.into();
+        let segment_id: model::SegmentId = l.segment_id.into();
+        let segment_index: u32 = l.segment_index;
 
         let data = if let Some(event_id) = l.event_id {
             if l.lc_tracer_id.is_some() {
                 return Err(ReadError::InvalidContent {
-                    log_entry_id,
+                    session_id,
+                    segment_id,
+                    segment_index,
                     message: "When event_id is present, lc_tracer_id must be empty",
                 });
             } else if l.lc_clock.is_some() {
                 return Err(ReadError::InvalidContent {
-                    log_entry_id,
+                    session_id,
+                    segment_id,
+                    segment_index,
                     message: "When event_id is present, lc_clock must be empty",
                 });
             }
@@ -69,7 +74,9 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
             match l.lc_clock {
                 None => {
                     return Err(ReadError::InvalidContent {
-                        log_entry_id,
+                        session_id,
+                        segment_id,
+                        segment_index,
                         message: "When lc_tracer_id is present, lc_clock must also be present",
                     });
                 }
@@ -77,17 +84,17 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
             }
         } else {
             return Err(ReadError::InvalidContent {
-                log_entry_id,
+                session_id, segment_id, segment_index,
                 message: "Either event_id must be present, or both lc_tracer_id and lc_clock must both be present",
             });
         };
 
         Ok(model::LogEntry {
-            session_id: l.session_id.into(),
-            id: log_entry_id,
+            session_id,
+            segment_id,
+            segment_index,
             tracer_id: l.tracer_id.into(),
             data,
-            preceding_entry: l.preceding_entry.map(|id| id.into()),
             receive_time: l.receive_time,
         })
     }
@@ -114,7 +121,9 @@ pub fn write_csv_log_entries<'a, W: Write, E: IntoIterator<Item = &'a model::Log
 #[derive(Debug)]
 pub enum ReadError {
     InvalidContent {
-        log_entry_id: model::LogEntryId,
+        session_id: model::SessionId,
+        segment_id: model::SegmentId,
+        segment_index: u32,
         message: &'static str,
     },
     Csv(csv::Error),
@@ -133,6 +142,149 @@ pub fn read_csv_log_entries<R: Read>(r: &mut R) -> Result<Vec<model::LogEntry>, 
         .collect()
 }
 
+/// Just the segment information needed for indexing
+#[derive(Clone)]
+struct SegmentMetadata {
+    id: model::SegmentId,
+    tracer_id: model::TracerId,
+    // TODO: maybe this should be a btreemap?
+    logical_clock: HashMap<model::TracerId, u32>,
+}
+
+impl SegmentMetadata {
+    fn local_clock(&self) -> Option<u32> {
+        match self.logical_clock.get(&self.tracer_id) {
+            Some(c) => Some(*c),
+            None => None,
+        }
+    }
+}
+
+struct SegmentMetadataIndex(HashMap<model::SegmentId, SegmentMetadata>);
+impl SegmentMetadataIndex {
+    fn new() -> SegmentMetadataIndex {
+        SegmentMetadataIndex(HashMap::new())
+    }
+
+    fn insert(&mut self, smd: SegmentMetadata) {
+        self.0.insert(smd.id, smd);
+    }
+}
+
+// source tracer id -> local clock value -> segment id
+struct LCIndex(HashMap<model::TracerId, BTreeMap<u32, model::SegmentId>>);
+impl LCIndex {
+    fn new() -> LCIndex {
+        LCIndex(HashMap::new())
+    }
+
+    fn add(&mut self, smd: &SegmentMetadata) {
+        // This should always be true
+        if let Some(local_clock) = smd.local_clock() {
+            self.0
+                .entry(smd.tracer_id)
+                .or_insert_with(BTreeMap::new)
+                .insert(local_clock, smd.id);
+        }
+    }
+
+    fn find_segment_direct_ancestors(
+        &self,
+        smd: &SegmentMetadata,
+        smd_index: &SegmentMetadataIndex,
+    ) -> HashSet<model::SegmentId> {
+        let mut segs = HashSet::new();
+        let local_clock = *smd.logical_clock.get(&smd.tracer_id).unwrap();
+
+        let mut local_ancestors = vec![];
+        self.0
+            .get(&smd.tracer_id)
+            .unwrap()
+            .range(local_clock.saturating_sub(5)..local_clock)
+            .rfold((), |_, (_, &sid)| {
+                local_ancestors.push(smd_index.0.get(&sid).unwrap())
+            });
+
+        // Then, go through all the other (non-local) clock entries.
+        for (bucket_tracer_id, bucket_clock) in smd.logical_clock.iter() {
+            if *bucket_tracer_id != smd.tracer_id {
+                // check if any direct ancestor (segs from the same source
+                // tracer) already has this same exact clock entry; if so,
+                // making an edge for this one, since it would be redundant.
+
+                for local_ancestor in local_ancestors.iter() {
+                    if local_ancestor.logical_clock.get(&bucket_tracer_id) == Some(&bucket_clock) {
+                        continue;
+                    }
+                }
+            }
+
+            if let Some((_, sid)) = self
+                .0
+                .get(&bucket_tracer_id)
+                .unwrap()
+                .range(0..*bucket_clock)
+                .last()
+            {
+                segs.insert(*sid);
+            }
+        }
+
+        segs
+    }
+}
+
+pub fn synthesize_cross_segment_links<'a, W: Write, L: IntoIterator<Item = &'a model::LogEntry>>(
+    log: L,
+    session_id: model::SessionId,
+) -> Vec<model::CrossSegmentLink> {
+    // build indexes
+    let mut smi = SegmentMetadataIndex::new();
+    for (segment_id, clock_events) in &log
+        .into_iter()
+        .filter(|e| e.session_id == session_id && e.is_clock())
+        .group_by(|e| e.segment_id)
+    {
+        // let clock_events = clock_events;
+
+        let mut logical_clock = HashMap::new();
+        let mut tracer_id = None;
+        for e in clock_events {
+            // this should be the case every time, because of the filter above
+            if let model::LogEntryData::LogicalClock(bucket_id, count) = e.data {
+                logical_clock.insert(bucket_id, count);
+                tracer_id = Some(e.tracer_id);
+            }
+        }
+
+        smi.insert(SegmentMetadata {
+            id: segment_id,
+            // since you can't have made a group with nothing in it, we're
+            // guaranteed to always get a Some() here.
+            tracer_id: tracer_id.unwrap(),
+            logical_clock,
+        });
+    }
+
+    let mut lci = LCIndex::new();
+    for (_, smd) in smi.0.iter() {
+        lci.add(&smd);
+    }
+
+    let mut links = vec![];
+    for (_, smd) in smi.0.iter() {
+        for ancestor in lci.find_segment_direct_ancestors(&smd, &smi).into_iter() {
+            links.push(model::CrossSegmentLink {
+                session_id,
+                before: ancestor,
+                after: smd.id,
+            })
+        }
+    }
+
+    links
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -141,33 +293,33 @@ mod test {
     fn arb_log_file_line() -> impl Strategy<Value = LogFileLine> {
         (
             any::<u32>(),
-            any::<u64>(),
+            any::<u32>(),
+            any::<u32>(),
             model::test::arb_datetime(),
             any::<u32>(),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
-            proptest::option::of(any::<u64>()),
         )
             .prop_map(
                 |(
                     session_id,
-                    id,
+                    segment_id,
+                    segment_index,
                     receive_time,
                     tracer_id,
                     event_id,
                     lc_tracer_id,
                     lc_clock,
-                    preceding_entry,
                 )| LogFileLine {
                     session_id,
-                    id,
+                    segment_id,
+                    segment_index,
                     receive_time,
                     tracer_id,
                     event_id,
                     lc_tracer_id,
                     lc_clock,
-                    preceding_entry,
                 },
             )
     }
@@ -191,8 +343,16 @@ mod test {
         {
             match model::LogEntry::try_from(&line) {
                 // This should fail sometimes, but always in the same way
-                Err(ReadError::InvalidContent{ log_entry_id, .. }) =>
-                    prop_assert_eq!(log_entry_id.0, line.id),
+                Err(ReadError::InvalidContent{
+                    session_id,
+                    segment_id,
+                    segment_index,
+                    .. }) =>
+                {
+                    prop_assert_eq!(session_id, line.session_id.into());
+                    prop_assert_eq!(segment_id, line.segment_id.into());
+                    prop_assert_eq!(segment_index, line.segment_index.into());
+                }
 
                 Err(err) =>
                     prop_assert!(false, "Unexpected conversion error: {:?}", err),
