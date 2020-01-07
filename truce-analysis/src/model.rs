@@ -53,16 +53,17 @@ newtype! {
     pub struct LogEntryId(pub u64);
 }
 
+/// Map an event id to its name and description
 #[derive(Debug, Eq, PartialEq)]
-pub struct Event {
+pub struct EventMapping {
     id: EventId,
     name: String,
-
     description: String,
 }
 
+/// Map an tracer id to its name and description
 #[derive(Debug, Eq, PartialEq)]
-pub struct Tracer {
+pub struct TracerMapping {
     id: TracerId,
     name: String,
     description: String,
@@ -154,9 +155,9 @@ pub mod test {
         any::<u64>().prop_map_into()
     }
 
-    pub fn arb_event() -> impl Strategy<Value = Event> {
+    pub fn arb_event_mapping() -> impl Strategy<Value = EventMapping> {
         (arb_event_id(), any::<String>(), any::<String>()).prop_map(|(id, name, description)| {
-            Event {
+            EventMapping {
                 id,
                 name,
                 description,
@@ -164,9 +165,9 @@ pub mod test {
         })
     }
 
-    pub fn arb_tracer() -> impl Strategy<Value = Tracer> {
+    pub fn arb_tracer_mapping() -> impl Strategy<Value = TracerMapping> {
         (arb_tracer_id(), any::<String>(), any::<String>()).prop_map(|(id, name, description)| {
-            Tracer {
+            TracerMapping {
                 id,
                 name,
                 description,
