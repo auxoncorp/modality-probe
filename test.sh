@@ -6,11 +6,11 @@ cargo build --all
 cargo test
 
 (
-    cd truce-c
+    cd truce/truce-c
     cargo test
 )
 
 (
-    cd truce-c/ctest
+    cd truce/truce-c/ctest
     ./build_and_run
 )
