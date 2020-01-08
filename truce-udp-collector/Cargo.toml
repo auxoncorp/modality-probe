@@ -15,11 +15,11 @@ path = "src/main.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-arr_macro = "0.1.3"
+chrono = { version = "0.4", features = ["serde"] }
 rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
 static_assertions = "1.1.0"
+truce-analysis = { path = "../truce-analysis" }
 
 [build-dependencies]
 rust-lcm-codegen = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
 
-[workspace]

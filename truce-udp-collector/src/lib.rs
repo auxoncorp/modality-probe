@@ -1,9 +1,30 @@
-use std::io::Error as IoError;
+use std::io::{Write, Error as IoError};
 use std::net::{SocketAddr, UdpSocket};
+use truce_analysis::model::{SessionId, LogEntry, LogEntryData, LogEntryId};
+use std::path::PathBuf;
+use chrono::Utc;
 
-pub fn start_receiving_from_socket(socket: UdpSocket) {
+#[derive(Debug, PartialEq)]
+pub struct Config {
+    pub addr: SocketAddr,
+    pub session_id: SessionId,
+    pub output_file: PathBuf
+}
+pub fn start_receiving(config: Config) -> Result<(), IoError> {
+    let mut file = std::fs::OpenOptions::new().append(true).create(true).open(config.output_file)?;
+    start_receiving_at_addr(config.addr, config.session_id, &mut file)
+}
+
+pub fn start_receiving_at_addr<W: Write>(addr: SocketAddr, session_id: SessionId, log_output_writer: &mut W) -> Result<(), IoError> {
+    start_receiving_from_socket(UdpSocket::bind(addr)?, session_id, log_output_writer);
+    Ok(())
+}
+
+pub fn start_receiving_from_socket<W: Write>(socket: UdpSocket, session_id: SessionId, log_output_writer: &mut W) {
     let addr = socket.local_addr().map(|a| a.to_string());
     let mut buf = vec![0u8; 1024 * 1024];
+    let mut raw_log_entry_id: u64 = 0;
+    let mut log_entries_buffer: Vec<LogEntry> = Vec::with_capacity(4096);
     loop {
         let (bytes_read, _src) = match socket.recv_from(&mut buf) {
             Ok(r) => r,
@@ -15,6 +36,7 @@ pub fn start_receiving_from_socket(socket: UdpSocket) {
                 continue;
             }
         };
+        let receive_time = Utc::now();
         // N.B. If we were feeling bottlenecked, hand off the read bytes to another thread
         // N.B. If we were feeling fancy, do said handoff by reading directly into a rotating preallocated
         // slot in a concurrent queue, ala LMAX Disruptor
@@ -28,13 +50,44 @@ pub fn start_receiving_from_socket(socket: UdpSocket) {
             }
         };
 
-        // TODO - write the essential bits of the log to disk
-        println!("Received log report:\n{:#?}", log_report);
+        // N.B. To avoid copies and allocation, skip materializing a log report
+        // and instead directly create log entries. Probably wise to wait until the
+        // log format settles down some before doing this.
+        log_entries_buffer.clear();
+        let tracer_id = (log_report.tracer_id as u32).into();
+        let mut preceding_entry: Option<LogEntryId> = None;
+        for segment in log_report.segments {
+            for clock_bucket in segment.clock_buckets {
+                let id = LogEntryId::from(raw_log_entry_id);
+                log_entries_buffer.push(LogEntry {
+                    session_id,
+                    id: raw_log_entry_id.into(),
+                    tracer_id,
+                    data: LogEntryData::LogicalClock((clock_bucket.tracer_id as u32).into(), clock_bucket.count as u32),
+                    preceding_entry,
+                    receive_time
+                });
+                raw_log_entry_id += 1;
+                preceding_entry = Some(id);
+            }
+            for event in segment.events {
+                let id = LogEntryId::from(raw_log_entry_id);
+                log_entries_buffer.push(LogEntry {
+                    session_id,
+                    id: raw_log_entry_id.into(),
+                    tracer_id,
+                    data: LogEntryData::Event((event as u32).into()),
+                    preceding_entry,
+                    receive_time
+                });
+                raw_log_entry_id += 1;
+                preceding_entry = Some(id);
+            }
+        }
+        if let Err(e) = truce_analysis::write_csv_log_entries(log_output_writer, &log_entries_buffer, false) {
+            eprintln!("Error writing log entries: {}", e);
+        }
     }
-}
-pub fn start_receiving_at_addr(addr: SocketAddr) -> Result<(), IoError> {
-    start_receiving_from_socket(UdpSocket::bind(addr)?);
-    Ok(())
 }
 
 #[allow(dead_code)]
