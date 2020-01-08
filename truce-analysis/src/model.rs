@@ -26,6 +26,7 @@ newtype! {
     /// A session is an arbitrary scope for log events. Event ordering is (via
     /// sequence and logical clocks) is resolved between events in the same
     /// session.
+    #[derive(Clone, Copy)]
     pub struct SessionId(pub u32);
 }
 
@@ -34,6 +35,7 @@ newtype! {
     ///
     /// This is event id as used in the events.csv file, used in the tracing
     /// library on each client, and transmitted in the wire protocol.
+    #[derive(Clone, Copy)]
     pub struct EventId(pub u32);
 }
 
@@ -41,6 +43,7 @@ newtype! {
     /// The id of a tracer
     ///
     /// This is the tracer id as represented in the wire protocol.
+    #[derive(Clone, Copy)]
     pub struct TracerId(pub u32);
 }
 

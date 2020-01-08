@@ -3,5 +3,6 @@ members = [
   "truce",
   "truce-header-gen",
   "truce-analysis",
+  "truce-udp-collector"
 ]
 
