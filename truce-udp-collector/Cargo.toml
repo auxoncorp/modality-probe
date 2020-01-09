@@ -23,3 +23,7 @@ truce-analysis = { path = "../truce-analysis" }
 [build-dependencies]
 rust-lcm-codegen = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
 
+[dev-dependencies]
+crossbeam = "0.7.3"
+proptest = "0.9.4"
+tempfile = "3"
