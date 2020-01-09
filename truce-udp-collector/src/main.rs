@@ -56,10 +56,10 @@ impl From<CLIOptions> for truce_udp_collector::Config {
 }
 
 fn main() {
-    let config = CLIOptions::from_args().into();
+    let config: truce_udp_collector::Config = CLIOptions::from_args().into();
     println!("Running udp collector with configuration: {:#?}", config);
-    let (_shutdown_sender, shutdown_receiver) = std::sync::mpsc::channel();
+    let (_shutdown_sender, shutdown_receiver) =
+        truce_udp_collector::ShutdownSignalSender::new(config.addr);
     truce_udp_collector::start_receiving(config, shutdown_receiver)
         .expect("Could not set up UDP Socket");
-    println!("TODO - error code piping");
 }

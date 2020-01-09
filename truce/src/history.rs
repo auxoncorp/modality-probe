@@ -569,8 +569,8 @@ impl DynamicHistory {
             let (id, count) = CompactLogItem::bucket(*b);
             if log_len < max_len_that_can_fit_a_bucket {
                 unsafe {
-                    *self.log_pointer.add(self.log_len) = id;
-                    *self.log_pointer.add(self.log_len + 1) = count;
+                    *self.log_pointer.add(log_len) = id;
+                    *self.log_pointer.add(log_len + 1) = count;
                 }
                 log_len += 2;
             } else {
