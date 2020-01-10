@@ -1,13 +1,12 @@
 #![no_std]
 #![feature(lang_items, core_intrinsics)]
-use libc::{c_int, size_t};
 use truce::*;
 pub use truce::{CausalSnapshot, Tracer};
 
 #[no_mangle]
 pub extern "C" fn tracer_initialize(
     destination: *mut u8,
-    destination_size_bytes: size_t,
+    destination_size_bytes: usize,
     tracer_id: u32,
 ) -> *mut Tracer<'static> {
     assert!(
@@ -38,7 +37,7 @@ pub extern "C" fn tracer_record_event(tracer: *mut Tracer<'static>, event_id: u3
 pub extern "C" fn tracer_write_log_report(
     tracer: *mut Tracer<'static>,
     log_report_destination: *mut u8,
-    log_report_destination_size_bytes: size_t,
+    log_report_destination_size_bytes: usize,
 ) -> usize {
     assert!(
         !log_report_destination.is_null(),
@@ -59,7 +58,7 @@ pub extern "C" fn tracer_write_log_report(
 pub extern "C" fn tracer_share_history(
     tracer: *mut Tracer<'static>,
     history_destination: *mut u8,
-    history_destination_bytes: size_t,
+    history_destination_bytes: usize,
 ) -> usize {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
@@ -88,33 +87,33 @@ pub extern "C" fn tracer_share_fixed_size_history(
 pub extern "C" fn tracer_merge_history(
     tracer: *mut Tracer<'static>,
     history_source: *const u8,
-    history_source_bytes: size_t,
-) -> c_int {
+    history_source_bytes: usize,
+) -> i32 {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
         .merge_history(unsafe { core::slice::from_raw_parts(history_source, history_source_bytes) })
         .is_ok()
-        .as_c_int_bool()
+        .as_i32_bool()
 }
 
 #[no_mangle]
 pub extern "C" fn tracer_merge_fixed_size_history(
     tracer: *mut Tracer<'static>,
     snapshot: *const CausalSnapshot,
-) -> c_int {
+) -> i32 {
     unsafe { tracer.as_mut() }
         .expect("tracer pointer was null")
         .merge_fixed_size_history(unsafe { &*snapshot })
         .is_ok()
-        .as_c_int_bool()
+        .as_i32_bool()
 }
 
-trait AsCIntBool {
-    fn as_c_int_bool(self) -> c_int;
+trait AsInt32Bool {
+    fn as_i32_bool(self) -> i32;
 }
 
-impl AsCIntBool for bool {
-    fn as_c_int_bool(self) -> i32 {
+impl AsInt32Bool for bool {
+    fn as_i32_bool(self) -> i32 {
         if self {
             1
         } else {

@@ -53,6 +53,7 @@ newtype! {
     /// This identifies a single entry in the event log, which may either be an
     /// event or a piece of a logical clock. These ids are unique within a
     /// session. It is used to represent known orderings between events.
+    #[derive(Clone, Copy)]
     pub struct LogEntryId(pub u64);
 }
 

@@ -170,12 +170,9 @@ pub const MIN_HISTORY_SIZE_BYTES: usize = size_of::<DynamicHistory>()
     + MIN_BUCKETS_LEN * size_of::<LogicalClockBucket>()
     + MIN_LOG_LEN * size_of::<CompactLogItem>();
 
-const_assert_eq!(8, align_of::<DynamicHistory>());
+const_assert_eq!(align_of::<usize>(), align_of::<DynamicHistory>());
 const_assert_eq!(4, align_of::<LogicalClockBucket>());
 const_assert_eq!(4, align_of::<CompactLogItem>());
-const_assert_eq!(4, align_of::<u32>());
-
-const_assert_eq!(8, align_of::<u64>());
 
 assert_eq_size!(u64, LogicalClockBucket);
 assert_eq_align!(u32, LogicalClockBucket);
@@ -569,8 +566,8 @@ impl DynamicHistory {
             let (id, count) = CompactLogItem::bucket(*b);
             if log_len < max_len_that_can_fit_a_bucket {
                 unsafe {
-                    *self.log_pointer.add(self.log_len) = id;
-                    *self.log_pointer.add(self.log_len + 1) = count;
+                    *self.log_pointer.add(log_len) = id;
+                    *self.log_pointer.add(log_len + 1) = count;
                 }
                 log_len += 2;
             } else {

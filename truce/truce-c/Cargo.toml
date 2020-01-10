@@ -10,7 +10,6 @@ crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
 truce = { path = "../" }
-libc = "0.2"
 
 [build-dependencies]
 

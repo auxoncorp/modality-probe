@@ -16,10 +16,14 @@ path = "src/main.rs"
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
-rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
 static_assertions = "1.1.0"
+alloc-log-report = { path = "alloc-log-report" }
 truce-analysis = { path = "../truce-analysis" }
 
-[build-dependencies]
-rust-lcm-codegen = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
-
+[dev-dependencies]
+crossbeam = "0.7.3"
+lazy_static = "1.4.0"
+proc-graph = { git = "ssh://git@github.com/auxoncorp/proc-graph.git"}
+proptest = "0.9.4"
+tempfile = "3"
+truce = { path = "../truce" }
