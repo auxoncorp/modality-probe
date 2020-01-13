@@ -11,12 +11,6 @@ use history::DynamicHistory;
 use core::mem::{align_of, size_of};
 use core::num::NonZeroU32;
 
-pub const PRODUCED_BACKEND_LOG_REPORT: EventId =
-    EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_RAW_ID - 1) });
-pub const LOG_OVERFLOWED: EventId =
-    EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_RAW_ID - 2) });
-pub const LOGICAL_CLOCK_OVERFLOWED: EventId =
-    EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_RAW_ID - 3) });
 
 /// Snapshot of causal history for transmission around the system
 ///
@@ -52,12 +46,12 @@ pub struct LogicalClockBucket {
 pub struct TracerId(NonZeroU32);
 
 impl TracerId {
-    const MAX_RAW_ID: u32 = 0b0111_1111_1111_1111;
+    pub const MAX_ID: u32 = 0b0111_1111_1111_1111;
 
     /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000
     #[inline]
     pub fn new(raw_id: u32) -> Option<Self> {
-        if raw_id > Self::MAX_RAW_ID {
+        if raw_id > Self::MAX_ID {
             return None;
         }
         NonZeroU32::new(raw_id).map(|id| Self(id))
@@ -80,14 +74,37 @@ impl TracerId {
 pub struct EventId(NonZeroU32);
 
 impl EventId {
-    const MAX_RAW_ID: u32 = 0b0111_1111_1111_1111;
-    const NUM_RESERVED_IDS: u32 = 256;
-    const MAX_ID: u32 = EventId::MAX_RAW_ID - EventId::NUM_RESERVED_IDS;
+    /// The maximum permissible id value for an Event at all
+    ///
+    /// This value is different from MAX_USER_ID in order to
+    /// support a reserved range of EventIds for protocol use
+    pub const MAX_INTERNAL_ID: u32 = 0b0111_1111_1111_1111;
+    pub const NUM_RESERVED_IDS: u32 = 256;
+    /// The maximum-permissable id value for for an Event
+    /// defined by end users.
+    pub const MAX_USER_ID: u32 = EventId::MAX_INTERNAL_ID - EventId::NUM_RESERVED_IDS;
 
-    /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000
+
+    /// The tracer produced a log report for transmission to the backend
+    /// for external analysis.
+    pub const EVENT_PRODUCED_EXTERNAL_REPORT: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 1) });
+    /// There was not sufficient room in memory to store all desired events or clock data
+    pub const EVENT_LOG_OVERFLOWED: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 2) });
+    pub const EVENT_LOGICAL_CLOCK_OVERFLOWED: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 3) });
+
+    pub const INTERNAL_EVENTS: &'static [EventId] = &[
+        EventId::EVENT_PRODUCED_EXTERNAL_REPORT,
+        EventId::EVENT_LOG_OVERFLOWED,
+        EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
+    ];
+
+    /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
     #[inline]
     pub fn new(raw_id: u32) -> Option<Self> {
-        if raw_id > Self::MAX_ID {
+        if raw_id > Self::MAX_USER_ID {
             return None;
         }
         NonZeroU32::new(raw_id).map(|id| Self(id))

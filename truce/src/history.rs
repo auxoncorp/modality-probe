@@ -378,9 +378,9 @@ impl DynamicHistory {
     }
 
     /// Produce an opaque snapshot of the causal state for transmission
-    /// within the system under test
+    /// within the system under test.
     ///
-    /// If the write was successful, returns the number of bytes written
+    /// If the write was successful, returns the number of bytes written.
     pub(crate) fn write_lcm_logical_clock(
         &mut self,
         destination: &mut [u8],
@@ -581,7 +581,7 @@ impl DynamicHistory {
         self.has_overflowed_log |= has_overflowed_log;
     }
 
-    /// Send the log to the backend, containing:
+    /// Produce a report for external use, containing:
     ///   * The local tracer id
     ///   * Error flags
     ///   * Event ids for events that have happened since the last backend send
@@ -648,7 +648,7 @@ impl DynamicHistory {
 
         self.clear_log();
         self.write_current_buckets_to_log();
-        self.record_event(super::PRODUCED_BACKEND_LOG_REPORT);
+        self.record_event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT);
         Ok(buffer_writer.cursor())
     }
 }

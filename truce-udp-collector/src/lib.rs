@@ -552,14 +552,10 @@ mod tests {
             .iter()
             .map(|id| id.get_raw())
             .collect();
-        let built_in_event_ids: HashSet<_> = [
-            truce::LOG_OVERFLOWED,
-            truce::LOGICAL_CLOCK_OVERFLOWED,
-            truce::PRODUCED_BACKEND_LOG_REPORT,
-        ]
-        .iter()
-        .map(|id| id.get_raw())
-        .collect();
+        let built_in_event_ids: HashSet<_> = truce::EventId::INTERNAL_EVENTS
+            .iter()
+            .map(|id| id.get_raw())
+            .collect();
         for e in found_log_entries {
             assert_eq!(session_id, e.session_id);
             assert!(expected_direct_tracer_ids.contains(&e.tracer_id.0));
@@ -683,14 +679,10 @@ mod tests {
             .iter()
             .map(|id| id.get_raw())
             .collect();
-        let built_in_event_ids: HashSet<_> = [
-            truce::LOG_OVERFLOWED,
-            truce::LOGICAL_CLOCK_OVERFLOWED,
-            truce::PRODUCED_BACKEND_LOG_REPORT,
-        ]
-        .iter()
-        .map(|id| id.get_raw())
-        .collect();
+        let built_in_event_ids: HashSet<_> = truce::EventId::INTERNAL_EVENTS
+            .iter()
+            .map(|id| id.get_raw())
+            .collect();
         for e in found_log_entries {
             assert_eq!(session_id, e.session_id);
             assert!(expected_tracer_ids.contains(&e.tracer_id.0));
