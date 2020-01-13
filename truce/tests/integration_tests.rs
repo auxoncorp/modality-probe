@@ -139,6 +139,30 @@ fn happy_path_backend_service() {
     assert_eq!(1, clock.count, "expect a single clock increment");
 }
 
+#[test]
+fn all_allowed_events() {
+    assert!(EventId::new(0).is_none());
+    assert!(EventId::new(1).is_some());
+    assert!(EventId::new(2).is_some());
+    assert!(EventId::new(EventId::MAX_USER_ID).is_some());
+    assert!(EventId::new(EventId::MAX_USER_ID - 1).is_some());
+    assert!(EventId::new(EventId::MAX_USER_ID - 2).is_some());
+    assert_eq!(EventId::MAX_INTERNAL_ID, (core::u32::MAX / 2));
+    assert_eq!(
+        EventId::MAX_USER_ID,
+        (core::u32::MAX / 2) - EventId::NUM_RESERVED_IDS
+    );
+
+    assert_eq!(
+        0,
+        EventId::MAX_INTERNAL_ID & 0b1000_0000_0000_0000_0000_0000_0000_0000
+    );
+    assert_eq!(
+        0,
+        EventId::MAX_USER_ID & 0b1000_0000_0000_0000_0000_0000_0000_0000
+    );
+}
+
 // TODO - test overflowing num buckets
 // TODO - test overflowing log
 

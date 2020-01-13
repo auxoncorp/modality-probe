@@ -18,12 +18,12 @@ impl CompactLogItem {
     pub(crate) fn bucket(bucket: LogicalClockBucket) -> (Self, Self) {
         // Set the top bit for id to indicate that it is not an event but a logical clock bucket,
         // and to treat the next item as the count. Don't separate these two!
-        let id = bucket.id | 0b1000_0000_0000_0000;
+        let id = bucket.id | 0b1000_0000_0000_0000_0000_0000_0000_0000;
         (CompactLogItem(id), CompactLogItem(bucket.count))
     }
 
     pub(crate) fn is_first_bit_set(&self) -> bool {
-        (self.0 & 0b1000_0000_0000_0000) != 0
+        (self.0 & 0b1000_0000_0000_0000_0000_0000_0000_0000) != 0
     }
 
     pub(crate) fn raw(self) -> u32 {
@@ -32,7 +32,7 @@ impl CompactLogItem {
 
     /// Unset that top bit to get the original tracer id back out
     pub(crate) fn interpret_as_logical_clock_bucket_tracer_id(self) -> u32 {
-        self.0 & 0b0111_1111_1111_1111
+        self.0 & 0b0111_1111_1111_1111_1111_1111_1111_1111
     }
 }
 
@@ -120,5 +120,15 @@ mod tests {
         let (e, f) = cb(3, 1);
         assert_eq!(2, count_segments(&[a, b, ce(1), c, d, e, f, ce(1), ce(2),]));
         assert_eq!(3, count_segments(&[a, b, ce(1), c, d, ce(1), ce(2), e, f,]));
+    }
+
+    #[test]
+    fn expected_representation() {
+        let e = CompactLogItem::event(EventId::new(4).expect("Could not make EventId"));
+        assert!(!e.is_first_bit_set());
+
+        let (id, count) = CompactLogItem::bucket(LogicalClockBucket { id: 4, count: 5 });
+        assert!(id.is_first_bit_set());
+        assert!(!count.is_first_bit_set());
     }
 }

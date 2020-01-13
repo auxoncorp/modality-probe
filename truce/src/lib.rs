@@ -11,7 +11,6 @@ use history::DynamicHistory;
 use core::mem::{align_of, size_of};
 use core::num::NonZeroU32;
 
-
 /// Snapshot of causal history for transmission around the system
 ///
 /// Note the use of bare integer types rather than the safety-oriented
@@ -40,15 +39,15 @@ pub struct LogicalClockBucket {
 ///
 /// Typically represents a single thread.
 ///
-/// Must be backed by a value greater than 0 and less than 0b1000_0000_0000_0000
+/// Must be backed by a value greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct TracerId(NonZeroU32);
 
 impl TracerId {
-    pub const MAX_ID: u32 = 0b0111_1111_1111_1111;
+    pub const MAX_ID: u32 = 0b0111_1111_1111_1111_1111_1111_1111_1111;
 
-    /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000
+    /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
     #[inline]
     pub fn new(raw_id: u32) -> Option<Self> {
         if raw_id > Self::MAX_ID {
@@ -78,12 +77,11 @@ impl EventId {
     ///
     /// This value is different from MAX_USER_ID in order to
     /// support a reserved range of EventIds for protocol use
-    pub const MAX_INTERNAL_ID: u32 = 0b0111_1111_1111_1111;
+    pub const MAX_INTERNAL_ID: u32 = 0b0111_1111_1111_1111_1111_1111_1111_1111;
     pub const NUM_RESERVED_IDS: u32 = 256;
     /// The maximum-permissable id value for for an Event
     /// defined by end users.
     pub const MAX_USER_ID: u32 = EventId::MAX_INTERNAL_ID - EventId::NUM_RESERVED_IDS;
-
 
     /// The tracer produced a log report for transmission to the backend
     /// for external analysis.
