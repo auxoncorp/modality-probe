@@ -141,12 +141,19 @@ fn happy_path_backend_service() {
 
 #[test]
 fn all_allowed_events() {
+    // zero-value EventId is not allowed
     assert!(EventId::new(0).is_none());
+
     assert!(EventId::new(1).is_some());
     assert!(EventId::new(2).is_some());
-    assert!(EventId::new(EventId::MAX_USER_ID).is_some());
     assert!(EventId::new(EventId::MAX_USER_ID - 1).is_some());
     assert!(EventId::new(EventId::MAX_USER_ID - 2).is_some());
+    assert!(EventId::new(EventId::MAX_USER_ID).is_some());
+
+    // Users cannot construct an internal id (one in the reserved range)
+    assert!(EventId::new(EventId::MAX_USER_ID + 1).is_none());
+    assert!(EventId::new(EventId::MAX_USER_ID + 2).is_none());
+    assert!(EventId::new(EventId::MAX_INTERNAL_ID).is_none());
     assert_eq!(EventId::MAX_INTERNAL_ID, (core::u32::MAX / 2));
     assert_eq!(
         EventId::MAX_USER_ID,
