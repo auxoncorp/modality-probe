@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "trucec.h"
+#include "ekotrace.h"
 
 typedef struct counting_backend {
     uint32_t count;

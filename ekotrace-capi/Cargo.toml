@@ -1,15 +1,15 @@
 [package]
-name = "truce-c"
+name = "ekotrace-capi"
 version = "0.1.0"
 authors = ["Zachary Pierce <zack@auxon.io>"]
 edition = "2018"
 
 [lib]
-name = "trucec"
+name = "ekotrace_capi"
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
-truce = { path = "../" }
+ekotrace = { path = "../ekotrace" }
 
 [build-dependencies]
 

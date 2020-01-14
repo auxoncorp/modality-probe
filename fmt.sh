@@ -4,6 +4,6 @@ set -ex
 cargo fmt --all
 
 (
-    cd truce/truce-c
+    cd ekotrace-capi
     cargo fmt
 )

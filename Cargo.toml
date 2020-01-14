@@ -1,9 +1,9 @@
 [workspace]
 members = [
-  "truce",
-  "truce-header-gen",
-  "truce-analysis",
-  "truce-udp-collector",
-  "truce-udp-collector/alloc-log-report"
+  "ekotrace",
+  "ekotrace-header-gen",
+  "ekotrace-analysis",
+  "ekotrace-udp-collector",
+  "alloc-log-report"
 ]
 

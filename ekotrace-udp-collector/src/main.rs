@@ -37,10 +37,10 @@ impl CLIOptions {
     }
 }
 
-impl From<CLIOptions> for truce_udp_collector::Config {
+impl From<CLIOptions> for ekotrace_udp_collector::Config {
     fn from(o: CLIOptions) -> Self {
         let session_id = o.session_id.unwrap_or(0);
-        truce_udp_collector::Config {
+        ekotrace_udp_collector::Config {
             addr: SocketAddr::V4(SocketAddrV4::new(
                 Ipv4Addr::new(127, 0, 0, 1),
                 o.port.unwrap_or(DEFAULT_PORT),
@@ -56,10 +56,10 @@ impl From<CLIOptions> for truce_udp_collector::Config {
 }
 
 fn main() {
-    let config: truce_udp_collector::Config = CLIOptions::from_args().into();
+    let config: ekotrace_udp_collector::Config = CLIOptions::from_args().into();
     println!("Running udp collector with configuration: {:#?}", config);
     let (_shutdown_sender, shutdown_receiver) =
-        truce_udp_collector::ShutdownSignalSender::new(config.addr);
-    truce_udp_collector::start_receiving(config, shutdown_receiver)
+        ekotrace_udp_collector::ShutdownSignalSender::new(config.addr);
+    ekotrace_udp_collector::start_receiving(config, shutdown_receiver)
         .expect("Could not set up UDP Socket");
 }

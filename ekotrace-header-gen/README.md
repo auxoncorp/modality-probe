@@ -1,4 +1,4 @@
-# truce-header-gen
+# ekotrace-header-gen
 
 Command line utility that accepts an event id mapping file
 and a tracer id mapping file and generates C code containing

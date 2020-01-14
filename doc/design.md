@@ -56,7 +56,7 @@ immediate neighbors. In principle, we should be able to get away with just
 transmitting the tracer's own clock, but this adds some redundancy in the case
 where the sending and receiving tracers have shared neighbors.
 
-The schema is defined in [in_system.lcm](file:../truce/schemas/in_system.lcm).
+The schema is defined in [in_system.lcm](file:../schemas/in_system.lcm).
 
 ## Compact log representation
 Local to each thread, we store a compact sequence of interleaved events and
@@ -97,7 +97,7 @@ interaction, post-initialization:
 3. Reporting: `tracer_export_log` will fill a user-provided buffer with
    LCM-formatted log data that is ready to be transmitted to the collector.
 
-The C API is defined in [trucec.h](file:../truce/truce-c/include/trucec.h).
+The C API is defined in [ekotrace.h](file:../ekotrace-capi/include/ekotrace.h).
 
 ### Concurrency
 Each thread has its own logical clock and local log, which it entirely owns.
@@ -129,7 +129,7 @@ another snapshot is reached, another segment begins.
 At the top level of the log message, we also send the source tracer id and some
 top-level overflow flags.
 
-The schema is defined in [log_reporting.lcm](file:../truce/schemas/log_reporting.lcm).
+The schema is defined in [log_reporting.lcm](file:../schemas/log_reporting.lcm).
 
 ### TCP Transport
 TODO Define a TCP-based transport for this.
@@ -184,7 +184,7 @@ id,name,description
 ```
 
 ### Code generation
-`truce-header-gen` uses the `events.csv` and `tracers.csv` files to generate a C
+`ekotrace-header-gen` uses the `events.csv` and `tracers.csv` files to generate a C
 header file containing constants for each tracer and event.
 
 

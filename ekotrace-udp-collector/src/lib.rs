@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use std::io::{Error as IoError, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
-use truce_analysis::model::{LogEntry, LogEntryData, LogEntryId, SessionId};
+use ekotrace_analysis::model::{LogEntry, LogEntryData, LogEntryId, SessionId};
 
 #[derive(Debug, PartialEq)]
 pub struct Config {
@@ -136,7 +136,7 @@ pub fn start_receiving_from_socket<W: Write>(
             receive_time,
             &mut log_entries_buffer,
         );
-        if let Err(e) = truce_analysis::write_csv_log_entries(
+        if let Err(e) = ekotrace_analysis::write_csv_log_entries(
             log_output_writer,
             &log_entries_buffer,
             needs_csv_headers,
@@ -427,7 +427,7 @@ mod tests {
         }
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = truce_analysis::read_csv_log_entries(&mut file_reader)
+        let found_log_entries = ekotrace_analysis::read_csv_log_entries(&mut file_reader)
             .expect("Could not read output file as csv log entries");
 
         let expected_entries: usize = log_report
@@ -494,12 +494,12 @@ mod tests {
         thread::yield_now();
         assert_eq!(Ok(ServerState::Started), server_state_receiver.recv());
         let mut net = proc_graph::Network::new();
-        let tracer_a_id = truce::TracerId::new(31).unwrap();
-        let tracer_b_id = truce::TracerId::new(41).unwrap();
-        let tracer_c_id = truce::TracerId::new(59).unwrap();
-        let event_foo = truce::EventId::new(7).unwrap();
-        let event_bar = truce::EventId::new(23).unwrap();
-        let event_baz = truce::EventId::new(29).unwrap();
+        let tracer_a_id = ekotrace::TracerId::new(31).unwrap();
+        let tracer_b_id = ekotrace::TracerId::new(41).unwrap();
+        let tracer_c_id = ekotrace::TracerId::new(59).unwrap();
+        let event_foo = ekotrace::EventId::new(7).unwrap();
+        let event_bar = ekotrace::EventId::new(23).unwrap();
+        let event_baz = ekotrace::EventId::new(29).unwrap();
         const NUM_MESSAGES_FROM_A: usize = 11;
 
         let (network_done_sender, network_done_receiver) = crossbeam::bounded(0);
@@ -544,7 +544,7 @@ mod tests {
 
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = truce_analysis::read_csv_log_entries(&mut file_reader)
+        let found_log_entries = ekotrace_analysis::read_csv_log_entries(&mut file_reader)
             .expect("Could not read output file as csv log entries");
 
         assert!(found_log_entries.len() > 0);
@@ -552,7 +552,7 @@ mod tests {
             .iter()
             .map(|id| id.get_raw())
             .collect();
-        let built_in_event_ids: HashSet<_> = truce::EventId::INTERNAL_EVENTS
+        let built_in_event_ids: HashSet<_> = ekotrace::EventId::INTERNAL_EVENTS
             .iter()
             .map(|id| id.get_raw())
             .collect();
@@ -628,10 +628,10 @@ mod tests {
         thread::yield_now();
         assert_eq!(Ok(ServerState::Started), server_state_receiver.recv());
         let mut net = proc_graph::Network::new();
-        let tracer_a_id = truce::TracerId::new(31).unwrap();
-        let tracer_b_id = truce::TracerId::new(41).unwrap();
-        let event_foo = truce::EventId::new(7).unwrap();
-        let event_bar = truce::EventId::new(23).unwrap();
+        let tracer_a_id = ekotrace::TracerId::new(31).unwrap();
+        let tracer_b_id = ekotrace::TracerId::new(41).unwrap();
+        let event_foo = ekotrace::EventId::new(7).unwrap();
+        let event_bar = ekotrace::EventId::new(23).unwrap();
         const NUM_MESSAGES_FROM_A: usize = 11;
 
         let (network_done_sender, network_done_receiver) = crossbeam::bounded(0);
@@ -671,7 +671,7 @@ mod tests {
 
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = truce_analysis::read_csv_log_entries(&mut file_reader)
+        let found_log_entries = ekotrace_analysis::read_csv_log_entries(&mut file_reader)
             .expect("Could not read output file as csv log entries");
 
         assert!(found_log_entries.len() > 0);
@@ -679,7 +679,7 @@ mod tests {
             .iter()
             .map(|id| id.get_raw())
             .collect();
-        let built_in_event_ids: HashSet<_> = truce::EventId::INTERNAL_EVENTS
+        let built_in_event_ids: HashSet<_> = ekotrace::EventId::INTERNAL_EVENTS
             .iter()
             .map(|id| id.get_raw())
             .collect();
@@ -719,10 +719,10 @@ mod tests {
 
     fn make_message_broadcaster_proc(
         proc_name: &'static str,
-        tracer_id: truce::TracerId,
+        tracer_id: ekotrace::TracerId,
         n_messages: usize,
         collector_addr: SocketAddr,
-        per_iteration_event: Option<truce::EventId>,
+        per_iteration_event: Option<ekotrace::EventId>,
     ) -> impl Fn(
         HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
         std::sync::mpsc::Receiver<(String, Vec<u8>)>,
@@ -730,7 +730,7 @@ mod tests {
            + 'static {
         move |id_to_sender, _receiver| {
             let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer = truce::Tracer::new_with_storage(&mut tracer_storage, tracer_id)
+            let mut tracer = ekotrace::Tracer::new_with_storage(&mut tracer_storage, tracer_id)
                 .expect("Could not make tracer");
             let mut causal_history_blob = vec![0u8; IN_SYSTEM_SNAPSHOT_BYTES_SIZE];
             for _ in 0..n_messages {
@@ -769,10 +769,10 @@ mod tests {
 
     fn make_message_relay_proc(
         proc_name: &'static str,
-        tracer_id: truce::TracerId,
+        tracer_id: ekotrace::TracerId,
         stop_relaying_after_receiving_n_messages: usize,
         send_log_report_every_n_messages: Option<SendLogReportEveryFewMessages>,
-        per_iteration_event: Option<truce::EventId>,
+        per_iteration_event: Option<ekotrace::EventId>,
     ) -> impl Fn(
         HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
         std::sync::mpsc::Receiver<(String, Vec<u8>)>,
@@ -780,7 +780,7 @@ mod tests {
            + 'static {
         move |id_to_sender, receiver| {
             let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer = truce::Tracer::new_with_storage(&mut tracer_storage, tracer_id)
+            let mut tracer = ekotrace::Tracer::new_with_storage(&mut tracer_storage, tracer_id)
                 .expect("Could not make tracer");
 
             let socket =
@@ -836,10 +836,10 @@ mod tests {
     }
 
     fn make_message_sink_proc(
-        tracer_id: truce::TracerId,
+        tracer_id: ekotrace::TracerId,
         stop_after_receiving_n_messages: usize,
         send_log_report_every_n_messages: SendLogReportEveryFewMessages,
-        per_iteration_event: Option<truce::EventId>,
+        per_iteration_event: Option<ekotrace::EventId>,
         stopped_sender: crossbeam::Sender<()>,
     ) -> impl Fn(
         HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
@@ -848,7 +848,7 @@ mod tests {
            + 'static {
         move |_id_to_sender, receiver| {
             let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer = truce::Tracer::new_with_storage(&mut tracer_storage, tracer_id)
+            let mut tracer = ekotrace::Tracer::new_with_storage(&mut tracer_storage, tracer_id)
                 .expect("Could not make tracer");
 
             let socket =

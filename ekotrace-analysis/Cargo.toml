@@ -1,5 +1,5 @@
 [package]
-name = "truce-analysis"
+name = "ekotrace-analysis"
 version = "0.1.0"
 authors = ["Russell Mull <russell@auxon.io>"]
 edition = "2018"

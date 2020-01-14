@@ -1,15 +1,15 @@
 [package]
-name = "truce-udp-collector"
+name = "ekotrace-udp-collector"
 version = "0.1.0"
 authors = ["Zachary Pierce <zack@auxon.io>"]
 edition = "2018"
 
 [lib]
-name = "truce_udp_collector"
+name = "ekotrace_udp_collector"
 path = "src/lib.rs"
 
 [[bin]]
-name = "truce-udp-collector-cli"
+name = "ekotrace-udp-collector-cli"
 path = "src/main.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -17,8 +17,8 @@ path = "src/main.rs"
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 static_assertions = "1.1.0"
-alloc-log-report = { path = "alloc-log-report" }
-truce-analysis = { path = "../truce-analysis" }
+alloc-log-report = { path = "../alloc-log-report" }
+ekotrace-analysis = { path = "../ekotrace-analysis" }
 
 [dev-dependencies]
 crossbeam = "0.7.3"
@@ -26,4 +26,4 @@ lazy_static = "1.4.0"
 proc-graph = { git = "ssh://git@github.com/auxoncorp/proc-graph.git"}
 proptest = "0.9.4"
 tempfile = "3"
-truce = { path = "../truce" }
+ekotrace = { path = "../ekotrace" }

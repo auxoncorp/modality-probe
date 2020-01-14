@@ -1,5 +1,5 @@
 use alloc_log_report::*;
-use truce::*;
+use ekotrace::*;
 
 struct Buffer {
     buffer: Vec<u8>,

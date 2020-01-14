@@ -28,7 +28,7 @@ struct Tracer {
 
 #[derive(Debug, StructOpt)]
 #[structopt(
-    name = "truce-header-gen",
+    name = "ekotrace-header-gen",
     about = "Generate C header files with event/tracer id constants."
 )]
 struct Opt {

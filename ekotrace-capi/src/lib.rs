@@ -1,7 +1,7 @@
 #![no_std]
 #![feature(lang_items, core_intrinsics)]
-use truce::*;
-pub use truce::{CausalSnapshot, Tracer};
+use ekotrace::*;
+pub use ekotrace::{CausalSnapshot, Tracer};
 
 #[no_mangle]
 pub extern "C" fn tracer_initialize(
