@@ -245,7 +245,7 @@ mod tests {
     fn report_and_matching_entries(
         raw_main_tracer_id: i32,
         session_id: SessionId,
-        start_segment_id: truce_analysis::model::SegmentId,
+        start_segment_id: ekotrace_analysis::model::SegmentId,
         receive_time: DateTime<Utc>,
     ) -> (LogReport, Vec<LogEntry>) {
         let main_tracer_id = (raw_main_tracer_id as u32).into();
@@ -584,7 +584,6 @@ mod tests {
                     }
                 }
                 LogEntryData::LogicalClock(tid, count) => {
-                    assert!(count > 0, "clock count should be > 0");
                     if e.tracer_id.0 == tracer_a_id.get_raw() {
                         // Process A should only know about itself, since it doesn't receive history from anyone else
                         assert_eq!(tid.0, tracer_a_id.get_raw());
@@ -707,7 +706,6 @@ mod tests {
                     }
                 }
                 LogEntryData::LogicalClock(tid, count) => {
-                    assert!(count > 0, "clock count should be > 0");
                     if e.tracer_id.0 == tracer_a_id.get_raw() {
                         // Process A should only know about itself, since it doesn't receive history from anyone else
                         assert_eq!(tid.0, tracer_a_id.get_raw());

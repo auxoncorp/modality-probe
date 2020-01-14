@@ -302,6 +302,11 @@ impl DynamicHistory {
             .expect(
                 "The History.clocks field should always contain a clock for this tracer instance",
             );
+
+        // This ensures that the first log segment always has a piece of logical
+        // clock information.
+        history_header.write_current_clocks_to_log();
+
         unsafe {
             *header_ptr = history_header;
             let header_ref = header_ptr.as_mut().expect(
@@ -584,8 +589,6 @@ impl DynamicHistory {
     ///   * Event ids for events that have happened since the last backend send
     ///   * Interspersed snapshots of the logical clock
     pub(crate) fn write_lcm_log_report(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
-        self.increment_local_clock_count();
-        self.write_current_clocks_to_log();
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
         let w = lcm::log_reporting::begin_log_report_write(&mut buffer_writer).map_err(|_| ())?;
         let w = w.write_tracer_id(self.tracer_id as i32).map_err(|_| ())?;
@@ -643,6 +646,7 @@ impl DynamicHistory {
         let _w = w.done().map_err(|_| ())?;
 
         self.clear_log();
+        self.increment_local_clock_count();
         self.write_current_clocks_to_log();
         self.record_event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT);
         Ok(buffer_writer.cursor())

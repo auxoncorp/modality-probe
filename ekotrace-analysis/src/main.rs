@@ -3,8 +3,8 @@ use std::str::FromStr;
 use structopt::StructOpt;
 use itertools::Itertools;
 
-use truce_analysis as lib;
-use truce_analysis::model;
+use ekotrace_analysis as lib;
+use ekotrace_analysis::model;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "truce-analysis", about = "Analyze 'truce' event logs")]

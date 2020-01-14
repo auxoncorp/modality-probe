@@ -15,9 +15,9 @@ structopt = "0.3"
 proptest = "0.9.4"
 
 [lib]
-name = "truce_analysis"
+name = "ekotrace_analysis"
 path = "src/lib.rs"
 
 [[bin]]
-name = "truce-analysis-cli"
+name = "ekotrace-analysis-cli"
 path = "src/main.rs"
