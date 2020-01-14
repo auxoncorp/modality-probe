@@ -44,6 +44,9 @@ typedef enum {
      * to store a valid representation.
      */
     EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES = 4,
+    /*
+     * Bumped into a pointer size limitation
+     */
     EKOTRACE_RESULT_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE = 5,
     /*
      * An unexpected error in internal data encoding occurred.

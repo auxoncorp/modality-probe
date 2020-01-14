@@ -15,6 +15,7 @@ pub const EKOTRACE_RESULT_INVALID_TRACER_ID: EkotraceResult = 3;
 /// The size available for output bytes was insufficient
 /// to store a valid representation.
 pub const EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES: EkotraceResult = 4;
+/// Bumped into a pointer size limitation
 pub const EKOTRACE_RESULT_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE: EkotraceResult = 5;
 /// An unexpected error in internal data encoding occurred.
 pub const EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR: EkotraceResult = 6;
