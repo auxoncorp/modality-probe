@@ -6,7 +6,7 @@ edition = "2018"
 
 [lib]
 name = "ekotrace_capi"
-crate-type = ["staticlib"]
+crate-type = ["lib", "staticlib", "cdylib"]
 
 [features]
 default = ["default_panic_impl"]
