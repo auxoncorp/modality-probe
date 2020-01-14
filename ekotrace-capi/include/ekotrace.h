@@ -8,6 +8,8 @@
 extern "C" {
 #endif
 
+#define EKOTRACE_NULL_TRACER_INITIALIZER NULL
+
 /*
  * Tracer is the type of a tracing instance. Expected to be single-threaded.
  */
@@ -96,13 +98,13 @@ typedef struct causal_snapshot {
 /*
  * Create a tracer instance. tracer_id must be non-zero
  */
-ekotrace_result tracer_initialize(uint8_t *destination, size_t destination_size_bytes, uint32_t tracer_id, tracer * * out);
+size_t tracer_initialize(uint8_t *destination, size_t destination_size_bytes, uint32_t tracer_id, tracer * * out);
 
 /*
  * Record an event.
  * event_id must be non-zero.
  */
-ekotrace_result tracer_record_event(tracer *tracer, uint32_t event_id);
+size_t tracer_record_event(tracer *tracer, uint32_t event_id);
 
 /*
  * Conduct necessary background activities, then
@@ -111,7 +113,7 @@ ekotrace_result tracer_record_event(tracer *tracer, uint32_t event_id);
  *
  * Populates the number of bytes written in out_written_bytes.
  */
-ekotrace_result tracer_write_log_report(tracer *tracer, uint8_t *log_report_destination, size_t log_report_destination_bytes, size_t * out_written_bytes);
+size_t tracer_write_log_report(tracer *tracer, uint8_t *log_report_destination, size_t log_report_destination_bytes, size_t * out_written_bytes);
 
 /*
  * Produce a transmittable opaque blob of this tracer's
@@ -121,7 +123,7 @@ ekotrace_result tracer_write_log_report(tracer *tracer, uint8_t *log_report_dest
  *
  * Populates the number of bytes written in out_written_bytes.
  */
-ekotrace_result tracer_share_history(tracer *tracer, uint8_t *history_destination, size_t history_destination_bytes, size_t * out_written_bytes);
+size_t tracer_share_history(tracer *tracer, uint8_t *history_destination, size_t history_destination_bytes, size_t * out_written_bytes);
 
 /*
  * Produce a transmittable summary of this tracer's
@@ -129,19 +131,19 @@ ekotrace_result tracer_share_history(tracer *tracer, uint8_t *history_destinatio
  * in the system, filtered down to just the history
  * of this node and its immediate inbound neighbors.
  */
-ekotrace_result tracer_share_fixed_size_history(tracer *tracer, causal_snapshot *snapshot);
+size_t tracer_share_fixed_size_history(tracer *tracer, causal_snapshot *snapshot);
 
 /*
  * Consume an opaque causal history blob provided
  * by some other Tracer.
  */
-ekotrace_result tracer_merge_history(tracer *tracer, uint8_t *history_source, size_t history_source_bytes);
+size_t tracer_merge_history(tracer *tracer, uint8_t *history_source, size_t history_source_bytes);
 
 /*
  * Consume a fixed-size causal history summary structure provided
  * by some other Tracer.
  */
-ekotrace_result tracer_merge_fixed_size_history(tracer *tracer, causal_snapshot *snapshot);
+size_t tracer_merge_fixed_size_history(tracer *tracer, causal_snapshot *snapshot);
 
 #ifdef __cplusplus
 } // extern "C"

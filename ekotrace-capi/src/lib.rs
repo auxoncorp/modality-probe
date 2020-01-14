@@ -3,7 +3,7 @@
 use ekotrace::*;
 pub use ekotrace::{CausalSnapshot, Tracer};
 
-pub type EkotraceResult = i32;
+pub type EkotraceResult = usize;
 /// Everything went fine
 pub const EKOTRACE_RESULT_OK: EkotraceResult = 0;
 /// A null pointer was provided to the function
