@@ -234,7 +234,7 @@ impl LCIndex {
     }
 }
 
-pub fn synthesize_cross_segment_links<'a, W: Write, L: IntoIterator<Item = &'a model::LogEntry>>(
+pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogEntry>>(
     log: L,
     session_id: model::SessionId,
 ) -> Vec<model::CrossSegmentLink> {

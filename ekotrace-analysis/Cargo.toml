@@ -9,6 +9,15 @@ serde = { version = "1", features = ["derive"] }
 csv = "1.1"
 chrono = { version = "0.4", features = ["serde"] }
 itertools = "0.8.2"
+structopt = "0.3"
 
 [dev-dependencies]
 proptest = "0.9.4"
+
+[lib]
+name = "truce_analysis"
+path = "src/lib.rs"
+
+[[bin]]
+name = "truce-analysis-cli"
+path = "src/main.rs"
