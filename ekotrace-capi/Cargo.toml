@@ -6,11 +6,21 @@ edition = "2018"
 
 [lib]
 name = "ekotrace_capi"
-crate-type = ["lib", "staticlib", "cdylib"]
+crate-type = ["staticlib"]
+
+[features]
+default = ["default_panic_impl"]
+default_panic_impl = []
 
 [dependencies]
 ekotrace = { path = "../ekotrace" }
 
 [build-dependencies]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
 
 [workspace]

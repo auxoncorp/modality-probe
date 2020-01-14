@@ -1,36 +1,89 @@
 #![no_std]
-#![feature(lang_items, core_intrinsics)]
+#![cfg_attr(feature = "default_panic_impl", feature(lang_items, core_intrinsics))]
 use ekotrace::*;
 pub use ekotrace::{CausalSnapshot, Tracer};
+
+pub type EkotraceResult = i32;
+/// Everything went fine
+pub const EKOTRACE_RESULT_OK: EkotraceResult = 0;
+/// A null pointer was provided to the function
+pub const EKOTRACE_RESULT_NULL_POINTER: EkotraceResult = 1;
+/// An event id outside of the allowed range was provided.
+pub const EKOTRACE_RESULT_INVALID_EVENT_ID: EkotraceResult = 2;
+/// A tracer id outside of the allowed range was provided.
+pub const EKOTRACE_RESULT_INVALID_TRACER_ID: EkotraceResult = 3;
+/// The size available for output bytes was insufficient
+/// to store a valid representation.
+pub const EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES: EkotraceResult = 4;
+pub const EKOTRACE_RESULT_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE: EkotraceResult = 5;
+/// An unexpected error in internal data encoding occurred.
+pub const EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR: EkotraceResult = 6;
+/// The local tracer does not have enough space to track all
+/// of direct neighbors attempting to communicate with it.
+/// Detected during merging.
+pub const EKOTRACE_RESULT_EXCEEDED_AVAILABLE_CLOCKS: EkotraceResult = 7;
+
+/// The external history we attempted to merge was encoded
+/// in an invalid fashion.
+/// Detected during merging.
+pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING: EkotraceResult = 8;
+/// The provided external history violated a semantic rule of the protocol;
+/// such as by having a tracer_id out of the allowed value range.
+/// Detected during merging.
+pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS: EkotraceResult = 9;
 
 #[no_mangle]
 pub extern "C" fn tracer_initialize(
     destination: *mut u8,
     destination_size_bytes: usize,
     tracer_id: u32,
-) -> *mut Tracer<'static> {
-    assert!(
-        !destination.is_null(),
-        "tracer destination pointer was null"
-    );
-    assert!(
-        destination_size_bytes >= core::mem::size_of::<Tracer<'static>>(),
-        "insufficient tracer destination bytes to store the tracer"
-    );
-    unsafe {
-        Tracer::initialize_at(
-            core::slice::from_raw_parts_mut(destination, destination_size_bytes),
-            TracerId::new(tracer_id).expect("tracer_id was zero or over the max allowed value"),
-        )
-        .expect("Could not initialize Tracer")
+    out: *mut *mut Tracer<'static>,
+) -> EkotraceResult {
+    if destination.is_null() {
+        return EKOTRACE_RESULT_NULL_POINTER;
+    }
+    if destination_size_bytes < core::mem::size_of::<Tracer<'static>>() {
+        return EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES;
+    }
+    let tracer_id = match TracerId::new(tracer_id) {
+        Some(id) => id,
+        None => return EKOTRACE_RESULT_INVALID_TRACER_ID,
+    };
+    match Tracer::initialize_at(
+        unsafe { core::slice::from_raw_parts_mut(destination, destination_size_bytes) },
+        tracer_id,
+    ) {
+        Ok(t) => {
+            unsafe {
+                *out = t;
+            }
+            EKOTRACE_RESULT_OK
+        }
+        Err(LocalStorageCreationError::NullDestination) => EKOTRACE_RESULT_NULL_POINTER,
+        Err(LocalStorageCreationError::UnderMinimumAllowedSize) => {
+            EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
+        }
+        Err(LocalStorageCreationError::ExceededMaximumAddressableSize) => {
+            EKOTRACE_RESULT_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE
+        }
     }
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_record_event(tracer: *mut Tracer<'static>, event_id: u32) {
-    unsafe { tracer.as_mut() }
-        .expect("tracer pointer was null")
-        .record_event(EventId::new(event_id).expect("Could not create a non-zero EventId"))
+pub extern "C" fn tracer_record_event(
+    tracer: *mut Tracer<'static>,
+    event_id: u32,
+) -> EkotraceResult {
+    let tracer = match unsafe { tracer.as_mut() } {
+        Some(t) => t,
+        None => return EKOTRACE_RESULT_NULL_POINTER,
+    };
+    let event_id = match EventId::new(event_id) {
+        Some(id) => id,
+        None => return EKOTRACE_RESULT_INVALID_EVENT_ID,
+    };
+    tracer.record_event(event_id);
+    EKOTRACE_RESULT_OK
 }
 
 #[no_mangle]
@@ -38,20 +91,25 @@ pub extern "C" fn tracer_write_log_report(
     tracer: *mut Tracer<'static>,
     log_report_destination: *mut u8,
     log_report_destination_size_bytes: usize,
-) -> usize {
-    assert!(
-        !log_report_destination.is_null(),
-        "log report destination pointer was null"
-    );
-    unsafe { tracer.as_mut() }
-        .expect("tracer pointer was null")
-        .write_log_report(unsafe {
-            core::slice::from_raw_parts_mut(
-                log_report_destination,
-                log_report_destination_size_bytes,
-            )
-        })
-        .unwrap_or(0)
+    out_written_bytes: *mut usize,
+) -> EkotraceResult {
+    let tracer = match unsafe { tracer.as_mut() } {
+        Some(t) => t,
+        None => return EKOTRACE_RESULT_NULL_POINTER,
+    };
+    if log_report_destination.is_null() {
+        return EKOTRACE_RESULT_NULL_POINTER;
+    }
+    let written_bytes = match tracer.write_log_report(unsafe {
+        core::slice::from_raw_parts_mut(log_report_destination, log_report_destination_size_bytes)
+    }) {
+        Ok(b) => b,
+        Err(_) => return EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES,
+    };
+    unsafe {
+        *out_written_bytes = written_bytes;
+    }
+    EKOTRACE_RESULT_OK
 }
 
 #[no_mangle]
@@ -59,27 +117,46 @@ pub extern "C" fn tracer_share_history(
     tracer: *mut Tracer<'static>,
     history_destination: *mut u8,
     history_destination_bytes: usize,
-) -> usize {
-    unsafe { tracer.as_mut() }
-        .expect("tracer pointer was null")
-        .share_history(unsafe {
-            core::slice::from_raw_parts_mut(history_destination, history_destination_bytes)
-        })
-        .unwrap_or(0)
+    out_written_bytes: *mut usize,
+) -> EkotraceResult {
+    let tracer = match unsafe { tracer.as_mut() } {
+        Some(t) => t,
+        None => return EKOTRACE_RESULT_NULL_POINTER,
+    };
+    match tracer.share_history(unsafe {
+        core::slice::from_raw_parts_mut(history_destination, history_destination_bytes)
+    }) {
+        Ok(written_bytes) => {
+            unsafe {
+                *out_written_bytes = written_bytes;
+            }
+            EKOTRACE_RESULT_OK
+        }
+        Err(ShareError::InsufficientDestinationSize) => {
+            EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
+        }
+        Err(ShareError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn tracer_share_fixed_size_history(
     tracer: *mut Tracer<'static>,
     destination_snapshot: *mut CausalSnapshot,
-) -> bool {
-    unsafe {
-        let tracer = tracer.as_mut().expect("tracer pointer was null");
-        *destination_snapshot = match tracer.share_fixed_size_history() {
-            Ok(snapshot) => snapshot,
-            Err(_) => return false,
-        };
-        true
+) -> EkotraceResult {
+    let tracer = match unsafe { tracer.as_mut() } {
+        Some(t) => t,
+        None => return EKOTRACE_RESULT_NULL_POINTER,
+    };
+    match tracer.share_fixed_size_history() {
+        Ok(snapshot) => {
+            unsafe { *destination_snapshot = snapshot }
+            EKOTRACE_RESULT_OK
+        }
+        Err(ShareError::InsufficientDestinationSize) => {
+            EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
+        }
+        Err(ShareError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
     }
 }
 
@@ -88,51 +165,59 @@ pub extern "C" fn tracer_merge_history(
     tracer: *mut Tracer<'static>,
     history_source: *const u8,
     history_source_bytes: usize,
-) -> i32 {
-    unsafe { tracer.as_mut() }
-        .expect("tracer pointer was null")
+) -> EkotraceResult {
+    let tracer = match unsafe { tracer.as_mut() } {
+        Some(t) => t,
+        None => return EKOTRACE_RESULT_NULL_POINTER,
+    };
+    match tracer
         .merge_history(unsafe { core::slice::from_raw_parts(history_source, history_source_bytes) })
-        .is_ok()
-        .as_i32_bool()
+    {
+        Ok(_) => EKOTRACE_RESULT_OK,
+        Err(MergeError::ExceededAvailableClocks) => EKOTRACE_RESULT_EXCEEDED_AVAILABLE_CLOCKS,
+        Err(MergeError::ExternalHistoryEncoding) => {
+            EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING
+        }
+        Err(MergeError::ExternalHistorySemantics) => {
+            EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS
+        }
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn tracer_merge_fixed_size_history(
     tracer: *mut Tracer<'static>,
     snapshot: *const CausalSnapshot,
-) -> i32 {
-    unsafe { tracer.as_mut() }
-        .expect("tracer pointer was null")
-        .merge_fixed_size_history(unsafe { &*snapshot })
-        .is_ok()
-        .as_i32_bool()
-}
-
-trait AsInt32Bool {
-    fn as_i32_bool(self) -> i32;
-}
-
-impl AsInt32Bool for bool {
-    fn as_i32_bool(self) -> i32 {
-        if self {
-            1
-        } else {
-            0
+) -> EkotraceResult {
+    let tracer = match unsafe { tracer.as_mut() } {
+        Some(t) => t,
+        None => return EKOTRACE_RESULT_NULL_POINTER,
+    };
+    match tracer.merge_fixed_size_history(unsafe { &*snapshot }) {
+        Ok(_) => EKOTRACE_RESULT_OK,
+        Err(MergeError::ExceededAvailableClocks) => EKOTRACE_RESULT_EXCEEDED_AVAILABLE_CLOCKS,
+        Err(MergeError::ExternalHistoryEncoding) => {
+            EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING
+        }
+        Err(MergeError::ExternalHistorySemantics) => {
+            EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS
         }
     }
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "default_panic_impl", not(test)))]
 #[panic_handler]
 pub fn panic(_info: &core::panic::PanicInfo) -> ! {
     // N.B. Point for future expansion - could use feature flagging here
-    // to pull in libc_print for operating systems that support it
+    // to pull in libc_print for operating systems that support it.
+    // A separate alternative would be to provide a hook for
+    // setting a panic-handler implementation at runtime.
     unsafe {
         core::intrinsics::abort();
     }
 }
 
-#[cfg(not(test))]
+#[cfg(all(feature = "default_panic_impl", not(test)))]
 #[lang = "eh_personality"]
 pub extern "C" fn eh_personality() {
     unsafe {
@@ -148,7 +233,10 @@ mod tests {
 
     fn stack_snapshot(tracer: *mut Tracer<'static>) -> CausalSnapshot {
         let mut snap = MaybeUninit::uninit();
-        assert!(tracer_share_fixed_size_history(tracer, snap.as_mut_ptr()));
+        assert_eq!(
+            EKOTRACE_RESULT_OK,
+            tracer_share_fixed_size_history(tracer, snap.as_mut_ptr())
+        );
         unsafe { snap.assume_init() }
     }
 
@@ -159,11 +247,15 @@ mod tests {
         let tracer_id = 2;
         let mut storage = [0u8; 1024];
         let storage_slice = &mut storage;
-        let tracer = tracer_initialize(
+        let mut tracer = MaybeUninit::uninit();
+        let result = tracer_initialize(
             storage_slice.as_mut_ptr() as *mut u8,
             storage_slice.len(),
             tracer_id,
+            tracer.as_mut_ptr(),
         );
+        assert_eq!(EKOTRACE_RESULT_OK, result);
+        let tracer = unsafe { tracer.assume_init() };
         let snap_empty = stack_snapshot(tracer);
         assert_eq!(snap_empty.tracer_id, tracer_id);
         assert_eq!(1, snap_empty.buckets_len);
@@ -174,7 +266,14 @@ mod tests {
         assert_eq!(1, snap_a.buckets_len);
 
         assert!(&backend.iter().all(|b| *b == 0));
-        let bytes_written = tracer_write_log_report(tracer, backend.as_mut_ptr(), backend.len());
+        let mut bytes_written: usize = 0;
+        let result = tracer_write_log_report(
+            tracer,
+            backend.as_mut_ptr(),
+            backend.len(),
+            &mut bytes_written as *mut usize,
+        );
+        assert_eq!(EKOTRACE_RESULT_OK, result);
         assert!(bytes_written > 0);
         assert!(!&backend.iter().all(|b| *b == 0));
         let snap_b = stack_snapshot(tracer);
@@ -191,11 +290,15 @@ mod tests {
 
         let mut remote_storage = [0u8; 1024];
         let remote_storage_slice = &mut remote_storage;
-        let remote_tracer = tracer_initialize(
+        let mut remote_tracer = MaybeUninit::uninit();
+        let result = tracer_initialize(
             remote_storage_slice.as_mut_ptr() as *mut u8,
             remote_storage_slice.len(),
             remote_tracer_id,
+            remote_tracer.as_mut_ptr(),
         );
+        assert_eq!(EKOTRACE_RESULT_OK, result);
+        let remote_tracer = unsafe { remote_tracer.assume_init() };
         let remote_snap_pre_merge = stack_snapshot(remote_tracer);
         // Since we haven't manually combined history information yet, the remote's history is disjoint
         assert_eq!(

@@ -24,12 +24,19 @@ static uint32_t EVENT_A = 100;
 bool test_backend_piping() {
     bool passed = true;
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
-    tracer * t = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID);
+    tracer * t;
+    ekotrace_result result = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &t);
+    if (result != EKOTRACE_RESULT_OK) {
+        passed = false;
+    }
 
     uint8_t * log_storage = (uint8_t*)malloc(DEFAULT_LOG_STORAGE);
-    bool write_success = false;
-    write_success = tracer_write_log_report(t, log_storage, DEFAULT_LOG_STORAGE);
-    if (!write_success) {
+    size_t bytes_written;
+    result = tracer_write_log_report(t, log_storage, DEFAULT_LOG_STORAGE, &bytes_written);
+    if (result != EKOTRACE_RESULT_OK) {
+        passed = false;
+    }
+    if (bytes_written == 0) {
         passed = false;
     }
     bool all_zeros = true;
@@ -51,11 +58,17 @@ bool test_backend_piping() {
 bool test_event_recording() {
     bool passed = true;
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
-    tracer * t = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID);
+    tracer * t;
+    ekotrace_result result = tracer_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &t);
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at initialization: %d\n", result);
+        passed = false;
+    }
 
     causal_snapshot snap_a;
-    bool make_snap_success = tracer_share_fixed_size_history(t, &snap_a);
-    if (!make_snap_success) {
+    result = tracer_share_fixed_size_history(t, &snap_a);
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at shared fixed size: %d\n", result);
         passed = false;
     }
     if (snap_a.tracer_id != DEFAULT_TRACER_ID) {
@@ -64,10 +77,15 @@ bool test_event_recording() {
     if (snap_a.buckets_len != 1) {
         passed = false;
     }
-    tracer_record_event(t, EVENT_A);
+    result = tracer_record_event(t, EVENT_A);
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event: %d\n", result);
+        passed = false;
+    }
     causal_snapshot snap_b;
-    make_snap_success = tracer_share_fixed_size_history(t, &snap_b);
-    if (!make_snap_success) {
+    result = tracer_share_fixed_size_history(t, &snap_b);
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at share fixed size history: %d\n", result);
         passed = false;
     }
     if (snap_b.buckets_len != 1) {
@@ -80,20 +98,28 @@ bool test_event_recording() {
 bool test_merge() {
     bool passed = true;
     uint8_t * destination_a = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
-    tracer * tracer_a = tracer_initialize(destination_a, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID);
+    tracer * tracer_a;
+    ekotrace_result result = tracer_initialize(destination_a, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &tracer_a);
+    if (result != EKOTRACE_RESULT_OK) {
+        passed = false;
+    }
     uint8_t * destination_b = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     uint32_t tracer_b_id = DEFAULT_TRACER_ID + 1;
-    tracer * tracer_b = tracer_initialize(destination_b, DEFAULT_TRACER_SIZE, tracer_b_id);
+    tracer * tracer_b;
+    result = tracer_initialize(destination_b, DEFAULT_TRACER_SIZE, tracer_b_id, &tracer_b);
+    if (result != EKOTRACE_RESULT_OK) {
+        passed = false;
+    }
     tracer_record_event(tracer_a, EVENT_A);
     causal_snapshot snap_a;
-    bool make_snap_success = tracer_share_fixed_size_history(tracer_a, &snap_a);
-    if (!make_snap_success) {
+    result = tracer_share_fixed_size_history(tracer_a, &snap_a);
+    if (result != EKOTRACE_RESULT_OK) {
         passed = false;
     }
     tracer_merge_fixed_size_history(tracer_b, &snap_a);
     causal_snapshot snap_b;
-    make_snap_success = tracer_share_fixed_size_history(tracer_b, &snap_b);
-    if (!make_snap_success) {
+    result = tracer_share_fixed_size_history(tracer_b, &snap_b);
+    if (result != EKOTRACE_RESULT_OK) {
         passed = false;
     }
     if (snap_b.buckets_len != 1) {
@@ -104,8 +130,8 @@ bool test_merge() {
     }
     tracer_record_event(tracer_b, EVENT_A);
     causal_snapshot snap_c;
-    make_snap_success = tracer_share_fixed_size_history(tracer_b, &snap_c);
-    if (!make_snap_success) {
+    result = tracer_share_fixed_size_history(tracer_b, &snap_c);
+    if (result != EKOTRACE_RESULT_OK) {
         passed = false;
     }
     if (snap_c.buckets_len != 2) {
