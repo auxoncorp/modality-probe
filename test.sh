@@ -6,11 +6,11 @@ cargo build --all
 cargo test
 
 (
-    cd truce/truce-c
+    cd ekotrace-capi
     cargo test
 )
 
 (
-    cd truce/truce-c/ctest
+    cd ekotrace-capi/ctest
     ./build_and_run
 )

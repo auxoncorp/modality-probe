@@ -1,0 +1,16 @@
+[package]
+name = "ekotrace-capi"
+version = "0.1.0"
+authors = ["Zachary Pierce <zack@auxon.io>"]
+edition = "2018"
+
+[lib]
+name = "ekotrace_capi"
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+ekotrace = { path = "../ekotrace" }
+
+[build-dependencies]
+
+[workspace]
