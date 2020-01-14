@@ -743,12 +743,12 @@ dependencies = [
 [[package]]
 name = "rust-lcm-codec"
 version = "0.1.0"
-source = "git+ssh://git@github.com/auxoncorp/rust-lcm-codec.git#896d758d6146b374f39a715e540a5cef08c0a778"
+source = "git+ssh://git@github.com/auxoncorp/rust-lcm-codec.git#d1dba5d766a35a0ebe7e9a68acb3fa7e699dab71"
 
 [[package]]
 name = "rust-lcm-codegen"
 version = "0.1.0"
-source = "git+ssh://git@github.com/auxoncorp/rust-lcm-codec.git#896d758d6146b374f39a715e540a5cef08c0a778"
+source = "git+ssh://git@github.com/auxoncorp/rust-lcm-codec.git#d1dba5d766a35a0ebe7e9a68acb3fa7e699dab71"
 dependencies = [
  "nom 5.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "proc-macro2 1.0.7 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -1,4 +1,7 @@
+//! ekotrace, a causal history tracing system
 #![no_std]
+#![deny(warnings)]
+#![deny(missing_docs)]
 
 use static_assertions::assert_cfg;
 assert_cfg!(not(target_pointer_width = "16"));
@@ -11,7 +14,7 @@ use history::DynamicHistory;
 use core::mem::{align_of, size_of};
 use core::num::NonZeroU32;
 
-/// Snapshot of causal history for transmission around the system
+/// Fixed-sized snapshot of causal history for transmission around the system
 ///
 /// Note the use of bare integer types rather than the safety-oriented
 /// wrappers (TracerId, NonZero*) for C representation reasons.
@@ -23,9 +26,15 @@ pub struct CausalSnapshot {
 
     /// Mapping between tracer_ids and event-counts at each location
     pub buckets: [LogicalClockBucket; 256],
+    /// The number of clocks in the above `buckets` field that
+    /// are populated with valid ids and counts
     pub buckets_len: u8,
 }
 
+/// A single logical clock, here used as an entry in a vector clock
+///
+/// Note the use of bare integer types rather than the safety-oriented
+/// wrappers (TracerId, NonZero*) for C representation reasons.
 #[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(C)]
 pub struct LogicalClockBucket {
@@ -45,6 +54,7 @@ pub struct LogicalClockBucket {
 pub struct TracerId(NonZeroU32);
 
 impl TracerId {
+    /// The largest permissible backing id value
     pub const MAX_ID: u32 = 0b0111_1111_1111_1111_1111_1111_1111_1111;
 
     /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
@@ -56,11 +66,14 @@ impl TracerId {
         NonZeroU32::new(raw_id).map(Self)
     }
 
+    /// Get the underlying value with Rust's assurances
+    /// of non-zero-ness.
     #[inline]
     pub fn get(self) -> NonZeroU32 {
         self.0
     }
 
+    /// Get the underlying value as a convenient primitive
     #[inline]
     pub fn get_raw(self) -> u32 {
         self.0.get()
@@ -90,6 +103,8 @@ impl EventId {
     /// This value is different from MAX_USER_ID in order to
     /// support a reserved range of EventIds for protocol use
     pub const MAX_INTERNAL_ID: u32 = 0b0111_1111_1111_1111_1111_1111_1111_1111;
+    /// The number of id values that are reserved for use by the
+    /// tracer implementation.
     pub const NUM_RESERVED_IDS: u32 = 256;
     /// The maximum-permissable id value for for an Event
     /// defined by end users.
@@ -102,9 +117,11 @@ impl EventId {
     /// There was not sufficient room in memory to store all desired events or clock data
     pub const EVENT_LOG_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 2) });
+    /// A logical clock's count reached the maximum trackable value
     pub const EVENT_LOGICAL_CLOCK_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 3) });
 
+    /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[
         EventId::EVENT_PRODUCED_EXTERNAL_REPORT,
         EventId::EVENT_LOG_OVERFLOWED,
@@ -120,11 +137,14 @@ impl EventId {
         NonZeroU32::new(raw_id).map(Self)
     }
 
+    /// Get the underlying value with Rust's assurances
+    /// of non-zero-ness.
     #[inline]
     pub fn get(self) -> NonZeroU32 {
         self.0
     }
 
+    /// Get the underlying value as a convenient primitive
     #[inline]
     pub fn get_raw(self) -> u32 {
         self.0.get()
@@ -143,10 +163,20 @@ impl From<EventId> for u32 {
     }
 }
 
+/// An error relating to the initialization
+/// of in-memory tracing storage.
 #[derive(Debug)]
 pub enum LocalStorageCreationError {
+    /// The provided storage space was insufficient
+    /// to support a minimally useful tracing
+    /// implementation.
     UnderMinimumAllowedSize,
+    /// The provided space for clock-buckets and logging
+    /// exceeded the number of units the tracing implementation
+    /// can track.
     ExceededMaximumAddressableSize,
+    /// The provided or computed output pointer for
+    /// tracing data storage turned out to be null.
     NullDestination,
 }
 
@@ -158,19 +188,19 @@ pub struct Tracer<'a> {
     history: &'a mut DynamicHistory,
 }
 
-/// Trace data collection interface
-pub trait Backend: core::fmt::Debug {
-    /// Transmits a Tracer's internal state according to the
-    /// tracing data protocol to some storage or presentation
-    /// or retransmission backend.
-    ///
-    /// Returns `true` if the data was successfully transmitted
-    fn send_tracer_data(&mut self, data: &[u8]) -> bool;
-}
-
 impl<'a> Tracer<'a> {
     /// Initialize tracing for this location.
     /// `tracer_id` ought to be unique throughout the system.
+    ///
+    /// Returns a mutable reference to the tracer instance,
+    /// which will be somewhere within the provided `memory`
+    /// slice.
+    ///
+    /// This method is used to support completely opaque
+    /// sizing of the tracer implementation, which simplifies
+    /// use in C.
+    ///
+    /// Use `new_with_storage` instead if you're working in Rust.
     pub fn initialize_at(
         memory: &'a mut [u8],
         tracer_id: TracerId,
@@ -189,6 +219,11 @@ impl<'a> Tracer<'a> {
         }
     }
 
+    /// Initialize tracing for this location,
+    /// using `history_memory` for backing storage while
+    /// returning a tracer instance on the stack.
+    ///
+    /// `tracer_id` ought to be unique throughout the system.
     pub fn new_with_storage(
         history_memory: &'a mut [u8],
         tracer_id: TracerId,
