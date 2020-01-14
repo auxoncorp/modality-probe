@@ -127,18 +127,17 @@ impl LogEntry {
     pub fn is_event(&self) -> bool {
         match self.data {
             LogEntryData::Event(_) => true,
-            LogEntryData::LogicalClock(_, _) => false
+            LogEntryData::LogicalClock(_, _) => false,
         }
     }
 
     pub fn is_clock(&self) -> bool {
         match self.data {
             LogEntryData::Event(_) => false,
-            LogEntryData::LogicalClock(_, _) => true
+            LogEntryData::LogicalClock(_, _) => true,
         }
     }
 }
-
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct CrossSegmentLink {
