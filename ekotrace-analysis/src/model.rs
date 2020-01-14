@@ -25,7 +25,7 @@ newtype! {
     /// A session is an arbitrary scope for log events. Event ordering is (via
     /// sequence and logical clocks) is resolved between events in the same
     /// session.
-    #[derive(Debug, Eq, PartialEq, Copy, Clone)]
+    #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
     pub struct SessionId(pub u32);
 }
 

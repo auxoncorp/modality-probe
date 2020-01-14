@@ -1,6 +1,6 @@
 use alloc_log_report::*;
 use chrono::{DateTime, Utc};
-use ekotrace_analysis::model::{LogEntry, LogEntryData, LogEntryId, SessionId};
+use ekotrace_analysis::model::{LogEntry, LogEntryData, SegmentId, SessionId};
 use std::io::{Error as IoError, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
@@ -90,7 +90,7 @@ pub fn start_receiving_from_socket<W: Write>(
 ) {
     let addr = socket.local_addr().map(|a| a.to_string());
     let mut buf = vec![0u8; 1024 * 1024];
-    let mut raw_log_entry_id: u64 = 0;
+    let mut raw_segment_id: u32 = 0;
     let mut log_entries_buffer: Vec<LogEntry> = Vec::with_capacity(4096);
     loop {
         if shutdown_signal_receiver.try_recv().is_ok() {
@@ -129,10 +129,10 @@ pub fn start_receiving_from_socket<W: Write>(
         // and instead directly create log entries. Probably wise to wait until the
         // log format settles down some before doing this.
         log_entries_buffer.clear();
-        raw_log_entry_id = add_log_report_to_entries(
+        raw_segment_id = add_log_report_to_entries(
             &log_report,
             session_id,
-            raw_log_entry_id,
+            raw_segment_id.into(),
             receive_time,
             &mut log_entries_buffer,
         );
@@ -152,49 +152,54 @@ pub fn start_receiving_from_socket<W: Write>(
 fn add_log_report_to_entries(
     log_report: &LogReport,
     session_id: SessionId,
-    initial_log_entry_id: u64,
+    initial_segment_id: SegmentId,
     receive_time: DateTime<Utc>,
     log_entries_buffer: &mut Vec<LogEntry>,
-) -> u64 {
-    let mut raw_log_entry_id = initial_log_entry_id;
+) -> u32 {
+    let mut raw_segment_id = initial_segment_id.0;
     let tracer_id = (log_report.tracer_id as u32).into();
-    let mut preceding_entry: Option<LogEntryId> = None;
+    // let mut preceding_entry: Option<LogEntryId> = None;
     for segment in &log_report.segments {
+        let mut segment_index = 0;
+
         for clock_bucket in &segment.clocks {
-            let id = LogEntryId::from(raw_log_entry_id);
             log_entries_buffer.push(LogEntry {
                 session_id,
-                id: raw_log_entry_id.into(),
+                segment_id: raw_segment_id.into(),
+                segment_index,
                 tracer_id,
                 data: LogEntryData::LogicalClock(
                     (clock_bucket.tracer_id as u32).into(),
                     clock_bucket.count as u32,
                 ),
-                preceding_entry,
                 receive_time,
             });
-            raw_log_entry_id += 1;
-            preceding_entry = Some(id);
+
+            segment_index += 1;
         }
+
         for event in &segment.events {
-            let id = LogEntryId::from(raw_log_entry_id);
             let event_value = *event as u32;
             if event_value == 0 {
                 panic!("Discovered an event value of 0 while converting a LogReport to CSV log entries, which is totally uncool.\n{:#?}", log_report);
             }
+
             log_entries_buffer.push(LogEntry {
                 session_id,
-                id: raw_log_entry_id.into(),
+                segment_id: raw_segment_id.into(),
+                segment_index,
                 tracer_id,
                 data: LogEntryData::Event(event_value.into()),
-                preceding_entry,
                 receive_time,
             });
-            raw_log_entry_id += 1;
-            preceding_entry = Some(id);
+
+            segment_index += 1;
         }
+
+        raw_segment_id += 1;
     }
-    raw_log_entry_id
+
+    raw_segment_id.into()
 }
 
 #[cfg(test)]
@@ -240,7 +245,7 @@ mod tests {
     fn report_and_matching_entries(
         raw_main_tracer_id: i32,
         session_id: SessionId,
-        initial_entry_id: u64,
+        start_segment_id: truce_analysis::model::SegmentId,
         receive_time: DateTime<Utc>,
     ) -> (LogReport, Vec<LogEntry>) {
         let main_tracer_id = (raw_main_tracer_id as u32).into();
@@ -250,50 +255,50 @@ mod tests {
             vec![
                 LogEntry {
                     session_id,
-                    id: initial_entry_id.into(),
+                    segment_id: start_segment_id,
+                    segment_index: 0,
                     tracer_id: main_tracer_id,
                     data: LogEntryData::LogicalClock(31.into(), 14),
-                    preceding_entry: None,
                     receive_time,
                 },
                 LogEntry {
                     session_id,
-                    id: (initial_entry_id + 1).into(),
+                    segment_id: start_segment_id,
+                    segment_index: 1,
                     tracer_id: main_tracer_id,
                     data: LogEntryData::LogicalClock(15.into(), 9),
-                    preceding_entry: Some(initial_entry_id.into()),
                     receive_time,
                 },
                 LogEntry {
                     session_id,
-                    id: (initial_entry_id + 2).into(),
+                    segment_id: start_segment_id,
+                    segment_index: 2,
                     tracer_id: main_tracer_id,
                     data: LogEntryData::Event(2653.into()),
-                    preceding_entry: Some((initial_entry_id + 1).into()),
                     receive_time,
                 },
                 LogEntry {
                     session_id,
-                    id: (initial_entry_id + 3).into(),
+                    segment_id: (start_segment_id.0 + 1).into(),
+                    segment_index: 0,
                     tracer_id: main_tracer_id,
                     data: LogEntryData::LogicalClock(271.into(), 1),
-                    preceding_entry: Some((initial_entry_id + 2).into()),
                     receive_time,
                 },
                 LogEntry {
                     session_id,
-                    id: (initial_entry_id + 4).into(),
+                    segment_id: (start_segment_id.0 + 1).into(),
+                    segment_index: 1,
                     tracer_id: main_tracer_id,
                     data: LogEntryData::Event(793.into()),
-                    preceding_entry: Some((initial_entry_id + 3).into()),
                     receive_time,
                 },
                 LogEntry {
                     session_id,
-                    id: (initial_entry_id + 5).into(),
+                    segment_id: (start_segment_id.0 + 1).into(),
+                    segment_index: 2,
                     tracer_id: main_tracer_id,
                     data: LogEntryData::Event(2384.into()),
-                    preceding_entry: Some((initial_entry_id + 4).into()),
                     receive_time,
                 },
             ],
@@ -304,24 +309,24 @@ mod tests {
     fn log_report_to_entries() {
         let raw_main_tracer_id = 31;
         let session_id = 81.into();
-        let initial_entry_id = 3;
+        let initial_segment_id = 3.into();
         let receive_time = Utc::now();
         let (report, expected_entries) = report_and_matching_entries(
             raw_main_tracer_id,
             session_id,
-            initial_entry_id,
+            initial_segment_id,
             receive_time,
         );
         let mut entries = Vec::new();
-        let out_id = add_log_report_to_entries(
+        let out_segment_id = add_log_report_to_entries(
             &report,
             session_id,
-            initial_entry_id,
+            initial_segment_id,
             receive_time,
             &mut entries,
         );
         assert_eq!(6, entries.len());
-        assert_eq!(out_id - initial_entry_id, entries.len() as u64);
+        assert_eq!(out_segment_id - initial_segment_id.0, 2);
         assert_eq!(expected_entries, entries);
     }
 
@@ -436,21 +441,20 @@ mod tests {
             .map(|s| s.events.len() + s.clocks.len())
             .sum();
         assert_eq!(expected_entries, found_log_entries.len());
-        let found_entry_ids: HashSet<_> = found_log_entries.iter().map(|e| e.id.0).collect();
+
+        let found_entry_ids: HashSet<_> = found_log_entries
+            .iter()
+            .map(|e| (e.session_id, e.segment_id, e.segment_index))
+            .collect();
         assert_eq!(
             expected_entries,
             found_entry_ids.len(),
-            "All entries must have unique ids"
+            "All entries must have unique id tuples"
         );
-        for (i, e) in found_log_entries.iter().enumerate() {
+
+        for e in found_log_entries.iter() {
             assert_eq!(session_id, e.session_id);
             assert_eq!(log_report.tracer_id as u32, e.tracer_id.0);
-            if i == 0 {
-                assert!(e.preceding_entry.is_none());
-            } else {
-                assert!(e.preceding_entry.is_some());
-                assert!(found_entry_ids.contains(&e.preceding_entry.unwrap().0));
-            }
         }
         h.join().expect("Couldn't join server handler thread");
     }
