@@ -139,7 +139,7 @@ impl LogEntry {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Hash)]
 pub struct CrossSegmentLink {
     pub session_id: SessionId,
     pub before: SegmentId,

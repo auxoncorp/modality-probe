@@ -143,7 +143,7 @@ pub fn read_csv_log_entries<R: Read>(r: &mut R) -> Result<Vec<model::LogEntry>, 
 }
 
 /// Just the segment information needed for indexing
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct SegmentMetadata {
     id: model::SegmentId,
     tracer_id: model::TracerId,
@@ -160,6 +160,7 @@ impl SegmentMetadata {
     }
 }
 
+#[derive(Debug)]
 struct SegmentMetadataIndex(HashMap<model::SegmentId, SegmentMetadata>);
 impl SegmentMetadataIndex {
     fn new() -> SegmentMetadataIndex {
@@ -172,7 +173,9 @@ impl SegmentMetadataIndex {
 }
 
 // source tracer id -> local clock value -> segment id
+#[derive(Debug)]
 struct LCIndex(HashMap<model::TracerId, BTreeMap<u32, model::SegmentId>>);
+
 impl LCIndex {
     fn new() -> LCIndex {
         LCIndex(HashMap::new())
@@ -222,6 +225,7 @@ impl LCIndex {
             if let Some((_, sid)) = self
                 .0
                 .get(&bucket_tracer_id)
+                // TODO: this can happen if a segment doesn't have its own local clock in it.
                 .unwrap()
                 .range(0..*bucket_clock)
                 .last()
