@@ -388,7 +388,12 @@ impl DynamicHistory {
         &mut self,
         destination: &mut [u8],
     ) -> Result<usize, ShareError> {
+        // Increment and log the local logical clock first, so we know that both
+        // local and remote events (from tracers which ingest this blob) can be
+        // related to previous local events.
         self.increment_local_clock_count();
+        self.write_current_clocks_to_log();
+
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
         let w = lcm::in_system::begin_causal_snapshot_write(&mut buffer_writer)?;
         let mut w = w
