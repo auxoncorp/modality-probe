@@ -23,7 +23,7 @@ ekotrace-analysis = { path = "../ekotrace-analysis" }
 [dev-dependencies]
 crossbeam = "0.7.3"
 lazy_static = "1.4.0"
-proc-graph = { git = "ssh://git@github.com/auxoncorp/proc-graph.git"}
+proc-graph = { path = "../test-support/proc-graph"}
 proptest = "0.9.4"
 tempfile = "3"
 ekotrace = { path = "../ekotrace" }

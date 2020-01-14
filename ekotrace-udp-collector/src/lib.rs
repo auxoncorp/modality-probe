@@ -1,9 +1,9 @@
 use alloc_log_report::*;
 use chrono::{DateTime, Utc};
+use ekotrace_analysis::model::{LogEntry, LogEntryData, LogEntryId, SessionId};
 use std::io::{Error as IoError, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
-use ekotrace_analysis::model::{LogEntry, LogEntryData, LogEntryId, SessionId};
 
 #[derive(Debug, PartialEq)]
 pub struct Config {

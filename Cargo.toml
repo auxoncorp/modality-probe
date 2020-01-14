@@ -1,9 +1,10 @@
 [workspace]
 members = [
+  "alloc-log-report",
   "ekotrace",
   "ekotrace-header-gen",
   "ekotrace-analysis",
   "ekotrace-udp-collector",
-  "alloc-log-report"
+  "test-support/proc-graph",
 ]
 
