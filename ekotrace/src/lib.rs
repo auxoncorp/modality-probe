@@ -53,17 +53,29 @@ impl TracerId {
         if raw_id > Self::MAX_ID {
             return None;
         }
-        NonZeroU32::new(raw_id).map(|id| Self(id))
+        NonZeroU32::new(raw_id).map(Self)
     }
 
     #[inline]
-    pub fn get(&self) -> NonZeroU32 {
+    pub fn get(self) -> NonZeroU32 {
         self.0
     }
 
     #[inline]
-    pub fn get_raw(&self) -> u32 {
+    pub fn get_raw(self) -> u32 {
         self.0.get()
+    }
+}
+
+impl From<TracerId> for NonZeroU32 {
+    fn from(t: TracerId) -> Self {
+        t.0
+    }
+}
+
+impl From<TracerId> for u32 {
+    fn from(t: TracerId) -> Self {
+        t.0.get()
     }
 }
 
@@ -105,17 +117,29 @@ impl EventId {
         if raw_id > Self::MAX_USER_ID {
             return None;
         }
-        NonZeroU32::new(raw_id).map(|id| Self(id))
+        NonZeroU32::new(raw_id).map(Self)
     }
 
     #[inline]
-    pub fn get(&self) -> NonZeroU32 {
+    pub fn get(self) -> NonZeroU32 {
         self.0
     }
 
     #[inline]
-    pub fn get_raw(&self) -> u32 {
+    pub fn get_raw(self) -> u32 {
         self.0.get()
+    }
+}
+
+impl From<EventId> for NonZeroU32 {
+    fn from(e: EventId) -> Self {
+        e.0
+    }
+}
+
+impl From<EventId> for u32 {
+    fn from(e: EventId) -> Self {
+        e.0.get()
     }
 }
 

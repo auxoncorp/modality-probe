@@ -4,7 +4,6 @@
 //!
 //! use proc_graph::Network;
 //!
-//! fn main() {
 //!     env_logger::init();
 //!
 //!     let mut net = Network::new();
@@ -51,7 +50,6 @@
 //!     });
 //!
 //!     net.start();
-//! }
 //! ```
 use std::{
     collections::HashMap,
@@ -61,6 +59,7 @@ use std::{
 
 /// A network of processes. Each process has a mailbox and the set of
 /// addresses (senders) it needs to communicate with its neighbors.
+#[derive(Default)]
 pub struct Network<T> {
     procs: HashMap<String, Process<T>>,
 }
@@ -97,7 +96,6 @@ where
             } else {
                 let (s, r) = mpsc::channel();
                 Process {
-                    name: name.to_string(),
                     adj: adj.into_iter().map(|a| a.to_string()).collect(),
                     senders: HashMap::new(),
                     self_sender: s,
@@ -113,7 +111,6 @@ where
                 } else {
                     let (s, r) = mpsc::channel();
                     Process {
-                        name: adj.to_string(),
                         adj: Vec::new(),
                         senders: HashMap::new(),
                         self_sender: s,
@@ -150,7 +147,6 @@ where
 }
 
 struct Process<T> {
-    name: String,
     adj: Vec<String>,
     body: Option<
         Box<dyn Fn(HashMap<String, Sender<(String, T)>>, Receiver<(String, T)>) + Send + 'static>,

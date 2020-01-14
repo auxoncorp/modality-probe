@@ -22,7 +22,7 @@ impl CompactLogItem {
         (CompactLogItem(id), CompactLogItem(bucket.count))
     }
 
-    pub(crate) fn is_first_bit_set(&self) -> bool {
+    pub(crate) fn is_first_bit_set(self) -> bool {
         (self.0 & 0b1000_0000_0000_0000_0000_0000_0000_0000) != 0
     }
 

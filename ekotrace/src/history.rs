@@ -444,25 +444,23 @@ impl DynamicHistory {
         let r = lcm::in_system::begin_causal_snapshot_read(&mut buffer_reader)?;
         let (neighbor_id, r) = r.read_tracer_id()?;
         let (_n_clock_buckets, mut r) = r.read_n_clock_buckets()?;
-        let buckets_iterator = (&mut r).filter_map(|item_reader| {
+        let buckets_iterator = (&mut r).map(|item_reader| {
             let mut found_id = 0;
             let mut found_count = 0;
-            if item_reader
-                .read(|ir| {
-                    let (id, ir) = ir.read_tracer_id()?;
-                    found_id = id;
-                    let (count, ir) = ir.read_count()?;
-                    found_count = count;
-                    Ok(ir)
-                })
-                .is_err()
-            {
-                Some(Err(MergeError::ExternalHistoryEncoding))
+            let item_read_result = item_reader.read(|ir| {
+                let (id, ir) = ir.read_tracer_id()?;
+                found_id = id;
+                let (count, ir) = ir.read_count()?;
+                found_count = count;
+                Ok(ir)
+            });
+            if item_read_result.is_err() {
+                Err(MergeError::ExternalHistoryEncoding)
             } else {
-                Some(Ok(LogicalClockBucket {
+                Ok(LogicalClockBucket {
                     id: found_id as u32,
                     count: found_count as u32,
-                }))
+                })
             }
         });
         let merge_result = self.merge_internal(neighbor_id as u32, buckets_iterator);
@@ -505,17 +503,15 @@ impl DynamicHistory {
             .get_buckets_slice()
             .iter()
             .any(|b| b.id == raw_neighbor_id)
-        {
-            if self
+            && self
                 .try_push_bucket(LogicalClockBucket {
                     id: raw_neighbor_id,
                     count: 0,
                 })
                 .is_err()
-            {
-                self.has_overflowed_num_buckets = true;
-                return Err(MergeError::ExceededAvailableClocks);
-            }
+        {
+            self.has_overflowed_num_buckets = true;
+            return Err(MergeError::ExceededAvailableClocks);
         }
 
         let mut outcome = Ok(());
