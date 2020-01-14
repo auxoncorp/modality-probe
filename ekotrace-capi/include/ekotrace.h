@@ -1,3 +1,5 @@
+#ifndef EKOTRACE_H
+#define EKOTRACE_H
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -144,3 +146,6 @@ ekotrace_result tracer_merge_fixed_size_history(tracer *tracer, causal_snapshot 
 #ifdef __cplusplus
 } // extern "C"
 #endif
+
+
+#endif /* EKOTRACE_H */
