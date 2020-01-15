@@ -2,8 +2,9 @@
 members = [
   "alloc-log-report",
   "ekotrace",
-  "ekotrace-header-gen",
   "ekotrace-analysis",
+  "ekotrace-capi-impl",
+  "ekotrace-header-gen",
   "ekotrace-udp-collector",
   "test-support/proc-graph",
 ]
