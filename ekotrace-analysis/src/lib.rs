@@ -1,5 +1,6 @@
 use chrono::prelude::*;
 use itertools::Itertools;
+use petgraph::graph::Graph;
 use serde;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryFrom;
@@ -287,6 +288,44 @@ pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogE
     }
 
     links
+}
+
+pub struct SegmentGraphNode {
+    pub tracer_id: model::TracerId,
+    pub segment_id: model::SegmentId,
+    pub event_count: usize,
+}
+
+pub fn build_segment_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + Copy>(
+    log: L,
+    session_id: model::SessionId,
+) -> Graph<SegmentGraphNode, ()> {
+    let mut seg_graph = Graph::new();
+    let mut node_index_for_segment = HashMap::new();
+
+    for ((tracer_id, segment_id), events) in &log
+        .into_iter()
+        .filter(|e| e.session_id == session_id)
+        .group_by(|e| (e.tracer_id, e.segment_id))
+    {
+        let node_index = seg_graph.add_node(SegmentGraphNode {
+            tracer_id,
+            segment_id,
+            event_count: events.count(),
+        });
+        node_index_for_segment.insert(segment_id, node_index);
+    }
+
+    for l in synthesize_cross_segment_links(log, session_id).iter() {
+        // these are 'backwards', because we want the graph arrows to point to what comes before.
+        seg_graph.update_edge(
+            *node_index_for_segment.get(&l.after).unwrap(),
+            *node_index_for_segment.get(&l.before).unwrap(),
+            (),
+        );
+    }
+
+    seg_graph
 }
 
 #[cfg(test)]

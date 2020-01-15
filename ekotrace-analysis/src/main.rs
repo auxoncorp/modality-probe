@@ -1,10 +1,9 @@
+use itertools::Itertools;
 use petgraph::graph::Graph;
 use petgraph::visit::IntoNodeReferences;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use structopt::StructOpt;
-use itertools::Itertools;
 
 use ekotrace_analysis as lib;
 use ekotrace_analysis::model;
@@ -130,6 +129,23 @@ trait ClusteredNodeFmt {
     fn cluster_label(&self) -> String;
 }
 
+impl ClusteredNodeFmt for lib::SegmentGraphNode {
+    fn node_label(&self) -> String {
+        format!(
+            "Segment {}\\n({} events)",
+            self.segment_id.0, self.event_count
+        )
+    }
+
+    fn cluster_id(&self) -> u32 {
+        self.tracer_id.0
+    }
+
+    fn cluster_label(&self) -> String {
+        format!("Tracer {}", self.tracer_id.0)
+    }
+}
+
 /// Print a graph in Dot format, but with clustered nodes.
 fn print_clustered_graph<N: ClusteredNodeFmt, E>(g: &Graph<N, E>) {
     let node_indicies_by_cluster = g
@@ -166,67 +182,12 @@ fn print_clustered_graph<N: ClusteredNodeFmt, E>(g: &Graph<N, E>) {
     println!("}}");
 }
 
-struct SegmentGraphNode {
-    tracer_id: model::TracerId,
-    segment_id: model::SegmentId,
-    event_count: usize,
-}
-
-impl ClusteredNodeFmt for SegmentGraphNode {
-    fn node_label(&self) -> String {
-        format!(
-            "Segment {}\\n({} events)",
-            self.segment_id.0, self.event_count
-        )
-    }
-
-    fn cluster_id(&self) -> u32 {
-        self.tracer_id.0
-    }
-
-    fn cluster_label(&self) -> String {
-        format!("Tracer {}", self.tracer_id.0)
-    }
-}
-
-fn build_segment_graph(
-    event_log_csv_file: PathBuf,
-    session_id: model::SessionId,
-) -> Graph<SegmentGraphNode, ()> {
+fn segment_graph(event_log_csv_file: PathBuf, session_id: model::SessionId) {
     // Read the events CSV file
     let mut csv_file = std::fs::File::open(event_log_csv_file).expect("Open CSV file");
     let log_entries = lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file");
 
-    let mut seg_graph = Graph::new();
-    let mut node_index_for_segment = HashMap::new();
-
-    for ((tracer_id, segment_id), events) in &log_entries
-        .iter()
-        .filter(|e| e.session_id == session_id)
-        .group_by(|e| (e.tracer_id, e.segment_id))
-    {
-        let node_index = seg_graph.add_node(SegmentGraphNode {
-            tracer_id,
-            segment_id,
-            event_count: events.count(),
-        });
-        node_index_for_segment.insert(segment_id, node_index);
-    }
-
-    for l in lib::synthesize_cross_segment_links(log_entries.iter(), session_id).iter() {
-        // these are 'backwards', because we want the graph arrows to point to what comes before.
-        seg_graph.update_edge(
-            *node_index_for_segment.get(&l.after).unwrap(),
-            *node_index_for_segment.get(&l.before).unwrap(),
-            (),
-        );
-    }
-
-    seg_graph
-}
-
-fn segment_graph(event_log_csv_file: PathBuf, session_id: model::SessionId) {
-    let sg = build_segment_graph(event_log_csv_file, session_id);
+    let sg = lib::build_segment_graph(&log_entries, session_id);
     print_clustered_graph(&sg);
 }
 
