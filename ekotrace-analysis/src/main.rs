@@ -1,4 +1,6 @@
-use itertools::Itertools;
+use petgraph::graph::Graph;
+use petgraph::visit::IntoNodeReferences;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use structopt::StructOpt;
@@ -24,7 +26,7 @@ enum Opt {
         event_log_csv_file: PathBuf,
 
         /// The session to graph
-        session_id: u32
+        session_id: u32,
     },
 
     /// See if event A is caused by (is a causal descendant of) event B. Events
@@ -121,53 +123,111 @@ fn session_summary(event_log_csv_file: PathBuf) {
     }
 }
 
-struct GraphNode {
-    tracer_id: model::TracerId,
-    segment_id: model::SegmentId,
-    event_count: usize,
+/// How to format graph nodes when using print_clustered_graph
+trait ClusteredNodeFmt {
+    fn node_label(&self) -> String;
+    fn cluster_id(&self) -> u32;
+    fn cluster_label(&self) -> String;
 }
 
-fn segment_graph(event_log_csv_file: PathBuf, session_id: model::SessionId) {
-    // Read the events CSV file
-    let mut csv_file = std::fs::File::open(event_log_csv_file).expect("Open CSV file");
-    let log_entries = lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file");
-
-    // let mut seg_graph = Graph::new();
-
-    let nodes: Vec<_> = log_entries
-        .iter()
-        .filter(|e| e.session_id == session_id)
-        .group_by(|e| (e.tracer_id, e.segment_id))
+/// Print a graph in Dot format, but with clustered nodes.
+fn print_clustered_graph<N: ClusteredNodeFmt, E>(g: &Graph<N, E>) {
+    let node_indicies_by_cluster = g
+        .node_references()
         .into_iter()
-        .map(|((tracer_id, segment_id), events)| GraphNode {
-            tracer_id,
-            segment_id,
-            event_count: events.count(),
-        })
-        .collect();
-
-    let nodes_by_tracer = nodes.iter().map(|n| (n.tracer_id, n)).into_group_map();
+        .map(|(node_index, node)| ((node.cluster_id(), node.cluster_label()), node_index))
+        .into_group_map();
 
     println!("digraph G {{");
     println!("  rankdir=BT;");
-    for (tracer_id, nodes) in nodes_by_tracer.iter() {
-        println!("  subgraph cluster_tracer_{} {{", tracer_id.0);
-        println!("    label = \"tracer {}\";", tracer_id.0);
-        for node in nodes.iter() {
+    for ((cluster_id, cluster_label), node_indicies) in node_indicies_by_cluster.iter() {
+        println!("  subgraph cluster_{} {{", cluster_id);
+        println!("    label = \"{}\";", cluster_label);
+        for node_index in node_indicies.into_iter() {
+            let id = node_index.index();
             println!(
-                "    segment_{} [label=\"Segment {}\\n({} events)\"]",
-                node.segment_id.0, node.segment_id.0, node.event_count
+                "    node_{} [label=\"{}\"]",
+                id,
+                g[*node_index].node_label()
             );
         }
 
         println!("  }}");
     }
 
-    for l in lib::synthesize_cross_segment_links(log_entries.iter(), session_id).iter() {
-        println!("  segment_{} -> segment_{};", l.after.0, l.before.0);
+    for e in g.raw_edges() {
+        println!(
+            "  node_{} -> node_{};",
+            e.source().index(),
+            e.target().index()
+        );
     }
 
     println!("}}");
+}
+
+struct SegmentGraphNode {
+    tracer_id: model::TracerId,
+    segment_id: model::SegmentId,
+    event_count: usize,
+}
+
+impl ClusteredNodeFmt for SegmentGraphNode {
+    fn node_label(&self) -> String {
+        format!(
+            "Segment {}\\n({} events)",
+            self.segment_id.0, self.event_count
+        )
+    }
+
+    fn cluster_id(&self) -> u32 {
+        self.tracer_id.0
+    }
+
+    fn cluster_label(&self) -> String {
+        format!("Tracer {}", self.tracer_id.0)
+    }
+}
+
+fn build_segment_graph(
+    event_log_csv_file: PathBuf,
+    session_id: model::SessionId,
+) -> Graph<SegmentGraphNode, ()> {
+    // Read the events CSV file
+    let mut csv_file = std::fs::File::open(event_log_csv_file).expect("Open CSV file");
+    let log_entries = lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file");
+
+    let mut seg_graph = Graph::new();
+    let mut node_index_for_segment = HashMap::new();
+
+    for ((tracer_id, segment_id), events) in &log_entries
+        .iter()
+        .filter(|e| e.session_id == session_id)
+        .group_by(|e| (e.tracer_id, e.segment_id))
+    {
+        let node_index = seg_graph.add_node(SegmentGraphNode {
+            tracer_id,
+            segment_id,
+            event_count: events.count(),
+        });
+        node_index_for_segment.insert(segment_id, node_index);
+    }
+
+    for l in lib::synthesize_cross_segment_links(log_entries.iter(), session_id).iter() {
+        // these are 'backwards', because we want the graph arrows to point to what comes before.
+        seg_graph.update_edge(
+            *node_index_for_segment.get(&l.after).unwrap(),
+            *node_index_for_segment.get(&l.before).unwrap(),
+            (),
+        );
+    }
+
+    seg_graph
+}
+
+fn segment_graph(event_log_csv_file: PathBuf, session_id: model::SessionId) {
+    let sg = build_segment_graph(event_log_csv_file, session_id);
+    print_clustered_graph(&sg);
 }
 
 fn query_caused_by(
@@ -182,15 +242,16 @@ fn main() {
     let opt = Opt::from_args();
     match opt {
         Opt::SessionSummary { event_log_csv_file } => session_summary(event_log_csv_file),
-        Opt::SegmentGraph { event_log_csv_file, session_id } => segment_graph(event_log_csv_file, session_id.into()),
+        Opt::SegmentGraph {
+            event_log_csv_file,
+            session_id,
+        } => segment_graph(event_log_csv_file, session_id.into()),
         Opt::QueryCausedBy {
             event_log_csv_file,
             event_a,
             event_b,
         } => query_caused_by(event_log_csv_file, event_a, event_b),
     }
-
-    // Generate indexes
 }
 
 #[cfg(test)]
