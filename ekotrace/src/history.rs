@@ -1,6 +1,5 @@
 use super::{
-    CausalSnapshot, EventId, LocalStorageCreationError, LogicalClock, MergeError, ShareError,
-    TracerId,
+    CausalSnapshot, EventId, LogicalClock, MergeError, ShareError, StorageSetupError, TracerId,
 };
 use crate::compact_log::{self, CompactLogItem};
 use core::cmp::{max, Ordering, PartialEq};
@@ -210,13 +209,13 @@ impl DynamicHistory {
     pub fn new_at(
         destination: &mut [u8],
         tracer_id: TracerId,
-    ) -> Result<&mut DynamicHistory, LocalStorageCreationError> {
+    ) -> Result<&mut DynamicHistory, StorageSetupError> {
         let remaining_bytes = destination.len();
         if remaining_bytes < MIN_HISTORY_SIZE_BYTES {
-            return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
+            return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         if destination.as_ptr().is_null() {
-            return Err(LocalStorageCreationError::NullDestination);
+            return Err(StorageSetupError::NullDestination);
         }
         let (header_ptr, header_bytes) = {
             let header_align_offset = destination
@@ -224,12 +223,12 @@ impl DynamicHistory {
                 .align_offset(align_of::<DynamicHistory>());
             let header_bytes = header_align_offset + size_of::<DynamicHistory>();
             if header_bytes > remaining_bytes {
-                return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
+                return Err(StorageSetupError::UnderMinimumAllowedSize);
             }
             let header_ptr =
                 unsafe { destination.as_mut_ptr().add(header_align_offset) as *mut DynamicHistory };
             if header_ptr.is_null() {
-                return Err(LocalStorageCreationError::NullDestination);
+                return Err(StorageSetupError::NullDestination);
             }
             (header_ptr, header_bytes)
         };
@@ -240,7 +239,7 @@ impl DynamicHistory {
             // Try to give 1/8 of our remaining space to the clocks
             let clocks_align_offset = dynamic_region_ptr.align_offset(align_of::<LogicalClock>());
             if clocks_align_offset > remaining_bytes {
-                return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
+                return Err(StorageSetupError::UnderMinimumAllowedSize);
             }
             let max_clocks_len = max(
                 MIN_BUCKETS_LEN,
@@ -248,7 +247,7 @@ impl DynamicHistory {
             );
             let clocks_bytes = clocks_align_offset + max_clocks_len * size_of::<LogicalClock>();
             if clocks_bytes > remaining_bytes {
-                return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
+                return Err(StorageSetupError::UnderMinimumAllowedSize);
             }
             let clocks_ptr =
                 unsafe { dynamic_region_ptr.add(clocks_align_offset) as *mut LogicalClock };
@@ -266,15 +265,15 @@ impl DynamicHistory {
         let log_align_offset = dynamic_region_ptr.align_offset(align_of::<CompactLogItem>());
         let remaining_bytes = remaining_bytes
             .checked_sub(log_align_offset)
-            .ok_or_else(|| LocalStorageCreationError::UnderMinimumAllowedSize)?;
+            .ok_or_else(|| StorageSetupError::UnderMinimumAllowedSize)?;
         let max_log_len = remaining_bytes / size_of::<CompactLogItem>();
         if max_log_len < MIN_LOG_LEN {
-            return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
+            return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         let log_ptr = unsafe { dynamic_region_ptr.add(log_align_offset) as *mut CompactLogItem };
 
         if max_clocks_len > core::u32::MAX as usize || max_log_len > core::u32::MAX as usize {
-            return Err(LocalStorageCreationError::ExceededMaximumAddressableSize);
+            return Err(StorageSetupError::ExceededMaximumAddressableSize);
         }
         assert!(
             clocks_ptr as usize + clocks_bytes <= log_ptr as usize,

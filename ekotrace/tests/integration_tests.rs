@@ -170,6 +170,23 @@ fn all_allowed_events() {
     );
 }
 
+#[test]
+fn try_initialize_handles_raw_tracer_ids() {
+    let mut storage = [0u8; 512];
+    assert!(Ekotrace::try_initialize_at(&mut storage, 0).is_err());
+    assert!(Ekotrace::try_initialize_at(&mut storage, TracerId::MAX_ID + 1).is_err());
+    assert!(Ekotrace::try_initialize_at(&mut storage, 1).is_ok());
+}
+
+#[test]
+fn try_record_event_raw_tracer_ids() {
+    let mut storage = [0u8; 512];
+    let tracer = Ekotrace::try_initialize_at(&mut storage, 1).unwrap();
+    assert!(tracer.try_record_event(0).is_err());
+    assert!(tracer.try_record_event(EventId::MAX_USER_ID + 1).is_err());
+    assert!(tracer.try_record_event(1).is_ok());
+}
+
 // TODO - test overflowing num buckets
 // TODO - test overflowing log
 

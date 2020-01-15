@@ -1,7 +1,7 @@
 #![no_std]
 #![cfg_attr(feature = "default_panic_impl", feature(lang_items, core_intrinsics))]
 use ekotrace::*;
-pub use ekotrace::{CausalSnapshot, Ekotrace};
+pub use ekotrace::{CausalSnapshot, Ekotrace, InitializationError, StorageSetupError};
 
 pub type EkotraceResult = usize;
 /// Everything went fine
@@ -46,11 +46,7 @@ pub extern "C" fn ekotrace_initialize(
     if destination_size_bytes < core::mem::size_of::<Ekotrace<'static>>() {
         return EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES;
     }
-    let tracer_id = match TracerId::new(tracer_id) {
-        Some(id) => id,
-        None => return EKOTRACE_RESULT_INVALID_TRACER_ID,
-    };
-    match Ekotrace::initialize_at(
+    match Ekotrace::try_initialize_at(
         unsafe { core::slice::from_raw_parts_mut(destination, destination_size_bytes) },
         tracer_id,
     ) {
@@ -60,13 +56,16 @@ pub extern "C" fn ekotrace_initialize(
             }
             EKOTRACE_RESULT_OK
         }
-        Err(LocalStorageCreationError::NullDestination) => EKOTRACE_RESULT_NULL_POINTER,
-        Err(LocalStorageCreationError::UnderMinimumAllowedSize) => {
+        Err(InitializationError::InvalidTracerId) => EKOTRACE_RESULT_INVALID_TRACER_ID,
+        Err(InitializationError::StorageSetupError(StorageSetupError::NullDestination)) => {
+            EKOTRACE_RESULT_NULL_POINTER
+        }
+        Err(InitializationError::StorageSetupError(StorageSetupError::UnderMinimumAllowedSize)) => {
             EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
         }
-        Err(LocalStorageCreationError::ExceededMaximumAddressableSize) => {
-            EKOTRACE_RESULT_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE
-        }
+        Err(InitializationError::StorageSetupError(
+            StorageSetupError::ExceededMaximumAddressableSize,
+        )) => EKOTRACE_RESULT_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE,
     }
 }
 
@@ -79,12 +78,10 @@ pub extern "C" fn ekotrace_record_event(
         Some(t) => t,
         None => return EKOTRACE_RESULT_NULL_POINTER,
     };
-    let event_id = match EventId::new(event_id) {
-        Some(id) => id,
-        None => return EKOTRACE_RESULT_INVALID_EVENT_ID,
-    };
-    tracer.record_event(event_id);
-    EKOTRACE_RESULT_OK
+    match tracer.try_record_event(event_id) {
+        Ok(_) => EKOTRACE_RESULT_OK,
+        Err(ekotrace::InvalidEventId) => EKOTRACE_RESULT_INVALID_EVENT_ID,
+    }
 }
 
 #[no_mangle]

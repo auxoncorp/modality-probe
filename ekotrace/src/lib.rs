@@ -11,6 +11,7 @@ mod history;
 
 use history::DynamicHistory;
 
+use core::convert::TryFrom;
 use core::mem::{align_of, size_of};
 use core::num::NonZeroU32;
 
@@ -92,6 +93,23 @@ impl From<TracerId> for u32 {
     }
 }
 
+impl TryFrom<u32> for TracerId {
+    type Error = InvalidTracerId;
+    fn try_from(raw_id: u32) -> Result<Self, Self::Error> {
+        match TracerId::new(raw_id) {
+            Some(id) => Ok(id),
+            None => Err(InvalidTracerId),
+        }
+    }
+}
+
+/// Error that indicates an invalid tracer id was detected.
+///
+///
+/// tracer ids must be greater than 0 and less than TracerId::MAX_ID
+#[derive(Debug, Clone, Copy)]
+pub struct InvalidTracerId;
+
 /// Uniquely identify an event or kind of event.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
@@ -151,6 +169,23 @@ impl EventId {
     }
 }
 
+impl TryFrom<u32> for EventId {
+    type Error = InvalidEventId;
+    fn try_from(raw_id: u32) -> Result<Self, Self::Error> {
+        match EventId::new(raw_id) {
+            Some(id) => Ok(id),
+            None => Err(InvalidEventId),
+        }
+    }
+}
+
+/// Error that indicates an invalid event id was detected.
+///
+///
+/// event ids must be greater than 0 and less than EventId::MAX_USER_ID
+#[derive(Debug, Clone, Copy)]
+pub struct InvalidEventId;
+
 impl From<EventId> for NonZeroU32 {
     fn from(e: EventId) -> Self {
         e.0
@@ -164,9 +199,20 @@ impl From<EventId> for u32 {
 }
 
 /// An error relating to the initialization
+/// of an Ekotrace instance from parts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InitializationError {
+    /// A provided primitive, unvalidated tracer id
+    /// turned out to be invalid.
+    InvalidTracerId,
+    /// A problem with the backing memory setup.
+    StorageSetupError(StorageSetupError),
+}
+
+/// An error relating to the initialization
 /// of in-memory tracing storage.
-#[derive(Debug)]
-pub enum LocalStorageCreationError {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StorageSetupError {
     /// The provided storage space was insufficient
     /// to support a minimally useful tracing
     /// implementation.
@@ -190,6 +236,29 @@ pub struct Ekotrace<'a> {
 
 impl<'a> Ekotrace<'a> {
     /// Initialize tracing for this location.
+    /// `tracer_id` ought to be unique throughout the system,
+    /// and must be greater than 0 and less than TracerId::MAX_ID.
+    ///
+    /// Returns a mutable reference to the tracer instance,
+    /// which will be somewhere within the provided `memory`
+    /// slice.
+    ///
+    /// This method is used to support completely opaque
+    /// sizing of the tracer implementation, which simplifies
+    /// use in C.
+    ///
+    /// Use `initialize_at` instead if you're working in Rust
+    /// and want to use pre-validatated tracer ids.
+    ///
+    pub fn try_initialize_at(
+        memory: &'a mut [u8],
+        tracer_id: u32,
+    ) -> Result<&'a mut Ekotrace<'a>, InitializationError> {
+        let tracer_id = TracerId::try_from(tracer_id)
+            .map_err(|_: InvalidTracerId| InitializationError::InvalidTracerId)?;
+        Ekotrace::initialize_at(memory, tracer_id).map_err(InitializationError::StorageSetupError)
+    }
+    /// Initialize tracing for this location.
     /// `tracer_id` ought to be unique throughout the system.
     ///
     /// Returns a mutable reference to the tracer instance,
@@ -204,11 +273,11 @@ impl<'a> Ekotrace<'a> {
     pub fn initialize_at(
         memory: &'a mut [u8],
         tracer_id: TracerId,
-    ) -> Result<&'a mut Ekotrace<'a>, LocalStorageCreationError> {
+    ) -> Result<&'a mut Ekotrace<'a>, StorageSetupError> {
         let tracer_align_offset = memory.as_mut_ptr().align_offset(align_of::<Ekotrace<'_>>());
         let tracer_bytes = tracer_align_offset + size_of::<Ekotrace<'_>>();
         if tracer_bytes > memory.len() {
-            return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
+            return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         let tracer_ptr =
             unsafe { memory.as_mut_ptr().add(tracer_align_offset) as *mut Ekotrace<'_> };
@@ -228,7 +297,7 @@ impl<'a> Ekotrace<'a> {
     pub fn new_with_storage(
         history_memory: &'a mut [u8],
         tracer_id: TracerId,
-    ) -> Result<Ekotrace<'a>, LocalStorageCreationError> {
+    ) -> Result<Ekotrace<'a>, StorageSetupError> {
         let t = Ekotrace::<'a> {
             id: tracer_id,
             history: DynamicHistory::new_at(history_memory, tracer_id)?,
@@ -238,9 +307,29 @@ impl<'a> Ekotrace<'a> {
 
     /// Record that an event occurred. The end user is responsible
     /// for associating meaning with each event_id.
+    ///
+    /// Accepts an event_id pre-validated to be within the acceptable
+    /// range.
     #[inline]
     pub fn record_event(&mut self, event_id: EventId) {
         self.history.record_event(event_id);
+    }
+
+    /// Record that an event occurred. The end user is responsible
+    /// for associating meaning with each event_id.
+    ///
+    /// Accepts a primitive event_id and
+    /// returns an error if the event_id was discovered
+    /// to be invalid.
+    ///
+    /// If you're working in Rust and want type assurances around
+    /// id kinds or want to avoid the performance penalty of id validation
+    /// every call, use `record_event` instead.
+    #[inline]
+    pub fn try_record_event(&mut self, event_id: u32) -> Result<(), InvalidEventId> {
+        let event_id = EventId::try_from(event_id)?;
+        self.history.record_event(event_id);
+        Ok(())
     }
 
     /// Conduct necessary background activities and write
