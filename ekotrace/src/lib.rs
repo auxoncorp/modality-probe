@@ -270,6 +270,7 @@ impl<'a> Ekotrace<'a> {
     /// use in C.
     ///
     /// Use `new_with_storage` instead if you're working in Rust.
+    #[allow(clippy::cast_ptr_alignment)]
     pub fn initialize_at(
         memory: &'a mut [u8],
         tracer_id: TracerId,

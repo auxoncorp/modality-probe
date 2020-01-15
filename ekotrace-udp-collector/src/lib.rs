@@ -93,7 +93,7 @@ pub fn start_receiving_from_socket<W: Write>(
     let mut raw_log_entry_id: u64 = 0;
     let mut log_entries_buffer: Vec<LogEntry> = Vec::with_capacity(4096);
     loop {
-        if let Ok(_) = shutdown_signal_receiver.try_recv() {
+        if shutdown_signal_receiver.try_recv().is_ok() {
             return;
         }
         let (bytes_read, _src) = match socket.recv_from(&mut buf) {

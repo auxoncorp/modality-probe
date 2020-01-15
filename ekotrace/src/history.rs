@@ -206,6 +206,7 @@ pub struct DynamicHistory {
 struct ClocksFullError;
 
 impl DynamicHistory {
+    #[allow(clippy::cast_ptr_alignment)]
     pub fn new_at(
         destination: &mut [u8],
         tracer_id: TracerId,
