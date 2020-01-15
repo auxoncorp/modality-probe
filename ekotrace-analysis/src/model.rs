@@ -73,7 +73,7 @@ pub struct TracerMapping {
 }
 
 /// The data that may be attached to a log entry
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum LogEntryData {
     Event(EventId),
     LogicalClock(TracerId, u32),
@@ -98,7 +98,7 @@ impl From<(u32, u32)> for LogEntryData {
 }
 
 /// A single entry in the log
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct LogEntry {
     /// The session in which this entry was made. Used to qualify the id field.
     pub session_id: SessionId,

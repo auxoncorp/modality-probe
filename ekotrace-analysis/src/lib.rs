@@ -328,6 +328,44 @@ pub fn build_segment_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + Cop
     seg_graph
 }
 
+pub fn build_log_entry_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + Copy>(
+    log: L,
+    session_id: model::SessionId,
+) -> Graph<model::LogEntry, ()> {
+    let mut log_entry_graph = Graph::new();
+    let mut first_node_index_in_segment = HashMap::new();
+    let mut last_node_index_in_segment = HashMap::new();
+
+
+    for log_entry in log.into_iter() {
+        let segment_id = log_entry.segment_id;
+        let node_index = log_entry_graph.add_node((*log_entry).clone());
+
+        // within a segment, events come in order. Hook them up in the graph.
+        if let Some(last_node_index) = last_node_index_in_segment.get(&segment_id) {
+            log_entry_graph.update_edge(node_index, *last_node_index, ());
+        }
+
+        if !first_node_index_in_segment.contains_key(&segment_id) {
+            first_node_index_in_segment.insert(segment_id, node_index);
+        }
+
+        last_node_index_in_segment.insert(segment_id, node_index);
+    }
+
+    for l in synthesize_cross_segment_links(log, session_id).iter() {
+        // these are 'backwards', because we want the graph arrows to point to
+        // what comes before.
+        log_entry_graph.update_edge(
+            first_node_index_in_segment[&l.after],
+            last_node_index_in_segment[&l.before],
+            (),
+        );
+    }
+
+    log_entry_graph
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

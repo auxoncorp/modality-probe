@@ -28,6 +28,17 @@ enum Opt {
         session_id: u32,
     },
 
+    /// Produce a graphviz (.dot) formatted graph of log events and direct
+    /// causal relationships. The .dot source is printed to standard out.
+    EventGraph {
+        /// Event log csv file
+        #[structopt(parse(from_os_str))]
+        event_log_csv_file: PathBuf,
+
+        /// The session to graph
+        session_id: u32,
+    },
+
     /// See if event A is caused by (is a causal descendant of) event B. Events
     /// are identified by "<session id>.<segment id>.<segment index>".
     QueryCausedBy {
@@ -111,13 +122,17 @@ impl FromStr for EventCoordinates {
     }
 }
 
-fn session_summary(event_log_csv_file: PathBuf) {
-    // Read the events CSV file
+fn load_event_log(
+    event_log_csv_file: PathBuf,
+) -> impl IntoIterator<Item = ekotrace_analysis::model::LogEntry> {
     let mut csv_file = std::fs::File::open(event_log_csv_file).expect("Open CSV file");
-    let log_entries = lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file");
+    lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file")
+}
 
+fn session_summary(event_log_csv_file: PathBuf) {
+    let log = load_event_log(event_log_csv_file);
     println!("SessionId\tEvent Count");
-    for (session_id, session_entries) in &log_entries.iter().group_by(|e| e.session_id) {
+    for (session_id, session_entries) in &log.into_iter().group_by(|e| e.session_id) {
         println!("{}\t\t{}", session_id.0, session_entries.count());
     }
 }
@@ -135,6 +150,25 @@ impl ClusteredNodeFmt for lib::SegmentGraphNode {
             "Segment {}\\n({} events)",
             self.segment_id.0, self.event_count
         )
+    }
+
+    fn cluster_id(&self) -> u32 {
+        self.tracer_id.0
+    }
+
+    fn cluster_label(&self) -> String {
+        format!("Tracer {}", self.tracer_id.0)
+    }
+}
+
+impl ClusteredNodeFmt for model::LogEntry {
+    fn node_label(&self) -> String {
+        match self.data {
+            model::LogEntryData::LogicalClock(tracer_id, count) => {
+                format!("Logical Clock: Tracer {} => {}", tracer_id.0, count)
+            }
+            model::LogEntryData::Event(eid) => format!("Event: {}", eid.0),
+        }
     }
 
     fn cluster_id(&self) -> u32 {
@@ -191,6 +225,15 @@ fn segment_graph(event_log_csv_file: PathBuf, session_id: model::SessionId) {
     print_clustered_graph(&sg);
 }
 
+fn event_graph(event_log_csv_file: PathBuf, session_id: model::SessionId) {
+    // let log_entries = load_event_log(event_log_csv_file);
+    let mut csv_file = std::fs::File::open(event_log_csv_file).expect("Open CSV file");
+    let log_entries = lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file");
+
+    let eg = lib::build_log_entry_graph(&log_entries, session_id);
+    print_clustered_graph(&eg);
+}
+
 fn query_caused_by(
     _event_log_csv_file: PathBuf,
     _event_a: EventCoordinates,
@@ -207,6 +250,10 @@ fn main() {
             event_log_csv_file,
             session_id,
         } => segment_graph(event_log_csv_file, session_id.into()),
+        Opt::EventGraph {
+            event_log_csv_file,
+            session_id,
+        } => event_graph(event_log_csv_file, session_id.into()),
         Opt::QueryCausedBy {
             event_log_csv_file,
             event_a,
