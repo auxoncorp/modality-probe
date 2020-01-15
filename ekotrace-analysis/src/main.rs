@@ -239,11 +239,37 @@ fn event_graph(event_log_csv_file: PathBuf, session_id: model::SessionId) {
 }
 
 fn query_caused_by(
-    _event_log_csv_file: PathBuf,
-    _event_a: EventCoordinates,
-    _event_b: EventCoordinates,
+    event_log_csv_file: PathBuf,
+    event_a: EventCoordinates,
+    event_b: EventCoordinates,
 ) {
-    unimplemented!()
+    assert!(event_a.session_id == event_b.session_id);
+
+    let mut csv_file = std::fs::File::open(event_log_csv_file).expect("Open CSV file");
+    let log_entries = lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file");
+
+    let g = lib::build_segment_graph(&log_entries, event_a.session_id);
+    let event_a_segment_index = g
+        .node_indices()
+        .find(|i| g[*i].segment_id == event_a.segment_id)
+        .unwrap();
+
+    let event_b_segment_index = g
+        .node_indices()
+        .find(|i| g[*i].segment_id == event_b.segment_id)
+        .unwrap();
+
+    let res = if event_a.segment_id  == event_b.segment_id {
+        event_a.segment_index < event_b.segment_index
+    } else {
+        petgraph::algo::has_path_connecting(&g, event_a_segment_index, event_b_segment_index, None)
+    };
+
+    if res {
+        println!("Node {} is in the history of node {}", event_a.to_string(), event_b.to_string());
+    } else {
+        println!("Node {} is NOT in the history of node {}", event_a.to_string(), event_b.to_string());
+    }
 }
 
 fn main() {
