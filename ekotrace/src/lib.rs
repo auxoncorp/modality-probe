@@ -25,19 +25,19 @@ pub struct CausalSnapshot {
     pub tracer_id: u32,
 
     /// Mapping between tracer_ids and event-counts at each location
-    pub buckets: [LogicalClockBucket; 256],
-    /// The number of clocks in the above `buckets` field that
+    pub clocks: [LogicalClock; 256],
+    /// The number of clocks in the above `clocks` field that
     /// are populated with valid ids and counts
-    pub buckets_len: u8,
+    pub clocks_len: u8,
 }
 
-/// A single logical clock, here used as an entry in a vector clock
+/// A single logical clock, usable as an entry in a vector clock
 ///
 /// Note the use of bare integer types rather than the safety-oriented
 /// wrappers (TracerId, NonZero*) for C representation reasons.
 #[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(C)]
-pub struct LogicalClockBucket {
+pub struct LogicalClock {
     /// The tracer node that this clock is tracking
     pub id: u32,
     /// Clock tick count
@@ -183,12 +183,12 @@ pub enum LocalStorageCreationError {
 /// Public interface to tracing.
 #[derive(Debug)]
 #[repr(C)]
-pub struct Tracer<'a> {
+pub struct Ekotrace<'a> {
     id: TracerId,
     history: &'a mut DynamicHistory,
 }
 
-impl<'a> Tracer<'a> {
+impl<'a> Ekotrace<'a> {
     /// Initialize tracing for this location.
     /// `tracer_id` ought to be unique throughout the system.
     ///
@@ -204,15 +204,16 @@ impl<'a> Tracer<'a> {
     pub fn initialize_at(
         memory: &'a mut [u8],
         tracer_id: TracerId,
-    ) -> Result<&'a mut Tracer<'a>, LocalStorageCreationError> {
-        let tracer_align_offset = memory.as_mut_ptr().align_offset(align_of::<Tracer<'_>>());
-        let tracer_bytes = tracer_align_offset + size_of::<Tracer<'_>>();
+    ) -> Result<&'a mut Ekotrace<'a>, LocalStorageCreationError> {
+        let tracer_align_offset = memory.as_mut_ptr().align_offset(align_of::<Ekotrace<'_>>());
+        let tracer_bytes = tracer_align_offset + size_of::<Ekotrace<'_>>();
         if tracer_bytes > memory.len() {
             return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
         }
-        let tracer_ptr = unsafe { memory.as_mut_ptr().add(tracer_align_offset) as *mut Tracer<'_> };
+        let tracer_ptr =
+            unsafe { memory.as_mut_ptr().add(tracer_align_offset) as *mut Ekotrace<'_> };
         unsafe {
-            *tracer_ptr = Tracer::new_with_storage(&mut memory[tracer_bytes..], tracer_id)?;
+            *tracer_ptr = Ekotrace::new_with_storage(&mut memory[tracer_bytes..], tracer_id)?;
             Ok(tracer_ptr
                 .as_mut()
                 .expect("Tracer pointer should not be null"))
@@ -227,8 +228,8 @@ impl<'a> Tracer<'a> {
     pub fn new_with_storage(
         history_memory: &'a mut [u8],
         tracer_id: TracerId,
-    ) -> Result<Tracer<'a>, LocalStorageCreationError> {
-        let t = Tracer::<'a> {
+    ) -> Result<Ekotrace<'a>, LocalStorageCreationError> {
+        let t = Ekotrace::<'a> {
             id: tracer_id,
             history: DynamicHistory::new_at(history_memory, tracer_id)?,
         };
@@ -249,7 +250,7 @@ impl<'a> Tracer<'a> {
     /// log reporting schema.
     ///
     /// If the write was successful, returns the number of bytes written
-    pub fn write_log_report(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+    pub fn report(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
         self.history.write_lcm_log_report(destination)
     }
 
@@ -257,21 +258,21 @@ impl<'a> Tracer<'a> {
     /// by another Tracer elsewhere in the system.
     ///
     /// This summary can be treated as an opaque blob of data
-    /// that ought to be passed around to be `merge`d, though
+    /// that ought to be passed around to be `merge_snapshot`d, though
     /// it will conform to an internal schema for the interested.
     ///
     /// Pre-pruned to the causal history of just this node
     ///  and its immediate inbound neighbors.
     ///
     /// If the write was successful, returns the number of bytes written
-    pub fn share_history(&mut self, destination: &mut [u8]) -> Result<usize, ShareError> {
+    pub fn distribute_snapshot(&mut self, destination: &mut [u8]) -> Result<usize, ShareError> {
         self.history.write_lcm_logical_clock(destination)
     }
 
     /// Consume a causal history summary structure provided
-    /// by some other Tracer.
-    pub fn merge_history(&mut self, source: &[u8]) -> Result<(), MergeError> {
-        self.history.merge_from_bytes(source)
+    /// by some other Tracer via `distribute_snapshot`.
+    pub fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError> {
+        self.history.merge_from_lcm_log_report_bytes(source)
     }
 
     /// Produce a transmittable summary of this tracer's
@@ -280,13 +281,13 @@ impl<'a> Tracer<'a> {
     ///
     /// Pre-pruned to the causal history of just this node
     ///  and its immediate inbound neighbors.
-    pub fn share_fixed_size_history(&mut self) -> Result<CausalSnapshot, ShareError> {
+    pub fn distribute_fixed_size_snapshot(&mut self) -> Result<CausalSnapshot, ShareError> {
         self.history.write_fixed_size_logical_clock()
     }
 
     /// Consume a fixed-sized causal history summary structure provided
     /// by some other Tracer.
-    pub fn merge_fixed_size_history(
+    pub fn merge_fixed_size_snapshot(
         &mut self,
         external_history: &CausalSnapshot,
     ) -> Result<(), MergeError> {

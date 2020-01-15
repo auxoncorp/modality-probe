@@ -160,7 +160,7 @@ fn add_log_report_to_entries(
     let tracer_id = (log_report.tracer_id as u32).into();
     let mut preceding_entry: Option<LogEntryId> = None;
     for segment in &log_report.segments {
-        for clock_bucket in &segment.clock_buckets {
+        for clock_bucket in &segment.clocks {
             let id = LogEntryId::from(raw_log_entry_id);
             log_entries_buffer.push(LogEntry {
                 session_id,
@@ -210,16 +210,16 @@ mod tests {
             tracer_id: raw_main_tracer_id,
             flags: ErrorFlags {
                 has_overflowed_log: false,
-                has_overflowed_num_buckets: false,
+                has_overflowed_num_clocks: false,
             },
             segments: vec![
                 LogSegment {
-                    clock_buckets: vec![
-                        ClockBucket {
+                    clocks: vec![
+                        Clock {
                             tracer_id: 31,
                             count: 14,
                         },
-                        ClockBucket {
+                        Clock {
                             tracer_id: 15,
                             count: 9,
                         },
@@ -227,7 +227,7 @@ mod tests {
                     events: vec![2653],
                 },
                 LogSegment {
-                    clock_buckets: vec![ClockBucket {
+                    clocks: vec![Clock {
                         tracer_id: 271,
                         count: 1,
                     }],
@@ -433,7 +433,7 @@ mod tests {
         let expected_entries: usize = log_report
             .segments
             .iter()
-            .map(|s| s.events.len() + s.clock_buckets.len())
+            .map(|s| s.events.len() + s.clocks.len())
             .sum();
         assert_eq!(expected_entries, found_log_entries.len());
         let found_entry_ids: HashSet<_> = found_log_entries.iter().map(|e| e.id.0).collect();
@@ -730,7 +730,7 @@ mod tests {
            + 'static {
         move |id_to_sender, _receiver| {
             let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer = ekotrace::Tracer::new_with_storage(&mut tracer_storage, tracer_id)
+            let mut tracer = ekotrace::Ekotrace::new_with_storage(&mut tracer_storage, tracer_id)
                 .expect("Could not make tracer");
             let mut causal_history_blob = vec![0u8; IN_SYSTEM_SNAPSHOT_BYTES_SIZE];
             for _ in 0..n_messages {
@@ -738,7 +738,7 @@ mod tests {
                     tracer.record_event(e);
                 }
                 let causal_history_bytes = tracer
-                    .share_history(&mut causal_history_blob)
+                    .distribute_snapshot(&mut causal_history_blob)
                     .expect("Could not write history to share with other in-system member");
 
                 for destination in id_to_sender.values() {
@@ -753,7 +753,7 @@ mod tests {
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
             let mut log_report_storage = vec![0u8; LOG_REPORT_BYTES_SIZE];
             let log_report_bytes = tracer
-                .write_log_report(&mut log_report_storage)
+                .report(&mut log_report_storage)
                 .expect("Could not write log report");
             socket
                 .send_to(&log_report_storage[..log_report_bytes], collector_addr)
@@ -780,7 +780,7 @@ mod tests {
            + 'static {
         move |id_to_sender, receiver| {
             let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer = ekotrace::Tracer::new_with_storage(&mut tracer_storage, tracer_id)
+            let mut tracer = ekotrace::Ekotrace::new_with_storage(&mut tracer_storage, tracer_id)
                 .expect("Could not make tracer");
 
             let socket =
@@ -800,14 +800,14 @@ mod tests {
                     tracer.record_event(e);
                 }
                 tracer
-                    .merge_history(&message)
+                    .merge_snapshot(&message)
                     .expect("Could not merge in history");
 
                 if messages_received > stop_relaying_after_receiving_n_messages {
                     continue;
                 }
                 let causal_history_bytes = tracer
-                    .share_history(&mut causal_history_blob)
+                    .distribute_snapshot(&mut causal_history_blob)
                     .expect("Could not write history to share with other in-system member");
 
                 for destination in id_to_sender.values() {
@@ -823,7 +823,7 @@ mod tests {
                 {
                     if messages_received % n_messages == 0 {
                         let log_report_bytes = tracer
-                            .write_log_report(&mut log_report_storage)
+                            .report(&mut log_report_storage)
                             .expect("Could not write log report");
                         socket
                             .send_to(&log_report_storage[..log_report_bytes], collector_addr)
@@ -848,7 +848,7 @@ mod tests {
            + 'static {
         move |_id_to_sender, receiver| {
             let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer = ekotrace::Tracer::new_with_storage(&mut tracer_storage, tracer_id)
+            let mut tracer = ekotrace::Ekotrace::new_with_storage(&mut tracer_storage, tracer_id)
                 .expect("Could not make tracer");
 
             let socket =
@@ -864,7 +864,7 @@ mod tests {
                     }
                 };
                 tracer
-                    .merge_history(&message)
+                    .merge_snapshot(&message)
                     .expect("Could not merge in history");
                 if let Some(e) = per_iteration_event {
                     tracer.record_event(e);
@@ -872,7 +872,7 @@ mod tests {
 
                 if messages_received % send_log_report_every_n_messages.n_messages == 0 {
                     let log_report_bytes = tracer
-                        .write_log_report(&mut log_report_storage)
+                        .report(&mut log_report_storage)
                         .expect("Could not write log report");
                     socket
                         .send_to(

@@ -1,5 +1,5 @@
 use super::{
-    CausalSnapshot, EventId, LocalStorageCreationError, LogicalClockBucket, MergeError, ShareError,
+    CausalSnapshot, EventId, LocalStorageCreationError, LogicalClock, MergeError, ShareError,
     TracerId,
 };
 use crate::compact_log::{self, CompactLogItem};
@@ -12,15 +12,15 @@ use rust_lcm_codec::{
 };
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert_eq};
 
-impl LogicalClockBucket {
-    /// zeros out any empty buckets (0-id or 0-count) and sorts the buckets
+impl LogicalClock {
+    /// zeros out any empty clocks (0-id or 0-count) and sorts the clocks
     /// by id
     ///
-    /// returns the sorted subset of the slice containing only non-empty buckets
+    /// returns the sorted subset of the slice containing only non-empty clocks
     #[inline]
-    fn normalize_buckets(buckets: &mut [LogicalClockBucket]) -> &[LogicalClockBucket] {
+    fn normalize_clocks(clocks: &mut [LogicalClock]) -> &[LogicalClock] {
         let mut measured_self_len = 0;
-        for b in buckets.iter_mut() {
+        for b in clocks.iter_mut() {
             if b.id == 0 || b.count == 0 {
                 b.count = 0;
                 b.id = 0;
@@ -28,53 +28,53 @@ impl LogicalClockBucket {
                 measured_self_len += 1;
             }
         }
-        buckets.sort_unstable();
-        &buckets[..measured_self_len]
+        clocks.sort_unstable();
+        &clocks[..measured_self_len]
     }
 
-    /// Assumes the slices are sorted and do not contain any empty buckets
+    /// Assumes the slices are sorted and do not contain any empty clocks
     #[inline]
-    fn happened_before(left: &[LogicalClockBucket], right: &[LogicalClockBucket]) -> bool {
+    fn happened_before(left: &[LogicalClock], right: &[LogicalClock]) -> bool {
         // If `left` has more non-empty members than `right`, then `left` must have at least
-        // one bucket with a higher count than `right`, and thus must not have happened
+        // one clock with a higher count than `right`, and thus must not have happened
         // before `right`.
         if left.len() > right.len() {
             return false;
         }
         let mut had_strictly_smaller_element = false;
-        for left_bucket in left {
-            let right_bucket_count = right
+        for left_clock in left {
+            let right_clock_count = right
                 .iter()
                 .find_map(|b| {
-                    if b.id == left_bucket.id {
+                    if b.id == left_clock.id {
                         Some(b.count)
                     } else {
                         None
                     }
                 })
                 .unwrap_or(0);
-            if left_bucket.count > right_bucket_count {
+            if left_clock.count > right_clock_count {
                 return false;
             }
-            if left_bucket.count < right_bucket_count {
+            if left_clock.count < right_clock_count {
                 had_strictly_smaller_element = true;
             }
         }
-        for right_bucket in right {
-            let left_bucket_count = left
+        for right_clock in right {
+            let left_clock_count = left
                 .iter()
                 .find_map(|b| {
-                    if b.id == right_bucket.id {
+                    if b.id == right_clock.id {
                         Some(b.count)
                     } else {
                         None
                     }
                 })
                 .unwrap_or(0);
-            if left_bucket_count > right_bucket.count {
+            if left_clock_count > right_clock.count {
                 return false;
             }
-            if left_bucket_count < right_bucket.count {
+            if left_clock_count < right_clock.count {
                 had_strictly_smaller_element = true;
             }
         }
@@ -87,13 +87,13 @@ impl core::fmt::Debug for CausalSnapshot {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         write!(
             f,
-            "CausalSnapshot {{ tracer_id: {}, buckets: [",
+            "CausalSnapshot {{ tracer_id: {}, clocks: [",
             self.tracer_id
         )?;
-        for bucket in self.buckets.iter().take(usize::from(self.buckets_len)) {
-            write!(f, "{:?}, ", bucket)?;
+        for clock in self.clocks.iter().take(usize::from(self.clocks_len)) {
+            write!(f, "{:?}, ", clock)?;
         }
-        write!(f, "], buckets_len: {}", self.buckets_len)?;
+        write!(f, "], clocks_len: {}", self.clocks_len)?;
         f.write_str(" }")
     }
 }
@@ -101,44 +101,42 @@ impl core::fmt::Debug for CausalSnapshot {
 /// Do a logical clock comparison, ignoring the source tracer_id
 impl PartialEq for CausalSnapshot {
     fn eq(&self, other: &Self) -> bool {
-        let self_len = usize::from(self.buckets_len);
-        let other_len = usize::from(other.buckets_len);
+        let self_len = usize::from(self.clocks_len);
+        let other_len = usize::from(other.clocks_len);
         if self_len != other_len {
             return false;
         }
         // TODO - actually optimize this
         // This would be a lot easier if we could be certain these were pre-sorted and pruned,
         // but since there are publicly-manipulable fields, no such promises may be found
-        let mut self_buckets = self.buckets;
-        let normalized_self_buckets =
-            LogicalClockBucket::normalize_buckets(&mut self_buckets[..self_len]);
+        let mut self_clocks = self.clocks;
+        let normalized_self_clocks = LogicalClock::normalize_clocks(&mut self_clocks[..self_len]);
 
-        let mut other_buckets = other.buckets;
-        let normalized_other_buckets =
-            LogicalClockBucket::normalize_buckets(&mut other_buckets[..other_len]);
-        normalized_self_buckets == normalized_other_buckets
+        let mut other_clocks = other.clocks;
+        let normalized_other_clocks =
+            LogicalClock::normalize_clocks(&mut other_clocks[..other_len]);
+        normalized_self_clocks == normalized_other_clocks
     }
 }
 
 impl PartialOrd for CausalSnapshot {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let mut self_buckets = self.buckets;
-        let self_len = usize::from(self.buckets_len);
-        let normalized_self_buckets =
-            LogicalClockBucket::normalize_buckets(&mut self_buckets[..self_len]);
+        let mut self_clocks = self.clocks;
+        let self_len = usize::from(self.clocks_len);
+        let normalized_self_clocks = LogicalClock::normalize_clocks(&mut self_clocks[..self_len]);
 
-        let mut other_buckets = other.buckets;
-        let other_len = usize::from(other.buckets_len);
-        let normalized_other_buckets =
-            LogicalClockBucket::normalize_buckets(&mut other_buckets[..other_len]);
+        let mut other_clocks = other.clocks;
+        let other_len = usize::from(other.clocks_len);
+        let normalized_other_clocks =
+            LogicalClock::normalize_clocks(&mut other_clocks[..other_len]);
 
-        if normalized_self_buckets == normalized_other_buckets {
+        if normalized_self_clocks == normalized_other_clocks {
             return Some(Ordering::Equal);
         }
-        if LogicalClockBucket::happened_before(normalized_self_buckets, normalized_other_buckets) {
+        if LogicalClock::happened_before(normalized_self_clocks, normalized_other_clocks) {
             return Some(Ordering::Less);
         }
-        if LogicalClockBucket::happened_before(normalized_other_buckets, normalized_self_buckets) {
+        if LogicalClock::happened_before(normalized_other_clocks, normalized_self_clocks) {
             return Some(Ordering::Greater);
         }
         None
@@ -152,12 +150,12 @@ struct DynamicHistoryConfig {
     /// expected to send messages to this tracer, plus this instance
     ///
     /// Should always be greater than 1
-    max_buckets_len: u32,
+    max_clocks_len: u32,
 
     /// How many log items (individual events *AND* logical clock flushes)
     ///
     /// Each time we record a local event
-    /// Each time the logical clock flushes, it should add up to 2 * max_buckets log items
+    /// Each time the logical clock flushes, it should add up to 2 * max_clocks log items
     ///
     /// Should always be greater than 1
     max_log_len: u32,
@@ -167,39 +165,46 @@ pub const MIN_BUCKETS_LEN: usize = 2;
 pub const MIN_LOG_LEN: usize = MIN_BUCKETS_LEN * 16;
 pub const MIN_HISTORY_SIZE_BYTES: usize = size_of::<DynamicHistory>()
     + size_of::<u32>()
-    + MIN_BUCKETS_LEN * size_of::<LogicalClockBucket>()
+    + MIN_BUCKETS_LEN * size_of::<LogicalClock>()
     + MIN_LOG_LEN * size_of::<CompactLogItem>();
 
 const_assert_eq!(align_of::<usize>(), align_of::<DynamicHistory>());
-const_assert_eq!(4, align_of::<LogicalClockBucket>());
+const_assert_eq!(4, align_of::<LogicalClock>());
 const_assert_eq!(4, align_of::<CompactLogItem>());
 
-assert_eq_size!(u64, LogicalClockBucket);
-assert_eq_align!(u32, LogicalClockBucket);
+assert_eq_size!(u64, LogicalClock);
+assert_eq_align!(u32, LogicalClock);
 
 assert_eq_size!(u32, CompactLogItem);
 assert_eq_align!(u32, CompactLogItem);
 
 const_assert_eq!(16 + 4 * size_of::<usize>(), size_of::<DynamicHistory>());
 
-/// Fixed-size portion of the dynamic history
+/// Manages the core of a tracer in-memory implementation
+/// backed by runtime-sized arrays of current logical clocks
+/// and tracing log items
 #[derive(Debug)]
 #[repr(C)]
 pub struct DynamicHistory {
     tracer_id: u32,
     config: DynamicHistoryConfig,
     has_overflowed_log: bool,
-    has_overflowed_num_buckets: bool,
+    has_overflowed_num_clocks: bool,
 
-    buckets_len: usize,
-    buckets: *mut LogicalClockBucket,
+    /// How many clocks are populated
+    clocks_len: usize,
+    /// Pointer to the array of current
+    /// logical clock values
+    clocks: *mut LogicalClock,
 
+    /// How many log entries are populated
     log_len: usize,
+    /// Pointer to the array of log items
     log_pointer: *mut CompactLogItem,
 }
 
 #[derive(Debug)]
-struct BucketsFullError;
+struct ClocksFullError;
 
 impl DynamicHistory {
     pub fn new_at(
@@ -231,34 +236,32 @@ impl DynamicHistory {
         let remaining_bytes = remaining_bytes - header_bytes;
         let dynamic_region_ptr = unsafe { destination.as_mut_ptr().add(header_bytes) };
 
-        let (buckets_ptr, buckets_bytes, max_buckets_len) = {
-            // Try to give 1/8 of our remaining space to the buckets
-            let buckets_align_offset =
-                dynamic_region_ptr.align_offset(align_of::<LogicalClockBucket>());
-            if buckets_align_offset > remaining_bytes {
+        let (clocks_ptr, clocks_bytes, max_clocks_len) = {
+            // Try to give 1/8 of our remaining space to the clocks
+            let clocks_align_offset = dynamic_region_ptr.align_offset(align_of::<LogicalClock>());
+            if clocks_align_offset > remaining_bytes {
                 return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
             }
-            let max_buckets_len = max(
+            let max_clocks_len = max(
                 MIN_BUCKETS_LEN,
-                (remaining_bytes - buckets_align_offset) / 8 / size_of::<LogicalClockBucket>(),
+                (remaining_bytes - clocks_align_offset) / 8 / size_of::<LogicalClock>(),
             );
-            let buckets_bytes =
-                buckets_align_offset + max_buckets_len * size_of::<LogicalClockBucket>();
-            if buckets_bytes > remaining_bytes {
+            let clocks_bytes = clocks_align_offset + max_clocks_len * size_of::<LogicalClock>();
+            if clocks_bytes > remaining_bytes {
                 return Err(LocalStorageCreationError::UnderMinimumAllowedSize);
             }
-            let buckets_ptr =
-                unsafe { dynamic_region_ptr.add(buckets_align_offset) as *mut LogicalClockBucket };
+            let clocks_ptr =
+                unsafe { dynamic_region_ptr.add(clocks_align_offset) as *mut LogicalClock };
             assert!(
-                header_ptr as usize + size_of::<DynamicHistory>() <= buckets_ptr as usize,
-                "buckets pointer {:#X} should not overlap header [{:#X}..{:#X}] bytes, but they overlapped by {} bytes",
-                buckets_ptr as usize, header_ptr as usize, header_ptr as usize + header_bytes, (header_ptr as usize + header_bytes - buckets_ptr as usize)
+                header_ptr as usize + size_of::<DynamicHistory>() <= clocks_ptr as usize,
+                "clocks pointer {:#X} should not overlap header [{:#X}..{:#X}] bytes, but they overlapped by {} bytes",
+                clocks_ptr as usize, header_ptr as usize, header_ptr as usize + header_bytes, (header_ptr as usize + header_bytes - clocks_ptr as usize)
             );
-            (buckets_ptr, buckets_bytes, max_buckets_len)
+            (clocks_ptr, clocks_bytes, max_clocks_len)
         };
 
-        let dynamic_region_ptr = unsafe { dynamic_region_ptr.add(buckets_bytes) };
-        let remaining_bytes = remaining_bytes - buckets_bytes;
+        let dynamic_region_ptr = unsafe { dynamic_region_ptr.add(clocks_bytes) };
+        let remaining_bytes = remaining_bytes - clocks_bytes;
 
         let log_align_offset = dynamic_region_ptr.align_offset(align_of::<CompactLogItem>());
         let remaining_bytes = remaining_bytes
@@ -270,34 +273,34 @@ impl DynamicHistory {
         }
         let log_ptr = unsafe { dynamic_region_ptr.add(log_align_offset) as *mut CompactLogItem };
 
-        if max_buckets_len > core::u32::MAX as usize || max_log_len > core::u32::MAX as usize {
+        if max_clocks_len > core::u32::MAX as usize || max_log_len > core::u32::MAX as usize {
             return Err(LocalStorageCreationError::ExceededMaximumAddressableSize);
         }
         assert!(
-            buckets_ptr as usize + buckets_bytes <= log_ptr as usize,
-            "log pointer should not overlap bucket bytes"
+            clocks_ptr as usize + clocks_bytes <= log_ptr as usize,
+            "log pointer should not overlap clock bytes"
         );
 
         let mut history_header = DynamicHistory {
             tracer_id: tracer_id.get_raw(),
             config: DynamicHistoryConfig {
-                max_buckets_len: max_buckets_len as u32,
+                max_clocks_len: max_clocks_len as u32,
                 max_log_len: max_log_len as u32,
             },
             has_overflowed_log: false,
-            has_overflowed_num_buckets: false,
-            buckets_len: 0,
-            buckets: buckets_ptr,
+            has_overflowed_num_clocks: false,
+            clocks_len: 0,
+            clocks: clocks_ptr,
             log_len: 0,
             log_pointer: log_ptr,
         };
         history_header
-            .try_push_bucket(LogicalClockBucket {
+            .try_push_clock(LogicalClock {
                 id: tracer_id.get_raw(),
                 count: 0,
             })
             .expect(
-                "The History.buckets field should always contain a bucket for this tracer instance",
+                "The History.clocks field should always contain a clock for this tracer instance",
             );
         unsafe {
             *header_ptr = history_header;
@@ -308,30 +311,25 @@ impl DynamicHistory {
         }
     }
 
-    fn try_push_bucket(&mut self, bucket: LogicalClockBucket) -> Result<(), BucketsFullError> {
-        if self.buckets_len < self.config.max_buckets_len as usize {
+    fn try_push_clock(&mut self, clock: LogicalClock) -> Result<(), ClocksFullError> {
+        if self.clocks_len < self.config.max_clocks_len as usize {
             unsafe {
-                *self.buckets.add(self.buckets_len) = bucket;
+                *self.clocks.add(self.clocks_len) = clock;
             }
-            self.buckets_len += 1;
+            self.clocks_len += 1;
             Ok(())
         } else {
-            Err(BucketsFullError)
+            Err(ClocksFullError)
         }
     }
 
-    fn get_buckets_slice(&self) -> &[LogicalClockBucket] {
-        unsafe {
-            core::slice::from_raw_parts(self.buckets as *const LogicalClockBucket, self.buckets_len)
-        }
+    fn get_clocks_slice(&self) -> &[LogicalClock] {
+        unsafe { core::slice::from_raw_parts(self.clocks as *const LogicalClock, self.clocks_len) }
     }
 
-    fn get_buckets_slice_mut(&mut self) -> &mut [LogicalClockBucket] {
+    fn get_clocks_slice_mut(&mut self) -> &mut [LogicalClock] {
         unsafe {
-            core::slice::from_raw_parts_mut(
-                self.buckets as *mut LogicalClockBucket,
-                self.buckets_len,
-            )
+            core::slice::from_raw_parts_mut(self.clocks as *mut LogicalClock, self.clocks_len)
         }
     }
 
@@ -368,12 +366,12 @@ impl DynamicHistory {
         }
     }
 
-    /// Increments the bucket in the logical clock corresponding to this tracer instance
-    fn increment_local_bucket_count(&mut self) {
-        // N.B. We rely on the fact that the first member of the buckets
-        // collection is always the bucket for this tracer
+    /// Increments the clock in the logical clock corresponding to this tracer instance
+    fn increment_local_clock_count(&mut self) {
+        // N.B. We rely on the fact that the first member of the clocks
+        // collection is always the clock for this tracer
         unsafe {
-            (*self.buckets).count = (*self.buckets).count.saturating_add(1);
+            (*self.clocks).count = (*self.clocks).count.saturating_add(1);
         }
     }
 
@@ -385,18 +383,18 @@ impl DynamicHistory {
         &mut self,
         destination: &mut [u8],
     ) -> Result<usize, ShareError> {
-        self.increment_local_bucket_count();
+        self.increment_local_clock_count();
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
         let w = lcm::in_system::begin_causal_snapshot_write(&mut buffer_writer)?;
         let mut w = w
             .write_tracer_id(self.tracer_id as i32)?
-            .write_n_clock_buckets(self.buckets_len as i32)?;
+            .write_n_clocks(self.clocks_len as i32)?;
         for (i, item_writer) in (&mut w).enumerate() {
-            let bucket: &mut LogicalClockBucket = unsafe { &mut *self.buckets.add(i) };
+            let clock: &mut LogicalClock = unsafe { &mut *self.clocks.add(i) };
             item_writer.write(|bw| {
                 Ok(bw
-                    .write_tracer_id(bucket.id as i32)?
-                    .write_count(bucket.count as i32)?)
+                    .write_tracer_id(clock.id as i32)?
+                    .write_count(clock.count as i32)?)
             })?
         }
         let _w = w.done()?;
@@ -406,30 +404,33 @@ impl DynamicHistory {
     /// Produce a transparent but limited snapshot of the causal state for transmission
     /// within the system under test
     pub(crate) fn write_fixed_size_logical_clock(&mut self) -> Result<CausalSnapshot, ShareError> {
-        let mut buckets = arr_macro::arr![LogicalClockBucket { id: 0, count: 0}; 256];
-        if self.buckets_len > buckets.len() {
+        let mut clocks = [LogicalClock { id: 0, count: 0 }; 256];
+        if self.clocks_len > clocks.len() {
             return Err(ShareError::InsufficientDestinationSize);
         }
-        self.increment_local_bucket_count();
-        let mut non_empty_buckets_count: usize = 0;
+        self.increment_local_clock_count();
+        let mut non_empty_clocks_count: usize = 0;
         for (source, sink) in self
-            .get_buckets_slice()
+            .get_clocks_slice()
             .iter()
             .filter(|b| b.count > 0)
-            .zip(buckets.iter_mut())
+            .zip(clocks.iter_mut())
         {
             sink.id = source.id;
             sink.count = source.count;
-            non_empty_buckets_count += 1;
+            non_empty_clocks_count += 1;
         }
 
         Ok(CausalSnapshot {
             tracer_id: self.tracer_id,
-            buckets,
-            buckets_len: non_empty_buckets_count as u8,
+            clocks,
+            clocks_len: non_empty_clocks_count as u8,
         })
     }
-    pub(crate) fn merge_from_bytes(&mut self, source: &[u8]) -> Result<(), MergeError> {
+    pub(crate) fn merge_from_lcm_log_report_bytes(
+        &mut self,
+        source: &[u8],
+    ) -> Result<(), MergeError> {
         impl From<DecodeValueError<rust_lcm_codec::BufferReaderError>> for MergeError {
             fn from(_: DecodeValueError<rust_lcm_codec::BufferReaderError>) -> Self {
                 MergeError::ExternalHistoryEncoding
@@ -443,8 +444,8 @@ impl DynamicHistory {
         let mut buffer_reader = rust_lcm_codec::BufferReader::new(source);
         let r = lcm::in_system::begin_causal_snapshot_read(&mut buffer_reader)?;
         let (neighbor_id, r) = r.read_tracer_id()?;
-        let (_n_clock_buckets, mut r) = r.read_n_clock_buckets()?;
-        let buckets_iterator = (&mut r).map(|item_reader| {
+        let (_n_clock_clocks, mut r) = r.read_n_clocks()?;
+        let clocks_iterator = (&mut r).map(|item_reader| {
             let mut found_id = 0;
             let mut found_count = 0;
             let item_read_result = item_reader.read(|ir| {
@@ -457,13 +458,13 @@ impl DynamicHistory {
             if item_read_result.is_err() {
                 Err(MergeError::ExternalHistoryEncoding)
             } else {
-                Ok(LogicalClockBucket {
+                Ok(LogicalClock {
                     id: found_id as u32,
                     count: found_count as u32,
                 })
             }
         });
-        let merge_result = self.merge_internal(neighbor_id as u32, buckets_iterator);
+        let merge_result = self.merge_internal(neighbor_id as u32, clocks_iterator);
         // Confirm we have fully read the causal snapshot message
         let _read_done_result: lcm::in_system::causal_snapshot_read_done<_> = r.done()?;
         merge_result
@@ -474,13 +475,13 @@ impl DynamicHistory {
         &mut self,
         external_history: &CausalSnapshot,
     ) -> Result<(), MergeError> {
-        let num_incoming_buckets = usize::from(external_history.buckets_len);
+        let num_incoming_clocks = usize::from(external_history.clocks_len);
         self.merge_internal(
             external_history.tracer_id,
             external_history
-                .buckets
+                .clocks
                 .iter()
-                .take(num_incoming_buckets)
+                .take(num_incoming_clocks)
                 .map(|b| Ok(*b)),
         )
     }
@@ -488,79 +489,79 @@ impl DynamicHistory {
     fn merge_internal<B>(
         &mut self,
         raw_neighbor_id: u32,
-        buckets_iterator: B,
+        clocks_iterator: B,
     ) -> Result<(), MergeError>
     where
-        B: Iterator<Item = Result<LogicalClockBucket, MergeError>>,
+        B: Iterator<Item = Result<LogicalClock, MergeError>>,
     {
         let external_id = match TracerId::new(raw_neighbor_id) {
             Some(id) => id,
             None => return Err(MergeError::ExternalHistorySemantics),
         };
         let raw_neighbor_id = external_id.get_raw();
-        // Ensure that there is a bucket for the neighbor that sent the snapshot
+        // Ensure that there is a clock for the neighbor that sent the snapshot
         if !self
-            .get_buckets_slice()
+            .get_clocks_slice()
             .iter()
             .any(|b| b.id == raw_neighbor_id)
             && self
-                .try_push_bucket(LogicalClockBucket {
+                .try_push_clock(LogicalClock {
                     id: raw_neighbor_id,
                     count: 0,
                 })
                 .is_err()
         {
-            self.has_overflowed_num_buckets = true;
+            self.has_overflowed_num_clocks = true;
             return Err(MergeError::ExceededAvailableClocks);
         }
 
         let mut outcome = Ok(());
-        for external_bucket in buckets_iterator {
-            let external_bucket = match external_bucket {
+        for external_clock in clocks_iterator {
+            let external_clock = match external_clock {
                 Ok(b) => b,
                 Err(e) => {
                     outcome = Err(e);
                     break;
                 }
             };
-            if external_bucket.count == 0 {
+            if external_clock.count == 0 {
                 continue;
             }
-            let id = match NonZeroU32::new(external_bucket.id) {
+            let id = match NonZeroU32::new(external_clock.id) {
                 Some(id) => TracerId(id),
-                // Can't add this bucket to the state if we don't have a valid id for it
+                // Can't add this clock to the state if we don't have a valid id for it
                 None => {
                     outcome = Err(MergeError::ExternalHistorySemantics);
                     break;
                 }
             };
             let raw_id = id.get_raw();
-            for internal_bucket in self.get_buckets_slice_mut() {
-                // N.B This depends on the local bucket bucket already having been created, above,
-                // when we received a history from the bucket's source tracer_id.
+            for internal_clock in self.get_clocks_slice_mut() {
+                // N.B This depends on the local clock already having been created, above,
+                // when we received a history from the clock's source tracer_id.
                 // During early tracing, may cause us to drop data from an indirect neighbor that
                 // is also a direct neighbor (but has not yet sent us a message).
-                if internal_bucket.id == raw_id {
-                    internal_bucket.count = max(internal_bucket.count, external_bucket.count);
+                if internal_clock.id == raw_id {
+                    internal_clock.count = max(internal_clock.count, external_clock.count);
                     break;
                 }
             }
         }
-        self.increment_local_bucket_count();
-        self.write_current_buckets_to_log();
+        self.increment_local_clock_count();
+        self.write_current_clocks_to_log();
         outcome
     }
 
-    fn write_current_buckets_to_log(&mut self) {
+    fn write_current_clocks_to_log(&mut self) {
         if self.has_overflowed_log {
             return;
         }
-        let max_len_that_can_fit_a_bucket = (self.config.max_log_len - 1) as usize;
+        let max_len_that_can_fit_a_clock = (self.config.max_log_len - 1) as usize;
         let mut log_len = self.log_len;
         let mut has_overflowed_log = false;
-        for b in self.get_buckets_slice() {
-            let (id, count) = CompactLogItem::bucket(*b);
-            if log_len < max_len_that_can_fit_a_bucket {
+        for b in self.get_clocks_slice() {
+            let (id, count) = CompactLogItem::clock(*b);
+            if log_len < max_len_that_can_fit_a_clock {
                 unsafe {
                     *self.log_pointer.add(log_len) = id;
                     *self.log_pointer.add(log_len + 1) = count;
@@ -583,15 +584,15 @@ impl DynamicHistory {
     ///   * Event ids for events that have happened since the last backend send
     ///   * Interspersed snapshots of the logical clock
     pub(crate) fn write_lcm_log_report(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
-        self.increment_local_bucket_count();
-        self.write_current_buckets_to_log();
+        self.increment_local_clock_count();
+        self.write_current_clocks_to_log();
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
         let w = lcm::log_reporting::begin_log_report_write(&mut buffer_writer).map_err(|_| ())?;
         let w = w.write_tracer_id(self.tracer_id as i32).map_err(|_| ())?;
         let w = w
             .write_flags(|fw| {
                 let fw = fw.write_has_overflowed_log(self.has_overflowed_log)?;
-                let fw = fw.write_has_overflowed_num_buckets(self.has_overflowed_num_buckets)?;
+                let fw = fw.write_has_overflowed_num_clocks(self.has_overflowed_num_clocks)?;
                 Ok(fw)
             })
             .map_err(|_| ())?;
@@ -608,17 +609,16 @@ impl DynamicHistory {
             log_items = segment.rest;
             segment_item_writer
                 .write(|sw| {
-                    let sw = sw.write_n_clock_buckets(segment.clock_region.len() as i32 / 2)?;
+                    let sw = sw.write_n_clocks(segment.clock_region.len() as i32 / 2)?;
                     let mut sw = sw.write_n_events(segment.event_region.len() as i32)?;
-                    for (bucket_item_writer, bucket_parts) in
+                    for (clock_item_writer, clock_parts) in
                         (&mut sw).zip(segment.clock_region.chunks_exact(2))
                     {
-                        bucket_item_writer.write(|bw| {
-                            let tracer_id =
-                                bucket_parts[0].interpret_as_logical_clock_bucket_tracer_id();
+                        clock_item_writer.write(|bw| {
+                            let tracer_id = clock_parts[0].interpret_as_logical_clock_tracer_id();
                             Ok(bw
                                 .write_tracer_id(tracer_id as i32)?
-                                .write_count(bucket_parts[1].raw() as i32)?)
+                                .write_count(clock_parts[1].raw() as i32)?)
                         })?;
                     }
                     actually_written_log_items += segment.clock_region.len();
@@ -643,7 +643,7 @@ impl DynamicHistory {
         let _w = w.done().map_err(|_| ())?;
 
         self.clear_log();
-        self.write_current_buckets_to_log();
+        self.write_current_clocks_to_log();
         self.record_event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT);
         Ok(buffer_writer.cursor())
     }

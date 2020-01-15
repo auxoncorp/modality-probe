@@ -9,17 +9,17 @@ struct log_report {
 
 struct error_flags {
     boolean has_overflowed_log;
-    boolean has_overflowed_num_buckets;
+    boolean has_overflowed_num_clocks;
 }
 
 struct log_segment {
-    int32_t n_clock_buckets;
+    int32_t n_clocks;
     int32_t n_events;
-    logical_clock_bucket clock_buckets[n_clock_buckets];
+    logical_clock clocks[n_clocks];
     int32_t events[n_events];
 }
 
-struct logical_clock_bucket {
+struct logical_clock {
     int32_t tracer_id;
     int32_t count; // Semantically cannot be negative - interpret as u32
 }

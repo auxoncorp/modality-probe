@@ -1,7 +1,7 @@
 #![no_std]
 #![cfg_attr(feature = "default_panic_impl", feature(lang_items, core_intrinsics))]
 use ekotrace::*;
-pub use ekotrace::{CausalSnapshot, Tracer};
+pub use ekotrace::{CausalSnapshot, Ekotrace};
 
 pub type EkotraceResult = usize;
 /// Everything went fine
@@ -34,23 +34,23 @@ pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING: EkotraceResult = 8;
 pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS: EkotraceResult = 9;
 
 #[no_mangle]
-pub extern "C" fn tracer_initialize(
+pub extern "C" fn ekotrace_initialize(
     destination: *mut u8,
     destination_size_bytes: usize,
     tracer_id: u32,
-    out: *mut *mut Tracer<'static>,
+    out: *mut *mut Ekotrace<'static>,
 ) -> EkotraceResult {
     if destination.is_null() {
         return EKOTRACE_RESULT_NULL_POINTER;
     }
-    if destination_size_bytes < core::mem::size_of::<Tracer<'static>>() {
+    if destination_size_bytes < core::mem::size_of::<Ekotrace<'static>>() {
         return EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES;
     }
     let tracer_id = match TracerId::new(tracer_id) {
         Some(id) => id,
         None => return EKOTRACE_RESULT_INVALID_TRACER_ID,
     };
-    match Tracer::initialize_at(
+    match Ekotrace::initialize_at(
         unsafe { core::slice::from_raw_parts_mut(destination, destination_size_bytes) },
         tracer_id,
     ) {
@@ -71,8 +71,8 @@ pub extern "C" fn tracer_initialize(
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_record_event(
-    tracer: *mut Tracer<'static>,
+pub extern "C" fn ekotrace_record_event(
+    tracer: *mut Ekotrace<'static>,
     event_id: u32,
 ) -> EkotraceResult {
     let tracer = match unsafe { tracer.as_mut() } {
@@ -88,8 +88,8 @@ pub extern "C" fn tracer_record_event(
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_write_log_report(
-    tracer: *mut Tracer<'static>,
+pub extern "C" fn ekotrace_report(
+    tracer: *mut Ekotrace<'static>,
     log_report_destination: *mut u8,
     log_report_destination_size_bytes: usize,
     out_written_bytes: *mut usize,
@@ -101,7 +101,7 @@ pub extern "C" fn tracer_write_log_report(
     if log_report_destination.is_null() {
         return EKOTRACE_RESULT_NULL_POINTER;
     }
-    let written_bytes = match tracer.write_log_report(unsafe {
+    let written_bytes = match tracer.report(unsafe {
         core::slice::from_raw_parts_mut(log_report_destination, log_report_destination_size_bytes)
     }) {
         Ok(b) => b,
@@ -114,8 +114,8 @@ pub extern "C" fn tracer_write_log_report(
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_share_history(
-    tracer: *mut Tracer<'static>,
+pub extern "C" fn ekotrace_distribute_snapshot(
+    tracer: *mut Ekotrace<'static>,
     history_destination: *mut u8,
     history_destination_bytes: usize,
     out_written_bytes: *mut usize,
@@ -124,7 +124,7 @@ pub extern "C" fn tracer_share_history(
         Some(t) => t,
         None => return EKOTRACE_RESULT_NULL_POINTER,
     };
-    match tracer.share_history(unsafe {
+    match tracer.distribute_snapshot(unsafe {
         core::slice::from_raw_parts_mut(history_destination, history_destination_bytes)
     }) {
         Ok(written_bytes) => {
@@ -141,15 +141,15 @@ pub extern "C" fn tracer_share_history(
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_share_fixed_size_history(
-    tracer: *mut Tracer<'static>,
+pub extern "C" fn ekotrace_distribute_fixed_size_snapshot(
+    tracer: *mut Ekotrace<'static>,
     destination_snapshot: *mut CausalSnapshot,
 ) -> EkotraceResult {
     let tracer = match unsafe { tracer.as_mut() } {
         Some(t) => t,
         None => return EKOTRACE_RESULT_NULL_POINTER,
     };
-    match tracer.share_fixed_size_history() {
+    match tracer.distribute_fixed_size_snapshot() {
         Ok(snapshot) => {
             unsafe { *destination_snapshot = snapshot }
             EKOTRACE_RESULT_OK
@@ -162,8 +162,8 @@ pub extern "C" fn tracer_share_fixed_size_history(
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_merge_history(
-    tracer: *mut Tracer<'static>,
+pub extern "C" fn ekotrace_merge_snapshot(
+    tracer: *mut Ekotrace<'static>,
     history_source: *const u8,
     history_source_bytes: usize,
 ) -> EkotraceResult {
@@ -171,9 +171,9 @@ pub extern "C" fn tracer_merge_history(
         Some(t) => t,
         None => return EKOTRACE_RESULT_NULL_POINTER,
     };
-    match tracer
-        .merge_history(unsafe { core::slice::from_raw_parts(history_source, history_source_bytes) })
-    {
+    match tracer.merge_snapshot(unsafe {
+        core::slice::from_raw_parts(history_source, history_source_bytes)
+    }) {
         Ok(_) => EKOTRACE_RESULT_OK,
         Err(MergeError::ExceededAvailableClocks) => EKOTRACE_RESULT_EXCEEDED_AVAILABLE_CLOCKS,
         Err(MergeError::ExternalHistoryEncoding) => {
@@ -186,15 +186,15 @@ pub extern "C" fn tracer_merge_history(
 }
 
 #[no_mangle]
-pub extern "C" fn tracer_merge_fixed_size_history(
-    tracer: *mut Tracer<'static>,
+pub extern "C" fn ekotrace_merge_fixed_size_snapshot(
+    tracer: *mut Ekotrace<'static>,
     snapshot: *const CausalSnapshot,
 ) -> EkotraceResult {
     let tracer = match unsafe { tracer.as_mut() } {
         Some(t) => t,
         None => return EKOTRACE_RESULT_NULL_POINTER,
     };
-    match tracer.merge_fixed_size_history(unsafe { &*snapshot }) {
+    match tracer.merge_fixed_size_snapshot(unsafe { &*snapshot }) {
         Ok(_) => EKOTRACE_RESULT_OK,
         Err(MergeError::ExceededAvailableClocks) => EKOTRACE_RESULT_EXCEEDED_AVAILABLE_CLOCKS,
         Err(MergeError::ExternalHistoryEncoding) => {
@@ -232,24 +232,24 @@ mod tests {
     use core::cmp::Ordering;
     use core::mem::MaybeUninit;
 
-    fn stack_snapshot(tracer: *mut Tracer<'static>) -> CausalSnapshot {
+    fn stack_snapshot(tracer: *mut Ekotrace<'static>) -> CausalSnapshot {
         let mut snap = MaybeUninit::uninit();
         assert_eq!(
             EKOTRACE_RESULT_OK,
-            tracer_share_fixed_size_history(tracer, snap.as_mut_ptr())
+            ekotrace_distribute_fixed_size_snapshot(tracer, snap.as_mut_ptr())
         );
         unsafe { snap.assume_init() }
     }
 
     #[test]
-    fn end_to_end_use_of_tracer_capi_works() {
+    fn end_to_end_use_of_ekotrace_capi_works() {
         let mut backend = [0u8; 2099];
 
         let tracer_id = 2;
         let mut storage = [0u8; 1024];
         let storage_slice = &mut storage;
         let mut tracer = MaybeUninit::uninit();
-        let result = tracer_initialize(
+        let result = ekotrace_initialize(
             storage_slice.as_mut_ptr() as *mut u8,
             storage_slice.len(),
             tracer_id,
@@ -259,16 +259,16 @@ mod tests {
         let tracer = unsafe { tracer.assume_init() };
         let snap_empty = stack_snapshot(tracer);
         assert_eq!(snap_empty.tracer_id, tracer_id);
-        assert_eq!(1, snap_empty.buckets_len);
-        tracer_record_event(tracer, 100);
+        assert_eq!(1, snap_empty.clocks_len);
+        ekotrace_record_event(tracer, 100);
         let snap_a = stack_snapshot(tracer);
         assert!(snap_empty < snap_a);
         assert!(!(snap_a < snap_empty));
-        assert_eq!(1, snap_a.buckets_len);
+        assert_eq!(1, snap_a.clocks_len);
 
         assert!(&backend.iter().all(|b| *b == 0));
         let mut bytes_written: usize = 0;
-        let result = tracer_write_log_report(
+        let result = ekotrace_report(
             tracer,
             backend.as_mut_ptr(),
             backend.len(),
@@ -283,7 +283,7 @@ mod tests {
         assert!(snap_a < snap_b);
         assert!(!(snap_b < snap_a));
         let snap_b_neighborhood = stack_snapshot(tracer);
-        assert_eq!(1, snap_b_neighborhood.buckets_len);
+        assert_eq!(1, snap_b_neighborhood.clocks_len);
         assert!(snap_b < snap_b_neighborhood);
 
         // Share that snapshot with another component in the system, pretend it lives on some other thread.
@@ -292,7 +292,7 @@ mod tests {
         let mut remote_storage = [0u8; 1024];
         let remote_storage_slice = &mut remote_storage;
         let mut remote_tracer = MaybeUninit::uninit();
-        let result = tracer_initialize(
+        let result = ekotrace_initialize(
             remote_storage_slice.as_mut_ptr() as *mut u8,
             remote_storage_slice.len(),
             remote_tracer_id,
@@ -308,9 +308,9 @@ mod tests {
         );
         assert!(!(snap_b_neighborhood < remote_snap_pre_merge));
         assert_eq!(remote_snap_pre_merge.tracer_id, remote_tracer_id);
-        assert_eq!(1, remote_snap_pre_merge.buckets_len);
+        assert_eq!(1, remote_snap_pre_merge.clocks_len);
 
-        tracer_merge_fixed_size_history(
+        ekotrace_merge_fixed_size_snapshot(
             remote_tracer,
             &snap_b_neighborhood as *const CausalSnapshot,
         );
