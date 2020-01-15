@@ -164,10 +164,14 @@ impl ClusteredNodeFmt for lib::SegmentGraphNode {
 impl ClusteredNodeFmt for model::LogEntry {
     fn node_label(&self) -> String {
         match self.data {
-            model::LogEntryData::LogicalClock(tracer_id, count) => {
-                format!("Logical Clock: Tracer {} => {}", tracer_id.0, count)
-            }
-            model::LogEntryData::Event(eid) => format!("Event: {}", eid.0),
+            model::LogEntryData::LogicalClock(tracer_id, count) => format!(
+                "{}.{}.{}\\nLogical Clock: Tracer {} => {}",
+                self.session_id.0, self.segment_id.0, self.segment_index, tracer_id.0, count
+            ),
+            model::LogEntryData::Event(eid) => format!(
+                "{}.{}.{}\\nEvent: {}",
+                self.session_id.0, self.segment_id.0, self.segment_index, eid.0
+            ),
         }
     }
 
