@@ -2,11 +2,11 @@ package in_system;
 
 struct causal_snapshot {
     int32_t tracer_id;
-    int32_t n_clock_buckets;
-    logical_clock_bucket clock_buckets[n_clock_buckets];
+    int32_t n_clocks;
+    logical_clock clocks[n_clocks];
 }
 
-struct logical_clock_bucket {
+struct logical_clock {
     int32_t tracer_id;
     int32_t count; // Semantically cannot be negative - interpret as u32
 }

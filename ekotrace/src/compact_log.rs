@@ -1,4 +1,4 @@
-use super::{EventId, LogicalClockBucket};
+use super::{EventId, LogicalClock};
 
 /// In a stream of these:
 ///     if the first bit is not set, treat it as recording an Event
@@ -15,11 +15,11 @@ impl CompactLogItem {
         CompactLogItem(event_id.get_raw())
     }
     #[must_use]
-    pub(crate) fn bucket(bucket: LogicalClockBucket) -> (Self, Self) {
+    pub(crate) fn clock(clock: LogicalClock) -> (Self, Self) {
         // Set the top bit for id to indicate that it is not an event but a logical clock bucket,
         // and to treat the next item as the count. Don't separate these two!
-        let id = bucket.id | 0b1000_0000_0000_0000_0000_0000_0000_0000;
-        (CompactLogItem(id), CompactLogItem(bucket.count))
+        let id = clock.id | 0b1000_0000_0000_0000_0000_0000_0000_0000;
+        (CompactLogItem(id), CompactLogItem(clock.count))
     }
 
     pub(crate) fn is_first_bit_set(self) -> bool {
@@ -31,7 +31,7 @@ impl CompactLogItem {
     }
 
     /// Unset that top bit to get the original tracer id back out
-    pub(crate) fn interpret_as_logical_clock_bucket_tracer_id(self) -> u32 {
+    pub(crate) fn interpret_as_logical_clock_tracer_id(self) -> u32 {
         self.0 & 0b0111_1111_1111_1111_1111_1111_1111_1111
     }
 }
@@ -100,7 +100,7 @@ mod tests {
 
     /// Compact logical clock bucket
     fn cb(id: u32, count: u32) -> (CompactLogItem, CompactLogItem) {
-        CompactLogItem::bucket(LogicalClockBucket { id, count })
+        CompactLogItem::clock(LogicalClock { id, count })
     }
 
     #[test]
@@ -127,7 +127,7 @@ mod tests {
         let e = CompactLogItem::event(EventId::new(4).expect("Could not make EventId"));
         assert!(!e.is_first_bit_set());
 
-        let (id, count) = CompactLogItem::bucket(LogicalClockBucket { id: 4, count: 5 });
+        let (id, count) = CompactLogItem::clock(LogicalClock { id: 4, count: 5 });
         assert!(id.is_first_bit_set());
         assert!(!count.is_first_bit_set());
     }

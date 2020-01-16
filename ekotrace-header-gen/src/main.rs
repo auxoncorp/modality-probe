@@ -58,10 +58,11 @@ impl Opt {
 }
 
 fn file_sha256(path: &Path) -> String {
-    let mut file =
-        File::open(path).expect(&format!("Can't open file {} for hashing", path.display()));
+    let mut file = File::open(path)
+        .unwrap_or_else(|e| panic!("Can't open file {} for hashing: {}", path.display(), e));
     let mut sha256 = Sha256::new();
-    io::copy(&mut file, &mut sha256).expect(&format!("Error hashing file {}", path.display()));
+    io::copy(&mut file, &mut sha256)
+        .unwrap_or_else(|e| panic!("Error hashing file {}: {}", path.display(), e));
     format!("{:x}", sha256.result())
 }
 
@@ -83,7 +84,7 @@ fn main() {
     println!("//");
     println!("// GENERATED CODE, DO NOT EDIT");
     println!("//");
-    println!("");
+    println!();
 
     println!("//");
     println!("// Tracers (csv sha256sum {})", tracers_csv_hash);
@@ -93,13 +94,13 @@ fn main() {
         let t: Tracer = maybe_tracer.expect("Can't deserialize tracer");
         let const_name = format!("TR_{}", t.name.to_uppercase());
 
-        println!("");
+        println!();
         println!("/// Tracer: {}", t.name);
         println!("/// {}", t.description);
         println!("#define {} {}", const_name, t.id.0);
     }
 
-    println!("");
+    println!();
     println!("//");
     println!("// Events (csv sha256sum {})", events_csv_hash);
     println!("//");
@@ -108,7 +109,7 @@ fn main() {
         let e: Event = maybe_event.expect("Can't deserialize event");
         let const_name = format!("EV_{}", e.name.to_uppercase());
 
-        println!("");
+        println!();
         println!("/// Trace event: {}", e.name);
         println!("/// {}", e.description);
         println!("#define {} {}", const_name, e.id.0);

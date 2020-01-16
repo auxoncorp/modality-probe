@@ -15,17 +15,17 @@ pub struct LogReport {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ErrorFlags {
     pub has_overflowed_log: bool,
-    pub has_overflowed_num_buckets: bool,
+    pub has_overflowed_num_clocks: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LogSegment {
-    pub clock_buckets: Vec<ClockBucket>,
+    pub clocks: Vec<Clock>,
     pub events: Vec<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ClockBucket {
+pub struct Clock {
     pub tracer_id: i32,
     pub count: i32,
 }
@@ -39,14 +39,14 @@ impl LogReport {
         let (tracer_id, r) = r.read_tracer_id().map_err(|_| ())?;
         let mut flags = ErrorFlags {
             has_overflowed_log: false,
-            has_overflowed_num_buckets: false,
+            has_overflowed_num_clocks: false,
         };
         let r = r
             .read_flags(|fr| {
                 let (log_overflow, fr) = fr.read_has_overflowed_log()?;
                 flags.has_overflowed_log = log_overflow;
-                let (buckets_overflow, fr) = fr.read_has_overflowed_num_buckets()?;
-                flags.has_overflowed_num_buckets = buckets_overflow;
+                let (buckets_overflow, fr) = fr.read_has_overflowed_num_clocks()?;
+                flags.has_overflowed_num_clocks = buckets_overflow;
                 Ok(fr)
             })
             .map_err(|_| ())?;
@@ -56,13 +56,13 @@ impl LogReport {
             let mut segment = LogSegment::default();
             segment_item_reader
                 .read(|sr| {
-                    let (_n_clock_buckets, sr) = sr.read_n_clock_buckets()?;
+                    let (_n_clocks, sr) = sr.read_n_clocks()?;
                     let (_n_events, mut sr) = sr.read_n_events()?;
                     for clock_bucket_item_reader in &mut sr {
                         clock_bucket_item_reader.read(|cbr| {
                             let (id, cbr) = cbr.read_tracer_id()?;
                             let (count, cbr) = cbr.read_count()?;
-                            segment.clock_buckets.push(ClockBucket {
+                            segment.clocks.push(Clock {
                                 tracer_id: id,
                                 count,
                             });
@@ -94,7 +94,7 @@ impl LogReport {
             .write_flags(|fw| {
                 let fw = fw.write_has_overflowed_log(self.flags.has_overflowed_log)?;
                 let fw =
-                    fw.write_has_overflowed_num_buckets(self.flags.has_overflowed_num_buckets)?;
+                    fw.write_has_overflowed_num_clocks(self.flags.has_overflowed_num_clocks)?;
                 Ok(fw)
             })
             .map_err(|_| ())?;
@@ -106,9 +106,9 @@ impl LogReport {
         for (segment_item_writer, segment) in (&mut w).zip(&self.segments) {
             segment_item_writer
                 .write(|sw| {
-                    let sw = sw.write_n_clock_buckets(segment.clock_buckets.len() as i32)?;
+                    let sw = sw.write_n_clocks(segment.clocks.len() as i32)?;
                     let mut sw = sw.write_n_events(segment.events.len() as i32)?;
-                    for (bucket_item_writer, bucket) in (&mut sw).zip(&segment.clock_buckets) {
+                    for (bucket_item_writer, bucket) in (&mut sw).zip(&segment.clocks) {
                         bucket_item_writer.write(|bw| {
                             Ok(bw
                                 .write_tracer_id(bucket.tracer_id)?

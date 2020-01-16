@@ -146,11 +146,13 @@ where
     }
 }
 
+type ProcessBody<T> = Option<
+    Box<dyn Fn(HashMap<String, Sender<(String, T)>>, Receiver<(String, T)>) + Send + 'static>,
+>;
+
 struct Process<T> {
     adj: Vec<String>,
-    body: Option<
-        Box<dyn Fn(HashMap<String, Sender<(String, T)>>, Receiver<(String, T)>) + Send + 'static>,
-    >,
+    body: ProcessBody<T>,
     senders: HashMap<String, Sender<(String, T)>>,
     self_sender: Sender<(String, T)>,
     receiver: Receiver<(String, T)>,

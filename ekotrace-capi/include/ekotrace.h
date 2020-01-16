@@ -11,20 +11,20 @@ extern "C" {
 #define EKOTRACE_NULL_TRACER_INITIALIZER NULL
 
 /*
- * Tracer is the type of a tracing instance. Expected to be single-threaded.
+ * Ekotrace is the type of a tracing instance. Expected to be single-threaded.
  */
-typedef struct tracer tracer;
+typedef struct ekotrace ekotrace;
 
-typedef struct logical_clock_bucket {
+typedef struct logical_clock {
     /*
-     * The tracer node that this clock is tracking
+     * The ekotrace node that this clock is tracking
      */
     uint32_t id;
     /*
      *Clock tick count
      */
     uint32_t count;
-} logical_clock_bucket;
+} logical_clock;
 
 typedef enum {
     /*
@@ -40,7 +40,7 @@ typedef enum {
      */
     EKOTRACE_RESULT_INVALID_EVENT_ID = 2,
     /*
-     * A tracer id outside of the allowed range was provided.
+     * A ekotrace id outside of the allowed range was provided.
      */
     EKOTRACE_RESULT_INVALID_TRACER_ID = 3,
     /*
@@ -57,7 +57,7 @@ typedef enum {
      */
     EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR = 6,
     /*
-     * The local tracer does not have enough space to track all
+     * The local ekotrace does not have enough space to track all
      * of direct neighbors attempting to communicate with it.
      * Detected during merging.
      */
@@ -71,7 +71,7 @@ typedef enum {
     EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING = 8,
     /*
      * The provided external history violated a semantic rule of the protocol,
-     * such as by having a tracer_id out of the allowed value range.
+     * such as by having a ekotrace_id out of the allowed value range.
      * Detected during merging.
      */
     EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS = 9,
@@ -79,71 +79,71 @@ typedef enum {
 
 typedef struct causal_snapshot {
     /*
-     * What tracer produced this history snapshot.
+     * What ekotrace instance produced this history snapshot.
      * Not included in causal ordering evaluation.
      */
     uint32_t tracer_id;
 
     /*
-     * Mapping between tracer_ids and event-counts at each location
+     * Mapping between ekotrace_ids and event-counts at each location
      */
-    logical_clock_bucket buckets[256];
+    logical_clock clocks[256];
 
     /*
-     * How many of those buckets are actually populated
+     * How many of those clocks are actually populated
      */
-    uint8_t buckets_len;
+    uint8_t clocks_len;
 } causal_snapshot;
 
 /*
- * Create a tracer instance. tracer_id must be non-zero
+ * Create a ekotrace instance. ekotrace_id must be non-zero
  */
-size_t tracer_initialize(uint8_t *destination, size_t destination_size_bytes, uint32_t tracer_id, tracer * * out);
+size_t ekotrace_initialize(uint8_t *destination, size_t destination_size_bytes, uint32_t ekotrace_id, ekotrace * * out);
 
 /*
  * Record an event.
  * event_id must be non-zero.
  */
-size_t tracer_record_event(tracer *tracer, uint32_t event_id);
+size_t ekotrace_record_event(ekotrace *ekotrace, uint32_t event_id);
 
 /*
  * Conduct necessary background activities, then
- * write recorded events and logical clock data to a
- * supplied destination.
+ * write a report of recorded events and logical clock
+ * data to a supplied destination.
  *
  * Populates the number of bytes written in out_written_bytes.
  */
-size_t tracer_write_log_report(tracer *tracer, uint8_t *log_report_destination, size_t log_report_destination_bytes, size_t * out_written_bytes);
+size_t ekotrace_report(ekotrace *ekotrace, uint8_t *log_report_destination, size_t log_report_destination_bytes, size_t * out_written_bytes);
 
 /*
- * Produce a transmittable opaque blob of this tracer's
- * causal history for use by another tracer elsewhere
+ * Produce a transmittable opaque blob of this ekotrace's
+ * causal history for use by another ekotrace elsewhere
  * in the system, filtered down to just the history
  * of this node and its immediate inbound neighbors.
  *
  * Populates the number of bytes written in out_written_bytes.
  */
-size_t tracer_share_history(tracer *tracer, uint8_t *history_destination, size_t history_destination_bytes, size_t * out_written_bytes);
+size_t ekotrace_distribute_snapshot(ekotrace *ekotrace, uint8_t *history_destination, size_t history_destination_bytes, size_t * out_written_bytes);
 
 /*
- * Produce a transmittable summary of this tracer's
- * causal history for use by another tracer elsewhere
+ * Produce a transmittable summary of this ekotrace's
+ * causal history for use by another ekotrace elsewhere
  * in the system, filtered down to just the history
  * of this node and its immediate inbound neighbors.
  */
-size_t tracer_share_fixed_size_history(tracer *tracer, causal_snapshot *snapshot);
+size_t ekotrace_distribute_fixed_size_snapshot(ekotrace *ekotrace, causal_snapshot *snapshot);
 
 /*
- * Consume an opaque causal history blob provided
- * by some other Tracer.
+ * Consume an opaque causal history snapshot blob provided
+ * by some other Ekotrace instance via ekotrace_distribute_snapshot.
  */
-size_t tracer_merge_history(tracer *tracer, uint8_t *history_source, size_t history_source_bytes);
+size_t ekotrace_merge_snapshot(ekotrace *ekotrace, uint8_t *history_source, size_t history_source_bytes);
 
 /*
  * Consume a fixed-size causal history summary structure provided
- * by some other Tracer.
+ * by some other Ekotrace.
  */
-size_t tracer_merge_fixed_size_history(tracer *tracer, causal_snapshot *snapshot);
+size_t ekotrace_merge_fixed_size_snapshot(ekotrace *ekotrace, causal_snapshot *snapshot);
 
 #ifdef __cplusplus
 } // extern "C"
