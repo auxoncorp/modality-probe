@@ -6,16 +6,6 @@
 
 #include "ekotrace.h"
 
-typedef struct counting_backend {
-    uint32_t count;
-} counting_backend;
-
-bool update_counting_backend(void *state, const uint8_t *data, size_t len) {
-    counting_backend * backend = state;
-    backend->count = backend->count + 1;
-    return true;
-}
-
 static size_t DEFAULT_TRACER_SIZE = 7000;
 static size_t DEFAULT_LOG_STORAGE = 4096;
 static uint32_t DEFAULT_TRACER_ID = 314;
