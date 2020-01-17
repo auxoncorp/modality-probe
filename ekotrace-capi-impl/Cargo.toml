@@ -15,3 +15,8 @@ crate-type = ["lib"]
 ekotrace = { path = "../ekotrace" }
 
 [build-dependencies]
+
+[features]
+default = []
+# Turn on `no_mangle` attribute
+no_mangle = []

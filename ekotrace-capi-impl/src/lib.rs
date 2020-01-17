@@ -32,6 +32,7 @@ pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING: EkotraceResult = 8;
 /// Detected during merging.
 pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS: EkotraceResult = 9;
 
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_initialize(
     destination: *mut u8,
     destination_size_bytes: usize,
@@ -65,6 +66,7 @@ pub unsafe fn ekotrace_initialize(
     }
 }
 
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_record_event(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
@@ -79,6 +81,7 @@ pub unsafe fn ekotrace_record_event(
     }
 }
 
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_report(
     tracer: *mut Ekotrace<'static>,
     log_report_destination: *mut u8,
@@ -104,6 +107,7 @@ pub unsafe fn ekotrace_report(
     EKOTRACE_RESULT_OK
 }
 
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_distribute_snapshot(
     tracer: *mut Ekotrace<'static>,
     history_destination: *mut u8,
@@ -129,6 +133,7 @@ pub unsafe fn ekotrace_distribute_snapshot(
     }
 }
 
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_distribute_fixed_size_snapshot(
     tracer: *mut Ekotrace<'static>,
     destination_snapshot: *mut CausalSnapshot,
@@ -149,6 +154,7 @@ pub unsafe fn ekotrace_distribute_fixed_size_snapshot(
     }
 }
 
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_merge_snapshot(
     tracer: *mut Ekotrace<'static>,
     history_source: *const u8,
@@ -173,6 +179,7 @@ pub unsafe fn ekotrace_merge_snapshot(
     }
 }
 
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_merge_fixed_size_snapshot(
     tracer: *mut Ekotrace<'static>,
     snapshot: *const CausalSnapshot,
