@@ -1,20 +1,21 @@
 # ekotrace
 
-A distributed causal system suitable for embedded use.
+A distributed causal tracing system suitable for embedded use.
 
 ## Background
 
-`ekotrace` tracks events of interest in a system.
+`ekotrace` tracks events of interest in a system as well as
+the causal relationships of those events.
 
-Causal tracing means `ekotrace` captures the relationship
-between events. Analysis of captured trace data can confidently
-answer whether event B happened because of event A, or
+The trace data that `ekotrace` outputs shows, for example,
+whether event B happened because of event A, or
 whether event B happened independently of event A.
 
 Causal tracing works without relying on system clocks at all.
 
-`ekotrace` is designed to trace one or many embedded components
-and enable analysis of their behavior as a related whole.
+`ekotrace` can trace one or many embedded components and provides
+information about the impact of each component on the system as
+a whole.
 
 ## Overview
 
@@ -70,9 +71,9 @@ send_bytes(&report_buffer[..n_report_bytes]); // send_bytes is user-defined
 ```
 
 The [ekotrace-udp-collector](ekotrace-udp-collector) is a reference implementation of a
-trace data logging backend. It uses UDP to receive `ekotrace` report bytes from the client,
-which conform [standardized schema](schemas/log_reporting.lcm), and logs them to a file
-for offline analysis.
+trace data logging backend. It uses UDP to receive `ekotrace` report bytes from the client
+(bytes which conform to a [standardized schema](schemas/log_reporting.lcm)) and logs
+trace data to a file for offline analysis.
 
 ## Id Management
 
