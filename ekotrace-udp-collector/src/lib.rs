@@ -583,7 +583,7 @@ mod tests {
                         );
                     }
                 }
-                LogEntryData::LogicalClock(tid, count) => {
+                LogEntryData::LogicalClock(tid, _count) => {
                     if e.tracer_id.0 == tracer_a_id.get_raw() {
                         // Process A should only know about itself, since it doesn't receive history from anyone else
                         assert_eq!(tid.0, tracer_a_id.get_raw());
@@ -705,7 +705,7 @@ mod tests {
                         );
                     }
                 }
-                LogEntryData::LogicalClock(tid, count) => {
+                LogEntryData::LogicalClock(tid, _count) => {
                     if e.tracer_id.0 == tracer_a_id.get_raw() {
                         // Process A should only know about itself, since it doesn't receive history from anyone else
                         assert_eq!(tid.0, tracer_a_id.get_raw());
