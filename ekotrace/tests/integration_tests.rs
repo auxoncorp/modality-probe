@@ -135,7 +135,6 @@ fn happy_path_backend_service() {
         .expect("Should have 1 clock bucket for own self");
     assert_eq!(123, clock.tracer_id, "clock tracer ids should match");
 
-
     // Expect no increments; this happens after the data is serialized.
     assert_eq!(0, clock.count, "expect no clock increments");
 }

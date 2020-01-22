@@ -259,16 +259,24 @@ fn query_caused_by(
         .find(|i| g[*i].segment_id == event_b.segment_id)
         .unwrap();
 
-    let res = if event_a.segment_id  == event_b.segment_id {
+    let res = if event_a.segment_id == event_b.segment_id {
         event_a.segment_index < event_b.segment_index
     } else {
         petgraph::algo::has_path_connecting(&g, event_a_segment_index, event_b_segment_index, None)
     };
 
     if res {
-        println!("Node {} is in the history of node {}", event_a.to_string(), event_b.to_string());
+        println!(
+            "Node {} is in the history of node {}",
+            event_a.to_string(),
+            event_b.to_string()
+        );
     } else {
-        println!("Node {} is NOT in the history of node {}", event_a.to_string(), event_b.to_string());
+        println!(
+            "Node {} is NOT in the history of node {}",
+            event_a.to_string(),
+            event_b.to_string()
+        );
     }
 }
 
