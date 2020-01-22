@@ -153,6 +153,16 @@ fn main() {
     println!("//");
     println!();
 
+    if opt.lang == Lang::C {
+        println!("#ifndef EKOTRACE_GENERATED_IDENTIFIERS_H");
+        println!("#define EKOTRACE_GENERATED_IDENTIFIERS_H");
+        println!();
+        println!("#ifdef __cplusplus");
+        println!("extern \"C\" {{");
+        println!("#endif");
+        println!();
+    }
+
     println!("//");
     println!("// Tracers (csv sha256sum {})", tracers_csv_hash);
     println!("//");
@@ -178,5 +188,15 @@ fn main() {
         println!("/// Trace event: {}", e.name);
         println!("/// {}", e.description);
         println!("{}", e.generate_const_definition(opt.lang));
+    }
+
+    if opt.lang == Lang::C {
+        println!();
+        println!("#ifdef __cplusplus");
+        println!("}} /* extern \"C\" */");
+        println!("#endif");
+        println!();
+        println!("#endif /* EKOTRACE_GENERATED_IDENTIFIERS_H */");
+        println!();
     }
 }
