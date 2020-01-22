@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use structopt::StructOpt;
 
 #[derive(Debug, Deserialize)]
@@ -26,6 +27,40 @@ struct Tracer {
     description: String,
 }
 
+trait ConstGenerator {
+    fn primitive_value(&self) -> u32;
+    fn definition_name(&self) -> String;
+
+    fn generate_const_definition(&self, lang: Lang) -> String {
+        let definition_name = self.definition_name();
+        let primitive_value = self.primitive_value();
+        match lang {
+            Lang::C => format!("#define {} {}", definition_name, primitive_value),
+            Lang::Rust => format!("pub const {}: u32 = {};", definition_name, primitive_value),
+        }
+    }
+}
+
+impl ConstGenerator for Tracer {
+    fn primitive_value(&self) -> u32 {
+        self.id.0
+    }
+
+    fn definition_name(&self) -> String {
+        format!("TR_{}", self.name.to_uppercase())
+    }
+}
+
+impl ConstGenerator for Event {
+    fn primitive_value(&self) -> u32 {
+        self.id.0
+    }
+
+    fn definition_name(&self) -> String {
+        format!("EV_{}", self.name.to_uppercase())
+    }
+}
+
 #[derive(Debug, StructOpt)]
 #[structopt(
     name = "ekotrace-header-gen",
@@ -39,6 +74,38 @@ struct Opt {
     /// Tracers csv file
     #[structopt(parse(from_os_str))]
     tracers_csv_file: PathBuf,
+
+    #[structopt(short, long, parse(try_from_str), default_value = "C")]
+    lang: Lang,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Lang {
+    C,
+    Rust,
+}
+
+#[derive(Debug)]
+struct UnsupportedLang(String);
+
+impl ToString for UnsupportedLang {
+    fn to_string(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+impl FromStr for Lang {
+    type Err = UnsupportedLang;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.to_lowercase();
+        match s.trim() {
+            "c" => Ok(Lang::C),
+            "rust" => Ok(Lang::Rust),
+            "rs" => Ok(Lang::Rust),
+            _ => Err(UnsupportedLang(s)),
+        }
+    }
 }
 
 impl Opt {
@@ -92,12 +159,11 @@ fn main() {
 
     for maybe_tracer in tracers_reader.deserialize() {
         let t: Tracer = maybe_tracer.expect("Can't deserialize tracer");
-        let const_name = format!("TR_{}", t.name.to_uppercase());
 
         println!();
         println!("/// Tracer: {}", t.name);
         println!("/// {}", t.description);
-        println!("#define {} {}", const_name, t.id.0);
+        println!("{}", t.generate_const_definition(opt.lang));
     }
 
     println!();
@@ -107,11 +173,10 @@ fn main() {
 
     for maybe_event in events_reader.deserialize() {
         let e: Event = maybe_event.expect("Can't deserialize event");
-        let const_name = format!("EV_{}", e.name.to_uppercase());
 
         println!();
         println!("/// Trace event: {}", e.name);
         println!("/// {}", e.description);
-        println!("#define {} {}", const_name, e.id.0);
+        println!("{}", e.generate_const_definition(opt.lang));
     }
 }
