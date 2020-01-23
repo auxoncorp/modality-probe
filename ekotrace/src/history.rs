@@ -397,7 +397,9 @@ impl DynamicHistory {
                     .write_count(clock.count as i32)?)
             })?
         }
-        let _w = w.done()?;
+        let w = w.done()?;
+        let w = w.write_n_extension_bytes(0)?;
+        let _w: lcm::in_system::causal_snapshot_write_done<_> = w.done()?;
         Ok(buffer_writer.cursor())
     }
 
@@ -466,6 +468,13 @@ impl DynamicHistory {
         });
         let merge_result = self.merge_internal(neighbor_id as u32, clocks_iterator);
         // Confirm we have fully read the causal snapshot message
+        let r = r.done()?;
+        let (_n_extension_bytes, mut r) = r.read_n_extension_bytes()?;
+        // N.B. Expect to replace this iteration with cheaper slice-based skip-ahead
+        // when rust-lcm-codegen is updated to provide special case options for byte arrays.
+        for extension_bytes_item_reader in &mut r {
+            let _extension_byte = extension_bytes_item_reader.read()?;
+        }
         let _read_done_result: lcm::in_system::causal_snapshot_read_done<_> = r.done()?;
         merge_result
     }
@@ -640,7 +649,9 @@ impl DynamicHistory {
             actually_written_log_items, self.log_len,
             "we should have written all of the log items into the segments"
         );
-        let _w = w.done().map_err(|_| ())?;
+        let w = w.done().map_err(|_| ())?;
+        let w = w.write_n_extension_bytes(0).map_err(|_| ())?;
+        let _w: lcm::log_reporting::log_report_write_done<_> = w.done().map_err(|_| ())?;
 
         self.clear_log();
         self.write_current_clocks_to_log();

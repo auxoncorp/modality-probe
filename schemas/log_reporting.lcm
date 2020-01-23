@@ -5,6 +5,8 @@ struct log_report {
     error_flags flags;
     int32_t n_segments;
     log_segment segments[n_segments];
+    int32_t n_extension_bytes;
+    byte extension_bytes[n_extension_bytes];
 }
 
 struct error_flags {
