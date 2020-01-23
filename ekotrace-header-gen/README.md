@@ -44,12 +44,12 @@ id,name,description
 The generated C file will contain content similar to:
 
 ```c
-#define TR_SERVER_FOO 271
-#define TR_CREDIT_CARD_SCANNER_A 314
-#define TR_CREDIT_CARD_SCANNER_B 315
+#define SERVER_FOO 271
+#define CREDIT_CARD_SCANNER_A 314
+#define CREDIT_CARD_SCANNER_B 315
 
-#define EV_PURCHASE 90
-#define EV_UNAUTH_ACCESS_ERROR 92
+#define PURCHASE 90
+#define UNAUTH_ACCESS_ERROR 92
 ```
 
 Then, in a project that includes the generated file, one can refer to the
@@ -64,11 +64,11 @@ to the exact numeric value of the ids.
 int main() {
     uint8_t * storage = (uint8_t*)malloc(512);
     ekotrace * t;
-    ekotrace_result result = ekotrace_initialize(storage, 512, TR_SERVER, &t);
+    ekotrace_result result = ekotrace_initialize(storage, 512, SERVER, &t);
     if (result != EKOTRACE_RESULT_OK) {
         return 1;
     }
-    result = ekotrace_record_event(t, EV_PURCHASE);
+    result = ekotrace_record_event(t, PURCHASE);
     if (result != EKOTRACE_RESULT_OK) {
         return 1;
     }

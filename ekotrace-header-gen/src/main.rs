@@ -47,7 +47,7 @@ impl ConstGenerator for Tracer {
     }
 
     fn definition_name(&self) -> String {
-        format!("TR_{}", self.name.to_uppercase())
+        format!("{}", self.name.to_uppercase())
     }
 }
 
@@ -57,7 +57,7 @@ impl ConstGenerator for Event {
     }
 
     fn definition_name(&self) -> String {
-        format!("EV_{}", self.name.to_uppercase())
+        format!("{}", self.name.to_uppercase())
     }
 }
 
