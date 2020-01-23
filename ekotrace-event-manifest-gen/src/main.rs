@@ -9,7 +9,8 @@ use nom::{
 };
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::fs;
+use std::fs::File;
+use std::io::Read;
 use std::path::PathBuf;
 use structopt::StructOpt;
 use walkdir::WalkDir;
@@ -61,9 +62,10 @@ fn main() {
     csv_events.validate_unique_ids();
     csv_events.validate_unique_names();
 
-    // Collect event names and occurances of tacing call expressions
+    // Collect event names and occurrences of tracing call expressions
     // in each source file
     let mut event_tokens = HashMap::new();
+    let mut buffer = String::new();
     for entry in WalkDir::new(&opt.source_path)
         .into_iter()
         .filter_map(Result::ok)
@@ -76,8 +78,10 @@ fn main() {
                 .is_some()
         }) {
             // Skips binary/invalid data
-            if let Ok(input) = fs::read_to_string(entry.path()) {
-                let tokens_in_file = find_event_identifiers(&input);
+            let mut f = File::open(entry.path()).expect("Can't open source path file");
+            buffer.clear();
+            if f.read_to_string(&mut buffer).is_ok() {
+                let tokens_in_file = find_event_identifiers(&buffer);
                 for token in &tokens_in_file {
                     let occurances = event_tokens.entry(token.clone()).or_insert(0);
                     *occurances += 1;
@@ -89,7 +93,7 @@ fn main() {
     // Generate event IDs for new events, with offset if provided
     let event_id_offset = opt.event_id_offset.unwrap_or(0);
     let mut next_available_event_id: u32 = match csv_events.next_available_event_id() {
-        id @ _ if event_id_offset > id => event_id_offset,
+        id if event_id_offset > id => event_id_offset,
         id @ _ => id,
     };
 
