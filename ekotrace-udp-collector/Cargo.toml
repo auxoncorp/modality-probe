@@ -14,11 +14,19 @@ path = "src/lib.rs"
 name = "ekotrace-udp-collector-cli"
 path = "src/main.rs"
 
+[features]
+default = ["cli"]
+# We mark some CLI-binary only dependencies as optional
+# to avoid pulling in heavy dependencies when using the
+# library.
+cli = ["structopt"]
+
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 static_assertions = "1.1.0"
 alloc-log-report = { path = "../alloc-log-report" }
 ekotrace-analysis = { path = "../ekotrace-analysis" }
+structopt = { version = "0.3", optional = true }
 
 [dev-dependencies]
 crossbeam = "0.7.3"

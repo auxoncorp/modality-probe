@@ -1,40 +1,34 @@
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
+#[cfg(feature = "cli")]
+use structopt::StructOpt;
 
 const DEFAULT_PORT: u16 = 2718;
 
-#[derive(Default)]
-struct CLIOptions {
+#[derive(Debug, Default)]
+#[cfg_attr(feature = "cli", derive(StructOpt))]
+#[cfg_attr(
+    feature = "cli",
+    structopt(
+        name = "ekotrace-udp-collector",
+        about = "Server that receives ekotrace reports via UDP and logs to file"
+    )
+)]
+pub struct CLIOptions {
+    /// What localhost port is this server going to receive data on
+    #[cfg_attr(feature = "cli", structopt(short = "p", long))]
     port: Option<u16>,
-    session_id: Option<u32>,
-    output_file: Option<PathBuf>,
-}
 
-impl CLIOptions {
-    fn from_args() -> Self {
-        let args: Vec<String> = std::env::args().collect();
-        let mut options: CLIOptions = Default::default();
-        for pair in args.windows(2) {
-            if pair[0] == "-p" || pair[0] == "--port" {
-                options.port = Some(pair[1].parse().expect("Invalid local port to receive on."))
-            }
-            if pair[0] == "-s" || pair[0] == "--session-id" {
-                options.session_id = Some(
-                    pair[1]
-                        .parse()
-                        .expect("Invalid unsigned integer session id."),
-                )
-            }
-            if pair[0] == "-o" || pair[0] == "--output" || pair[0] == "--output-file" {
-                options.output_file = Some(
-                    pair[1]
-                        .parse()
-                        .expect("Invalid unsigned integer session id."),
-                )
-            }
-        }
-        options
-    }
+    /// Session id to associate with the collected trace data
+    #[cfg_attr(feature = "cli", structopt(short = "s", long = "session-id"))]
+    session_id: Option<u32>,
+
+    /// Output file location
+    #[cfg_attr(
+        feature = "cli",
+        structopt(short = "o", long = "output-file", parse(from_os_str))
+    )]
+    output_file: Option<PathBuf>,
 }
 
 impl From<CLIOptions> for ekotrace_udp_collector::Config {
@@ -56,7 +50,12 @@ impl From<CLIOptions> for ekotrace_udp_collector::Config {
 }
 
 fn main() {
-    let config: ekotrace_udp_collector::Config = CLIOptions::from_args().into();
+    #[cfg(not(feature = "cli"))]
+    let opts = CLIOptions::default();
+    #[cfg(feature = "cli")]
+    let opts = CLIOptions::from_args();
+
+    let config: ekotrace_udp_collector::Config = opts.into();
     println!("Running udp collector with configuration: {:#?}", config);
     let (_shutdown_sender, shutdown_receiver) =
         ekotrace_udp_collector::ShutdownSignalSender::new(config.addr);
