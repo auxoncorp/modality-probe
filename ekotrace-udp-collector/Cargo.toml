@@ -1,8 +1,10 @@
 [package]
 name = "ekotrace-udp-collector"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Zachary Pierce <zack@auxon.io>"]
 edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/ekotrace"
 
 [lib]
 name = "ekotrace_udp_collector"
@@ -12,13 +14,19 @@ path = "src/lib.rs"
 name = "ekotrace-udp-collector-cli"
 path = "src/main.rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = ["cli"]
+# We mark some CLI-binary only dependencies as optional
+# to avoid pulling in heavy dependencies when using the
+# library.
+cli = ["structopt"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 static_assertions = "1.1.0"
 alloc-log-report = { path = "../alloc-log-report" }
 ekotrace-analysis = { path = "../ekotrace-analysis" }
+structopt = { version = "0.3", optional = true }
 
 [dev-dependencies]
 crossbeam = "0.7.3"

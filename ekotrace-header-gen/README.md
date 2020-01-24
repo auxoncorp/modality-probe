@@ -1,8 +1,14 @@
 # ekotrace-header-gen
 
-Command line utility that accepts an event id mapping file
-and a tracer id mapping file and generates C or Rust code containing
+A command line utility that accepts an event id mapping file
+and a tracer location id mapping file and generates C or Rust code containing
 convenience definitions of those ids.
+
+The `ekotrace` tracing system relies on two sets of globally unique IDs: tracer
+location ids and event ids. While the system can work with nothing but numbers,
+we provide a way to define named tracers and events via CSV files. This allows
+managing these files as spreadsheets, which is handy because the events file in
+particular may become quite large.
 
 ## Id Management Format
 
