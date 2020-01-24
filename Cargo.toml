@@ -5,7 +5,7 @@ members = [
   "ekotrace-analysis",
   "ekotrace-capi-impl",
   "ekotrace-header-gen",
+  "ekotrace-event-manifest-gen",
   "ekotrace-udp-collector",
   "test-support/proc-graph",
 ]
-
