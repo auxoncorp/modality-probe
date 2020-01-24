@@ -214,15 +214,15 @@ impl LCIndex {
             });
 
         // Then, go through all the other (non-local) clock entries.
-        for (bucket_tracer_id, bucket_clock) in smd.logical_clock.iter() {
+        'other_clock_entry_loop: for (bucket_tracer_id, bucket_clock) in smd.logical_clock.iter() {
             if *bucket_tracer_id != smd.tracer_id {
                 // check if any direct ancestor (segs from the same source
-                // tracer) already has this same exact clock entry; if so,
+                // tracer) already has this same exact clock entry; if so, skip
                 // making an edge for this one, since it would be redundant.
 
                 for local_ancestor in local_ancestors.iter() {
                     if local_ancestor.logical_clock.get(&bucket_tracer_id) == Some(&bucket_clock) {
-                        continue;
+                        continue 'other_clock_entry_loop;
                     }
                 }
             }
