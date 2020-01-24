@@ -239,6 +239,7 @@ mod tests {
                     events: vec![793, 2384],
                 },
             ],
+            extension_bytes: vec![],
         }
     }
 

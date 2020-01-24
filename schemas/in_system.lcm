@@ -4,6 +4,8 @@ struct causal_snapshot {
     int32_t tracer_id;
     int32_t n_clocks;
     logical_clock clocks[n_clocks];
+    int32_t n_extension_bytes;
+    byte extension_bytes[n_extension_bytes];
 }
 
 struct logical_clock {
