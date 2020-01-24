@@ -148,7 +148,6 @@ pub fn read_csv_log_entries<R: Read>(r: &mut R) -> Result<Vec<model::LogEntry>, 
 struct SegmentMetadata {
     id: model::SegmentId,
     tracer_id: model::TracerId,
-    // TODO: maybe this should be a btreemap?
     logical_clock: HashMap<model::TracerId, u32>,
 }
 
@@ -254,8 +253,6 @@ pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogE
         .filter(|e| e.session_id == session_id && e.is_clock())
         .group_by(|e| e.segment_id)
     {
-        // let clock_events = clock_events;
-
         let mut logical_clock = HashMap::new();
         let mut tracer_id = None;
         for e in clock_events {
