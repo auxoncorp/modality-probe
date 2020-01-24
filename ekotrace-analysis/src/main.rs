@@ -225,7 +225,7 @@ fn segment_graph(event_log_csv_file: PathBuf, session_id: model::SessionId) {
     let mut csv_file = std::fs::File::open(event_log_csv_file).expect("Open CSV file");
     let log_entries = lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file");
 
-    let sg = lib::build_segment_graph(&log_entries, session_id);
+    let sg = lib::build_segment_graph(&log_entries, session_id).expect("Analyze event causality");
     print_clustered_graph(&sg);
 }
 
@@ -234,7 +234,7 @@ fn event_graph(event_log_csv_file: PathBuf, session_id: model::SessionId) {
     let mut csv_file = std::fs::File::open(event_log_csv_file).expect("Open CSV file");
     let log_entries = lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file");
 
-    let eg = lib::build_log_entry_graph(&log_entries, session_id);
+    let eg = lib::build_log_entry_graph(&log_entries, session_id).expect("Analyze event causality");
     print_clustered_graph(&eg);
 }
 
@@ -248,7 +248,7 @@ fn query_caused_by(
     let mut csv_file = std::fs::File::open(event_log_csv_file).expect("Open CSV file");
     let log_entries = lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file");
 
-    let g = lib::build_segment_graph(&log_entries, event_a.session_id);
+    let g = lib::build_segment_graph(&log_entries, event_a.session_id).expect("Analyze event causality");
     let event_a_segment_index = g
         .node_indices()
         .find(|i| g[*i].segment_id == event_a.segment_id)

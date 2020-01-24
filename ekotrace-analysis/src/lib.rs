@@ -177,6 +177,11 @@ impl SegmentMetadataIndex {
 #[derive(Debug)]
 struct LCIndex(HashMap<model::TracerId, BTreeMap<u32, model::SegmentId>>);
 
+#[derive(Debug)]
+pub enum LCIndexError {
+    SegmentMissingOwnClock,
+}
+
 impl LCIndex {
     fn new() -> LCIndex {
         LCIndex(HashMap::new())
@@ -196,7 +201,7 @@ impl LCIndex {
         &self,
         smd: &SegmentMetadata,
         smd_index: &SegmentMetadataIndex,
-    ) -> HashSet<model::SegmentId> {
+    ) -> Result<HashSet<model::SegmentId>, LCIndexError> {
         let mut segs = HashSet::new();
         let local_clock = *smd.logical_clock.get(&smd.tracer_id).unwrap();
 
@@ -226,8 +231,7 @@ impl LCIndex {
             if let Some((_, sid)) = self
                 .0
                 .get(&bucket_tracer_id)
-                // TODO: this can happen if a segment doesn't have its own local clock in it.
-                .unwrap()
+                .ok_or(LCIndexError::SegmentMissingOwnClock)?
                 .range(0..*bucket_clock)
                 .last()
             {
@@ -235,14 +239,14 @@ impl LCIndex {
             }
         }
 
-        segs
+        Ok(segs)
     }
 }
 
 pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogEntry>>(
     log: L,
     session_id: model::SessionId,
-) -> Vec<model::CrossSegmentLink> {
+) -> Result<Vec<model::CrossSegmentLink>, LCIndexError> {
     // build indexes
     let mut smi = SegmentMetadataIndex::new();
     for (segment_id, clock_events) in &log
@@ -278,7 +282,7 @@ pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogE
 
     let mut links = vec![];
     for (_, smd) in smi.0.iter() {
-        for ancestor in lci.find_segment_direct_ancestors(&smd, &smi).into_iter() {
+        for ancestor in lci.find_segment_direct_ancestors(&smd, &smi)?.into_iter() {
             links.push(model::CrossSegmentLink {
                 session_id,
                 before: ancestor,
@@ -287,7 +291,7 @@ pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogE
         }
     }
 
-    links
+    Ok(links)
 }
 
 pub struct SegmentGraphNode {
@@ -299,7 +303,7 @@ pub struct SegmentGraphNode {
 pub fn build_segment_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + Copy>(
     log: L,
     session_id: model::SessionId,
-) -> Graph<SegmentGraphNode, ()> {
+) -> Result<Graph<SegmentGraphNode, ()>, LCIndexError> {
     let mut seg_graph = Graph::new();
     let mut node_index_for_segment = HashMap::new();
 
@@ -316,7 +320,7 @@ pub fn build_segment_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + Cop
         node_index_for_segment.insert(segment_id, node_index);
     }
 
-    for l in synthesize_cross_segment_links(log, session_id).iter() {
+    for l in synthesize_cross_segment_links(log, session_id)?.iter() {
         // these are 'backwards', because we want the graph arrows to point to what comes before.
         seg_graph.update_edge(
             *node_index_for_segment.get(&l.after).unwrap(),
@@ -325,13 +329,13 @@ pub fn build_segment_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + Cop
         );
     }
 
-    seg_graph
+    Ok(seg_graph)
 }
 
 pub fn build_log_entry_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + Copy>(
     log: L,
     session_id: model::SessionId,
-) -> Graph<model::LogEntry, ()> {
+) -> Result<Graph<model::LogEntry, ()>, LCIndexError> {
     let mut log_entry_graph = Graph::new();
     let mut first_node_index_in_segment = HashMap::new();
     let mut last_node_index_in_segment = HashMap::new();
@@ -352,7 +356,7 @@ pub fn build_log_entry_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + C
         last_node_index_in_segment.insert(segment_id, node_index);
     }
 
-    for l in synthesize_cross_segment_links(log, session_id).iter() {
+    for l in synthesize_cross_segment_links(log, session_id)?.iter() {
         // these are 'backwards', because we want the graph arrows to point to
         // what comes before.
         log_entry_graph.update_edge(
@@ -362,7 +366,7 @@ pub fn build_log_entry_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + C
         );
     }
 
-    log_entry_graph
+    Ok(log_entry_graph)
 }
 
 #[cfg(test)]
