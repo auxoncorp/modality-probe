@@ -3,6 +3,8 @@ name = "ekotrace-event-manifest-gen"
 version = "0.1.0"
 authors = ["Jon Lamb <jon@auxon.io>"]
 edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/ekotrace"
 
 [dependencies]
 csv = "1.1"

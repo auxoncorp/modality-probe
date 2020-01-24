@@ -3,6 +3,8 @@ name = "ekotrace-analysis"
 version = "0.1.0"
 authors = ["Russell Mull <russell@auxon.io>"]
 edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/ekotrace"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

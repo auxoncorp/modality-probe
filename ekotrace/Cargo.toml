@@ -3,6 +3,8 @@ name = "ekotrace"
 version = "0.1.0"
 authors = ["Zachary Pierce <zack@auxon.io>"]
 edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/ekotrace"
 
 [dependencies]
 static_assertions = "1.1.0"
