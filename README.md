@@ -2,9 +2,9 @@
 
 A distributed causal tracing system suitable for embedded use.
 
-> This work is currently in progress. We are planning to make
+> **This work is currently in progress. We are planning to make
 > changes and will note [here](CHANGELOG.md) when you will need
-> to make an update.
+> to make an update.**
 
 ## Background
 
