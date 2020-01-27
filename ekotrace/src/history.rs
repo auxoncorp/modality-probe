@@ -7,9 +7,7 @@ use core::cmp::{max, Ordering, PartialEq};
 use core::convert::TryInto;
 use core::fmt::{Error as FmtError, Formatter};
 use core::mem::{align_of, size_of};
-use rust_lcm_codec::{
-    BufferWriterError, DecodeFingerprintError, DecodeValueError, EncodeValueError,
-};
+use rust_lcm_codec::{DecodeFingerprintError, DecodeValueError, EncodeValueError};
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert_eq};
 
 impl LogicalClock {
@@ -678,8 +676,10 @@ impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for DistributeErr
         }
     }
 }
-impl From<rust_lcm_codec::BufferWriterError> for DistributeError {
-    fn from(_: BufferWriterError) -> Self {
+impl From<rust_lcm_codec::EncodeFingerprintError<rust_lcm_codec::BufferWriterError>>
+    for DistributeError
+{
+    fn from(_: rust_lcm_codec::EncodeFingerprintError<rust_lcm_codec::BufferWriterError>) -> Self {
         DistributeError::InsufficientDestinationSize
     }
 }
@@ -693,8 +693,10 @@ impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for ReportError {
         }
     }
 }
-impl From<rust_lcm_codec::BufferWriterError> for ReportError {
-    fn from(_: BufferWriterError) -> Self {
+impl From<rust_lcm_codec::EncodeFingerprintError<rust_lcm_codec::BufferWriterError>>
+    for ReportError
+{
+    fn from(_: rust_lcm_codec::EncodeFingerprintError<rust_lcm_codec::BufferWriterError>) -> Self {
         ReportError::InsufficientDestinationSize
     }
 }
