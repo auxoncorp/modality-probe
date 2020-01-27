@@ -91,11 +91,10 @@ impl<'a> SplitSegment<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::num::NonZeroU32;
 
     /// Compact event
     fn ce(e: u32) -> CompactLogItem {
-        CompactLogItem::event(EventId(NonZeroU32::new(e).unwrap()))
+        CompactLogItem::event(EventId::new(e).unwrap())
     }
 
     /// Compact logical clock bucket

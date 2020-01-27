@@ -7,13 +7,16 @@ use static_assertions::assert_cfg;
 assert_cfg!(not(target_pointer_width = "16"));
 
 mod compact_log;
+mod error;
 mod history;
+mod id;
 
+pub use error::*;
 use history::DynamicHistory;
+pub use id::*;
 
 use core::convert::TryFrom;
 use core::mem::{align_of, size_of};
-use core::num::NonZeroU32;
 
 /// Fixed-sized snapshot of causal history for transmission around the system
 ///
@@ -43,187 +46,6 @@ pub struct LogicalClock {
     pub id: u32,
     /// Clock tick count
     pub count: u32,
-}
-
-/// Ought to uniquely identify a location for where events occur within a system under test.
-///
-/// Typically represents a single thread.
-///
-/// Must be backed by a value greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(transparent)]
-pub struct TracerId(NonZeroU32);
-
-impl TracerId {
-    /// The largest permissible backing id value
-    pub const MAX_ID: u32 = 0b0111_1111_1111_1111_1111_1111_1111_1111;
-
-    /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
-    #[inline]
-    pub fn new(raw_id: u32) -> Option<Self> {
-        if raw_id > Self::MAX_ID {
-            return None;
-        }
-        NonZeroU32::new(raw_id).map(Self)
-    }
-
-    /// Get the underlying value with Rust's assurances
-    /// of non-zero-ness.
-    #[inline]
-    pub fn get(self) -> NonZeroU32 {
-        self.0
-    }
-
-    /// Get the underlying value as a convenient primitive
-    #[inline]
-    pub fn get_raw(self) -> u32 {
-        self.0.get()
-    }
-}
-
-impl From<TracerId> for NonZeroU32 {
-    fn from(t: TracerId) -> Self {
-        t.0
-    }
-}
-
-impl From<TracerId> for u32 {
-    fn from(t: TracerId) -> Self {
-        t.0.get()
-    }
-}
-
-impl TryFrom<u32> for TracerId {
-    type Error = InvalidTracerId;
-    fn try_from(raw_id: u32) -> Result<Self, Self::Error> {
-        match TracerId::new(raw_id) {
-            Some(id) => Ok(id),
-            None => Err(InvalidTracerId),
-        }
-    }
-}
-
-/// Error that indicates an invalid tracer id was detected.
-///
-///
-/// tracer ids must be greater than 0 and less than TracerId::MAX_ID
-#[derive(Debug, Clone, Copy)]
-pub struct InvalidTracerId;
-
-/// Uniquely identify an event or kind of event.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(transparent)]
-pub struct EventId(NonZeroU32);
-
-impl EventId {
-    /// The maximum permissible id value for an Event at all
-    ///
-    /// This value is different from MAX_USER_ID in order to
-    /// support a reserved range of EventIds for protocol use
-    pub const MAX_INTERNAL_ID: u32 = 0b0111_1111_1111_1111_1111_1111_1111_1111;
-    /// The number of id values that are reserved for use by the
-    /// tracer implementation.
-    pub const NUM_RESERVED_IDS: u32 = 256;
-    /// The maximum-permissable id value for for an Event
-    /// defined by end users.
-    pub const MAX_USER_ID: u32 = EventId::MAX_INTERNAL_ID - EventId::NUM_RESERVED_IDS;
-
-    /// The tracer produced a log report for transmission to the backend
-    /// for external analysis.
-    pub const EVENT_PRODUCED_EXTERNAL_REPORT: EventId =
-        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 1) });
-    /// There was not sufficient room in memory to store all desired events or clock data
-    pub const EVENT_LOG_OVERFLOWED: EventId =
-        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 2) });
-    /// A logical clock's count reached the maximum trackable value
-    pub const EVENT_LOGICAL_CLOCK_OVERFLOWED: EventId =
-        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 3) });
-
-    /// The events reserved for internal use
-    pub const INTERNAL_EVENTS: &'static [EventId] = &[
-        EventId::EVENT_PRODUCED_EXTERNAL_REPORT,
-        EventId::EVENT_LOG_OVERFLOWED,
-        EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
-    ];
-
-    /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
-    #[inline]
-    pub fn new(raw_id: u32) -> Option<Self> {
-        if raw_id > Self::MAX_USER_ID {
-            return None;
-        }
-        NonZeroU32::new(raw_id).map(Self)
-    }
-
-    /// Get the underlying value with Rust's assurances
-    /// of non-zero-ness.
-    #[inline]
-    pub fn get(self) -> NonZeroU32 {
-        self.0
-    }
-
-    /// Get the underlying value as a convenient primitive
-    #[inline]
-    pub fn get_raw(self) -> u32 {
-        self.0.get()
-    }
-}
-
-impl TryFrom<u32> for EventId {
-    type Error = InvalidEventId;
-    fn try_from(raw_id: u32) -> Result<Self, Self::Error> {
-        match EventId::new(raw_id) {
-            Some(id) => Ok(id),
-            None => Err(InvalidEventId),
-        }
-    }
-}
-
-/// Error that indicates an invalid event id was detected.
-///
-///
-/// event ids must be greater than 0 and less than EventId::MAX_USER_ID
-#[derive(Debug, Clone, Copy)]
-pub struct InvalidEventId;
-
-impl From<EventId> for NonZeroU32 {
-    fn from(e: EventId) -> Self {
-        e.0
-    }
-}
-
-impl From<EventId> for u32 {
-    fn from(e: EventId) -> Self {
-        e.0.get()
-    }
-}
-
-/// An error relating to the initialization
-/// of an Ekotrace instance from parts.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum InitializationError {
-    /// A provided primitive, unvalidated tracer id
-    /// turned out to be invalid.
-    InvalidTracerId,
-    /// A problem with the backing memory setup.
-    StorageSetupError(StorageSetupError),
-}
-
-/// An error relating to the initialization
-/// of in-memory tracing storage.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum StorageSetupError {
-    /// The provided storage space was insufficient
-    /// to support a minimally useful tracing
-    /// implementation.
-    UnderMinimumAllowedSize,
-    /// The provided space for clock-buckets and logging
-    /// exceeded the number of units the tracing implementation
-    /// can track.
-    ExceededMaximumAddressableSize,
-    /// The provided or computed output pointer for
-    /// tracing data storage turned out to be null.
-    NullDestination,
 }
 
 /// Public interface to tracing.
@@ -340,7 +162,7 @@ impl<'a> Ekotrace<'a> {
     /// log reporting schema.
     ///
     /// If the write was successful, returns the number of bytes written
-    pub fn report(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+    pub fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
         self.history.write_lcm_log_report(destination)
     }
 
@@ -355,7 +177,10 @@ impl<'a> Ekotrace<'a> {
     ///  and its immediate inbound neighbors.
     ///
     /// If the write was successful, returns the number of bytes written
-    pub fn distribute_snapshot(&mut self, destination: &mut [u8]) -> Result<usize, ShareError> {
+    pub fn distribute_snapshot(
+        &mut self,
+        destination: &mut [u8],
+    ) -> Result<usize, DistributeError> {
         self.history.write_lcm_logical_clock(destination)
     }
 
@@ -371,7 +196,7 @@ impl<'a> Ekotrace<'a> {
     ///
     /// Pre-pruned to the causal history of just this node
     ///  and its immediate inbound neighbors.
-    pub fn distribute_fixed_size_snapshot(&mut self) -> Result<CausalSnapshot, ShareError> {
+    pub fn distribute_fixed_size_snapshot(&mut self) -> Result<CausalSnapshot, DistributeError> {
         self.history.write_fixed_size_logical_clock()
     }
 
@@ -383,34 +208,4 @@ impl<'a> Ekotrace<'a> {
     ) -> Result<(), MergeError> {
         self.history.merge_fixed_size(external_history)
     }
-}
-
-/// The errors than can occur when sharing (exporting / serializing)
-/// a tracer's causal history for use by some other tracer instance.
-#[derive(Debug, Clone, Copy)]
-pub enum ShareError {
-    /// The destination that is receiving the history is not big enough.
-    ///
-    /// Indicates that the end user should provide a larger destination buffer.
-    InsufficientDestinationSize,
-    /// An unexpected error occurred while writing out causal history.
-    ///
-    /// Indicates a logical error in the implementation of this library
-    /// (or its dependencies).
-    Encoding,
-}
-
-/// The errors than can occur when merging in the causal history from some
-/// other tracer instance.
-#[derive(Debug, Clone, Copy)]
-pub enum MergeError {
-    /// The local tracer does not have enough space to track all
-    /// of direct neighbors attempting to communicate with it.
-    ExceededAvailableClocks,
-    /// The the external history we attempted to merge was encoded
-    /// in an invalid fashion.
-    ExternalHistoryEncoding,
-    /// The external history violated a semantic rule of the protocol,
-    /// such as by having a tracer_id out of the allowed value range.
-    ExternalHistorySemantics,
 }

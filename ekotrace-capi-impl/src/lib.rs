@@ -126,10 +126,10 @@ pub unsafe fn ekotrace_distribute_snapshot(
             *out_written_bytes = written_bytes;
             EKOTRACE_RESULT_OK
         }
-        Err(ShareError::InsufficientDestinationSize) => {
+        Err(DistributeError::InsufficientDestinationSize) => {
             EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
         }
-        Err(ShareError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
+        Err(DistributeError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
     }
 }
 
@@ -147,10 +147,10 @@ pub unsafe fn ekotrace_distribute_fixed_size_snapshot(
             *destination_snapshot = snapshot;
             EKOTRACE_RESULT_OK
         }
-        Err(ShareError::InsufficientDestinationSize) => {
+        Err(DistributeError::InsufficientDestinationSize) => {
             EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
         }
-        Err(ShareError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
+        Err(DistributeError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
     }
 }
 

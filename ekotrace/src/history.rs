@@ -1,11 +1,12 @@
 use super::{
-    CausalSnapshot, EventId, LogicalClock, MergeError, ShareError, StorageSetupError, TracerId,
+    CausalSnapshot, DistributeError, EventId, LogicalClock, MergeError, ReportError,
+    StorageSetupError, TracerId,
 };
 use crate::compact_log::{self, CompactLogItem};
 use core::cmp::{max, Ordering, PartialEq};
+use core::convert::TryInto;
 use core::fmt::{Error as FmtError, Formatter};
 use core::mem::{align_of, size_of};
-use core::num::NonZeroU32;
 use rust_lcm_codec::{
     BufferWriterError, DecodeFingerprintError, DecodeValueError, EncodeValueError,
 };
@@ -387,7 +388,7 @@ impl DynamicHistory {
     pub(crate) fn write_lcm_logical_clock(
         &mut self,
         destination: &mut [u8],
-    ) -> Result<usize, ShareError> {
+    ) -> Result<usize, DistributeError> {
         // Increment and log the local logical clock first, so we know that both
         // local and remote events (from tracers which ingest this blob) can be
         // related to previous local events.
@@ -415,10 +416,12 @@ impl DynamicHistory {
 
     /// Produce a transparent but limited snapshot of the causal state for transmission
     /// within the system under test
-    pub(crate) fn write_fixed_size_logical_clock(&mut self) -> Result<CausalSnapshot, ShareError> {
+    pub(crate) fn write_fixed_size_logical_clock(
+        &mut self,
+    ) -> Result<CausalSnapshot, DistributeError> {
         let mut clocks = [LogicalClock { id: 0, count: 0 }; 256];
         if self.clocks_len > clocks.len() {
-            return Err(ShareError::InsufficientDestinationSize);
+            return Err(DistributeError::InsufficientDestinationSize);
         }
         self.increment_local_clock_count();
         let mut non_empty_clocks_count: usize = 0;
@@ -546,10 +549,10 @@ impl DynamicHistory {
             if external_clock.count == 0 {
                 continue;
             }
-            let id = match NonZeroU32::new(external_clock.id) {
-                Some(id) => TracerId(id),
+            let id: TracerId = match external_clock.id.try_into() {
+                Ok(id) => id,
                 // Can't add this clock to the state if we don't have a valid id for it
-                None => {
+                Err(_) => {
                     outcome = Err(MergeError::ExternalHistorySemantics);
                     break;
                 }
@@ -602,51 +605,48 @@ impl DynamicHistory {
     ///   * Error flags
     ///   * Event ids for events that have happened since the last backend send
     ///   * Interspersed snapshots of the logical clock
-    pub(crate) fn write_lcm_log_report(&mut self, destination: &mut [u8]) -> Result<usize, ()> {
+    pub(crate) fn write_lcm_log_report(
+        &mut self,
+        destination: &mut [u8],
+    ) -> Result<usize, ReportError> {
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
-        let w = lcm::log_reporting::begin_log_report_write(&mut buffer_writer).map_err(|_| ())?;
-        let w = w.write_tracer_id(self.tracer_id as i32).map_err(|_| ())?;
-        let w = w
-            .write_flags(|fw| {
-                let fw = fw.write_has_overflowed_log(self.has_overflowed_log)?;
-                let fw = fw.write_has_overflowed_num_clocks(self.has_overflowed_num_clocks)?;
-                Ok(fw)
-            })
-            .map_err(|_| ())?;
+        let w = lcm::log_reporting::begin_log_report_write(&mut buffer_writer)?;
+        let w = w.write_tracer_id(self.tracer_id as i32)?;
+        let w = w.write_flags(|fw| {
+            let fw = fw.write_has_overflowed_log(self.has_overflowed_log)?;
+            let fw = fw.write_has_overflowed_num_clocks(self.has_overflowed_num_clocks)?;
+            Ok(fw)
+        })?;
 
         let mut log_items = self.get_log_slice();
         let expected_n_segments = compact_log::count_segments(log_items);
-        let mut w = w
-            .write_n_segments(expected_n_segments as i32)
-            .map_err(|_| ())?;
+        let mut w = w.write_n_segments(expected_n_segments as i32)?;
         let mut actually_written_segments = 0;
         let mut actually_written_log_items = 0;
         for segment_item_writer in &mut w {
             let segment = compact_log::split_next_segment(log_items);
             log_items = segment.rest;
-            segment_item_writer
-                .write(|sw| {
-                    let sw = sw.write_n_clocks(segment.clock_region.len() as i32 / 2)?;
-                    let mut sw = sw.write_n_events(segment.event_region.len() as i32)?;
-                    for (clock_item_writer, clock_parts) in
-                        (&mut sw).zip(segment.clock_region.chunks_exact(2))
-                    {
-                        clock_item_writer.write(|bw| {
-                            let tracer_id = clock_parts[0].interpret_as_logical_clock_tracer_id();
-                            Ok(bw
-                                .write_tracer_id(tracer_id as i32)?
-                                .write_count(clock_parts[1].raw() as i32)?)
-                        })?;
-                    }
-                    actually_written_log_items += segment.clock_region.len();
-                    let mut sw = sw.done()?;
-                    for (event_item_writer, event) in (&mut sw).zip(segment.event_region) {
-                        event_item_writer.write(event.raw() as i32)?;
-                    }
-                    actually_written_log_items += segment.event_region.len();
-                    Ok(sw.done()?)
-                })
-                .map_err(|_| ())?;
+            segment_item_writer.write(|sw| {
+                let sw = sw.write_n_clocks(segment.clock_region.len() as i32 / 2)?;
+                let mut sw = sw.write_n_events(segment.event_region.len() as i32)?;
+                for (clock_item_writer, clock_parts) in
+                    (&mut sw).zip(segment.clock_region.chunks_exact(2))
+                {
+                    clock_item_writer.write(|bw| {
+                        let tracer_id = clock_parts[0].interpret_as_logical_clock_tracer_id();
+                        Ok(bw
+                            .write_tracer_id(tracer_id as i32)?
+                            .write_count(clock_parts[1].raw() as i32)?)
+                    })?;
+                }
+                actually_written_log_items += segment.clock_region.len();
+                let mut sw = sw.done()?;
+                for (event_item_writer, event) in (&mut sw).zip(segment.event_region) {
+                    event_item_writer.write(event.raw() as i32)?;
+                }
+                actually_written_log_items += segment.event_region.len();
+                Ok(sw.done()?)
+            })?;
             actually_written_segments += 1;
         }
         assert_eq!(
@@ -657,9 +657,9 @@ impl DynamicHistory {
             actually_written_log_items, self.log_len,
             "we should have written all of the log items into the segments"
         );
-        let w = w.done().map_err(|_| ())?;
-        let w = w.write_n_extension_bytes(0).map_err(|_| ())?;
-        let _w: lcm::log_reporting::log_report_write_done<_> = w.done().map_err(|_| ())?;
+        let w = w.done()?;
+        let w = w.write_n_extension_bytes(0)?;
+        let _w: lcm::log_reporting::log_report_write_done<_> = w.done()?;
 
         self.clear_log();
         self.increment_local_clock_count();
@@ -669,18 +669,33 @@ impl DynamicHistory {
     }
 }
 
-impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for ShareError {
+impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for DistributeError {
     fn from(e: EncodeValueError<rust_lcm_codec::BufferWriterError>) -> Self {
         match e {
-            EncodeValueError::ArrayLengthMismatch(_) => ShareError::Encoding,
-            EncodeValueError::InvalidValue(_) => ShareError::Encoding,
-            EncodeValueError::WriterError(_) => ShareError::InsufficientDestinationSize,
+            EncodeValueError::ArrayLengthMismatch(_) => DistributeError::Encoding,
+            EncodeValueError::InvalidValue(_) => DistributeError::Encoding,
+            EncodeValueError::WriterError(_) => DistributeError::InsufficientDestinationSize,
         }
     }
 }
-impl From<rust_lcm_codec::BufferWriterError> for ShareError {
+impl From<rust_lcm_codec::BufferWriterError> for DistributeError {
     fn from(_: BufferWriterError) -> Self {
-        ShareError::InsufficientDestinationSize
+        DistributeError::InsufficientDestinationSize
+    }
+}
+
+impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for ReportError {
+    fn from(e: EncodeValueError<rust_lcm_codec::BufferWriterError>) -> Self {
+        match e {
+            EncodeValueError::ArrayLengthMismatch(_) => ReportError::Encoding,
+            EncodeValueError::InvalidValue(_) => ReportError::Encoding,
+            EncodeValueError::WriterError(_) => ReportError::InsufficientDestinationSize,
+        }
+    }
+}
+impl From<rust_lcm_codec::BufferWriterError> for ReportError {
+    fn from(_: BufferWriterError) -> Self {
+        ReportError::InsufficientDestinationSize
     }
 }
 

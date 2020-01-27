@@ -104,13 +104,13 @@ arrive at the other end intact, and be merged in to that side's tracer.
 
 ```rust
 let mut snapshot_buffer = [0u8; 256];
-let n_snapshot_bytes = ekotrace_instance_foo.distribute_snapshot(&mut snapshot_buffer).unwrap();
+let n_snapshot_bytes = ekotrace_instance_foo.distribute_snapshot(&mut snapshot_buffer)?;
 
 // ... in a different component in the system ...
 
 // Assume the user has made the bytes written by `ekotrace_instance_foo`
 //in `snapshot_buffer` available here (e.g. through messaging)
-ekotrace_instance_bar.merge_snapshot(&snapshot_buffer[..n_snapshot_bytes]).unwrap();
+ekotrace_instance_bar.merge_snapshot(&snapshot_buffer[..n_snapshot_bytes])?;
 ```
 
 Internally, we encode this payload using LCM. In consists of the tracer's own ID

@@ -30,7 +30,7 @@ data in their systems of interest.
 ```rust
 // Initialization of an ekotrace instance only needs to happen once
 // in the lifetime of a thread / execution context
-let ekotrace_foo = Ekotrace::initialize_at(&mut storage_bytes, LOCATION_ID_FOO).unwrap();
+let ekotrace_foo = Ekotrace::initialize_at(&mut storage_bytes, LOCATION_ID_FOO)?;
 ekotrace_foo.record_event(EVENT_A);
 ekotrace_foo.record_event(EVENT_B);
 ```
@@ -41,7 +41,7 @@ in that instance's timeline.
 
 ```rust
 let mut snapshot_buffer = [0u8; 256];
-let n_snapshot_bytes = ekotrace_foo.distribute_snapshot(&mut snapshot_buffer).unwrap();
+let n_snapshot_bytes = ekotrace_foo.distribute_snapshot(&mut snapshot_buffer)?;
 ```
 
 To connect the dots between the timelines of `ekotrace` instances in different locations,
@@ -52,11 +52,11 @@ distribute and merge those causal snapshots.
 
 // ekotrace_bar, the local ekotrace instance, would have been created
 // at the start of this process / thread
-let ekotrace_bar = Ekotrace::initialize_at(&mut storage_bytes, LOCATION_ID_BAR).unwrap();
+let ekotrace_bar = Ekotrace::initialize_at(&mut storage_bytes, LOCATION_ID_BAR)?;
 
 // Assume the user has made the bytes written by `ekotrace_foo` into `snapshot_buffer` available
 // (e.g. through messaging)
-ekotrace_bar.merge_snapshot(&snapshot_buffer[..n_snapshot_bytes]).unwrap();
+ekotrace_bar.merge_snapshot(&snapshot_buffer[..n_snapshot_bytes])?;
 // From this point on, events recorded by ekotrace_bar can be sure
 // to have happened after / because of the events at ekotrace_foo at the time
 // of that snapshot.
@@ -70,7 +70,7 @@ bytes by the embedded system.
 
 ```rust
 let mut report_buffer = [0u8; 1024];
-let n_report_bytes = ekotrace.report(&mut report_buffer).unwrap();
+let n_report_bytes = ekotrace.report(&mut report_buffer)?;
 send_bytes(&report_buffer[..n_report_bytes]); // send_bytes is user-defined
 ```
 
@@ -117,7 +117,7 @@ use crate::tracing_ids::*;
 
 // Initialization of an ekotrace instance only needs to happen once
 // in the lifetime of a thread / execution context
-let ekotrace_foo = Ekotrace::try_initialize_at(&mut storage_bytes, LOCATION_ID_FOO).unwrap();
+let ekotrace_foo = Ekotrace::try_initialize_at(&mut storage_bytes, LOCATION_ID_FOO)?;
 
 // Record events
 if match bar() {
@@ -146,20 +146,20 @@ fn main() {
         .arg("events.csv")
         .arg("src/")
         .status()
-        .unwrap()
+        .expect("ekotrace-event-manifest-gen failed unexpectedly");
     assert!(status.success());
 
     // Generate Rust definitions for event and tracer ids in `src/tracing_ids.rs`
-    let mut events_src = File::create("src/tracing_ids.rs").unwrap();
+    let mut events_src = File::create("src/tracing_ids.rs").expect("Could not make file");
     let output = Command::new("ekotrace-header-gen")
         .arg("--lang")
         .arg("Rust")
         .arg("events.csv")
         .arg("tracers.csv")
         .output()
-        .unwrap()
-    io::stderr().write_all(&output.stderr).unwrap();
-    events_src.write_all(&output.stdout).unwrap();
+        .expect("ekotrace-header-gen failed unexpectedly");
+    io::stderr().write_all(&output.stderr).expect("Could not write to stderr");
+    events_src.write_all(&output.stdout).expect("Could not write to stdout");
     assert!(output.status.success());
 }
 ```

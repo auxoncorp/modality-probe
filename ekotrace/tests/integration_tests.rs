@@ -1,5 +1,6 @@
 use alloc_log_report::*;
 use ekotrace::*;
+use std::convert::TryInto;
 
 struct Buffer {
     buffer: Vec<u8>,
@@ -17,83 +18,80 @@ impl Buffer {
 }
 
 #[test]
-fn tracer_lifecycle_does_not_panic() {
-    let tracer_id = TracerId::new(1).expect("Could not make tracer_id");
+fn tracer_lifecycle_does_not_panic() -> Result<(), EkotraceError> {
+    let tracer_id = 1u32.try_into()?;
 
     let mut backend = Buffer::new(1024);
     let mut storage = [0u8; 1024];
-    let tracer = Ekotrace::initialize_at(&mut storage, tracer_id).expect("Could not init");
+    let tracer = Ekotrace::initialize_at(&mut storage, tracer_id)?;
 
-    let p = tracer.distribute_fixed_size_snapshot().unwrap();
-    let q = tracer.distribute_fixed_size_snapshot().unwrap();
+    let p = tracer.distribute_fixed_size_snapshot()?;
+    let q = tracer.distribute_fixed_size_snapshot()?;
 
     // Snapshotting moves the tracer history forward, so two consecutive snapshots
     // are not exactly the same.
     assert_ne!(p, q);
     assert_eq!(1, p.clocks_len);
-    let r = tracer.distribute_fixed_size_snapshot().unwrap();
+    let r = tracer.distribute_fixed_size_snapshot()?;
     assert!(q < r);
     assert_ne!(q, r);
-    let s = tracer.distribute_fixed_size_snapshot().unwrap();
+    let s = tracer.distribute_fixed_size_snapshot()?;
     assert!(r < s);
     assert_ne!(r, s);
-    let t = tracer.distribute_fixed_size_snapshot().unwrap();
+    let t = tracer.distribute_fixed_size_snapshot()?;
     assert!(s < t);
     assert_ne!(s, t);
-    let u = tracer.distribute_fixed_size_snapshot().unwrap();
+    let u = tracer.distribute_fixed_size_snapshot()?;
     assert!(t < u);
     assert_ne!(t, u);
-    tracer
-        .report(backend.as_bytes_mut())
-        .expect("Could not write reporting");
-    let v = tracer.distribute_fixed_size_snapshot().unwrap();
+    tracer.report(backend.as_bytes_mut())?;
+    let v = tracer.distribute_fixed_size_snapshot()?;
     // Should write_reporting calls affect the outcome of snapshot_history()?
     assert!(u < v);
     assert_ne!(u, v);
+    Ok(())
 }
 
 #[test]
-fn round_trip_merge_snapshot() {
-    let tracer_id_foo = TracerId::new(1).expect("Could not make tracer_id");
-    let tracer_id_bar = TracerId::new(2).expect("Could not make tracer_id");
+fn round_trip_merge_snapshot() -> Result<(), EkotraceError> {
+    let tracer_id_foo = 1.try_into()?;
+    let tracer_id_bar = 2.try_into()?;
 
     let mut storage_foo = [0u8; 1024];
-    let tracer_foo =
-        Ekotrace::initialize_at(&mut storage_foo, tracer_id_foo).expect("Could not init");
-    let snap_foo_a = tracer_foo.distribute_fixed_size_snapshot().unwrap();
+    let tracer_foo = Ekotrace::initialize_at(&mut storage_foo, tracer_id_foo)?;
+    let snap_foo_a = tracer_foo.distribute_fixed_size_snapshot()?;
 
     // Re-initialize a tracer with no previous history
     let mut storage_bar = [0u8; 1024];
-    let tracer_bar =
-        Ekotrace::initialize_at(&mut storage_bar, tracer_id_bar).expect("Could not init");
+    let tracer_bar = Ekotrace::initialize_at(&mut storage_bar, tracer_id_bar)?;
     assert!(tracer_bar.merge_fixed_size_snapshot(&snap_foo_a).is_ok());
-    let snap_bar_b = tracer_bar.distribute_fixed_size_snapshot().unwrap();
+    let snap_bar_b = tracer_bar.distribute_fixed_size_snapshot()?;
 
     assert!(snap_foo_a < snap_bar_b);
 
-    let snap_foo_c = tracer_foo.distribute_fixed_size_snapshot().unwrap();
+    let snap_foo_c = tracer_foo.distribute_fixed_size_snapshot()?;
 
     assert!(snap_foo_a < snap_foo_c);
     assert_eq!(None, snap_bar_b.partial_cmp(&snap_foo_c));
 
     assert!(tracer_bar.merge_fixed_size_snapshot(&snap_foo_c).is_ok());
-    let snap_bar_d = tracer_bar.distribute_fixed_size_snapshot().unwrap();
+    let snap_bar_d = tracer_bar.distribute_fixed_size_snapshot()?;
     assert!(snap_foo_c < snap_bar_d);
 
     assert!(tracer_bar.merge_fixed_size_snapshot(&snap_foo_c).is_ok());
 
     assert!(
-        &snap_foo_c < &tracer_bar.distribute_fixed_size_snapshot().unwrap(),
+        &snap_foo_c < &tracer_bar.distribute_fixed_size_snapshot()?,
         "After merging, the bar should be just a bit ahead of foo"
     );
+    Ok(())
 }
 
 #[test]
-fn invalid_neighbor_id_in_fixed_size_merge_produces_error() {
-    let tracer_id_foo = TracerId::new(1).expect("Could not make tracer_id");
+fn invalid_neighbor_id_in_fixed_size_merge_produces_error() -> Result<(), EkotraceError> {
+    let tracer_id_foo = 1.try_into()?;
     let mut storage_foo = [0u8; 1024];
-    let tracer_foo =
-        Ekotrace::initialize_at(&mut storage_foo, tracer_id_foo).expect("Could not init");
+    let tracer_foo = Ekotrace::initialize_at(&mut storage_foo, tracer_id_foo)?;
 
     let mut clocks = [LogicalClock { id: 0, count: 0 }; 256];
     clocks[0].id = 200;
@@ -103,21 +101,19 @@ fn invalid_neighbor_id_in_fixed_size_merge_produces_error() {
         clocks,
         clocks_len: 1,
     };
-    assert!(tracer_foo.merge_fixed_size_snapshot(&bad_snapshot).is_err())
+    assert!(tracer_foo.merge_fixed_size_snapshot(&bad_snapshot).is_err());
+    Ok(())
 }
 
 #[test]
-fn happy_path_backend_service() {
+fn happy_path_backend_service() -> Result<(), EkotraceError> {
     let mut storage_foo = [0u8; 1024];
-    let tracer_id_foo = TracerId::new(123).expect("Could not make tracer_id");
-    let mut tracer = Ekotrace::new_with_storage(&mut storage_foo, tracer_id_foo)
-        .expect("Could not make new tracer");
+    let tracer_id_foo = 123.try_into()?;
+    let mut tracer = Ekotrace::new_with_storage(&mut storage_foo, tracer_id_foo)?;
     let mut backend = [0u8; 1024];
-    let bytes_written = tracer
-        .report(&mut backend)
-        .expect("Could not write reporting message");
+    let bytes_written = tracer.report(&mut backend)?;
     let log_report =
-        LogReport::from_lcm(&backend[..bytes_written]).expect("Could not read log report");
+        LogReport::from_lcm(&backend[..bytes_written]).expect("Could not read from lcm");
     assert_eq!(123, log_report.tracer_id);
     assert!(!log_report.flags.has_overflowed_log);
     assert!(!log_report.flags.has_overflowed_num_clocks);
@@ -137,10 +133,11 @@ fn happy_path_backend_service() {
 
     // Expect no increments; this happens after the data is serialized.
     assert_eq!(0, clock.count, "expect no clock increments");
+    Ok(())
 }
 
 #[test]
-fn all_allowed_events() {
+fn all_allowed_events() -> Result<(), EkotraceError> {
     // zero-value EventId is not allowed
     assert!(EventId::new(0).is_none());
 
@@ -168,6 +165,7 @@ fn all_allowed_events() {
         0,
         EventId::MAX_USER_ID & 0b1000_0000_0000_0000_0000_0000_0000_0000
     );
+    Ok(())
 }
 
 #[test]
@@ -179,18 +177,14 @@ fn try_initialize_handles_raw_tracer_ids() {
 }
 
 #[test]
-fn try_record_event_raw_tracer_ids() {
+fn try_record_event_raw_tracer_ids() -> Result<(), EkotraceError> {
     let mut storage = [0u8; 512];
-    let tracer = Ekotrace::try_initialize_at(&mut storage, 1).unwrap();
+    let tracer = Ekotrace::try_initialize_at(&mut storage, 1)?;
     assert!(tracer.try_record_event(0).is_err());
     assert!(tracer.try_record_event(EventId::MAX_USER_ID + 1).is_err());
     assert!(tracer.try_record_event(1).is_ok());
+    Ok(())
 }
 
 // TODO - test overflowing num buckets
 // TODO - test overflowing log
-
-#[allow(dead_code)]
-mod lcm {
-    include!(concat!(env!("OUT_DIR"), "/in_system.rs"));
-}
