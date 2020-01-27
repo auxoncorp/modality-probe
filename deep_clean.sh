@@ -2,7 +2,7 @@
 
 set -ex
 rm Cargo.lock
-cargo clean --all
+cargo clean
 
 (
     cd ekotrace-capi
