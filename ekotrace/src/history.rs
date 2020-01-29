@@ -206,6 +206,7 @@ struct ClocksFullError;
 
 impl DynamicHistory {
     #[allow(clippy::cast_ptr_alignment)]
+    #[inline]
     pub fn new_at(
         destination: &mut [u8],
         tracer_id: TracerId,
@@ -315,6 +316,7 @@ impl DynamicHistory {
         }
     }
 
+    #[inline]
     fn try_push_clock(&mut self, clock: LogicalClock) -> Result<(), ClocksFullError> {
         if self.clocks_len < self.config.max_clocks_len as usize {
             unsafe {
@@ -327,16 +329,19 @@ impl DynamicHistory {
         }
     }
 
+    #[inline]
     fn get_clocks_slice(&self) -> &[LogicalClock] {
         unsafe { core::slice::from_raw_parts(self.clocks as *const LogicalClock, self.clocks_len) }
     }
 
+    #[inline]
     fn get_clocks_slice_mut(&mut self) -> &mut [LogicalClock] {
         unsafe {
             core::slice::from_raw_parts_mut(self.clocks as *mut LogicalClock, self.clocks_len)
         }
     }
 
+    #[inline]
     fn get_log_slice(&self) -> &[CompactLogItem] {
         unsafe {
             core::slice::from_raw_parts(
@@ -346,6 +351,7 @@ impl DynamicHistory {
         }
     }
 
+    #[inline]
     fn clear_log(&mut self) {
         self.log_len = 0;
         self.has_overflowed_log = false;
@@ -371,6 +377,7 @@ impl DynamicHistory {
     }
 
     /// Increments the clock in the logical clock corresponding to this tracer instance
+    #[inline]
     fn increment_local_clock_count(&mut self) {
         // N.B. We rely on the fact that the first member of the clocks
         // collection is always the clock for this tracer
@@ -383,6 +390,7 @@ impl DynamicHistory {
     /// within the system under test.
     ///
     /// If the write was successful, returns the number of bytes written.
+    #[inline]
     pub(crate) fn write_lcm_logical_clock(
         &mut self,
         destination: &mut [u8],
@@ -414,6 +422,7 @@ impl DynamicHistory {
 
     /// Produce a transparent but limited snapshot of the causal state for transmission
     /// within the system under test
+    #[inline]
     pub(crate) fn write_fixed_size_logical_clock(
         &mut self,
     ) -> Result<CausalSnapshot, DistributeError> {
@@ -440,16 +449,19 @@ impl DynamicHistory {
             clocks_len: non_empty_clocks_count as u8,
         })
     }
+    #[inline]
     pub(crate) fn merge_from_lcm_log_report_bytes(
         &mut self,
         source: &[u8],
     ) -> Result<(), MergeError> {
         impl From<DecodeValueError<rust_lcm_codec::BufferReaderError>> for MergeError {
+            #[inline]
             fn from(_: DecodeValueError<rust_lcm_codec::BufferReaderError>) -> Self {
                 MergeError::ExternalHistoryEncoding
             }
         }
         impl From<DecodeFingerprintError<rust_lcm_codec::BufferReaderError>> for MergeError {
+            #[inline]
             fn from(_: DecodeFingerprintError<rust_lcm_codec::BufferReaderError>) -> Self {
                 MergeError::ExternalHistoryEncoding
             }
@@ -491,6 +503,7 @@ impl DynamicHistory {
     }
 
     /// Merge a publicly-transmittable causal history into our specialized local in-memory storage
+    #[inline]
     pub(crate) fn merge_fixed_size(
         &mut self,
         external_history: &CausalSnapshot,
@@ -506,6 +519,7 @@ impl DynamicHistory {
         )
     }
 
+    #[inline]
     fn merge_internal<B>(
         &mut self,
         raw_neighbor_id: u32,
@@ -572,6 +586,7 @@ impl DynamicHistory {
         outcome
     }
 
+    #[inline]
     fn write_current_clocks_to_log(&mut self) {
         if self.has_overflowed_log {
             return;
@@ -603,6 +618,7 @@ impl DynamicHistory {
     ///   * Error flags
     ///   * Event ids for events that have happened since the last backend send
     ///   * Interspersed snapshots of the logical clock
+    #[inline]
     pub(crate) fn write_lcm_log_report(
         &mut self,
         destination: &mut [u8],
@@ -668,6 +684,7 @@ impl DynamicHistory {
 }
 
 impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for DistributeError {
+    #[inline]
     fn from(e: EncodeValueError<rust_lcm_codec::BufferWriterError>) -> Self {
         match e {
             EncodeValueError::ArrayLengthMismatch(_) => DistributeError::Encoding,
@@ -679,12 +696,14 @@ impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for DistributeErr
 impl From<rust_lcm_codec::EncodeFingerprintError<rust_lcm_codec::BufferWriterError>>
     for DistributeError
 {
+    #[inline]
     fn from(_: rust_lcm_codec::EncodeFingerprintError<rust_lcm_codec::BufferWriterError>) -> Self {
         DistributeError::InsufficientDestinationSize
     }
 }
 
 impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for ReportError {
+    #[inline]
     fn from(e: EncodeValueError<rust_lcm_codec::BufferWriterError>) -> Self {
         match e {
             EncodeValueError::ArrayLengthMismatch(_) => ReportError::Encoding,
@@ -696,6 +715,7 @@ impl From<EncodeValueError<rust_lcm_codec::BufferWriterError>> for ReportError {
 impl From<rust_lcm_codec::EncodeFingerprintError<rust_lcm_codec::BufferWriterError>>
     for ReportError
 {
+    #[inline]
     fn from(_: rust_lcm_codec::EncodeFingerprintError<rust_lcm_codec::BufferWriterError>) -> Self {
         ReportError::InsufficientDestinationSize
     }
