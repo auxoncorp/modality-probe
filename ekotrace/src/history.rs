@@ -2,6 +2,7 @@ use super::{
     CausalSnapshot, DistributeError, EventId, LogicalClock, MergeError, ReportError,
     StorageSetupError, TracerId,
 };
+use crate::byte_util::{embed, EmbedValueError, SplitUninitError};
 use crate::compact_log::{self, CompactLogItem, CompactLogVec};
 use crate::slice_vec::SliceVec;
 use core::cmp::{max, Ordering, PartialEq};
@@ -9,7 +10,7 @@ use core::convert::TryInto;
 use core::fmt::{Error as FmtError, Formatter};
 use core::mem::{align_of, size_of};
 use rust_lcm_codec::{DecodeFingerprintError, DecodeValueError, EncodeValueError};
-use static_assertions::{assert_eq_align, assert_eq_size, const_assert_eq};
+use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_assert_eq};
 
 impl LogicalClock {
     /// zeros out any empty clocks (0-id or 0-count) and sorts the clocks
@@ -195,55 +196,56 @@ impl<'a> DynamicHistory<'a> {
         if destination.as_ptr().is_null() {
             return Err(StorageSetupError::NullDestination);
         }
-        let (header_ptr, header_bytes) = {
-            let header_align_offset = destination
-                .as_mut_ptr()
-                .align_offset(align_of::<DynamicHistory>());
-            let header_bytes = header_align_offset + size_of::<DynamicHistory>();
-            if header_bytes > remaining_bytes {
+        let history = match embed(destination, |dynamic_region_slice| {
+            let max_n_clocks = max(
+                MIN_CLOCKS_LEN,
+                dynamic_region_slice.len() / 8 / size_of::<LogicalClock>(),
+            );
+            let clocks_region_bytes = max_n_clocks * size_of::<LogicalClock>();
+            if clocks_region_bytes > dynamic_region_slice.len() {
                 return Err(StorageSetupError::UnderMinimumAllowedSize);
             }
-            let header_ptr =
-                unsafe { destination.as_mut_ptr().add(header_align_offset) as *mut DynamicHistory };
-            if header_ptr.is_null() {
-                return Err(StorageSetupError::NullDestination);
+            let (clocks_region, log_region) =
+                dynamic_region_slice.split_at_mut(clocks_region_bytes);
+            let clocks = SliceVec::from_bytes(clocks_region);
+            let compact_log = CompactLogVec::from_bytes(log_region);
+            if clocks.capacity() < MIN_CLOCKS_LEN || compact_log.capacity() < MIN_LOG_LEN {
+                return Err(StorageSetupError::UnderMinimumAllowedSize);
             }
-            (header_ptr, header_bytes)
-        };
-        let (_header_region_slice, dynamic_region_slice) = destination.split_at_mut(header_bytes);
-        let max_n_clocks = max(
-            MIN_CLOCKS_LEN,
-            dynamic_region_slice.len() / 8 / size_of::<LogicalClock>(),
-        );
-        let clocks_region_bytes = max_n_clocks * size_of::<LogicalClock>();
-        if clocks_region_bytes > dynamic_region_slice.len() {
-            return Err(StorageSetupError::UnderMinimumAllowedSize);
+            Ok(DynamicHistory {
+                tracer_id: tracer_id.get_raw(),
+                has_overflowed_log: false,
+                has_overflowed_num_clocks: false,
+                clocks,
+                compact_log,
+            })
+        }) {
+            Ok(v) => Ok(v),
+            Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
+                Err(StorageSetupError::UnderMinimumAllowedSize)
+            }
+            Err(EmbedValueError::SplitUninitError(SplitUninitError::ZeroSizedTypesUnsupported)) => {
+                const_assert!(size_of::<DynamicHistory>() > 0);
+                panic!("Static assertions ensure that this structure is not zero sized")
+            }
+            Err(EmbedValueError::ConstructionError(e)) => Err(e),
+        }?;
+        {
+            let history_ptr = history as *mut DynamicHistory as usize;
+            let clocks_ptr = history.clocks.as_slice().as_ptr() as usize;
+            assert!(
+                 history_ptr + size_of::<DynamicHistory>() <= clocks_ptr,
+                "clocks pointer {:#X} should not overlap header [{:#X}..{:#X}] bytes, but they overlapped by {} bytes",
+                clocks_ptr, history_ptr, history_ptr + size_of::<DynamicHistory>(), history_ptr + size_of::<DynamicHistory>() - clocks_ptr
+            );
+            assert!(
+                clocks_ptr as usize + history.clocks.capacity() * size_of::<LogicalClock>()
+                    <= history.compact_log.as_slice().as_ptr() as usize,
+                "log pointer should not overlap clock bytes"
+            );
         }
-        let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
-        let clocks = SliceVec::from_bytes(clocks_region);
-        let compact_log = CompactLogVec::from_bytes(log_region);
-        if clocks.capacity() < MIN_CLOCKS_LEN || compact_log.capacity() < MIN_LOG_LEN {
-            return Err(StorageSetupError::UnderMinimumAllowedSize);
-        }
-        assert!(
-            header_ptr as usize + size_of::<DynamicHistory>() <= clocks.as_slice().as_ptr() as usize,
-            "clocks pointer {:#X} should not overlap header [{:#X}..{:#X}] bytes, but they overlapped by {} bytes",
-            clocks.as_slice().as_ptr() as usize, header_ptr as usize, header_ptr as usize + header_bytes, (header_ptr as usize + header_bytes - clocks.as_slice().as_ptr() as usize)
-        );
-        assert!(
-            clocks.as_slice().as_ptr() as usize + clocks_region_bytes
-                <= compact_log.as_slice().as_ptr() as usize,
-            "log pointer should not overlap clock bytes"
-        );
 
-        let mut history_header = DynamicHistory {
-            tracer_id: tracer_id.get_raw(),
-            has_overflowed_log: false,
-            has_overflowed_num_clocks: false,
-            clocks,
-            compact_log,
-        };
-        history_header
+        history
             .clocks
             .try_push(LogicalClock {
                 id: tracer_id.get_raw(),
@@ -255,15 +257,9 @@ impl<'a> DynamicHistory<'a> {
 
         // This ensures that the first log segment always has a piece of logical
         // clock information.
-        history_header.write_current_clocks_to_log();
+        history.write_current_clocks_to_log();
 
-        unsafe {
-            *header_ptr = history_header;
-            let header_ref = header_ptr.as_mut().expect(
-                "We already checked to be sure header_ptr was not null, and yet it is now null",
-            );
-            Ok(header_ref)
-        }
+        Ok(history)
     }
 
     #[inline]

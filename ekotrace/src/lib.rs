@@ -3,21 +3,23 @@
 #![deny(warnings)]
 #![deny(missing_docs)]
 
-use static_assertions::assert_cfg;
+use static_assertions::{assert_cfg, const_assert};
 assert_cfg!(not(target_pointer_width = "16"));
 
+pub mod byte_util;
 mod compact_log;
 mod error;
 mod history;
 mod id;
 pub mod slice_vec;
 
+use byte_util::{embed, EmbedValueError, SplitUninitError};
 pub use error::*;
 use history::DynamicHistory;
 pub use id::*;
 
 use core::convert::TryFrom;
-use core::mem::{align_of, size_of};
+use core::mem::size_of;
 
 /// Fixed-sized snapshot of causal history for transmission around the system
 ///
@@ -141,18 +143,18 @@ impl<'a> Ekotrace<'a> {
         memory: &'a mut [u8],
         tracer_id: TracerId,
     ) -> Result<&'a mut Ekotrace<'a>, StorageSetupError> {
-        let tracer_align_offset = memory.as_mut_ptr().align_offset(align_of::<Ekotrace<'_>>());
-        let tracer_bytes = tracer_align_offset + size_of::<Ekotrace<'_>>();
-        if tracer_bytes > memory.len() {
-            return Err(StorageSetupError::UnderMinimumAllowedSize);
-        }
-        let tracer_ptr =
-            unsafe { memory.as_mut_ptr().add(tracer_align_offset) as *mut Ekotrace<'_> };
-        unsafe {
-            *tracer_ptr = Ekotrace::new_with_storage(&mut memory[tracer_bytes..], tracer_id)?;
-            Ok(tracer_ptr
-                .as_mut()
-                .expect("Tracer pointer should not be null"))
+        match embed(memory, |history_memory| {
+            Ekotrace::new_with_storage(history_memory, tracer_id)
+        }) {
+            Ok(v) => Ok(v),
+            Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
+                Err(StorageSetupError::UnderMinimumAllowedSize)
+            }
+            Err(EmbedValueError::SplitUninitError(SplitUninitError::ZeroSizedTypesUnsupported)) => {
+                const_assert!(size_of::<Ekotrace>() > 0);
+                panic!("Static assertions ensure that this structure is not zero sized")
+            }
+            Err(EmbedValueError::ConstructionError(e)) => Err(e),
         }
     }
 
