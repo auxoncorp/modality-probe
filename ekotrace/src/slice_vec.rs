@@ -97,36 +97,6 @@ impl<'a, T: Sized + Copy> SliceVec<'a, T> {
     pub fn carve(bytes: &'a mut [u8]) -> SliceVec<'a, T> {
         CarvedSliceVec::from(bytes).slice_vec
     }
-
-    /// Create and store a SliceVec instance in the provided bytes, returning a pointer to the
-    /// SliceVec, as well as any unused leftover (unaligned, insufficiently) prefix and suffix
-    /// bytes.
-    #[inline]
-    pub fn embed(
-        destination: &'a mut [u8],
-    ) -> Result<(&'a mut [u8], &'a mut SliceVec<'a, T>, &'a mut [u8]), EmbedSliceVecError> {
-        if destination.as_ptr().is_null() {
-            return Err(EmbedSliceVecError::DestinationWasNullPointer);
-        }
-        let header_offset = destination
-            .as_ptr()
-            .align_offset(core::mem::align_of::<SliceVec<'a, T>>());
-        let header_size = core::mem::size_of::<SliceVec<'a, T>>();
-        let header_region_size = header_offset + header_size;
-        if header_region_size > destination.len() {
-            return Err(EmbedSliceVecError::InsufficientSpaceForHeader);
-        }
-        let (header_region, middle_bytes) = destination.split_at_mut(header_size);
-        unsafe {
-            let header_ptr = header_region.as_mut_ptr().add(header_offset) as *mut SliceVec<'a, T>;
-            let carved = CarvedSliceVec::from(middle_bytes);
-            let unused_prefix =
-                core::slice::from_raw_parts_mut(header_region.as_mut_ptr(), header_offset);
-            *header_ptr = carved.slice_vec;
-            Ok((unused_prefix, header_ptr.as_mut().expect("SliceVec pointer must not be null by virtue of prior null-checking and arithmetic"),
-            carved.unused_suffix))
-        }
-    }
 }
 
 /// Error that occurs when a call to `try_push` fails due
@@ -146,19 +116,6 @@ pub struct CarvedSliceVec<'a, T: Sized + Copy> {
     pub slice_vec: SliceVec<'a, T>,
     /// Bytes after the SliceVec's storage slice
     pub unused_suffix: &'a mut [u8],
-}
-
-/// The errors that can occur when attempting to write
-/// a SliceVec instance directly into the same byte array that
-/// you intend to use as its backing storage, via the
-/// `SliceVec::embed` function.
-pub enum EmbedSliceVecError {
-    /// Null destination pointers are not good news.
-    DestinationWasNullPointer,
-    /// The byte slice provided was too small even
-    /// to store the SliceVec itself, let alone
-    /// its associated buffer.
-    InsufficientSpaceForHeader,
 }
 
 impl<'a, T: Sized + Copy> From<&'a mut [u8]> for CarvedSliceVec<'a, T> {

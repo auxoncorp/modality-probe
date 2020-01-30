@@ -3,7 +3,7 @@ use super::{
     StorageSetupError, TracerId,
 };
 use crate::compact_log::{self, CompactLogItem, CompactLogVec};
-use crate::slice_vec::{SliceVec};
+use crate::slice_vec::SliceVec;
 use core::cmp::{max, Ordering, PartialEq};
 use core::convert::TryInto;
 use core::fmt::{Error as FmtError, Formatter};
@@ -221,11 +221,8 @@ impl<'a> DynamicHistory<'a> {
         }
         let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
         let clocks = SliceVec::carve(clocks_region);
-        if clocks.capacity() < MIN_CLOCKS_LEN {
-            return Err(StorageSetupError::UnderMinimumAllowedSize);
-        }
         let compact_log = CompactLogVec::carve(log_region);
-        if compact_log.capacity() < MIN_LOG_LEN {
+        if clocks.capacity() < MIN_CLOCKS_LEN || compact_log.capacity() < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         assert!(
@@ -247,7 +244,8 @@ impl<'a> DynamicHistory<'a> {
             compact_log,
         };
         history_header
-            .clocks.try_push(LogicalClock {
+            .clocks
+            .try_push(LogicalClock {
                 id: tracer_id.get_raw(),
                 count: 0,
             })
@@ -454,7 +452,8 @@ impl<'a> DynamicHistory<'a> {
             .iter()
             .any(|b| b.id == raw_neighbor_id)
             && self
-                .clocks.try_push(LogicalClock {
+                .clocks
+                .try_push(LogicalClock {
                     id: raw_neighbor_id,
                     count: 0,
                 })
