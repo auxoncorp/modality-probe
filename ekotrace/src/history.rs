@@ -220,8 +220,8 @@ impl<'a> DynamicHistory<'a> {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
-        let clocks = SliceVec::carve(clocks_region);
-        let compact_log = CompactLogVec::carve(log_region);
+        let clocks = SliceVec::from_bytes(clocks_region);
+        let compact_log = CompactLogVec::from_bytes(log_region);
         if clocks.capacity() < MIN_CLOCKS_LEN || compact_log.capacity() < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }

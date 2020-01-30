@@ -7,8 +7,11 @@ use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 
 /// Vec-like structure backed by a storage slice of possibly uninitialized data.
+///
+/// The maximum length (the capacity) is fixed at runtime to the length of the
+/// provided storage slice.
 pub struct SliceVec<'a, T: Sized + Copy> {
-    /// Backing storage
+    /// Backing storage, provides capacity
     storage: &'a mut [MaybeUninit<T>],
     /// The number of items that have been
     /// initialized
@@ -16,6 +19,94 @@ pub struct SliceVec<'a, T: Sized + Copy> {
 }
 
 impl<'a, T: Sized + Copy> SliceVec<'a, T> {
+    /// Create a SliceVec backed by a slice of possibly-uninitialized data.
+    /// The backing storage slice is used as capacity for Vec-like operations,
+    ///
+    /// The initial length of the SliceVec is 0.
+    #[inline]
+    pub fn new(storage: &'a mut [MaybeUninit<T>]) -> Self {
+        SliceVec { storage, len: 0 }
+    }
+
+    /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
+    /// The slice is as large as possible given the item type and alignment of
+    /// the provided bytes.
+    ///
+    /// If you are interested in recapturing the prefix and suffix bytes on
+    /// either side of the carved-out SliceVec buffer, consider using `align_from_bytes` instead:
+    ///
+    /// ```
+    /// # let mut bytes = [3u8, 1, 4, 1, 5, 9];
+    /// let vec = ekotrace::slice_vec::SliceVec::from_bytes(&mut bytes[..]);
+    /// # let vec: ekotrace::slice_vec::SliceVec<u16> = vec;
+    /// ```
+    ///
+    /// The bytes are treated as if they might be uninitialized, so even if `T` is `u8`,
+    /// the length of the returned `SliceVec` will be zero.
+    #[inline]
+    pub fn from_bytes(bytes: &'a mut [u8]) -> SliceVec<'a, T> {
+        let (_prefix, slice_vec, _suffix) = SliceVec::align_from_bytes(bytes);
+        slice_vec
+    }
+
+    /// Create a well-aligned SliceVec backed by a slice of the provided
+    /// uninitialized bytes. The typed slice is as large as possible given its
+    /// item type and the alignment of the provided bytes.
+    ///
+    /// If you are interested in recapturing the prefix and suffix bytes on
+    /// either side of the carved-out SliceVec buffer, consider using `align_from_uninit_bytes`:
+    ///
+    #[inline]
+    pub fn from_uninit_bytes(bytes: &'a mut [MaybeUninit<u8>]) -> SliceVec<'a, T> {
+        let (_prefix, slice_vec, _suffix) = SliceVec::align_from_uninit_bytes(bytes);
+        slice_vec
+    }
+
+    /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
+    /// The slice is as large as possible given the item type and alignment of
+    /// the provided bytes. Returns the unused prefix and suffix bytes on
+    /// either side of the carved-out SliceVec.
+    ///
+    /// ```
+    /// let mut bytes = [3u8, 1, 4, 1, 5, 9];
+    /// let (prefix, vec, suffix) = ekotrace::slice_vec::SliceVec::align_from_bytes(&mut bytes[..]);
+    /// let vec: ekotrace::slice_vec::SliceVec<u16> = vec;
+    /// ```
+    ///
+    /// The bytes are treated as if they might be uninitialized, so even if `T` is `u8`,
+    /// the length of the returned `SliceVec` will be zero.
+    #[inline]
+    pub fn align_from_bytes(bytes: &'a mut [u8]) -> (&'a mut [u8], SliceVec<'a, T>, &'a mut [u8]) {
+        let (prefix, storage, suffix) = unsafe { bytes.align_to_mut() };
+        (prefix, SliceVec { storage, len: 0 }, suffix)
+    }
+
+    /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
+    /// The slice is as large as possible given the item type and alignment of
+    /// the provided bytes. Returns the unused prefix and suffix bytes on
+    /// either side of the carved-out SliceVec.
+    ///
+    /// ```
+    /// # use core::mem::MaybeUninit;
+    /// let mut bytes: [MaybeUninit<u8>; 15] = unsafe { MaybeUninit::uninit().assume_init() };
+    /// let (prefix, vec, suffix) = ekotrace::slice_vec::SliceVec::align_from_uninit_bytes(&mut
+    /// bytes[..]);
+    /// let vec: ekotrace::slice_vec::SliceVec<u16> = vec;
+    /// ```
+    ///
+    /// The length of the returned `SliceVec` will be zero.
+    #[inline]
+    pub fn align_from_uninit_bytes(
+        bytes: &'a mut [MaybeUninit<u8>],
+    ) -> (
+        &'a mut [MaybeUninit<u8>],
+        SliceVec<'a, T>,
+        &'a mut [MaybeUninit<u8>],
+    ) {
+        let (prefix, storage, suffix) = unsafe { bytes.align_to_mut() };
+        (prefix, SliceVec { storage, len: 0 }, suffix)
+    }
+
     /// The length of the SliceVec. The number of initialized
     /// values that have been added to it.
     #[inline]
@@ -87,70 +178,12 @@ impl<'a, T: Sized + Copy> SliceVec<'a, T> {
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self
     }
-
-    /// Create a well-aligned SliceVec backed by a slice of the provided bytes. The slice is as
-    /// large as possible given the item type and alignment of the provided bytes.
-    ///
-    /// If you are interested in recapturing the prefix and suffix bytes on either side of the
-    /// carved-out SliceVec buffer, consider using `CarvedSliceVec::from(bytes)` directly.
-    #[inline]
-    pub fn carve(bytes: &'a mut [u8]) -> SliceVec<'a, T> {
-        CarvedSliceVec::from(bytes).slice_vec
-    }
 }
 
 /// Error that occurs when a call to `try_push` fails due
 /// to insufficient capacity in the SliceVec.
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
 pub struct TryPushError<T>(pub T);
-
-/// Helper struct that tracks the outcome of carving up a byte array
-/// to produce an arbitrarily-typed SliceVec.  In particular it
-/// provides access to the non-SliceVec portions of that operation -
-/// the prefix and suffix bytes that, for alignment or sizing reasons
-/// could not be folded into the SliceVec's underlying buffer.
-pub struct CarvedSliceVec<'a, T: Sized + Copy> {
-    /// Bytes preceding the SliceVec's storage slice
-    pub unused_prefix: &'a mut [u8],
-    /// A SliceVec of arbitrary type
-    pub slice_vec: SliceVec<'a, T>,
-    /// Bytes after the SliceVec's storage slice
-    pub unused_suffix: &'a mut [u8],
-}
-
-impl<'a, T: Sized + Copy> From<&'a mut [u8]> for CarvedSliceVec<'a, T> {
-    #[inline]
-    fn from(bytes: &'a mut [u8]) -> Self {
-        let prefix_offset = bytes.as_ptr().align_offset(core::mem::align_of::<T>());
-        if prefix_offset > bytes.len() {
-            return CarvedSliceVec {
-                unused_prefix: bytes,
-                slice_vec: SliceVec {
-                    storage: &mut [],
-                    len: 0,
-                },
-                unused_suffix: &mut [],
-            };
-        }
-        let (unused_prefix, middle_bytes) = bytes.split_at_mut(prefix_offset);
-        let item_size = core::mem::size_of::<T>();
-        let n_items = middle_bytes.len() / item_size;
-        let (raw_storage, unused_suffix) = middle_bytes.split_at_mut(n_items * item_size);
-        let storage: &'a mut [MaybeUninit<T>] = unsafe {
-            core::slice::from_raw_parts_mut(
-                raw_storage.as_mut_ptr() as *mut MaybeUninit<T>,
-                n_items,
-            )
-        };
-        let slice_vec = storage.into();
-
-        CarvedSliceVec {
-            unused_prefix,
-            slice_vec,
-            unused_suffix,
-        }
-    }
-}
 
 impl<'a, T: Sized + Copy> From<&'a mut [MaybeUninit<T>]> for SliceVec<'a, T> {
     #[inline]
@@ -330,14 +363,34 @@ mod tests {
     }
 
     #[test]
-    fn happy_path_carve() {
+    fn happy_path_from_bytes() {
         let mut data = [0u8; 31];
-        let mut sv: SliceVec<usize> = SliceVec::carve(&mut data[..]);
+        let mut sv: SliceVec<usize> = SliceVec::from_bytes(&mut data[..]);
         assert!(sv.is_empty());
         assert!(sv.capacity() > 0);
         for i in 0..sv.capacity() {
             assert_eq!(Ok(()), sv.try_push(i));
         }
         assert!(sv.is_full());
+    }
+
+    #[test]
+    fn align_captures_suffix_and_prefix() {
+        let mut data = [
+            3u8, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3, 2, 3, 8, 4, 6, 2, 6, 4, 3, 3,
+        ];
+        let original_len = data.len();
+        for i in 0..original_len {
+            for len in 0..original_len - i {
+                let storage = &mut data[i..i + len];
+                let storage_len = storage.len();
+                let (prefix, slice_vec, suffix): (_, SliceVec<u16>, _) =
+                    SliceVec::align_from_bytes(storage);
+                assert_eq!(
+                    storage_len,
+                    prefix.len() + 2 * slice_vec.capacity() + suffix.len()
+                );
+            }
+        }
     }
 }
