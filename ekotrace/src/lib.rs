@@ -48,7 +48,49 @@ pub struct LogicalClock {
     pub count: u32,
 }
 
-/// Public interface to tracing.
+/// Interface for the core (post-initialization) operations of `ekotrace`
+pub trait Tracer {
+    /// Record that an event occurred. The end user is responsible
+    /// for associating meaning with each event_id.
+    ///
+    /// Accepts an event_id pre-validated to be within the acceptable
+    /// range.
+    fn record_event(&mut self, event_id: EventId);
+
+    /// Write a summary of this tracer's causal history for use
+    /// by another Tracer elsewhere in the system.
+    ///
+    /// This summary can be treated as an opaque blob of data
+    /// that ought to be passed around to be `merge_snapshot`d, though
+    /// it will conform to an internal schema for the interested.
+    ///
+    /// Pre-pruned to the causal history of just this node
+    ///  and its immediate inbound neighbors.
+    ///
+    /// If the write was successful, returns the number of bytes written
+    fn distribute_snapshot(&mut self, destination: &mut [u8]) -> Result<usize, DistributeError>;
+
+    /// Consume a causal history summary structure provided
+    /// by some other Tracer via `distribute_snapshot`.
+    fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError>;
+
+    /// Conduct necessary background activities and write
+    /// the recorded reporting log to a collection backend.
+    ///
+    /// Writes the Tracer's internal state according to the
+    /// log reporting schema.
+    ///
+    /// If the write was successful, returns the number of bytes written
+    fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError>;
+}
+
+/// Reference implementation of an `ekotrace` tracer.
+///
+/// In addition to the standard `Tracer` API, it includes conveniences for:
+/// * Recording events from primitive ids with just-in-time validation.
+/// * Initialization with variable-sized memory backing.
+/// * Can distribute and merge transparent fixed-sized snapshots in addition
+/// to the opaque, arbitrarily-sized standard snapshots.
 #[derive(Debug)]
 #[repr(C)]
 pub struct Ekotrace<'a> {
@@ -72,6 +114,7 @@ impl<'a> Ekotrace<'a> {
     /// Use `initialize_at` instead if you're working in Rust
     /// and want to use pre-validatated tracer ids.
     ///
+    #[inline]
     pub fn try_initialize_at(
         memory: &'a mut [u8],
         tracer_id: u32,
@@ -93,6 +136,7 @@ impl<'a> Ekotrace<'a> {
     ///
     /// Use `new_with_storage` instead if you're working in Rust.
     #[allow(clippy::cast_ptr_alignment)]
+    #[inline]
     pub fn initialize_at(
         memory: &'a mut [u8],
         tracer_id: TracerId,
@@ -117,6 +161,7 @@ impl<'a> Ekotrace<'a> {
     /// returning a tracer instance on the stack.
     ///
     /// `tracer_id` ought to be unique throughout the system.
+    #[inline]
     pub fn new_with_storage(
         history_memory: &'a mut [u8],
         tracer_id: TracerId,
@@ -126,16 +171,6 @@ impl<'a> Ekotrace<'a> {
             history: DynamicHistory::new_at(history_memory, tracer_id)?,
         };
         Ok(t)
-    }
-
-    /// Record that an event occurred. The end user is responsible
-    /// for associating meaning with each event_id.
-    ///
-    /// Accepts an event_id pre-validated to be within the acceptable
-    /// range.
-    #[inline]
-    pub fn record_event(&mut self, event_id: EventId) {
-        self.history.record_event(event_id);
     }
 
     /// Record that an event occurred. The end user is responsible
@@ -155,57 +190,46 @@ impl<'a> Ekotrace<'a> {
         Ok(())
     }
 
-    /// Conduct necessary background activities and write
-    /// the recorded reporting log to a collection backend.
-    ///
-    /// Writes the Tracer's internal state according to the
-    /// log reporting schema.
-    ///
-    /// If the write was successful, returns the number of bytes written
-    pub fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
-        self.history.write_lcm_log_report(destination)
-    }
-
-    /// Write a summary of this tracer's causal history for use
-    /// by another Tracer elsewhere in the system.
-    ///
-    /// This summary can be treated as an opaque blob of data
-    /// that ought to be passed around to be `merge_snapshot`d, though
-    /// it will conform to an internal schema for the interested.
-    ///
-    /// Pre-pruned to the causal history of just this node
-    ///  and its immediate inbound neighbors.
-    ///
-    /// If the write was successful, returns the number of bytes written
-    pub fn distribute_snapshot(
-        &mut self,
-        destination: &mut [u8],
-    ) -> Result<usize, DistributeError> {
-        self.history.write_lcm_logical_clock(destination)
-    }
-
-    /// Consume a causal history summary structure provided
-    /// by some other Tracer via `distribute_snapshot`.
-    pub fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError> {
-        self.history.merge_from_lcm_log_report_bytes(source)
-    }
-
     /// Produce a transmittable summary of this tracer's
     /// causal history for use by another Tracer elsewhere
     /// in the system.
     ///
     /// Pre-pruned to the causal history of just this node
     ///  and its immediate inbound neighbors.
+    #[inline]
     pub fn distribute_fixed_size_snapshot(&mut self) -> Result<CausalSnapshot, DistributeError> {
         self.history.write_fixed_size_logical_clock()
     }
 
     /// Consume a fixed-sized causal history summary structure provided
     /// by some other Tracer.
+    #[inline]
     pub fn merge_fixed_size_snapshot(
         &mut self,
         external_history: &CausalSnapshot,
     ) -> Result<(), MergeError> {
         self.history.merge_fixed_size(external_history)
+    }
+}
+
+impl<'a> Tracer for Ekotrace<'a> {
+    #[inline]
+    fn record_event(&mut self, event_id: EventId) {
+        self.history.record_event(event_id);
+    }
+
+    #[inline]
+    fn distribute_snapshot(&mut self, destination: &mut [u8]) -> Result<usize, DistributeError> {
+        self.history.write_lcm_logical_clock(destination)
+    }
+
+    #[inline]
+    fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError> {
+        self.history.merge_from_lcm_log_report_bytes(source)
+    }
+
+    #[inline]
+    fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
+        self.history.write_lcm_log_report(destination)
     }
 }

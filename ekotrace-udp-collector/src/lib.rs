@@ -205,6 +205,7 @@ fn add_log_report_to_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ekotrace::Tracer;
     use std::collections::HashSet;
     use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
     use std::sync::atomic::{AtomicU16, AtomicU32, Ordering};
