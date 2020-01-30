@@ -2,7 +2,8 @@ use super::{
     CausalSnapshot, DistributeError, EventId, LogicalClock, MergeError, ReportError,
     StorageSetupError, TracerId,
 };
-use crate::compact_log::{self, CompactLogItem};
+use crate::compact_log::{self, CompactLogItem, CompactLogVec};
+use crate::slice_vec::{SliceVec};
 use core::cmp::{max, Ordering, PartialEq};
 use core::convert::TryInto;
 use core::fmt::{Error as FmtError, Formatter};
@@ -141,29 +142,11 @@ impl PartialOrd for CausalSnapshot {
     }
 }
 
-#[derive(Debug)]
-#[repr(C)]
-struct DynamicHistoryConfig {
-    /// Corresponds to the maximum number of neighbors that are
-    /// expected to send messages to this tracer, plus this instance
-    ///
-    /// Should always be greater than 1
-    max_clocks_len: u32,
-
-    /// How many log items (individual events *AND* logical clock flushes)
-    ///
-    /// Each time we record a local event
-    /// Each time the logical clock flushes, it should add up to 2 * max_clocks log items
-    ///
-    /// Should always be greater than 1
-    max_log_len: u32,
-}
-
-pub const MIN_BUCKETS_LEN: usize = 2;
-pub const MIN_LOG_LEN: usize = MIN_BUCKETS_LEN * 16;
+pub const MIN_CLOCKS_LEN: usize = 2;
+pub const MIN_LOG_LEN: usize = MIN_CLOCKS_LEN * 16;
 pub const MIN_HISTORY_SIZE_BYTES: usize = size_of::<DynamicHistory>()
-    + size_of::<u32>()
-    + MIN_BUCKETS_LEN * size_of::<LogicalClock>()
+    + 3 * size_of::<u32>()
+    + MIN_CLOCKS_LEN * size_of::<LogicalClock>()
     + MIN_LOG_LEN * size_of::<CompactLogItem>();
 
 const_assert_eq!(align_of::<usize>(), align_of::<DynamicHistory>());
@@ -176,35 +159,29 @@ assert_eq_align!(u32, LogicalClock);
 assert_eq_size!(u32, CompactLogItem);
 assert_eq_align!(u32, CompactLogItem);
 
-const_assert_eq!(16 + 4 * size_of::<usize>(), size_of::<DynamicHistory>());
+const_assert_eq!(
+    8 + size_of::<SliceVec<'_, LogicalClock>>() + size_of::<CompactLogVec<'_>>(),
+    size_of::<DynamicHistory>()
+);
 
 /// Manages the core of a tracer in-memory implementation
 /// backed by runtime-sized arrays of current logical clocks
 /// and tracing log items
 #[derive(Debug)]
 #[repr(C)]
-pub struct DynamicHistory {
+pub struct DynamicHistory<'a> {
     tracer_id: u32,
-    config: DynamicHistoryConfig,
     has_overflowed_log: bool,
     has_overflowed_num_clocks: bool,
 
-    /// How many clocks are populated
-    clocks_len: usize,
-    /// Pointer to the array of current
-    /// logical clock values
-    clocks: *mut LogicalClock,
-
-    /// How many log entries are populated
-    log_len: usize,
-    /// Pointer to the array of log items
-    log_pointer: *mut CompactLogItem,
+    clocks: SliceVec<'a, LogicalClock>,
+    compact_log: CompactLogVec<'a>,
 }
 
 #[derive(Debug)]
 struct ClocksFullError;
 
-impl DynamicHistory {
+impl<'a> DynamicHistory<'a> {
     #[allow(clippy::cast_ptr_alignment)]
     #[inline]
     pub fn new_at(
@@ -233,69 +210,44 @@ impl DynamicHistory {
             }
             (header_ptr, header_bytes)
         };
-        let remaining_bytes = remaining_bytes - header_bytes;
-        let dynamic_region_ptr = unsafe { destination.as_mut_ptr().add(header_bytes) };
-
-        let (clocks_ptr, clocks_bytes, max_clocks_len) = {
-            // Try to give 1/8 of our remaining space to the clocks
-            let clocks_align_offset = dynamic_region_ptr.align_offset(align_of::<LogicalClock>());
-            if clocks_align_offset > remaining_bytes {
-                return Err(StorageSetupError::UnderMinimumAllowedSize);
-            }
-            let max_clocks_len = max(
-                MIN_BUCKETS_LEN,
-                (remaining_bytes - clocks_align_offset) / 8 / size_of::<LogicalClock>(),
-            );
-            let clocks_bytes = clocks_align_offset + max_clocks_len * size_of::<LogicalClock>();
-            if clocks_bytes > remaining_bytes {
-                return Err(StorageSetupError::UnderMinimumAllowedSize);
-            }
-            let clocks_ptr =
-                unsafe { dynamic_region_ptr.add(clocks_align_offset) as *mut LogicalClock };
-            assert!(
-                header_ptr as usize + size_of::<DynamicHistory>() <= clocks_ptr as usize,
-                "clocks pointer {:#X} should not overlap header [{:#X}..{:#X}] bytes, but they overlapped by {} bytes",
-                clocks_ptr as usize, header_ptr as usize, header_ptr as usize + header_bytes, (header_ptr as usize + header_bytes - clocks_ptr as usize)
-            );
-            (clocks_ptr, clocks_bytes, max_clocks_len)
-        };
-
-        let dynamic_region_ptr = unsafe { dynamic_region_ptr.add(clocks_bytes) };
-        let remaining_bytes = remaining_bytes - clocks_bytes;
-
-        let log_align_offset = dynamic_region_ptr.align_offset(align_of::<CompactLogItem>());
-        let remaining_bytes = remaining_bytes
-            .checked_sub(log_align_offset)
-            .ok_or_else(|| StorageSetupError::UnderMinimumAllowedSize)?;
-        let max_log_len = remaining_bytes / size_of::<CompactLogItem>();
-        if max_log_len < MIN_LOG_LEN {
+        let (_header_region_slice, dynamic_region_slice) = destination.split_at_mut(header_bytes);
+        let max_n_clocks = max(
+            MIN_CLOCKS_LEN,
+            dynamic_region_slice.len() / 8 / size_of::<LogicalClock>(),
+        );
+        let clocks_region_bytes = max_n_clocks * size_of::<LogicalClock>();
+        if clocks_region_bytes > dynamic_region_slice.len() {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
-        let log_ptr = unsafe { dynamic_region_ptr.add(log_align_offset) as *mut CompactLogItem };
-
-        if max_clocks_len > core::u32::MAX as usize || max_log_len > core::u32::MAX as usize {
-            return Err(StorageSetupError::ExceededMaximumAddressableSize);
+        let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
+        let clocks = SliceVec::carve(clocks_region);
+        if clocks.capacity() < MIN_CLOCKS_LEN {
+            return Err(StorageSetupError::UnderMinimumAllowedSize);
+        }
+        let compact_log = CompactLogVec::carve(log_region);
+        if compact_log.capacity() < MIN_LOG_LEN {
+            return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         assert!(
-            clocks_ptr as usize + clocks_bytes <= log_ptr as usize,
+            header_ptr as usize + size_of::<DynamicHistory>() <= clocks.as_slice().as_ptr() as usize,
+            "clocks pointer {:#X} should not overlap header [{:#X}..{:#X}] bytes, but they overlapped by {} bytes",
+            clocks.as_slice().as_ptr() as usize, header_ptr as usize, header_ptr as usize + header_bytes, (header_ptr as usize + header_bytes - clocks.as_slice().as_ptr() as usize)
+        );
+        assert!(
+            clocks.as_slice().as_ptr() as usize + clocks_region_bytes
+                <= compact_log.as_slice().as_ptr() as usize,
             "log pointer should not overlap clock bytes"
         );
 
         let mut history_header = DynamicHistory {
             tracer_id: tracer_id.get_raw(),
-            config: DynamicHistoryConfig {
-                max_clocks_len: max_clocks_len as u32,
-                max_log_len: max_log_len as u32,
-            },
             has_overflowed_log: false,
             has_overflowed_num_clocks: false,
-            clocks_len: 0,
-            clocks: clocks_ptr,
-            log_len: 0,
-            log_pointer: log_ptr,
+            clocks,
+            compact_log,
         };
         history_header
-            .try_push_clock(LogicalClock {
+            .clocks.try_push(LogicalClock {
                 id: tracer_id.get_raw(),
                 count: 0,
             })
@@ -317,43 +269,8 @@ impl DynamicHistory {
     }
 
     #[inline]
-    fn try_push_clock(&mut self, clock: LogicalClock) -> Result<(), ClocksFullError> {
-        if self.clocks_len < self.config.max_clocks_len as usize {
-            unsafe {
-                *self.clocks.add(self.clocks_len) = clock;
-            }
-            self.clocks_len += 1;
-            Ok(())
-        } else {
-            Err(ClocksFullError)
-        }
-    }
-
-    #[inline]
-    fn get_clocks_slice(&self) -> &[LogicalClock] {
-        unsafe { core::slice::from_raw_parts(self.clocks as *const LogicalClock, self.clocks_len) }
-    }
-
-    #[inline]
-    fn get_clocks_slice_mut(&mut self) -> &mut [LogicalClock] {
-        unsafe {
-            core::slice::from_raw_parts_mut(self.clocks as *mut LogicalClock, self.clocks_len)
-        }
-    }
-
-    #[inline]
-    fn get_log_slice(&self) -> &[CompactLogItem] {
-        unsafe {
-            core::slice::from_raw_parts(
-                self.log_pointer as *mut CompactLogItem as *const CompactLogItem,
-                self.log_len,
-            )
-        }
-    }
-
-    #[inline]
     fn clear_log(&mut self) {
-        self.log_len = 0;
+        self.compact_log.clear();
         self.has_overflowed_log = false;
     }
 
@@ -366,12 +283,11 @@ impl DynamicHistory {
             return;
         }
         // N.B. point for future improvement - basic compression here
-        if self.log_len < self.config.max_log_len as usize {
-            unsafe {
-                *self.log_pointer.add(self.log_len) = CompactLogItem::event(event_id);
-            }
-            self.log_len += 1;
-        } else {
+        if self
+            .compact_log
+            .try_push(CompactLogItem::event(event_id))
+            .is_err()
+        {
             self.has_overflowed_log = true;
         }
     }
@@ -381,9 +297,7 @@ impl DynamicHistory {
     fn increment_local_clock_count(&mut self) {
         // N.B. We rely on the fact that the first member of the clocks
         // collection is always the clock for this tracer
-        unsafe {
-            (*self.clocks).count = (*self.clocks).count.saturating_add(1);
-        }
+        self.clocks.as_mut_slice()[0].count = self.clocks.as_slice()[0].count.saturating_add(1);
     }
 
     /// Produce an opaque snapshot of the causal state for transmission
@@ -405,9 +319,8 @@ impl DynamicHistory {
         let w = lcm::in_system::begin_causal_snapshot_write(&mut buffer_writer)?;
         let mut w = w
             .write_tracer_id(self.tracer_id as i32)?
-            .write_n_clocks(self.clocks_len as i32)?;
-        for (i, item_writer) in (&mut w).enumerate() {
-            let clock: &mut LogicalClock = unsafe { &mut *self.clocks.add(i) };
+            .write_n_clocks(self.clocks.len() as i32)?;
+        for (item_writer, clock) in (&mut w).zip(self.clocks.as_slice()) {
             item_writer.write(|bw| {
                 Ok(bw
                     .write_tracer_id(clock.id as i32)?
@@ -427,13 +340,14 @@ impl DynamicHistory {
         &mut self,
     ) -> Result<CausalSnapshot, DistributeError> {
         let mut clocks = [LogicalClock { id: 0, count: 0 }; 256];
-        if self.clocks_len > clocks.len() {
+        if self.clocks.len() > clocks.len() {
             return Err(DistributeError::InsufficientDestinationSize);
         }
         self.increment_local_clock_count();
         let mut non_empty_clocks_count: usize = 0;
         for (source, sink) in self
-            .get_clocks_slice()
+            .clocks
+            .as_slice()
             .iter()
             .filter(|b| b.count > 0)
             .zip(clocks.iter_mut())
@@ -535,11 +449,12 @@ impl DynamicHistory {
         let raw_neighbor_id = external_id.get_raw();
         // Ensure that there is a clock for the neighbor that sent the snapshot
         if !self
-            .get_clocks_slice()
+            .clocks
+            .as_slice()
             .iter()
             .any(|b| b.id == raw_neighbor_id)
             && self
-                .try_push_clock(LogicalClock {
+                .clocks.try_push(LogicalClock {
                     id: raw_neighbor_id,
                     count: 0,
                 })
@@ -570,7 +485,7 @@ impl DynamicHistory {
                 }
             };
             let raw_id = id.get_raw();
-            for internal_clock in self.get_clocks_slice_mut() {
+            for internal_clock in self.clocks.as_mut_slice() {
                 // N.B This depends on the local clock already having been created, above,
                 // when we received a history from the clock's source tracer_id.
                 // During early tracing, may cause us to drop data from an indirect neighbor that
@@ -591,16 +506,18 @@ impl DynamicHistory {
         if self.has_overflowed_log {
             return;
         }
-        let max_len_that_can_fit_a_clock = (self.config.max_log_len - 1) as usize;
-        let mut log_len = self.log_len;
+        let max_len_that_can_fit_a_clock = (self.compact_log.capacity() - 1) as usize;
+        let mut log_len = self.compact_log.len();
         let mut has_overflowed_log = false;
-        for b in self.get_clocks_slice() {
+        for b in self.clocks.as_slice() {
             let (id, count) = CompactLogItem::clock(*b);
             if log_len < max_len_that_can_fit_a_clock {
-                unsafe {
-                    *self.log_pointer.add(log_len) = id;
-                    *self.log_pointer.add(log_len + 1) = count;
-                }
+                self.compact_log
+                    .try_push(id)
+                    .expect("Already checked id will fit");
+                self.compact_log
+                    .try_push(count)
+                    .expect("Already checked count will fit");
                 log_len += 2;
             } else {
                 // TODO - instead of breaking in the middle, should we have just not written
@@ -609,7 +526,6 @@ impl DynamicHistory {
                 break;
             }
         }
-        self.log_len = log_len;
         self.has_overflowed_log |= has_overflowed_log;
     }
 
@@ -632,7 +548,7 @@ impl DynamicHistory {
             Ok(fw)
         })?;
 
-        let mut log_items = self.get_log_slice();
+        let mut log_items = self.compact_log.as_slice();
         let expected_n_segments = compact_log::count_segments(log_items);
         let mut w = w.write_n_segments(expected_n_segments as i32)?;
         let mut actually_written_segments = 0;
@@ -668,7 +584,8 @@ impl DynamicHistory {
             "number of written segments should match the amount we tried"
         );
         assert_eq!(
-            actually_written_log_items, self.log_len,
+            actually_written_log_items,
+            self.compact_log.len(),
             "we should have written all of the log items into the segments"
         );
         let w = w.done()?;

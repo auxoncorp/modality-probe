@@ -10,6 +10,7 @@ mod compact_log;
 mod error;
 mod history;
 mod id;
+pub mod slice_vec;
 
 pub use error::*;
 use history::DynamicHistory;
@@ -94,8 +95,7 @@ pub trait Tracer {
 #[derive(Debug)]
 #[repr(C)]
 pub struct Ekotrace<'a> {
-    id: TracerId,
-    history: &'a mut DynamicHistory,
+    history: &'a mut DynamicHistory<'a>,
 }
 
 impl<'a> Ekotrace<'a> {
@@ -167,7 +167,6 @@ impl<'a> Ekotrace<'a> {
         tracer_id: TracerId,
     ) -> Result<Ekotrace<'a>, StorageSetupError> {
         let t = Ekotrace::<'a> {
-            id: tracer_id,
             history: DynamicHistory::new_at(history_memory, tracer_id)?,
         };
         Ok(t)

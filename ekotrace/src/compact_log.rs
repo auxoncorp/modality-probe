@@ -1,4 +1,7 @@
 use super::{EventId, LogicalClock};
+use crate::slice_vec::*;
+
+pub(crate) type CompactLogVec<'a> = SliceVec<'a, CompactLogItem>;
 
 /// In a stream of these:
 ///     if the first bit is not set, treat it as recording an Event
@@ -33,6 +36,12 @@ impl CompactLogItem {
     /// Unset that top bit to get the original tracer id back out
     pub(crate) fn interpret_as_logical_clock_tracer_id(self) -> u32 {
         self.0 & 0b0111_1111_1111_1111_1111_1111_1111_1111
+    }
+}
+impl core::fmt::Debug for CompactLogItem {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.write_fmt(format_args!("CompactLogItem({})", self.0))
     }
 }
 
