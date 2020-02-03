@@ -1,0 +1,29 @@
+[package]
+name = "ekotrace"
+version = "0.2.0"
+authors = ["Zachary Pierce <zack@auxon.io>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/ekotrace"
+readme = "README.md"
+build = "build.rs"
+
+[workspace]
+members = [
+  "ekotrace-analysis",
+  "ekotrace-header-gen",
+  "ekotrace-manifest-gen",
+  "ekotrace-udp-collector",
+  "test-support/proc-graph",
+]
+
+[dependencies]
+static_assertions = "1.1.0"
+rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
+slice-vec = { git = "ssh://git@github.com/auxoncorp/slice-vec.git", branch = "master"}
+
+[dev-dependencies]
+ekotrace-udp-collector = { path = "./ekotrace-udp-collector" }
+
+[build-dependencies]
+rust-lcm-codegen = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
