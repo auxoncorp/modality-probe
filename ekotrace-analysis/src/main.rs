@@ -9,7 +9,7 @@ use ekotrace_analysis as lib;
 use ekotrace_analysis::model;
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "truce-analysis", about = "Analyze 'truce' event logs")]
+#[structopt(name = "ekotrace-analysis", about = "Analyze 'Ekotrace' event logs")]
 enum Opt {
     SessionSummary {
         /// Event log csv file
