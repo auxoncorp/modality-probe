@@ -209,6 +209,28 @@ impl<'a> Ekotrace<'a> {
     ) -> Result<(), MergeError> {
         self.history.merge_fixed_size(external_history)
     }
+
+    /// Write a summary of this tracer's causal history, including the
+    /// given opaque metadata, for use by another Tracer elsewhere in
+    /// the system.
+    ///
+    /// This summary can be treated as an opaque blob of data that
+    /// ought to be passed around to be `merge_snapshot`d, though it
+    /// will conform to an internal schema for the interested.
+    ///
+    /// Pre-pruned to the causal history of just this node and its
+    /// immediate inbound neighbors.
+    ///
+    /// If the write was successful, returns the number of bytes
+    /// written
+    pub fn distribute_snapshot_with_metadata(
+        &mut self,
+        destination: &mut [u8],
+        meta: &[u8],
+    ) -> Result<usize, DistributeError> {
+        self.history
+            .write_lcm_logical_clock_with_metadata(destination, meta)
+    }
 }
 
 impl<'a> Tracer for Ekotrace<'a> {
