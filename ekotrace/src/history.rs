@@ -1,6 +1,6 @@
 use super::{
-    CausalSnapshot, DistributeError, EventId, LogicalClock, MergeError, ReportError,
-    StorageSetupError, TracerId,
+    CausalSnapshot, DistributeError, EventId, ExtensionBytes, LogicalClock, MergeError,
+    ReportError, StorageSetupError, TracerId,
 };
 use crate::compact_log::{self, CompactLogItem, CompactLogVec};
 use core::cmp::{max, Ordering, PartialEq};
@@ -303,19 +303,19 @@ impl<'a> DynamicHistory<'a> {
         &mut self,
         destination: &mut [u8],
     ) -> Result<usize, DistributeError> {
-        self.write_lcm_logical_clock_with_metadata(destination, &[])
+        self.write_lcm_logical_clock_with_metadata(destination, ExtensionBytes(&[]))
     }
 
     /// Produce an opaque snapshot of the causal state for
     /// transmission within the system under test and include the
-    /// given metadata in the snapshot.
+    /// given metadata in the snapshot's extension metadata field.
     ///
     /// If the write was successful, returns the number of bytes written.
     #[inline]
     pub(crate) fn write_lcm_logical_clock_with_metadata(
         &mut self,
         destination: &mut [u8],
-        meta: &[u8],
+        meta: ExtensionBytes<'_>,
     ) -> Result<usize, DistributeError> {
         // Increment and log the local logical clock first, so we know that both
         // local and remote events (from tracers which ingest this blob) can be
@@ -336,11 +336,9 @@ impl<'a> DynamicHistory<'a> {
             })?
         }
         let w = w.done()?;
-        let mut w = w.write_n_extension_bytes(meta.len() as i32)?;
-        for (byte_writer, byte) in (&mut w).zip(meta) {
-            byte_writer.write(*byte)?;
-        }
-        let _w: lcm::in_system::causal_snapshot_write_done<_> = w.done()?;
+        let w = w.write_n_extension_bytes(meta.0.len() as i32)?;
+        let _w: lcm::in_system::causal_snapshot_write_done<_> =
+            w.extension_bytes_copy_from_slice(meta.0)?;
         Ok(buffer_writer.cursor())
     }
 
@@ -375,10 +373,10 @@ impl<'a> DynamicHistory<'a> {
         })
     }
     #[inline]
-    pub(crate) fn merge_from_lcm_log_report_bytes(
-        &mut self,
-        source: &[u8],
-    ) -> Result<(), MergeError> {
+    pub(crate) fn merge_from_lcm_log_report_bytes<'d>(
+        &'_ mut self,
+        source: &'d [u8],
+    ) -> Result<ExtensionBytes<'d>, MergeError> {
         impl From<DecodeValueError<rust_lcm_codec::BufferReaderError>> for MergeError {
             #[inline]
             fn from(_: DecodeValueError<rust_lcm_codec::BufferReaderError>) -> Self {
@@ -417,14 +415,18 @@ impl<'a> DynamicHistory<'a> {
         let merge_result = self.merge_internal(neighbor_id as u32, clocks_iterator);
         // Confirm we have fully read the causal snapshot message
         let r = r.done()?;
-        let (_n_extension_bytes, mut r) = r.read_n_extension_bytes()?;
-        // N.B. Expect to replace this iteration with cheaper slice-based skip-ahead
-        // when rust-lcm-codegen is updated to provide special case options for byte arrays.
-        for extension_bytes_item_reader in &mut r {
-            let _extension_byte = extension_bytes_item_reader.read()?;
-        }
-        let _read_done_result: lcm::in_system::causal_snapshot_read_done<_> = r.done()?;
-        merge_result
+        let (n_extension_bytes, r) = r.read_n_extension_bytes()?;
+        let (_extension_bytes, _r): (_, lcm::in_system::causal_snapshot_read_done<_>) =
+            r.extension_bytes_as_slice()?;
+        // Here we rely on the fact that the extension bytes are the last thing in the message to
+        // drag them out of the original source buffer.
+        // N.B. If the schema ever changes such that there are more contents after the
+        // extension bytes, this technique will cease to work.
+        let extension_bytes_end_index = buffer_reader.cursor();
+        let extension_bytes = &source
+            [extension_bytes_end_index - (n_extension_bytes as usize)..extension_bytes_end_index];
+        debug_assert_eq!(extension_bytes.len(), n_extension_bytes as usize);
+        merge_result.map(|_| ExtensionBytes(extension_bytes))
     }
 
     /// Merge a publicly-transmittable causal history into our specialized local in-memory storage

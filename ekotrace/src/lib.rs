@@ -211,7 +211,7 @@ impl<'a> Ekotrace<'a> {
     }
 
     /// Write a summary of this tracer's causal history, including the
-    /// given opaque metadata, for use by another Tracer elsewhere in
+    /// given opaque extension metadata, for use by another Tracer elsewhere in
     /// the system.
     ///
     /// This summary can be treated as an opaque blob of data that
@@ -229,9 +229,24 @@ impl<'a> Ekotrace<'a> {
         meta: &[u8],
     ) -> Result<usize, DistributeError> {
         self.history
-            .write_lcm_logical_clock_with_metadata(destination, meta)
+            .write_lcm_logical_clock_with_metadata(destination, ExtensionBytes(meta))
+    }
+    /// Consume a causal history summary structure provided
+    /// by some other Tracer via `distribute_snapshot` or
+    /// `distribute_snapshot_with_metadata` and return the extension
+    /// metadata bytes for further custom processing.
+    pub fn merge_snapshot_with_metadata<'d>(
+        &mut self,
+        source: &'d [u8],
+    ) -> Result<ExtensionBytes<'d>, MergeError> {
+        self.history.merge_from_lcm_log_report_bytes(source)
     }
 }
+
+/// Raw bytes related to extension metadata stored alongside
+/// the messages transmitted in this system (snapshots or
+/// reports).
+pub struct ExtensionBytes<'a>(pub &'a [u8]);
 
 impl<'a> Tracer for Ekotrace<'a> {
     #[inline]
@@ -246,7 +261,8 @@ impl<'a> Tracer for Ekotrace<'a> {
 
     #[inline]
     fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError> {
-        self.history.merge_from_lcm_log_report_bytes(source)
+        let _extension_bytes = self.history.merge_from_lcm_log_report_bytes(source)?;
+        Ok(())
     }
 
     #[inline]
