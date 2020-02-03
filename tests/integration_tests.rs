@@ -1,5 +1,5 @@
-use alloc_log_report::*;
 use ekotrace::*;
+use ekotrace_udp_collector::alloc_log_report::*;
 use std::convert::TryInto;
 
 struct Buffer {

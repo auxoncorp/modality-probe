@@ -120,7 +120,7 @@ use crate::tracing_ids::*;
 let ekotrace_foo = Ekotrace::try_initialize_at(&mut storage_bytes, LOCATION_ID_FOO)?;
 
 // Record events
-if match bar() {
+match bar() {
     true => ekotrace_foo.record_event(EVENT_A),
     false => ekotrace_foo.record_event(EVENT_B),
 }

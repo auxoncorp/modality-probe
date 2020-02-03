@@ -5,6 +5,8 @@ use std::io::{Error as IoError, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
 
+pub mod alloc_log_report;
+
 #[derive(Debug, PartialEq)]
 pub struct Config {
     pub addr: SocketAddr,
