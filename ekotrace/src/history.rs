@@ -2,14 +2,14 @@ use super::{
     CausalSnapshot, DistributeError, EventId, LogicalClock, MergeError, ReportError,
     StorageSetupError, TracerId,
 };
-use crate::byte_util::{embed, EmbedValueError, SplitUninitError};
 use crate::compact_log::{self, CompactLogItem, CompactLogVec};
-use crate::slice_vec::SliceVec;
 use core::cmp::{max, Ordering, PartialEq};
 use core::convert::TryInto;
 use core::fmt::{Error as FmtError, Formatter};
 use core::mem::{align_of, size_of};
 use rust_lcm_codec::{DecodeFingerprintError, DecodeValueError, EncodeValueError};
+use slice_vec::slice_single::{embed, EmbedValueError, SplitUninitError};
+use slice_vec::SliceVec;
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_assert_eq};
 
 impl LogicalClock {

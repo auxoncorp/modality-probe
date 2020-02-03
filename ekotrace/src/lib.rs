@@ -6,20 +6,18 @@
 use static_assertions::{assert_cfg, const_assert};
 assert_cfg!(not(target_pointer_width = "16"));
 
-pub mod byte_util;
 mod compact_log;
 mod error;
 mod history;
 mod id;
-pub mod slice_vec;
 
-use byte_util::{embed, EmbedValueError, SplitUninitError};
 pub use error::*;
 use history::DynamicHistory;
 pub use id::*;
 
 use core::convert::TryFrom;
 use core::mem::size_of;
+use slice_vec::slice_single::{embed, EmbedValueError, SplitUninitError};
 
 /// Fixed-sized snapshot of causal history for transmission around the system
 ///

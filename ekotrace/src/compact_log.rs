@@ -1,5 +1,5 @@
 use super::{EventId, LogicalClock};
-use crate::slice_vec::*;
+use slice_vec::SliceVec;
 
 pub(crate) type CompactLogVec<'a> = SliceVec<'a, CompactLogItem>;
 
