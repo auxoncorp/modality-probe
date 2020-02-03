@@ -303,6 +303,20 @@ impl<'a> DynamicHistory<'a> {
         &mut self,
         destination: &mut [u8],
     ) -> Result<usize, DistributeError> {
+        self.write_lcm_logical_clock_with_metadata(destination, &[])
+    }
+
+    /// Produce an opaque snapshot of the causal state for
+    /// transmission within the system under test and include the
+    /// given metadata in the snapshot.
+    ///
+    /// If the write was successful, returns the number of bytes written.
+    #[inline]
+    pub(crate) fn write_lcm_logical_clock_with_metadata(
+        &mut self,
+        destination: &mut [u8],
+        meta: &[u8],
+    ) -> Result<usize, DistributeError> {
         // Increment and log the local logical clock first, so we know that both
         // local and remote events (from tracers which ingest this blob) can be
         // related to previous local events.
@@ -322,7 +336,10 @@ impl<'a> DynamicHistory<'a> {
             })?
         }
         let w = w.done()?;
-        let w = w.write_n_extension_bytes(0)?;
+        let mut w = w.write_n_extension_bytes(meta.len() as i32)?;
+        for (byte_writer, byte) in (&mut w).zip(meta) {
+            byte_writer.write(*byte)?;
+        }
         let _w: lcm::in_system::causal_snapshot_write_done<_> = w.done()?;
         Ok(buffer_writer.cursor())
     }
