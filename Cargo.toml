@@ -14,7 +14,6 @@ members = [
   "ekotrace-header-gen",
   "ekotrace-manifest-gen",
   "ekotrace-udp-collector",
-  "test-support/proc-graph",
 ]
 
 [dependencies]
