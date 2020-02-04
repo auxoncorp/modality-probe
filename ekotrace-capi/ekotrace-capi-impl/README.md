@@ -1,7 +1,7 @@
 # ekotrace-capi-impl
 
 This crate is a Rust library containing C-friendly adapters
-of the essential [ekotrace](../ekotrace) functions.
+of the essential [ekotrace](../../) functions.
 
 The [ekotrace-capi](../ekotrace-capi) project is the primary
 user of this library. These two projects are separated in order to

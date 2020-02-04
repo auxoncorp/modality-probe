@@ -33,8 +33,8 @@ with each other inside the system-under-investigation.
 `Ekotrace`s produce rich reports that can be transmitted
 for external analysis at a user-defined cadence.
 
-The content of those [in-system summaries](../schemas/in_system.lcm)
-and the [reports for external analysis](../schemas/log_reporting.lcm)
+The content of those [in-system summaries](schemas/in_system.lcm)
+and the [reports for external analysis](schemas/log_reporting.lcm)
 are defined according to a standardized protocol, but may be treated
 as opaque by users.
 
@@ -138,11 +138,11 @@ immediate neighbors. In principle, we should be able to get away with just
 transmitting the tracer's own clock, but this adds some redundancy in the case
 where the sending and receiving tracers have shared neighbors.
 
-The schema is defined in [in_system.lcm](../schemas/in_system.lcm).
+The schema is defined in [in_system.lcm](schemas/in_system.lcm).
 
 ## Overview (TODO)
 
-The core of `ekotrace` is the [reference client library implementation](ekotrace),
+The core of `ekotrace` is the [reference client library implementation](.),
 which provides the capabilities developers need to start capturing trace
 data in their systems of interest.
 
@@ -214,10 +214,24 @@ The [ekotrace-header-gen](ekotrace-header-gen) tool automates away id-in-code de
 
 ## APIs
 
-The client library has a [C API](ekotrace-capi) and a `no_std` no-alloc compatible [Rust API](ekotrace) available.
+The client library has a [C API](ekotrace-capi) and a `no_std` no-alloc compatible [Rust API](.) available.
 
 See the [C API README](ekotrace-capi/README.md) for directions on using
 `ekotrace` from C as a static library.
+
+## Examples
+
+See the event-recording [example](examples/event-recording/main.rs).
+
+```bash
+cd examples/event-recording/
+
+cargo run -p ekotrace-manifest-gen -- --events-csv-file events.csv --tracers-csv-file tracers.csv ./
+
+cargo run -p ekotrace-header-gen -- --lang Rust events.csv tracers.csv > tracing_ids.rs
+
+cargo run --example event-recording
+```
 
 ## Automated Workflow Example
 
