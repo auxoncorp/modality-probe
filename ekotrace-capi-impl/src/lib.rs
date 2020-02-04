@@ -102,7 +102,11 @@ pub unsafe fn ekotrace_report(
         log_report_destination_size_bytes,
     )) {
         Ok(b) => b,
-        Err(_) => return EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES,
+        Err(ReportError::InsufficientDestinationSize) => {
+            return EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
+        }
+        Err(ReportError::Encoding) => return EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
+        Err(ReportError::Extension) => return EKOTRACE_RESULT_EXTENSION_ERROR,
     };
 
     *out_written_bytes = written_bytes;
