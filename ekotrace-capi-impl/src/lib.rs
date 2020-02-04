@@ -31,6 +31,8 @@ pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING: EkotraceResult = 8;
 /// such as by having a tracer_id out of the allowed value range.
 /// Detected during merging.
 pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS: EkotraceResult = 9;
+/// The tracer encountered a problem dealing with extension metadata
+pub const EKOTRACE_RESULT_EXTENSION_ERROR: EkotraceResult = 10;
 
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_initialize(
@@ -130,6 +132,7 @@ pub unsafe fn ekotrace_distribute_snapshot(
             EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
         }
         Err(DistributeError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
+        Err(DistributeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
     }
 }
 
@@ -151,6 +154,7 @@ pub unsafe fn ekotrace_distribute_fixed_size_snapshot(
             EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
         }
         Err(DistributeError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
+        Err(DistributeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
     }
 }
 
@@ -176,6 +180,7 @@ pub unsafe fn ekotrace_merge_snapshot(
         Err(MergeError::ExternalHistorySemantics) => {
             EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS
         }
+        Err(MergeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
     }
 }
 
@@ -197,6 +202,7 @@ pub unsafe fn ekotrace_merge_fixed_size_snapshot(
         Err(MergeError::ExternalHistorySemantics) => {
             EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS
         }
+        Err(MergeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
     }
 }
 

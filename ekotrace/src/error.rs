@@ -62,6 +62,8 @@ pub enum DistributeError {
     /// Indicates a logical error in the implementation of this library
     /// (or its dependencies).
     Encoding,
+    /// The tracer encountered a problem dealing with extension metadata
+    Extension,
 }
 
 /// The errors than can occur when merging in the causal history from some
@@ -80,6 +82,8 @@ pub enum MergeError {
     /// The external history violated a semantic rule of the protocol,
     /// such as by having a tracer_id out of the allowed value range.
     ExternalHistorySemantics,
+    /// The tracer encountered a problem dealing with extension metadata
+    Extension,
 }
 /// The error relating to using the `report` method to
 /// produce a full causal history log report.
@@ -94,6 +98,8 @@ pub enum ReportError {
     /// Indicates a logical error in the implementation of this library
     /// (or its dependencies).
     Encoding,
+    /// The tracer encountered a problem dealing with extension metadata
+    Extension,
 }
 
 /// General purpose error that captures all errors that arise

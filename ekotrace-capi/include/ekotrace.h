@@ -75,6 +75,10 @@ typedef enum {
      * Detected during merging.
      */
     EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS = 9,
+    /*
+     * The tracer encountered a problem dealing with extension metadata
+     */
+    EKOTRACE_RESULT_EXTENSION_ERROR = 10,
 } ekotrace_result;
 
 typedef struct causal_snapshot {
