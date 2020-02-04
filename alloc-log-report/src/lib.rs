@@ -8,15 +8,8 @@ pub mod lcm {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogReport {
     pub tracer_id: i32,
-    pub flags: ErrorFlags,
     pub segments: Vec<LogSegment>,
     pub extension_bytes: Vec<u8>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ErrorFlags {
-    pub has_overflowed_log: bool,
-    pub has_overflowed_num_clocks: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -38,19 +31,6 @@ impl LogReport {
         let mut buffer_reader = rust_lcm_codec::BufferReader::new(bytes);
         let r = lcm::log_reporting::begin_log_report_read(&mut buffer_reader).map_err(|_| ())?;
         let (tracer_id, r) = r.read_tracer_id().map_err(|_| ())?;
-        let mut flags = ErrorFlags {
-            has_overflowed_log: false,
-            has_overflowed_num_clocks: false,
-        };
-        let r = r
-            .read_flags(|fr| {
-                let (log_overflow, fr) = fr.read_has_overflowed_log()?;
-                flags.has_overflowed_log = log_overflow;
-                let (buckets_overflow, fr) = fr.read_has_overflowed_num_clocks()?;
-                flags.has_overflowed_num_clocks = buckets_overflow;
-                Ok(fr)
-            })
-            .map_err(|_| ())?;
         let mut segments = Vec::new();
         let (_n_segments, mut r) = r.read_n_segments().map_err(|_| ())?;
         for segment_item_reader in &mut r {
@@ -91,7 +71,6 @@ impl LogReport {
             r.done().map_err(|_| ())?;
         Ok(LogReport {
             tracer_id,
-            flags,
             segments,
             extension_bytes,
         })
@@ -101,14 +80,6 @@ impl LogReport {
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
         let w = lcm::log_reporting::begin_log_report_write(&mut buffer_writer).map_err(|_| ())?;
         let w = w.write_tracer_id(self.tracer_id).map_err(|_| ())?;
-        let w = w
-            .write_flags(|fw| {
-                let fw = fw.write_has_overflowed_log(self.flags.has_overflowed_log)?;
-                let fw =
-                    fw.write_has_overflowed_num_clocks(self.flags.has_overflowed_num_clocks)?;
-                Ok(fw)
-            })
-            .map_err(|_| ())?;
 
         let expected_n_segments = self.segments.len();
         let mut w = w

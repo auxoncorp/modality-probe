@@ -8,7 +8,7 @@ use core::num::NonZeroU32;
 /// Typically represents a single thread.
 ///
 /// Must be backed by a value greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct TracerId(NonZeroU32);
 
@@ -123,7 +123,7 @@ fallible_sizing_try_from_impl!(i128, EventId, InvalidEventId, InvalidEventId);
 fallible_sizing_try_from_impl!(isize, EventId, InvalidEventId, InvalidEventId);
 
 /// Uniquely identify an event or kind of event.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct EventId(NonZeroU32);
 
@@ -150,6 +150,11 @@ impl EventId {
     /// A logical clock's count reached the maximum trackable value
     pub const EVENT_LOGICAL_CLOCK_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 3) });
+    /// The local tracing instance (e.g. Ekotrace) did not have enough memory
+    /// reserved to store enough logical clocks to track all of the unique
+    /// neighbors that attempt to communicate with it.
+    pub const EVENT_NUM_CLOCKS_OVERFLOWED: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 4) });
 
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[

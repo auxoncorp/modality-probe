@@ -2,16 +2,10 @@ package log_reporting;
 
 struct log_report {
     int32_t tracer_id;
-    error_flags flags;
     int32_t n_segments;
     log_segment segments[n_segments];
     int32_t n_extension_bytes;
     byte extension_bytes[n_extension_bytes];
-}
-
-struct error_flags {
-    boolean has_overflowed_log;
-    boolean has_overflowed_num_clocks;
 }
 
 struct log_segment {

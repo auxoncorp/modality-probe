@@ -214,10 +214,6 @@ mod tests {
     fn dummy_report(raw_main_tracer_id: i32) -> LogReport {
         LogReport {
             tracer_id: raw_main_tracer_id,
-            flags: ErrorFlags {
-                has_overflowed_log: false,
-                has_overflowed_num_clocks: false,
-            },
             segments: vec![
                 LogSegment {
                     clocks: vec![

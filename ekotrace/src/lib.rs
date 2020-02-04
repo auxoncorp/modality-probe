@@ -15,6 +15,7 @@ pub use error::*;
 use history::DynamicHistory;
 pub use id::*;
 
+use core::cmp::Ordering;
 use core::convert::TryFrom;
 use core::mem::size_of;
 use slice_vec::slice_single::{embed, EmbedValueError, SplitUninitError};
@@ -40,7 +41,7 @@ pub struct CausalSnapshot {
 ///
 /// Note the use of bare integer types rather than the safety-oriented
 /// wrappers (TracerId, NonZero*) for C representation reasons.
-#[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 #[repr(C)]
 pub struct LogicalClock {
     /// The tracer node that this clock is tracking
@@ -135,7 +136,6 @@ impl<'a> Ekotrace<'a> {
     /// use in C.
     ///
     /// Use `new_with_storage` instead if you're working in Rust.
-    #[allow(clippy::cast_ptr_alignment)]
     #[inline]
     pub fn initialize_at(
         memory: &'a mut [u8],
@@ -226,10 +226,10 @@ impl<'a> Ekotrace<'a> {
     pub fn distribute_snapshot_with_metadata(
         &mut self,
         destination: &mut [u8],
-        meta: &[u8],
+        meta: ExtensionBytes<'_>,
     ) -> Result<usize, DistributeError> {
         self.history
-            .write_lcm_logical_clock_with_metadata(destination, ExtensionBytes(meta))
+            .write_lcm_logical_clock_with_metadata(destination, meta)
     }
     /// Consume a causal history summary structure provided
     /// by some other Tracer via `distribute_snapshot` or
@@ -240,6 +240,54 @@ impl<'a> Ekotrace<'a> {
         source: &'d [u8],
     ) -> Result<ExtensionBytes<'d>, MergeError> {
         self.history.merge_from_lcm_log_report_bytes(source)
+    }
+    /// Conduct necessary background activities and write
+    /// the recorded reporting log to a collection backend,
+    /// including arbitrary extension bytes provided.
+    ///
+    /// Writes the Tracer's internal state according to the
+    /// log reporting schema.
+    ///
+    /// If the write was successful, returns the number of bytes written
+    pub fn report_with_extension(
+        &mut self,
+        destination: &mut [u8],
+        extension_metadata: ExtensionBytes<'_>,
+    ) -> Result<usize, ReportError> {
+        self.history
+            .write_lcm_log_report(destination, extension_metadata)
+    }
+
+    /// Capture the current instance's moment in causal time
+    /// for correlation with external systems.
+    pub fn now(&self) -> EkotraceNow {
+        self.history.now()
+    }
+}
+
+/// A situated moment in causal time.
+///
+/// Note the use of bare integer types rather than the safety-oriented
+/// wrappers (TracerId, NonZero*) for C representation reasons.
+#[derive(Debug, PartialEq, Hash)]
+#[repr(C)]
+pub struct EkotraceNow {
+    /// The current location's logical clock
+    pub logical_clock: LogicalClock,
+    /// How many events have been seen in the
+    /// current report
+    pub report_event_index: u32,
+}
+
+impl PartialOrd for EkotraceNow {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.logical_clock.id != other.logical_clock.id {
+            return None;
+        }
+        match self.logical_clock.count.cmp(&other.logical_clock.count) {
+            Ordering::Equal => Some(self.report_event_index.cmp(&other.report_event_index)),
+            o => Some(o),
+        }
     }
 }
 
@@ -256,17 +304,17 @@ impl<'a> Tracer for Ekotrace<'a> {
 
     #[inline]
     fn distribute_snapshot(&mut self, destination: &mut [u8]) -> Result<usize, DistributeError> {
-        self.history.write_lcm_logical_clock(destination)
+        self.distribute_snapshot_with_metadata(destination, ExtensionBytes(&[]))
     }
 
     #[inline]
     fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError> {
-        let _extension_bytes = self.history.merge_from_lcm_log_report_bytes(source)?;
+        let _extension_bytes = self.merge_snapshot_with_metadata(source)?;
         Ok(())
     }
 
     #[inline]
     fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
-        self.history.write_lcm_log_report(destination)
+        self.report_with_extension(destination, ExtensionBytes(&[]))
     }
 }

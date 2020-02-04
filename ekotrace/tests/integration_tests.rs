@@ -115,8 +115,6 @@ fn happy_path_backend_service() -> Result<(), EkotraceError> {
     let log_report =
         LogReport::from_lcm(&backend[..bytes_written]).expect("Could not read from lcm");
     assert_eq!(123, log_report.tracer_id);
-    assert!(!log_report.flags.has_overflowed_log);
-    assert!(!log_report.flags.has_overflowed_num_clocks);
     assert_eq!(1, log_report.segments.len());
     let segment = log_report.segments.first().expect("Should have 1 segment");
     assert!(segment.events.is_empty());

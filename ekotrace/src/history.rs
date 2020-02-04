@@ -1,6 +1,6 @@
 use super::{
-    CausalSnapshot, DistributeError, EventId, ExtensionBytes, LogicalClock, MergeError,
-    ReportError, StorageSetupError, TracerId,
+    CausalSnapshot, DistributeError, EkotraceNow, EventId, ExtensionBytes, LogicalClock,
+    MergeError, ReportError, StorageSetupError, TracerId,
 };
 use crate::compact_log::{self, CompactLogItem, CompactLogVec};
 use core::cmp::{max, Ordering, PartialEq};
@@ -172,8 +172,7 @@ const_assert_eq!(
 #[repr(C)]
 pub struct DynamicHistory<'a> {
     tracer_id: u32,
-    has_overflowed_log: bool,
-    has_overflowed_num_clocks: bool,
+    report_event_index: u32,
 
     clocks: SliceVec<'a, LogicalClock>,
     compact_log: CompactLogVec<'a>,
@@ -183,7 +182,6 @@ pub struct DynamicHistory<'a> {
 struct ClocksFullError;
 
 impl<'a> DynamicHistory<'a> {
-    #[allow(clippy::cast_ptr_alignment)]
     #[inline]
     pub fn new_at(
         destination: &mut [u8],
@@ -214,10 +212,9 @@ impl<'a> DynamicHistory<'a> {
             }
             Ok(DynamicHistory {
                 tracer_id: tracer_id.get_raw(),
-                has_overflowed_log: false,
-                has_overflowed_num_clocks: false,
                 clocks,
                 compact_log,
+                report_event_index: 0,
             })
         }) {
             Ok(v) => Ok(v),
@@ -265,7 +262,7 @@ impl<'a> DynamicHistory<'a> {
     #[inline]
     fn clear_log(&mut self) {
         self.compact_log.clear();
-        self.has_overflowed_log = false;
+        self.report_event_index = 0;
     }
 
     /// Add an item to the internal log that records this event occurred
@@ -273,16 +270,24 @@ impl<'a> DynamicHistory<'a> {
     /// May silently drop events if the log has overflowed
     #[inline]
     pub(crate) fn record_event(&mut self, event_id: EventId) {
-        if self.has_overflowed_log {
+        let len = self.compact_log.len();
+        let cap = self.compact_log.capacity();
+        if len == cap {
+            return;
+        }
+        if len == cap - 1 {
+            let _ = self
+                .compact_log
+                .try_push(CompactLogItem::event(EventId::EVENT_LOG_OVERFLOWED));
             return;
         }
         // N.B. point for future improvement - basic compression here
         if self
             .compact_log
             .try_push(CompactLogItem::event(event_id))
-            .is_err()
+            .is_ok()
         {
-            self.has_overflowed_log = true;
+            self.report_event_index += 1;
         }
     }
 
@@ -292,18 +297,6 @@ impl<'a> DynamicHistory<'a> {
         // N.B. We rely on the fact that the first member of the clocks
         // collection is always the clock for this tracer
         self.clocks.as_mut_slice()[0].count = self.clocks.as_slice()[0].count.saturating_add(1);
-    }
-
-    /// Produce an opaque snapshot of the causal state for transmission
-    /// within the system under test.
-    ///
-    /// If the write was successful, returns the number of bytes written.
-    #[inline]
-    pub(crate) fn write_lcm_logical_clock(
-        &mut self,
-        destination: &mut [u8],
-    ) -> Result<usize, DistributeError> {
-        self.write_lcm_logical_clock_with_metadata(destination, ExtensionBytes(&[]))
     }
 
     /// Produce an opaque snapshot of the causal state for
@@ -353,6 +346,7 @@ impl<'a> DynamicHistory<'a> {
             return Err(DistributeError::InsufficientDestinationSize);
         }
         self.increment_local_clock_count();
+        self.write_current_clocks_to_log();
         let mut non_empty_clocks_count: usize = 0;
         for (source, sink) in self
             .clocks
@@ -474,7 +468,9 @@ impl<'a> DynamicHistory<'a> {
                 })
                 .is_err()
         {
-            self.has_overflowed_num_clocks = true;
+            let _ = self
+                .compact_log
+                .try_push(CompactLogItem::event(EventId::EVENT_NUM_CLOCKS_OVERFLOWED));
             return Err(MergeError::ExceededAvailableClocks);
         }
 
@@ -517,15 +513,16 @@ impl<'a> DynamicHistory<'a> {
 
     #[inline]
     fn write_current_clocks_to_log(&mut self) {
-        if self.has_overflowed_log {
+        if self.compact_log.is_full() {
             return;
         }
-        let max_len_that_can_fit_a_clock = (self.compact_log.capacity() - 1) as usize;
+        let max_len_that_can_fit_a_clock_and_overflow_notice =
+            (self.compact_log.capacity() - 2) as usize;
         let mut log_len = self.compact_log.len();
         let mut has_overflowed_log = false;
         for b in self.clocks.as_slice() {
             let (id, count) = CompactLogItem::clock(*b);
-            if log_len < max_len_that_can_fit_a_clock {
+            if log_len < max_len_that_can_fit_a_clock_and_overflow_notice {
                 self.compact_log
                     .try_push(id)
                     .expect("Already checked id will fit");
@@ -540,7 +537,11 @@ impl<'a> DynamicHistory<'a> {
                 break;
             }
         }
-        self.has_overflowed_log |= has_overflowed_log;
+        if has_overflowed_log {
+            let _ = self
+                .compact_log
+                .try_push(CompactLogItem::event(EventId::EVENT_LOG_OVERFLOWED));
+        }
     }
 
     /// Produce a report for external use, containing:
@@ -552,16 +553,11 @@ impl<'a> DynamicHistory<'a> {
     pub(crate) fn write_lcm_log_report(
         &mut self,
         destination: &mut [u8],
+        extension: ExtensionBytes<'_>,
     ) -> Result<usize, ReportError> {
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
         let w = lcm::log_reporting::begin_log_report_write(&mut buffer_writer)?;
         let w = w.write_tracer_id(self.tracer_id as i32)?;
-        let w = w.write_flags(|fw| {
-            let fw = fw.write_has_overflowed_log(self.has_overflowed_log)?;
-            let fw = fw.write_has_overflowed_num_clocks(self.has_overflowed_num_clocks)?;
-            Ok(fw)
-        })?;
-
         let mut log_items = self.compact_log.as_slice();
         let expected_n_segments = compact_log::count_segments(log_items);
         let mut w = w.write_n_segments(expected_n_segments as i32)?;
@@ -603,14 +599,22 @@ impl<'a> DynamicHistory<'a> {
             "we should have written all of the log items into the segments"
         );
         let w = w.done()?;
-        let w = w.write_n_extension_bytes(0)?;
-        let _w: lcm::log_reporting::log_report_write_done<_> = w.done()?;
+        let w = w.write_n_extension_bytes(extension.0.len() as i32)?;
+        let _w: lcm::log_reporting::log_report_write_done<_> =
+            w.extension_bytes_copy_from_slice(extension.0)?;
 
         self.clear_log();
         self.increment_local_clock_count();
         self.write_current_clocks_to_log();
         self.record_event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT);
         Ok(buffer_writer.cursor())
+    }
+
+    pub(crate) fn now(&self) -> EkotraceNow {
+        EkotraceNow {
+            logical_clock: self.clocks[0],
+            report_event_index: self.report_event_index,
+        }
     }
 }
 
