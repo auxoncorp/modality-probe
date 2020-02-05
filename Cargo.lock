@@ -285,9 +285,9 @@ name = "ekotrace"
 version = "0.2.0"
 dependencies = [
  "alloc-log-report",
+ "fixed-slice-vec",
  "rust-lcm-codec",
  "rust-lcm-codegen",
- "slice-vec",
  "static_assertions 1.1.0",
 ]
 
@@ -367,6 +367,12 @@ name = "fake-simd"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e88a8acf291dafb59c2d96e8f59828f3838bb1a70398823ade51a84de6a6deed"
+
+[[package]]
+name = "fixed-slice-vec"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0de699c518fc4b633648259c888fd3994539913bd5c3d622242b8224ecf43e8b"
 
 [[package]]
 name = "fixedbitset"
@@ -957,11 +963,6 @@ dependencies = [
  "fake-simd",
  "opaque-debug",
 ]
-
-[[package]]
-name = "slice-vec"
-version = "0.2.0"
-source = "git+ssh://git@github.com/auxoncorp/slice-vec.git#969e8e65fad8b6affc9f5dc1bc1ceed9db6281cd"
 
 [[package]]
 name = "static_assertions"

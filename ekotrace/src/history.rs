@@ -7,9 +7,9 @@ use core::cmp::{max, Ordering, PartialEq};
 use core::convert::TryInto;
 use core::fmt::{Error as FmtError, Formatter};
 use core::mem::{align_of, size_of};
+use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
+use fixed_slice_vec::FixedSliceVec;
 use rust_lcm_codec::{DecodeFingerprintError, DecodeValueError, EncodeValueError};
-use slice_vec::slice_single::{embed, EmbedValueError, SplitUninitError};
-use slice_vec::SliceVec;
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_assert_eq};
 
 impl LogicalClock {
@@ -161,7 +161,7 @@ assert_eq_size!(u32, CompactLogItem);
 assert_eq_align!(u32, CompactLogItem);
 
 const_assert_eq!(
-    8 + size_of::<SliceVec<'_, LogicalClock>>() + size_of::<CompactLogVec<'_>>(),
+    8 + size_of::<FixedSliceVec<'_, LogicalClock>>() + size_of::<CompactLogVec<'_>>(),
     size_of::<DynamicHistory>()
 );
 
@@ -175,7 +175,7 @@ pub struct DynamicHistory<'a> {
     /// location's logical clock last increased.
     event_count: u32,
 
-    clocks: SliceVec<'a, LogicalClock>,
+    clocks: FixedSliceVec<'a, LogicalClock>,
     compact_log: CompactLogVec<'a>,
 }
 
@@ -200,6 +200,9 @@ impl<'a> DynamicHistory<'a> {
         }) {
             Ok(v) => Ok(v),
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
+                Err(StorageSetupError::UnderMinimumAllowedSize)
+            }
+            Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => {
                 Err(StorageSetupError::UnderMinimumAllowedSize)
             }
             Err(EmbedValueError::SplitUninitError(SplitUninitError::ZeroSizedTypesUnsupported)) => {
@@ -240,7 +243,7 @@ impl<'a> DynamicHistory<'a> {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
-        let mut clocks = SliceVec::from_bytes(clocks_region);
+        let mut clocks = FixedSliceVec::from_bytes(clocks_region);
         let mut compact_log = CompactLogVec::from_bytes(log_region);
         if clocks.capacity() < MIN_CLOCKS_LEN || compact_log.capacity() < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);

@@ -18,7 +18,7 @@ pub use id::*;
 use core::cmp::Ordering;
 use core::convert::TryFrom;
 use core::mem::size_of;
-use slice_vec::slice_single::{embed, EmbedValueError, SplitUninitError};
+use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
 
 /// Fixed-sized snapshot of causal history for transmission around the system
 ///
@@ -146,6 +146,9 @@ impl<'a> Ekotrace<'a> {
         }) {
             Ok(v) => Ok(v),
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
+                Err(StorageSetupError::UnderMinimumAllowedSize)
+            }
+            Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => {
                 Err(StorageSetupError::UnderMinimumAllowedSize)
             }
             Err(EmbedValueError::SplitUninitError(SplitUninitError::ZeroSizedTypesUnsupported)) => {

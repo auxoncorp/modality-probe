@@ -10,7 +10,7 @@ readme = "README.md"
 [dependencies]
 static_assertions = "1.1.0"
 rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
-slice-vec = { git = "ssh://git@github.com/auxoncorp/slice-vec.git", branch = "master"}
+fixed-slice-vec = "0.2"
 
 [dev-dependencies]
 alloc-log-report = { path = "../alloc-log-report" }

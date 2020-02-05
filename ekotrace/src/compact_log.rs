@@ -1,7 +1,7 @@
 use super::{EventId, LogicalClock, TracerId};
-use slice_vec::SliceVec;
+use fixed_slice_vec::FixedSliceVec;
 
-pub(crate) type CompactLogVec<'a> = SliceVec<'a, CompactLogItem>;
+pub(crate) type CompactLogVec<'a> = FixedSliceVec<'a, CompactLogItem>;
 
 /// In a stream of these:
 ///     if the first bit is not set, treat it as recording an Event
