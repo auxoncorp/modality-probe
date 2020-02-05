@@ -169,9 +169,8 @@ const_assert_eq!(
 /// backed by runtime-sized arrays of current logical clocks
 /// and tracing log items
 #[derive(Debug)]
-#[repr(C)]
 pub struct DynamicHistory<'a> {
-    tracer_id: u32,
+    tracer_id: TracerId,
     /// The number of events seen since the current
     /// location's logical clock last increased.
     event_count: u32,
@@ -258,7 +257,7 @@ impl<'a> DynamicHistory<'a> {
         // clock information.
         DynamicHistory::write_clocks_to_log(&mut compact_log, clocks.as_slice());
         Ok(DynamicHistory {
-            tracer_id: tracer_id.get_raw(),
+            tracer_id,
             clocks,
             compact_log,
             event_count: 0,
@@ -329,7 +328,7 @@ impl<'a> DynamicHistory<'a> {
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
         let w = lcm::in_system::begin_causal_snapshot_write(&mut buffer_writer)?;
         let mut w = w
-            .write_tracer_id(self.tracer_id as i32)?
+            .write_tracer_id(self.tracer_id.get_raw() as i32)?
             .write_n_clocks(self.clocks.len() as i32)?;
         for (item_writer, clock) in (&mut w).zip(self.clocks.as_slice()) {
             item_writer.write(|bw| {
@@ -369,7 +368,7 @@ impl<'a> DynamicHistory<'a> {
         }
 
         Ok(CausalSnapshot {
-            tracer_id: self.tracer_id,
+            tracer_id: self.tracer_id.get_raw(),
             clocks,
             clocks_len: non_empty_clocks_count as u8,
         })
@@ -570,14 +569,14 @@ impl<'a> DynamicHistory<'a> {
     ) -> Result<usize, ReportError> {
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
         let w = lcm::log_reporting::begin_log_report_write(&mut buffer_writer)?;
-        let w = w.write_tracer_id(self.tracer_id as i32)?;
+        let w = w.write_tracer_id(self.tracer_id.get_raw() as i32)?;
         let mut log_items = self.compact_log.as_slice();
-        let expected_n_segments = compact_log::count_segments(log_items);
+        let expected_n_segments = compact_log::count_segments(log_items, self.tracer_id);
         let mut w = w.write_n_segments(expected_n_segments as i32)?;
         let mut actually_written_segments = 0;
         let mut actually_written_log_items = 0;
         for segment_item_writer in &mut w {
-            let segment = compact_log::split_next_segment(log_items);
+            let segment = compact_log::split_next_segment(log_items, self.tracer_id);
             log_items = segment.rest;
             segment_item_writer.write(|sw| {
                 let sw = sw.write_n_clocks(segment.clock_region.len() as i32 / 2)?;
