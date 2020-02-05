@@ -197,7 +197,7 @@ impl<'a> Ekotrace<'a> {
     ///  and its immediate inbound neighbors.
     #[inline]
     pub fn distribute_fixed_size_snapshot(&mut self) -> Result<CausalSnapshot, DistributeError> {
-        self.history.write_fixed_size_logical_clock()
+        self.history.write_fixed_size_snapshot()
     }
 
     /// Consume a fixed-sized causal history summary structure provided
@@ -229,7 +229,7 @@ impl<'a> Ekotrace<'a> {
         meta: ExtensionBytes<'_>,
     ) -> Result<usize, DistributeError> {
         self.history
-            .write_lcm_logical_clock_with_metadata(destination, meta)
+            .write_lcm_snapshot_with_metadata(destination, meta)
     }
     /// Consume a causal history summary structure provided
     /// by some other Tracer via `distribute_snapshot` or
@@ -239,7 +239,7 @@ impl<'a> Ekotrace<'a> {
         &mut self,
         source: &'d [u8],
     ) -> Result<ExtensionBytes<'d>, MergeError> {
-        self.history.merge_from_lcm_log_report_bytes(source)
+        self.history.merge_from_lcm_snapshot_bytes(source)
     }
     /// Conduct necessary background activities and write
     /// the recorded reporting log to a collection backend,
@@ -260,7 +260,7 @@ impl<'a> Ekotrace<'a> {
 
     /// Capture the current instance's moment in causal time
     /// for correlation with external systems.
-    pub fn now(&self) -> EkotraceNow {
+    pub fn now(&self) -> EkotraceInstant {
         self.history.now()
     }
 }
@@ -271,21 +271,24 @@ impl<'a> Ekotrace<'a> {
 /// wrappers (TracerId, NonZero*) for C representation reasons.
 #[derive(Debug, PartialEq, Hash)]
 #[repr(C)]
-pub struct EkotraceNow {
-    /// The current location's logical clock
-    pub logical_clock: LogicalClock,
-    /// How many events have been seen in the
-    /// current report
-    pub report_event_index: u32,
+pub struct EkotraceInstant {
+    /// The current location's logical clock.
+    /// `clock.id` should be equivalent to the id
+    /// (a.k.a TracerId or location id) of the source `Ekotrace` instance
+    pub clock: LogicalClock,
+    /// How many events have been seen since the source instance
+    /// reached the associated `clock`'s point in causal
+    /// time.
+    pub event_count: u32,
 }
 
-impl PartialOrd for EkotraceNow {
+impl PartialOrd for EkotraceInstant {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.logical_clock.id != other.logical_clock.id {
+        if self.clock.id != other.clock.id {
             return None;
         }
-        match self.logical_clock.count.cmp(&other.logical_clock.count) {
-            Ordering::Equal => Some(self.report_event_index.cmp(&other.report_event_index)),
+        match self.clock.count.cmp(&other.clock.count) {
+            Ordering::Equal => Some(self.event_count.cmp(&other.event_count)),
             o => Some(o),
         }
     }

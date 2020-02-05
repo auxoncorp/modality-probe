@@ -1,6 +1,6 @@
 #![no_std]
 use ekotrace::*;
-pub use ekotrace::{CausalSnapshot, Ekotrace};
+pub use ekotrace::{CausalSnapshot, Ekotrace, EkotraceInstant};
 
 pub type EkotraceResult = usize;
 /// Everything went fine
@@ -34,6 +34,19 @@ pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS: EkotraceResult = 9
 /// The tracer encountered a problem dealing with extension metadata
 pub const EKOTRACE_RESULT_EXTENSION_ERROR: EkotraceResult = 10;
 
+/// # Safety
+///
+/// No other part of the program should manipulate
+/// the contents of `destination` region. The Ekotrace instance
+/// provided in the out-pointer should be used in a single-
+/// threaded fashion.
+///
+/// If the function returns any result besides EKOTRACE_RESULT_OK,
+/// there has been an error, and the out-pointer for the Ekotrace instance
+/// will not be populated.
+///
+/// The contents of the `destination` region are not guaranteed
+/// in the case of an error result.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_initialize(
     destination: *mut u8,
@@ -68,6 +81,11 @@ pub unsafe fn ekotrace_initialize(
     }
 }
 
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_record_event(
     tracer: *mut Ekotrace<'static>,
@@ -83,6 +101,11 @@ pub unsafe fn ekotrace_record_event(
     }
 }
 
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_report(
     tracer: *mut Ekotrace<'static>,
@@ -113,6 +136,11 @@ pub unsafe fn ekotrace_report(
     EKOTRACE_RESULT_OK
 }
 
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_distribute_snapshot(
     tracer: *mut Ekotrace<'static>,
@@ -140,6 +168,11 @@ pub unsafe fn ekotrace_distribute_snapshot(
     }
 }
 
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_distribute_fixed_size_snapshot(
     tracer: *mut Ekotrace<'static>,
@@ -162,6 +195,11 @@ pub unsafe fn ekotrace_distribute_fixed_size_snapshot(
     }
 }
 
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_merge_snapshot(
     tracer: *mut Ekotrace<'static>,
@@ -188,6 +226,11 @@ pub unsafe fn ekotrace_merge_snapshot(
     }
 }
 
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_merge_fixed_size_snapshot(
     tracer: *mut Ekotrace<'static>,
@@ -208,6 +251,32 @@ pub unsafe fn ekotrace_merge_fixed_size_snapshot(
         }
         Err(MergeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
     }
+}
+
+/// Capture the Ekotrace instance's moment in causal time
+/// for correlation with external systems.
+///
+/// If the pointer to the Ekotrace instance (a.k.a. tracer) was null,
+/// returns an `EkotraceInstant` with its `clock.id` value
+/// set to the invalid location id `0`.
+///
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn ekotrace_now(tracer: *mut Ekotrace<'static>) -> EkotraceInstant {
+    let tracer = match tracer.as_mut() {
+        Some(t) => t,
+        None => {
+            return EkotraceInstant {
+                clock: LogicalClock { id: 0, count: 0 },
+                event_count: 0,
+            }
+        }
+    };
+    tracer.now()
 }
 
 #[cfg(test)]
@@ -325,5 +394,3 @@ mod tests {
         assert!(!(snap_c < snap_b));
     }
 }
-// TODO - should we expose comparison operations for CausalSnapshot?
-// TODO - make tracer size tunable

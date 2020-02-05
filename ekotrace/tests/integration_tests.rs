@@ -184,5 +184,26 @@ fn try_record_event_raw_tracer_ids() -> Result<(), EkotraceError> {
     Ok(())
 }
 
+#[test]
+fn snapshot_extension_data_smuggling() -> Result<(), EkotraceError> {
+    let mut storage_foo = [0u8; 1024];
+    let tracer_id_foo = 123.try_into()?;
+    let mut foo = Ekotrace::new_with_storage(&mut storage_foo, tracer_id_foo)?;
+
+    let mut storage_bar = [0u8; 1024];
+    let tracer_id_bar = 456.try_into()?;
+    let mut bar = Ekotrace::new_with_storage(&mut storage_bar, tracer_id_bar)?;
+
+    let mut snapshot_buffer = [0u8; 512];
+    let extension = [3u8, 1, 4, 1, 5, 9];
+
+    let bytes_written =
+        foo.distribute_snapshot_with_metadata(&mut snapshot_buffer, ExtensionBytes(&extension))?;
+
+    let found_ext = bar.merge_snapshot_with_metadata(&snapshot_buffer[..bytes_written])?;
+    assert_eq!([3u8, 1, 4, 1, 5, 9], found_ext.0);
+    Ok(())
+}
+
 // TODO - test overflowing num buckets
 // TODO - test overflowing log

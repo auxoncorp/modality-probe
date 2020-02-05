@@ -1,5 +1,5 @@
 use super::{
-    CausalSnapshot, DistributeError, EkotraceNow, EventId, ExtensionBytes, LogicalClock,
+    CausalSnapshot, DistributeError, EkotraceInstant, EventId, ExtensionBytes, LogicalClock,
     MergeError, ReportError, StorageSetupError, TracerId,
 };
 use crate::compact_log::{self, CompactLogItem, CompactLogVec};
@@ -172,7 +172,9 @@ const_assert_eq!(
 #[repr(C)]
 pub struct DynamicHistory<'a> {
     tracer_id: u32,
-    report_event_index: u32,
+    /// The number of events seen since the current
+    /// location's logical clock last increased.
+    event_count: u32,
 
     clocks: SliceVec<'a, LogicalClock>,
     compact_log: CompactLogVec<'a>,
@@ -195,27 +197,7 @@ impl<'a> DynamicHistory<'a> {
             return Err(StorageSetupError::NullDestination);
         }
         let history = match embed(destination, |dynamic_region_slice| {
-            let max_n_clocks = max(
-                MIN_CLOCKS_LEN,
-                dynamic_region_slice.len() / 8 / size_of::<LogicalClock>(),
-            );
-            let clocks_region_bytes = max_n_clocks * size_of::<LogicalClock>();
-            if clocks_region_bytes > dynamic_region_slice.len() {
-                return Err(StorageSetupError::UnderMinimumAllowedSize);
-            }
-            let (clocks_region, log_region) =
-                dynamic_region_slice.split_at_mut(clocks_region_bytes);
-            let clocks = SliceVec::from_bytes(clocks_region);
-            let compact_log = CompactLogVec::from_bytes(log_region);
-            if clocks.capacity() < MIN_CLOCKS_LEN || compact_log.capacity() < MIN_LOG_LEN {
-                return Err(StorageSetupError::UnderMinimumAllowedSize);
-            }
-            Ok(DynamicHistory {
-                tracer_id: tracer_id.get_raw(),
-                clocks,
-                compact_log,
-                report_event_index: 0,
-            })
+            DynamicHistory::new(dynamic_region_slice, tracer_id)
         }) {
             Ok(v) => Ok(v),
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
@@ -242,8 +224,29 @@ impl<'a> DynamicHistory<'a> {
             );
         }
 
-        history
-            .clocks
+        Ok(history)
+    }
+
+    #[inline]
+    fn new(
+        dynamic_region_slice: &'a mut [u8],
+        tracer_id: TracerId,
+    ) -> Result<Self, StorageSetupError> {
+        let max_n_clocks = max(
+            MIN_CLOCKS_LEN,
+            dynamic_region_slice.len() / 8 / size_of::<LogicalClock>(),
+        );
+        let clocks_region_bytes = max_n_clocks * size_of::<LogicalClock>();
+        if clocks_region_bytes > dynamic_region_slice.len() {
+            return Err(StorageSetupError::UnderMinimumAllowedSize);
+        }
+        let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
+        let mut clocks = SliceVec::from_bytes(clocks_region);
+        let mut compact_log = CompactLogVec::from_bytes(log_region);
+        if clocks.capacity() < MIN_CLOCKS_LEN || compact_log.capacity() < MIN_LOG_LEN {
+            return Err(StorageSetupError::UnderMinimumAllowedSize);
+        }
+        clocks
             .try_push(LogicalClock {
                 id: tracer_id.get_raw(),
                 count: 0,
@@ -251,18 +254,20 @@ impl<'a> DynamicHistory<'a> {
             .expect(
                 "The History.clocks field should always contain a clock for this tracer instance",
             );
-
         // This ensures that the first log segment always has a piece of logical
         // clock information.
-        history.write_current_clocks_to_log();
-
-        Ok(history)
+        DynamicHistory::write_clocks_to_log(&mut compact_log, clocks.as_slice());
+        Ok(DynamicHistory {
+            tracer_id: tracer_id.get_raw(),
+            clocks,
+            compact_log,
+            event_count: 0,
+        })
     }
 
     #[inline]
     fn clear_log(&mut self) {
         self.compact_log.clear();
-        self.report_event_index = 0;
     }
 
     /// Add an item to the internal log that records this event occurred
@@ -276,9 +281,13 @@ impl<'a> DynamicHistory<'a> {
             return;
         }
         if len == cap - 1 {
-            let _ = self
+            if self
                 .compact_log
-                .try_push(CompactLogItem::event(EventId::EVENT_LOG_OVERFLOWED));
+                .try_push(CompactLogItem::event(EventId::EVENT_LOG_OVERFLOWED))
+                .is_ok()
+            {
+                self.event_count = self.event_count.saturating_add(1);
+            }
             return;
         }
         // N.B. point for future improvement - basic compression here
@@ -287,7 +296,7 @@ impl<'a> DynamicHistory<'a> {
             .try_push(CompactLogItem::event(event_id))
             .is_ok()
         {
-            self.report_event_index += 1;
+            self.event_count = self.event_count.saturating_add(1);
         }
     }
 
@@ -297,6 +306,7 @@ impl<'a> DynamicHistory<'a> {
         // N.B. We rely on the fact that the first member of the clocks
         // collection is always the clock for this tracer
         self.clocks.as_mut_slice()[0].count = self.clocks.as_slice()[0].count.saturating_add(1);
+        self.event_count = 0;
     }
 
     /// Produce an opaque snapshot of the causal state for
@@ -305,7 +315,7 @@ impl<'a> DynamicHistory<'a> {
     ///
     /// If the write was successful, returns the number of bytes written.
     #[inline]
-    pub(crate) fn write_lcm_logical_clock_with_metadata(
+    pub(crate) fn write_lcm_snapshot_with_metadata(
         &mut self,
         destination: &mut [u8],
         meta: ExtensionBytes<'_>,
@@ -338,9 +348,7 @@ impl<'a> DynamicHistory<'a> {
     /// Produce a transparent but limited snapshot of the causal state for transmission
     /// within the system under test
     #[inline]
-    pub(crate) fn write_fixed_size_logical_clock(
-        &mut self,
-    ) -> Result<CausalSnapshot, DistributeError> {
+    pub(crate) fn write_fixed_size_snapshot(&mut self) -> Result<CausalSnapshot, DistributeError> {
         let mut clocks = [LogicalClock { id: 0, count: 0 }; 256];
         if self.clocks.len() > clocks.len() {
             return Err(DistributeError::InsufficientDestinationSize);
@@ -367,7 +375,7 @@ impl<'a> DynamicHistory<'a> {
         })
     }
     #[inline]
-    pub(crate) fn merge_from_lcm_log_report_bytes<'d>(
+    pub(crate) fn merge_from_lcm_snapshot_bytes<'d>(
         &'_ mut self,
         source: &'d [u8],
     ) -> Result<ExtensionBytes<'d>, MergeError> {
@@ -512,21 +520,21 @@ impl<'a> DynamicHistory<'a> {
     }
 
     #[inline]
-    fn write_current_clocks_to_log(&mut self) {
-        if self.compact_log.is_full() {
+    fn write_clocks_to_log<'d>(compact_log: &mut CompactLogVec<'d>, clocks: &[LogicalClock]) {
+        if compact_log.is_full() {
             return;
         }
         let max_len_that_can_fit_a_clock_and_overflow_notice =
-            (self.compact_log.capacity() - 2) as usize;
-        let mut log_len = self.compact_log.len();
+            (compact_log.capacity() - 2) as usize;
+        let mut log_len = compact_log.len();
         let mut has_overflowed_log = false;
-        for b in self.clocks.as_slice() {
+        for b in clocks {
             let (id, count) = CompactLogItem::clock(*b);
             if log_len < max_len_that_can_fit_a_clock_and_overflow_notice {
-                self.compact_log
+                compact_log
                     .try_push(id)
                     .expect("Already checked id will fit");
-                self.compact_log
+                compact_log
                     .try_push(count)
                     .expect("Already checked count will fit");
                 log_len += 2;
@@ -538,10 +546,15 @@ impl<'a> DynamicHistory<'a> {
             }
         }
         if has_overflowed_log {
-            let _ = self
-                .compact_log
-                .try_push(CompactLogItem::event(EventId::EVENT_LOG_OVERFLOWED));
+            let _ = compact_log.try_push(CompactLogItem::event(EventId::EVENT_LOG_OVERFLOWED));
         }
+    }
+
+    #[inline]
+    fn write_current_clocks_to_log(&mut self) {
+        let clocks = self.clocks.as_slice();
+        let log = &mut self.compact_log;
+        DynamicHistory::write_clocks_to_log(log, clocks);
     }
 
     /// Produce a report for external use, containing:
@@ -610,10 +623,10 @@ impl<'a> DynamicHistory<'a> {
         Ok(buffer_writer.cursor())
     }
 
-    pub(crate) fn now(&self) -> EkotraceNow {
-        EkotraceNow {
-            logical_clock: self.clocks[0],
-            report_event_index: self.report_event_index,
+    pub(crate) fn now(&self) -> EkotraceInstant {
+        EkotraceInstant {
+            clock: self.clocks[0],
+            event_count: self.event_count,
         }
     }
 }

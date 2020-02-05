@@ -1,6 +1,6 @@
 #![no_std]
 #![feature(lang_items, core_intrinsics)]
-pub use ekotrace_capi_impl::{CausalSnapshot, Ekotrace, EkotraceResult};
+pub use ekotrace_capi_impl::{CausalSnapshot, Ekotrace, EkotraceInstant, EkotraceResult};
 
 #[no_mangle]
 pub extern "C" fn ekotrace_initialize(
@@ -83,6 +83,10 @@ pub extern "C" fn ekotrace_merge_fixed_size_snapshot(
     snapshot: *const CausalSnapshot,
 ) -> EkotraceResult {
     unsafe { ekotrace_capi_impl::ekotrace_merge_fixed_size_snapshot(tracer, snapshot) }
+}
+#[no_mangle]
+pub extern "C" fn ekotrace_now(tracer: *mut Ekotrace<'static>) -> EkotraceInstant {
+    unsafe { ekotrace_capi_impl::ekotrace_now(tracer) }
 }
 
 #[cfg(not(test))]

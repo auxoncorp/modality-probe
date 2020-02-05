@@ -26,6 +26,21 @@ typedef struct logical_clock {
     uint32_t count;
 } logical_clock;
 
+typedef struct ekotrace_instant {
+    /*
+     * The current location's logical clock.
+     * `clock.id` should be equivalent to the id
+     * (a.k.a TracerId or location id) of the source `Ekotrace` instance
+     */
+    logical_clock clock;
+    /*
+     * How many events have been seen since the source instance
+     * reached the associated `clock`'s point in causal
+     * time.
+     */
+    uint32_t event_count;
+} ekotrace_instant;
+
 typedef enum {
     /*
      * Everything is okay
@@ -148,6 +163,16 @@ size_t ekotrace_merge_snapshot(ekotrace *ekotrace, uint8_t *history_source, size
  * by some other Ekotrace.
  */
 size_t ekotrace_merge_fixed_size_snapshot(ekotrace *ekotrace, causal_snapshot *snapshot);
+
+/*
+ * Capture the ekotrace instance's moment in causal time
+ * for correlation with external systems.
+ *
+ * If the pointer to the ekotrace instance (a.k.a. tracer) was null,
+ * returns an `ekotrace_instant` with its `clock.id` value
+ * set to the invalid location id `0`.
+ */
+ekotrace_instant ekotrace_now(ekotrace *ekotrace);
 
 #ifdef __cplusplus
 } // extern "C"
