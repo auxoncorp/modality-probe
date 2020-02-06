@@ -3,59 +3,38 @@ use petgraph::graph::Graph;
 use petgraph::visit::IntoNodeReferences;
 use std::path::PathBuf;
 use std::str::FromStr;
-use structopt::StructOpt;
 
 use ekotrace_analysis as lib;
 use ekotrace_analysis::model;
 
-#[derive(Debug, StructOpt)]
-#[structopt(name = "ekotrace-analysis", about = "Analyze 'Ekotrace' event logs")]
-enum Opt {
+#[derive(Debug)]
+pub enum Opt {
     SessionSummary {
-        /// Event log csv file
-        #[structopt(parse(from_os_str))]
         event_log_csv_file: PathBuf,
     },
 
-    /// Produce a graphviz (.dot) formatted graph of log segments and direct
-    /// causal relationships. The .dot source is printed to standard out.
     SegmentGraph {
-        /// Event log csv file
-        #[structopt(parse(from_os_str))]
         event_log_csv_file: PathBuf,
-
-        /// The session to graph
         session_id: u32,
     },
 
-    /// Produce a graphviz (.dot) formatted graph of log events and direct
-    /// causal relationships. The .dot source is printed to standard out.
     EventGraph {
-        /// Event log csv file
-        #[structopt(parse(from_os_str))]
         event_log_csv_file: PathBuf,
-
-        /// The session to graph
         session_id: u32,
     },
 
-    /// See if event A is caused by (is a causal descendant of) event B. Events
-    /// are identified by "<session id>.<segment id>.<segment index>".
     QueryCausedBy {
-        /// Event log csv file
-        #[structopt(parse(from_os_str))]
         event_log_csv_file: PathBuf,
-
         event_a: EventCoordinates,
         event_b: EventCoordinates,
     },
 }
 
 #[derive(Debug)]
-struct EventCoordinates {
-    session_id: model::SessionId,
-    segment_id: model::SegmentId,
-    segment_index: u32,
+pub struct EventCoordinates {
+    pub session_id: model::SessionId,
+    pub segment_id: model::SegmentId,
+    pub segment_index: u32,
 }
 
 impl std::string::ToString for EventCoordinates {
@@ -68,7 +47,7 @@ impl std::string::ToString for EventCoordinates {
 }
 
 #[derive(Debug)]
-enum EventParseError {
+pub enum EventParseError {
     InvalidSessionId,
     InvalidSegmentId,
     InvalidSegmentIndex,
@@ -281,8 +260,7 @@ fn query_caused_by(
     }
 }
 
-fn main() {
-    let opt = Opt::from_args();
+pub fn run(opt: Opt) {
     match opt {
         Opt::SessionSummary { event_log_csv_file } => session_summary(event_log_csv_file),
         Opt::SegmentGraph {

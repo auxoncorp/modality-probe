@@ -13,49 +13,18 @@ use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use structopt::StructOpt;
 use walkdir::WalkDir;
 
-mod events;
-mod tracers;
-
-#[derive(Debug, StructOpt)]
-#[structopt(
-    name = "ekotrace-manifest-gen",
-    about = "Generate event and tracer id manifest files from tracer event recording invocations."
-)]
+#[derive(Debug)]
 pub struct Opt {
-    /// Event ID offset
-    #[structopt(long)]
-    event_id_offset: Option<u32>,
-
-    /// Tracer ID offset
-    #[structopt(long)]
-    tracer_id_offset: Option<u32>,
-
-    /// Limit the source code searching to files with matching extensions
-    #[structopt(long = "file-extension")]
-    file_extensions: Option<Vec<String>>,
-
-    /// Event ID manifest CSV file
-    #[structopt(long, parse(from_os_str), default_value = "events.csv")]
-    events_csv_file: PathBuf,
-
-    /// Tracer ID manifest CSV file
-    #[structopt(long, parse(from_os_str), default_value = "tracers.csv")]
-    tracers_csv_file: PathBuf,
-
-    /// Omit generating event ID manifest
-    #[structopt(long)]
-    no_events: bool,
-
-    /// Omit generating tracer ID manifest
-    #[structopt(long)]
-    no_tracers: bool,
-
-    /// Source code path to search
-    #[structopt(parse(from_os_str))]
-    source_path: PathBuf,
+    pub event_id_offset: Option<u32>,
+    pub tracer_id_offset: Option<u32>,
+    pub file_extensions: Option<Vec<String>>,
+    pub events_csv_file: PathBuf,
+    pub tracers_csv_file: PathBuf,
+    pub no_events: bool,
+    pub no_tracers: bool,
+    pub source_path: PathBuf,
 }
 
 impl Opt {
@@ -68,8 +37,7 @@ impl Opt {
     }
 }
 
-fn main() {
-    let opt = Opt::from_args();
+pub fn run(opt: Opt) {
     opt.validate();
 
     // Read in existing CSVs if they exists

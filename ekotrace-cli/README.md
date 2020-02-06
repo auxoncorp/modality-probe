@@ -1,8 +1,14 @@
-# ekotrace-header-gen
+# ekotrace-cli
 
-A command line utility that accepts an event id mapping file
-and a tracer location id mapping file and generates C or Rust code containing
-convenience definitions of those ids.
+`ekotrace` command line utility.
+
+## Getting Started
+
+```bash
+cargo install --git ssh://git@github.com/auxoncorp/ekotrace ekotrace-cli --bin ekotrace --force
+```
+
+## Usage
 
 The `ekotrace` tracing system relies on two sets of globally unique IDs: tracer
 location ids and event ids. While the system can work with nothing but numbers,
@@ -10,7 +16,7 @@ we provide a way to define named tracers and events via CSV files. This allows
 managing these files as spreadsheets, which is handy because the events file in
 particular may become quite large.
 
-## Id Management Format
+### Id Management Format
 
 Ids and metadata for tracer locations or events can be defined in a
 CSV file. The columns are `id`, `name`, and `description`.
@@ -28,7 +34,49 @@ Tracer location ids and event ids should be defined in separate files.
 + **description**: Human-oriented ASCII string metadata,
 typically elaborating on purpose or intent for future users
 
-## Example
+#### manifest-gen
+
+Generates event and tracer id manifest files from ekotrace event recording
+invocations in source code.
+
+##### Example
+
+Given some C/C++ source file with ekotrace event recording invocations like:
+
+```c
+ekotrace_initialize(storage_bytes, TRACER_SIZE, LOCATION_ID_FOO, &ekotrace_instance);
+
+ekotrace_record_event(ekotrace_instance, EVENT_A);
+```
+
+or in Rust, invocations like:
+
+```rust
+let ekotrace_instance = Ekotrace::try_initialize_at(&mut storage_bytes, LOCATION_ID_FOO)?;
+
+ekotrace_instance.record_event(EVENT_A);
+```
+
+The generated manifest files will contain:
+
+```csv
+# tracers.csv
+id,name,description
+1,location_id_foo,
+```
+
+```csv
+# events.csv
+id,name,description
+1,event_a,
+```
+
+#### header-gen
+
+Accepts an event id mapping file and a tracer location id mapping file,
+generates C or Rust code containing convenience definitions of those ids.
+
+##### Example
 
 Given a tracer id mapping file like:
 
@@ -81,3 +129,11 @@ int main() {
     return 0;
 }
 ```
+
+#### analysis
+
+Provides several examples of analysis that can be done with such trace data.
+
+## License
+
+Please see [LICENSE](../LICENSE) for more details.

@@ -21,7 +21,3 @@ proptest = "0.9.4"
 [lib]
 name = "ekotrace_analysis"
 path = "src/lib.rs"
-
-[[bin]]
-name = "ekotrace-analysis-cli"
-path = "src/main.rs"

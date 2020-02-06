@@ -3,9 +3,9 @@
 //! Before building this example, run:
 //!
 //! ```
-//! ekotrace-manifest-gen --events-csv-file events.csv --tracers-csv-file tracers.csv ./
+//! ekotrace manifest-gen --events-csv-file events.csv --tracers-csv-file tracers.csv ./
 //!
-//! ekotrace-header-gen --lang Rust events.csv tracers.csv > tracing_ids.rs
+//! ekotrace header-gen --lang Rust events.csv tracers.csv > tracing_ids.rs
 //! ```
 
 use crate::tracing_ids::*;

@@ -10,16 +10,15 @@ build = "build.rs"
 
 [workspace]
 members = [
+  "ekotrace-cli",
   "ekotrace-analysis",
-  "ekotrace-header-gen",
-  "ekotrace-manifest-gen",
   "ekotrace-udp-collector",
 ]
 
 [dependencies]
 static_assertions = "1.1.0"
+fixed-slice-vec = "0.2"
 rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
-slice-vec = { git = "ssh://git@github.com/auxoncorp/slice-vec.git", branch = "master"}
 
 [dev-dependencies]
 ekotrace-udp-collector = { path = "./ekotrace-udp-collector" }

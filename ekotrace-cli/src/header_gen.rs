@@ -1,31 +1,11 @@
+use crate::events::Event;
+use crate::tracers::Tracer;
 use csv;
-use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use structopt::StructOpt;
-
-#[derive(Debug, Deserialize)]
-struct EventId(u32);
-
-#[derive(Debug, Deserialize)]
-struct TracerId(u32);
-
-#[derive(Debug, Deserialize)]
-struct Event {
-    id: EventId,
-    name: String,
-    description: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct Tracer {
-    id: TracerId,
-    name: String,
-    description: String,
-}
 
 trait ConstGenerator {
     fn primitive_value(&self) -> u32;
@@ -61,32 +41,21 @@ impl ConstGenerator for Event {
     }
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(
-    name = "ekotrace-header-gen",
-    about = "Generate C header files with event/tracer id constants."
-)]
-struct Opt {
-    /// Events csv file
-    #[structopt(parse(from_os_str))]
-    events_csv_file: PathBuf,
-
-    /// Tracers csv file
-    #[structopt(parse(from_os_str))]
-    tracers_csv_file: PathBuf,
-
-    #[structopt(short, long, parse(try_from_str), default_value = "C")]
-    lang: Lang,
+#[derive(Debug)]
+pub struct Opt {
+    pub events_csv_file: PathBuf,
+    pub tracers_csv_file: PathBuf,
+    pub lang: Lang,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Lang {
+pub enum Lang {
     C,
     Rust,
 }
 
 #[derive(Debug)]
-struct UnsupportedLang(String);
+pub struct UnsupportedLang(String);
 
 impl ToString for UnsupportedLang {
     fn to_string(&self) -> String {
@@ -133,8 +102,7 @@ fn file_sha256(path: &Path) -> String {
     format!("{:x}", sha256.result())
 }
 
-fn main() {
-    let opt = Opt::from_args();
+pub fn run(opt: Opt) {
     opt.validate();
 
     let tracers_csv_hash = file_sha256(&opt.tracers_csv_file);
