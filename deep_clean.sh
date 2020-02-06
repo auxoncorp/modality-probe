@@ -11,6 +11,6 @@ cargo clean
 )
 
 (
-    cd examples/event-recording/
-    rm -f tracers.csv events.csv tracing_ids.rs
+    cd examples/
+    rm -f tracers.csv events.csv tracing_ids/mod.rs
 )

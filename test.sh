@@ -3,9 +3,10 @@
 set -ex
 
 (
-    cd examples/event-recording/
+    cd examples/
+    mkdir -p tracing_ids/
     cargo run -p ekotrace-cli -- manifest-gen --events-csv-file events.csv --tracers-csv-file tracers.csv ./
-    cargo run -p ekotrace-cli -- header-gen --lang Rust events.csv tracers.csv > tracing_ids.rs
+    cargo run -p ekotrace-cli -- header-gen --lang Rust events.csv tracers.csv > tracing_ids/mod.rs
 )
 
 cargo build --all

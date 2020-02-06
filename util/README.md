@@ -1,4 +1,4 @@
-# ekotrace-analysis
+# util
 
 ## Overview
 
@@ -23,7 +23,7 @@ of each log-line.
 # Cargo.toml
 
 [dependencies]
-ekotrace-analysis = { git = "ssh://git@github.com/auxoncorp/ekotrace.git" }
+util = { git = "ssh://git@github.com/auxoncorp/ekotrace.git" }
 ```
 
 ## Usage

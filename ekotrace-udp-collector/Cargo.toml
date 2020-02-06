@@ -26,7 +26,7 @@ cli = ["structopt"]
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 static_assertions = "1.1.0"
-ekotrace-analysis = { path = "../ekotrace-analysis" }
+util = { path = "../util" }
 structopt = { version = "0.3", optional = true }
 rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master" }
 
@@ -40,4 +40,3 @@ proc-graph = "0.1.0"
 proptest = "0.9.4"
 tempfile = "3"
 ekotrace = { path = ".." }
-

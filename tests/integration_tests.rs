@@ -1,6 +1,6 @@
 use ekotrace::*;
-use ekotrace_udp_collector::alloc_log_report::*;
 use std::convert::TryInto;
+use util::alloc_log_report::*;
 
 struct Buffer {
     buffer: Vec<u8>,

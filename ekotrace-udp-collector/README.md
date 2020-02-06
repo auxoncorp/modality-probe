@@ -1,8 +1,8 @@
 # ekotrace-udp-collector
 
 CLI-driven process that receives [ekotrace reports](../schemas/log_reporting.lcm)
-over UDP and logs them to a file, per the `ekotrace-analysis` defined
-[file format](../ekotrace-analysis/README.md#file-format).
+over UDP and logs them to a file, per the defined
+[file format](../util/README.md#file-format).
 
 ## Usage
 

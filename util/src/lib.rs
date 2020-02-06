@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::io::{Read, Write};
 
+pub mod alloc_log_report;
 pub mod model;
 
 /// Serialization record for CSV storage

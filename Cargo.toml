@@ -11,8 +11,8 @@ build = "build.rs"
 [workspace]
 members = [
   "ekotrace-cli",
-  "ekotrace-analysis",
   "ekotrace-udp-collector",
+  "util",
 ]
 
 [dependencies]
@@ -22,6 +22,7 @@ rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", br
 
 [dev-dependencies]
 ekotrace-udp-collector = { path = "./ekotrace-udp-collector" }
+util = { path = "./util" }
 
 [build-dependencies]
 rust-lcm-codegen = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}

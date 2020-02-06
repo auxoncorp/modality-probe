@@ -1,11 +1,9 @@
-use alloc_log_report::*;
 use chrono::{DateTime, Utc};
-use ekotrace_analysis::model::{LogEntry, LogEntryData, SegmentId, SessionId};
 use std::io::{Error as IoError, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
-
-pub mod alloc_log_report;
+use util::alloc_log_report::*;
+use util::model::{LogEntry, LogEntryData, SegmentId, SessionId};
 
 #[derive(Debug, PartialEq)]
 pub struct Config {
@@ -138,11 +136,9 @@ pub fn start_receiving_from_socket<W: Write>(
             receive_time,
             &mut log_entries_buffer,
         );
-        if let Err(e) = ekotrace_analysis::write_csv_log_entries(
-            log_output_writer,
-            &log_entries_buffer,
-            needs_csv_headers,
-        ) {
+        if let Err(e) =
+            util::write_csv_log_entries(log_output_writer, &log_entries_buffer, needs_csv_headers)
+        {
             eprintln!("Error writing log entries: {}", e);
         } else {
             needs_csv_headers = false;
@@ -245,7 +241,7 @@ mod tests {
     fn report_and_matching_entries(
         raw_main_tracer_id: i32,
         session_id: SessionId,
-        start_segment_id: ekotrace_analysis::model::SegmentId,
+        start_segment_id: util::model::SegmentId,
         receive_time: DateTime<Utc>,
     ) -> (LogReport, Vec<LogEntry>) {
         let main_tracer_id = (raw_main_tracer_id as u32).into();
@@ -432,7 +428,7 @@ mod tests {
         }
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = ekotrace_analysis::read_csv_log_entries(&mut file_reader)
+        let found_log_entries = util::read_csv_log_entries(&mut file_reader)
             .expect("Could not read output file as csv log entries");
 
         let expected_entries: usize = log_report
@@ -548,7 +544,7 @@ mod tests {
 
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = ekotrace_analysis::read_csv_log_entries(&mut file_reader)
+        let found_log_entries = util::read_csv_log_entries(&mut file_reader)
             .expect("Could not read output file as csv log entries");
 
         assert!(found_log_entries.len() > 0);
@@ -674,7 +670,7 @@ mod tests {
 
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = ekotrace_analysis::read_csv_log_entries(&mut file_reader)
+        let found_log_entries = util::read_csv_log_entries(&mut file_reader)
             .expect("Could not read output file as csv log entries");
 
         assert!(found_log_entries.len() > 0);

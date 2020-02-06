@@ -226,11 +226,11 @@ See the event-recording [example](examples/event-recording/main.rs).
 ```bash
 cargo install --path ekotrace-cli
 
-cd examples/event-recording/
+cd examples/
 
 ekotrace manifest-gen --events-csv-file events.csv --tracers-csv-file tracers.csv ./
 
-ekotrace header-gen --lang Rust events.csv tracers.csv > tracing_ids.rs
+ekotrace header-gen --lang Rust events.csv tracers.csv > tracing_ids/mod.rs
 
 cargo run --example event-recording
 ```

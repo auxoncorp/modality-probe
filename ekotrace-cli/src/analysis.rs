@@ -4,8 +4,8 @@ use petgraph::visit::IntoNodeReferences;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use ekotrace_analysis as lib;
-use ekotrace_analysis::model;
+use util as lib;
+use util::model;
 
 #[derive(Debug)]
 pub enum Opt {
@@ -101,9 +101,7 @@ impl FromStr for EventCoordinates {
     }
 }
 
-fn load_event_log(
-    event_log_csv_file: PathBuf,
-) -> impl IntoIterator<Item = ekotrace_analysis::model::LogEntry> {
+fn load_event_log(event_log_csv_file: PathBuf) -> impl IntoIterator<Item = util::model::LogEntry> {
     let mut csv_file = std::fs::File::open(event_log_csv_file).expect("Open CSV file");
     lib::read_csv_log_entries(&mut csv_file).expect("Read events CSV file")
 }

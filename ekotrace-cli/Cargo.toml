@@ -19,8 +19,8 @@ itertools = "0.8.2"
 petgraph = "0.5.0"
 sha2 = "0.8"
 
-[dependencies.ekotrace-analysis]
-path = "../ekotrace-analysis"
+[dependencies.util]
+path = "../util"
 
 [dependencies.serde]
 version = "1"

@@ -1,0 +1,23 @@
+[package]
+name = "util"
+version = "0.1.0"
+authors = ["Jon Lamb <jon@auxon.io>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/ekotrace"
+readme = "README.md"
+build = "build.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+itertools = "0.8"
+petgraph = "0.5"
+csv = "1.1"
+rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master" }
+
+[build-dependencies]
+rust-lcm-codegen = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master" }
+
+[dev-dependencies]
+proptest = "0.9.4"
