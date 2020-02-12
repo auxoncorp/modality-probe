@@ -18,11 +18,11 @@ members = [
 [dependencies]
 static_assertions = "1.1.0"
 fixed-slice-vec = "0.2"
-rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
+rust-lcm-codec = "0.2"
 
 [dev-dependencies]
 ekotrace-udp-collector = { path = "./ekotrace-udp-collector" }
 util = { path = "./util" }
 
 [build-dependencies]
-rust-lcm-codegen = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
+rust-lcm-codegen = "0.2"

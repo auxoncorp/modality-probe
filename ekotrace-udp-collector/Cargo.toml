@@ -26,12 +26,12 @@ cli = ["structopt"]
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 static_assertions = "1.1.0"
-util = { path = "../util" }
 structopt = { version = "0.3", optional = true }
-rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master" }
+rust-lcm-codec = "0.2"
+util = { path = "../util" }
 
 [build-dependencies]
-rust-lcm-codegen = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master" }
+rust-lcm-codegen = "0.2"
 
 [dev-dependencies]
 crossbeam = "0.7.3"
