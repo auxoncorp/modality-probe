@@ -1,7 +1,11 @@
 [package]
 name = "ekotrace-cli"
 version = "0.1.0"
-authors = ["Jon Lamb <jon@auxon.io>"]
+authors = [
+    "Zachary Pierce <zack@auxon.io>",
+    "Russell Mull <russell@auxon.io>",
+    "Jon Lamb <jon@auxon.io>"
+]
 edition = "2018"
 license = "Apache-2.0"
 repository = "https://github.com/auxoncorp/ekotrace"
