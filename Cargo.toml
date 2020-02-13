@@ -1,11 +1,28 @@
+[package]
+name = "ekotrace"
+version = "0.2.0"
+authors = ["Zachary Pierce <zack@auxon.io>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/ekotrace"
+readme = "README.md"
+build = "build.rs"
+
 [workspace]
 members = [
-  "alloc-log-report",
-  "ekotrace",
-  "ekotrace-analysis",
-  "ekotrace-capi-impl",
-  "ekotrace-header-gen",
-  "ekotrace-event-manifest-gen",
+  "ekotrace-cli",
   "ekotrace-udp-collector",
-  "test-support/proc-graph",
+  "util",
 ]
+
+[dependencies]
+static_assertions = "1.1.0"
+fixed-slice-vec = "0.2"
+rust-lcm-codec = "0.2"
+
+[dev-dependencies]
+ekotrace-udp-collector = { path = "./ekotrace-udp-collector" }
+util = { path = "./util" }
+
+[build-dependencies]
+rust-lcm-codegen = "0.2"

@@ -6,6 +6,7 @@ edition = "2018"
 license = "Apache-2.0"
 repository = "https://github.com/auxoncorp/ekotrace"
 readme = "README.md"
+build = "build.rs"
 
 [lib]
 name = "ekotrace_udp_collector"
@@ -25,14 +26,17 @@ cli = ["structopt"]
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 static_assertions = "1.1.0"
-alloc-log-report = { path = "../alloc-log-report" }
-ekotrace-analysis = { path = "../ekotrace-analysis" }
 structopt = { version = "0.3", optional = true }
+rust-lcm-codec = "0.2"
+util = { path = "../util" }
+
+[build-dependencies]
+rust-lcm-codegen = "0.2"
 
 [dev-dependencies]
 crossbeam = "0.7.3"
 lazy_static = "1.4.0"
-proc-graph = { path = "../test-support/proc-graph"}
+proc-graph = "0.1.0"
 proptest = "0.9.4"
 tempfile = "3"
-ekotrace = { path = "../ekotrace" }
+ekotrace = { path = ".." }

@@ -1,0 +1,40 @@
+[package]
+name = "ekotrace-cli"
+version = "0.1.0"
+authors = ["Jon Lamb <jon@auxon.io>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/ekotrace"
+readme = "README.md"
+
+[[bin]]
+name = "ekotrace"
+path = "src/main.rs"
+
+[dependencies]
+csv = "1.1"
+structopt = "0.3"
+walkdir = "2.3"
+itertools = "0.8.2"
+petgraph = "0.5.0"
+sha2 = "0.8"
+
+[dependencies.util]
+path = "../util"
+
+[dependencies.serde]
+version = "1"
+features = ["derive"]
+
+[dependencies.nom]
+version = "5.0"
+default-features = false
+features = []
+
+[dependencies.chrono]
+version = "0.4"
+features = ["serde"]
+
+[dev-dependencies]
+proptest = "0.9.4"
+

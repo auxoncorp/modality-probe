@@ -12,7 +12,7 @@ name = "ekotrace_capi"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-ekotrace-capi-impl = { path = "../ekotrace-capi-impl" }
+ekotrace-capi-impl = { path = "./ekotrace-capi-impl" }
 
 [profile.dev]
 panic = "abort"
