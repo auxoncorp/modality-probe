@@ -60,15 +60,12 @@ impl LogReport {
             segments.push(segment);
         }
         let r = r.done().map_err(|_| ())?;
-        let (n_extension_bytes, mut r) = r.read_n_extension_bytes().map_err(|_| ())?;
-        // N.B. Expect to replace this iteration with cheaper slice-based reading
-        // when rust-lcm-codegen is updated to provide special case options for byte arrays.
-        let mut extension_bytes = Vec::with_capacity(n_extension_bytes as usize);
-        for extension_bytes_item_reader in &mut r {
-            extension_bytes.push(extension_bytes_item_reader.read().map_err(|_| ())?);
-        }
-        let _read_done_result: lcm::log_reporting::log_report_read_done<_> =
-            r.done().map_err(|_| ())?;
+        let (_n_extension_bytes, r) = r.read_n_extension_bytes().map_err(|_| ())?;
+        let (extension_bytes_slice, _read_done_result): (
+            _,
+            lcm::log_reporting::log_report_read_done<_>,
+        ) = r.extension_bytes_as_slice().map_err(|_| ())?;
+        let extension_bytes = extension_bytes_slice.to_vec();
         Ok(LogReport {
             tracer_id,
             segments,
@@ -106,17 +103,12 @@ impl LogReport {
                 .map_err(|_| ())?;
         }
         let w = w.done().map_err(|_| ())?;
-        let mut w = w
+        let w = w
             .write_n_extension_bytes(self.extension_bytes.len() as i32)
             .map_err(|_| ())?;
-        // N.B. Expect to replace this iteration with cheaper slice-based copying
-        // when rust-lcm-codegen is updated to provide special case options for byte arrays.
-        for (extension_byte_item_writer, extension_byte) in (&mut w).zip(&self.extension_bytes) {
-            extension_byte_item_writer
-                .write(*extension_byte)
-                .map_err(|_| ())?;
-        }
-        let _w: lcm::log_reporting::log_report_write_done<_> = w.done().map_err(|_| ())?;
+        let _w: lcm::log_reporting::log_report_write_done<_> = w
+            .extension_bytes_copy_from_slice(&self.extension_bytes)
+            .map_err(|_| ())?;
         Ok(buffer_writer.cursor())
     }
 }

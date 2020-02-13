@@ -10,7 +10,7 @@ repository = "https://github.com/auxoncorp/ekotrace"
 name = "alloc_log_report"
 
 [dependencies]
-rust-lcm-codec = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
+rust-lcm-codec = "0.2"
 
 [build-dependencies]
-rust-lcm-codegen = { git = "ssh://git@github.com/auxoncorp/rust-lcm-codec.git", branch = "master"}
+rust-lcm-codegen = "0.2"
