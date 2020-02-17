@@ -1,12 +1,22 @@
 use super::{EventId, LogicalClock, TracerId};
 use fixed_slice_vec::FixedSliceVec;
 
+const CLOCK_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
+const EVENT_WITH_META_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
+
 pub(crate) type CompactLogVec<'a> = FixedSliceVec<'a, CompactLogItem>;
 
 /// In a stream of these:
-///     if the first bit is not set, treat it as recording an Event
-///     if the first bit is set, treat the rest of the value as a TracerId for a LogicalClockBucket
-///         AND the next item in the stream should be interpreted as a count for that bucket.
+/// * If first bit is not set AND the second bit is not set, this is a
+///   plain event id.
+///
+/// * If the first bit is set AND the second bit is not set, treat the
+///   rest of the value as a TracerId for a LogicalClockBucket and the
+///   next item in the stream as a count for that bucket.
+///
+/// * If the first bit is not set AND the second bit is set, this is
+///   an event with metadata. Treat the next item in the stream as that
+///   metadata.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub(crate) struct CompactLogItem(u32);
@@ -17,16 +27,29 @@ impl CompactLogItem {
         // The construction checks for EventId should prevent the top bit from being set
         CompactLogItem(event_id.get_raw())
     }
+
     #[must_use]
     pub(crate) fn clock(clock: LogicalClock) -> (Self, Self) {
         // Set the top bit for id to indicate that it is not an event but a logical clock bucket,
         // and to treat the next item as the count. Don't separate these two!
-        let id = clock.id | 0b1000_0000_0000_0000_0000_0000_0000_0000;
+        let id = clock.id | CLOCK_MASK;
         (CompactLogItem(id), CompactLogItem(clock.count))
     }
 
-    pub(crate) fn is_first_bit_set(self) -> bool {
-        (self.0 & 0b1000_0000_0000_0000_0000_0000_0000_0000) != 0
+    #[must_use]
+    pub(crate) fn event_with_metadata(event_id: EventId, meta: u32) -> (Self, Self) {
+        (
+            CompactLogItem(event_id.get_raw() | EVENT_WITH_META_MASK),
+            CompactLogItem(meta),
+        )
+    }
+
+    pub(crate) fn is_event_with_metadata(&self) -> bool {
+        (self.0 & EVENT_WITH_META_MASK) == EVENT_WITH_META_MASK
+    }
+
+    pub(crate) fn is_clock(&self) -> bool {
+        (self.0 & CLOCK_MASK) == CLOCK_MASK
     }
 
     pub(crate) fn raw(self) -> u32 {
@@ -52,7 +75,7 @@ pub(crate) fn split_next_segment(
     // Split off the clock segments
     let mut num_clock_items = 0;
     for item in items.iter().step_by(2) {
-        if item.is_first_bit_set() {
+        if item.is_clock() {
             if num_clock_items > 0 {
                 // Use the local tracer id as a marker to identify when
                 // there are two adjacent segments that have no intervening
@@ -80,7 +103,7 @@ pub(crate) fn split_next_segment(
     // or bump into another clock region
     let mut num_event_items = 0;
     for item in events_and_rest {
-        if item.is_first_bit_set() {
+        if item.is_clock() {
             break;
         } else {
             num_event_items += 1;
@@ -174,10 +197,10 @@ mod tests {
     #[test]
     fn expected_representation() {
         let e = CompactLogItem::event(EventId::new(4).expect("Could not make EventId"));
-        assert!(!e.is_first_bit_set());
+        assert!(!e.is_clock());
 
         let (id, count) = CompactLogItem::clock(LogicalClock { id: 4, count: 5 });
-        assert!(id.is_first_bit_set());
-        assert!(!count.is_first_bit_set());
+        assert!(id.is_clock());
+        assert!(!count.is_clock());
     }
 }

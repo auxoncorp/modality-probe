@@ -149,10 +149,10 @@ fn all_allowed_events() -> Result<(), EkotraceError> {
     assert!(EventId::new(EventId::MAX_USER_ID + 1).is_none());
     assert!(EventId::new(EventId::MAX_USER_ID + 2).is_none());
     assert!(EventId::new(EventId::MAX_INTERNAL_ID).is_none());
-    assert_eq!(EventId::MAX_INTERNAL_ID, (core::u32::MAX / 2));
+    assert_eq!(EventId::MAX_INTERNAL_ID, (core::u32::MAX / 4));
     assert_eq!(
         EventId::MAX_USER_ID,
-        (core::u32::MAX / 2) - EventId::NUM_RESERVED_IDS
+        (core::u32::MAX / 4) - EventId::NUM_RESERVED_IDS
     );
 
     assert_eq!(

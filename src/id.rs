@@ -14,7 +14,7 @@ pub struct TracerId(NonZeroU32);
 
 impl TracerId {
     /// The largest permissible backing id value
-    pub const MAX_ID: u32 = 0b0111_1111_1111_1111_1111_1111_1111_1111;
+    pub const MAX_ID: u32 = 0b0011_1111_1111_1111_1111_1111_1111_1111;
 
     /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
     #[inline]
@@ -132,7 +132,7 @@ impl EventId {
     ///
     /// This value is different from MAX_USER_ID in order to
     /// support a reserved range of EventIds for protocol use
-    pub const MAX_INTERNAL_ID: u32 = 0b0111_1111_1111_1111_1111_1111_1111_1111;
+    pub const MAX_INTERNAL_ID: u32 = 0b0011_1111_1111_1111_1111_1111_1111_1111;
     /// The number of id values that are reserved for use by the
     /// tracer implementation.
     pub const NUM_RESERVED_IDS: u32 = 256;
