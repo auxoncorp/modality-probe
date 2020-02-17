@@ -23,6 +23,15 @@ pub extern "C" fn ekotrace_record_event(
 }
 
 #[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_metadata(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    meta: u32,
+) -> EkotraceResult {
+    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta) }
+}
+
+#[no_mangle]
 pub extern "C" fn ekotrace_report(
     tracer: *mut Ekotrace<'static>,
     log_report_destination: *mut u8,

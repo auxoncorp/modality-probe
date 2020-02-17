@@ -126,6 +126,13 @@ size_t ekotrace_initialize(uint8_t *destination, size_t destination_size_bytes, 
 size_t ekotrace_record_event(ekotrace *ekotrace, uint32_t event_id);
 
 /*
+ * Record an event along with a 4-byte payload.
+ *
+ * event_id must be non-zero.
+ */
+size_t ekotrace_record_event_with_metadata(ekotrace *ekotrace, uint32_t event_id, uint32_t meta);
+
+/*
  * Conduct necessary background activities, then
  * write a report of recorded events and logical clock
  * data to a supplied destination.

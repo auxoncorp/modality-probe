@@ -107,6 +107,27 @@ pub unsafe fn ekotrace_record_event(
 /// to an initialized instance operating in a single-threaded
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn ekotrace_record_event_with_metadata(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    meta: u32,
+) -> EkotraceResult {
+    let tracer = match tracer.as_mut() {
+        Some(t) => t,
+        None => return EKOTRACE_RESULT_NULL_POINTER,
+    };
+    match tracer.try_record_event_with_metadata(event_id, meta) {
+        Ok(_) => EKOTRACE_RESULT_OK,
+        Err(ekotrace::InvalidEventId) => EKOTRACE_RESULT_INVALID_EVENT_ID,
+    }
+}
+
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_report(
     tracer: *mut Ekotrace<'static>,
     log_report_destination: *mut u8,

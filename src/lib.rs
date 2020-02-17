@@ -200,6 +200,28 @@ impl<'a> Ekotrace<'a> {
         Ok(())
     }
 
+    /// Record that an event occurred and associate some context with
+    /// via a 4-byte payload, `meta`. The end user is responsible for
+    /// associating meaning with each event_id.
+    ///
+    /// Accepts a primitive event_id and returns an error if the
+    /// event_id was discovered to be invalid.
+    ///
+    /// If you're working in Rust and want type assurances around id
+    /// kinds or want to avoid the performance penalty of id
+    /// validation every call, use `record_event_with_metadata`
+    /// instead.
+    #[inline]
+    pub fn try_record_event_with_metadata(
+        &mut self,
+        event_id: u32,
+        meta: u32,
+    ) -> Result<(), InvalidEventId> {
+        let event_id = EventId::try_from(event_id)?;
+        self.history.record_event_with_metadata(event_id, meta);
+        Ok(())
+    }
+
     /// Produce a transmittable summary of this tracer's
     /// causal history for use by another Tracer elsewhere
     /// in the system.
