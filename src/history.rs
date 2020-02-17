@@ -272,24 +272,16 @@ impl<'a> DynamicHistory<'a> {
         self.compact_log.clear();
     }
 
-    /// Add an item to the internal log that records this event occurred
+    /// Add an item to the internal log that records this event
+    /// occurred.
     ///
-    /// May silently drop events if the log has overflowed
+    /// Note: This function silently drop events if the log has
+    /// overflowed.
     #[inline]
     pub(crate) fn record_event(&mut self, event_id: EventId) {
         let len = self.compact_log.len();
         let cap = self.compact_log.capacity();
         if len == cap {
-            return;
-        }
-        if len == cap - 1 {
-            if self
-                .compact_log
-                .try_push(CompactLogItem::event(EventId::EVENT_LOG_OVERFLOWED))
-                .is_ok()
-            {
-                self.event_count = self.event_count.saturating_add(1);
-            }
             return;
         }
         // N.B. point for future improvement - basic compression here
@@ -298,6 +290,28 @@ impl<'a> DynamicHistory<'a> {
             .try_push(CompactLogItem::event(event_id))
             .is_ok()
         {
+            self.event_count = self.event_count.saturating_add(1);
+        }
+    }
+
+    /// Add the event and its metadata to the internal log, recording
+    /// that this event occurred.
+    ///
+    /// Note: This function silently drop events if the log has
+    /// overflowed.
+    #[inline]
+    pub(crate) fn record_event_with_metadata(&mut self, event_id: EventId, meta: u32) {
+        let len = self.compact_log.len();
+        let cap = self.compact_log.capacity();
+        // Room for two?
+        if len + 1 >= cap {
+            return;
+        }
+        let (ev, meta) = CompactLogItem::event_with_metadata(event_id, meta);
+        if self.compact_log.try_push(ev).is_err() {
+            return;
+        }
+        if self.compact_log.try_push(meta).is_ok() {
             self.event_count = self.event_count.saturating_add(1);
         }
     }

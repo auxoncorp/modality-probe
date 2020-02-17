@@ -59,6 +59,14 @@ pub trait Tracer {
     /// range.
     fn record_event(&mut self, event_id: EventId);
 
+    /// Record that an event occurred with a `u32`'s width's worth (4
+    /// bytes) of context via `meta`. The end user is responsible for
+    /// associating meaning with each event_id.
+    ///
+    /// Accepts an event_id pre-validated to be within the acceptable
+    /// range.
+    fn record_event_with_metadata(&mut self, event_id: EventId, meta: u32);
+
     /// Write a summary of this tracer's causal history for use
     /// by another Tracer elsewhere in the system.
     ///
@@ -306,6 +314,10 @@ impl<'a> Tracer for Ekotrace<'a> {
     #[inline]
     fn record_event(&mut self, event_id: EventId) {
         self.history.record_event(event_id);
+    }
+
+    fn record_event_with_metadata(&mut self, event_id: EventId, meta: u32) {
+        self.history.record_event_with_metadata(event_id, meta)
     }
 
     #[inline]

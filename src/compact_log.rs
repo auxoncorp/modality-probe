@@ -40,13 +40,15 @@ impl CompactLogItem {
     pub(crate) fn event_with_metadata(event_id: EventId, meta: u32) -> (Self, Self) {
         (
             CompactLogItem(event_id.get_raw() | EVENT_WITH_META_MASK),
+            // We're just giving meta back out as is for now.
             CompactLogItem(meta),
         )
     }
 
-    pub(crate) fn is_event_with_metadata(&self) -> bool {
-        (self.0 & EVENT_WITH_META_MASK) == EVENT_WITH_META_MASK
-    }
+    // NOTE(pittma): Maybe we don't need this?
+    // pub(crate) fn is_event_with_metadata(&self) -> bool {
+    //     (self.0 & EVENT_WITH_META_MASK) == EVENT_WITH_META_MASK
+    // }
 
     pub(crate) fn is_clock(&self) -> bool {
         (self.0 & CLOCK_MASK) == CLOCK_MASK
