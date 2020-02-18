@@ -39,13 +39,24 @@ newtype! {
     pub struct SegmentId(pub u32);
 }
 
-newtype! {
-    /// A log event
-    ///
-    /// This is event id as used in the events.csv file, used in the tracing
-    /// library on each client, and transmitted in the wire protocol.
-    #[derive(Debug, Eq, PartialEq, Copy, Clone)]
-    pub struct EventId(pub u32);
+/// A log event
+///
+/// This is the event id as used in the events.csv file, used in
+/// the tracing library on each client, and transmitted in the
+/// wire protocol.
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+pub struct EventId(u32);
+
+// TODO(pittma): Should this whole model be collapsed into a single
+// library that both ekotrace and the udp collector can share?
+impl EventId {
+    pub fn new(id: u32) -> Self {
+        EventId(id & !super::EVENT_WITH_META_MASK)
+    }
+
+    pub fn get_raw(&self) -> u32 {
+        self.0
+    }
 }
 
 newtype! {
@@ -76,6 +87,7 @@ pub struct TracerMapping {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum LogEntryData {
     Event(EventId),
+    EventWithMetadata(EventId, u32),
     LogicalClock(TracerId, u32),
 }
 
@@ -91,11 +103,12 @@ impl From<(TracerId, u32)> for LogEntryData {
     }
 }
 
-impl From<(u32, u32)> for LogEntryData {
-    fn from((id, count): (u32, u32)) -> LogEntryData {
-        LogEntryData::LogicalClock(id.into(), count)
-    }
-}
+// Can't make this assumption anymore.
+// impl From<(u32, u32)> for LogEntryData {
+//     fn from((id, count): (u32, u32)) -> LogEntryData {
+//         LogEntryData::LogicalClock(id.into(), count)
+//     }
+// }
 
 /// A single entry in the log
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -126,14 +139,14 @@ pub struct LogEntry {
 impl LogEntry {
     pub fn is_event(&self) -> bool {
         match self.data {
-            LogEntryData::Event(_) => true,
+            LogEntryData::Event(_) | LogEntryData::EventWithMetadata(_, _) => true,
             LogEntryData::LogicalClock(_, _) => false,
         }
     }
 
     pub fn is_clock(&self) -> bool {
         match self.data {
-            LogEntryData::Event(_) => false,
+            LogEntryData::Event(_) | LogEntryData::EventWithMetadata(_, _) => false,
             LogEntryData::LogicalClock(_, _) => true,
         }
     }
@@ -165,7 +178,7 @@ pub mod test {
     }
 
     pub fn arb_event_id() -> impl Strategy<Value = EventId> {
-        proptest::bits::u32::masked(0x7fffffff).prop_map_into()
+        proptest::bits::u32::masked(crate::EVENT_WITH_META_MASK).prop_map(EventId::new)
     }
 
     pub fn arb_tracer_id() -> impl Strategy<Value = TracerId> {

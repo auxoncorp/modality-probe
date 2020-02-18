@@ -205,4 +205,11 @@ mod tests {
         assert!(id.is_clock());
         assert!(!count.is_clock());
     }
+
+    #[test]
+    fn meta_events_are_well_represented() {
+        let (ev, meta) = CompactLogItem::event_with_metadata(EventId::new(4).unwrap(), 777);
+        assert_eq!(ev.0 & EVENT_WITH_META_MASK, EVENT_WITH_META_MASK);
+        assert_eq!(meta.0, 777);
+    }
 }

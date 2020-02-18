@@ -12,10 +12,33 @@ pub struct LogReport {
     pub extension_bytes: Vec<u8>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Event {
+    Event(i32),
+    EventWithMetadata(i32, i32),
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LogSegment {
     pub clocks: Vec<Clock>,
-    pub events: Vec<i32>,
+    pub events: Vec<Event>,
+}
+
+impl LogSegment {
+    fn raw_events(&self) -> Vec<i32> {
+        self.events
+            .iter()
+            .fold(Vec::new(), |mut raw_events, event| {
+                match event {
+                    Event::Event(id) => raw_events.push(*id),
+                    Event::EventWithMetadata(id, meta) => {
+                        raw_events.push(*id);
+                        raw_events.push(*meta);
+                    }
+                }
+                raw_events
+            })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,8 +74,21 @@ impl LogReport {
                         })?;
                     }
                     let mut sr = sr.done()?;
+                    let mut next_meta = (0, false);
                     for event_item_reader in &mut sr {
-                        segment.events.push(event_item_reader.read()?);
+                        let raw_ev = event_item_reader.read()?;
+                        if let (ev, true) = next_meta {
+                            segment.events.push(Event::EventWithMetadata(ev, raw_ev));
+                            next_meta = (0, false);
+                        } else {
+                            if (raw_ev & (super::EVENT_WITH_META_MASK as i32))
+                                == (super::EVENT_WITH_META_MASK as i32)
+                            {
+                                next_meta = (raw_ev, true);
+                                continue;
+                            }
+                            segment.events.push(Event::Event(raw_ev));
+                        }
                     }
                     Ok(sr.done()?)
                 })
@@ -95,8 +131,8 @@ impl LogReport {
                         })?;
                     }
                     let mut sw = sw.done()?;
-                    for (event_item_writer, event) in (&mut sw).zip(&segment.events) {
-                        event_item_writer.write(*event)?;
+                    for (event_item_writer, event) in (&mut sw).zip(segment.raw_events()) {
+                        event_item_writer.write(event)?;
                     }
                     Ok(sw.done()?)
                 })

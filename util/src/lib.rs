@@ -9,6 +9,8 @@ use std::io::{Read, Write};
 pub mod alloc_log_report;
 pub mod model;
 
+pub(crate) const EVENT_WITH_META_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
+
 /// Serialization record for CSV storage
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
 struct LogFileLine {
@@ -18,6 +20,7 @@ struct LogFileLine {
     receive_time: DateTime<Utc>,
     tracer_id: u32,
     event_id: Option<u32>,
+    event_meta: Option<u32>,
     lc_tracer_id: Option<u32>,
     lc_clock: Option<u32>,
 }
@@ -30,7 +33,12 @@ impl From<&model::LogEntry> for LogFileLine {
             segment_index: e.segment_index,
             tracer_id: e.tracer_id.0,
             event_id: match &e.data {
-                model::LogEntryData::Event(id) => Some(id.0),
+                model::LogEntryData::Event(id) => Some(id.get_raw()),
+                model::LogEntryData::EventWithMetadata(id, _) => Some(id.get_raw()),
+                _ => None,
+            },
+            event_meta: match &e.data {
+                model::LogEntryData::EventWithMetadata(_, meta) => Some(*meta),
                 _ => None,
             },
             lc_tracer_id: match &e.data {
@@ -71,7 +79,11 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
                 });
             }
 
-            model::LogEntryData::Event(model::EventId(event_id))
+            if let Some(meta) = l.event_meta {
+                model::LogEntryData::EventWithMetadata(model::EventId::new(event_id), meta)
+            } else {
+                model::LogEntryData::Event(model::EventId::new(event_id))
+            }
         } else if let Some(lc_tracer_id) = l.lc_tracer_id {
             match l.lc_clock {
                 None => {
@@ -379,6 +391,8 @@ mod test {
             any::<u32>(),
             model::test::arb_datetime(),
             any::<u32>(),
+            // util::model::EventId requires a valid event id now.
+            proptest::option::of(proptest::bits::u32::masked(!crate::EVENT_WITH_META_MASK)),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
@@ -391,6 +405,7 @@ mod test {
                     receive_time,
                     tracer_id,
                     event_id,
+                    event_meta,
                     lc_tracer_id,
                     lc_clock,
                 )| LogFileLine {
@@ -400,6 +415,13 @@ mod test {
                     receive_time,
                     tracer_id,
                     event_id,
+                    // The event meta can only be set if there's also
+                    // an event id.
+                    event_meta: if event_id.is_some() && event_meta.is_some() {
+                        event_meta
+                    } else {
+                        None
+                    },
                     lc_tracer_id,
                     lc_clock,
                 },
