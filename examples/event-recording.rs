@@ -47,6 +47,9 @@ fn main() {
             socket
                 .send_to(&report_buffer[..n_report_bytes], remote)
                 .expect("Could not send_to");
+            tracer
+                .try_record_event_with_metadata(REPORT_CREATED, n_report_bytes as u32)
+                .expect("could not record event with metadata");
         }
 
         loop_counter += 1;

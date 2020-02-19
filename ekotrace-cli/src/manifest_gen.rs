@@ -5,6 +5,7 @@ use nom::{
     bytes::complete::{is_not, tag, take, take_till1, take_until},
     character::complete::{char, line_ending, multispace0},
     combinator::opt,
+    error::ErrorKind,
     sequence::delimited,
     IResult,
 };
@@ -223,8 +224,22 @@ fn parse_record_event_call_expression(input: &str) -> IResult<&str, String> {
         input
     };
 
-    // Find symbol name, extract parameters
-    let (input, _) = alt((tag("ekotrace_record_event"), tag("record_event")))(input)?;
+    let (input, with_meta) = {
+        let (input, with_meta) = match alt::<_, _, (&str, ErrorKind), _>((
+            tag("ekotrace_record_event_with_metadata"),
+            tag("record_event_with_metadata"),
+        ))(input)
+        {
+            Ok((i, _)) => (i, true),
+            _ => (input, false),
+        };
+        if with_meta {
+            (input, with_meta)
+        } else {
+            let (input, _) = alt((tag("ekotrace_record_event"), tag("record_event")))(input)?;
+            (input, false)
+        }
+    };
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
 
@@ -240,12 +255,18 @@ fn parse_record_event_call_expression(input: &str) -> IResult<&str, String> {
 
     // Eat the first tracer pointer parameter if present
     // C/C++ style has two parameters, Rust has one
-    let params = if split_params.len() != 1 {
+    let params_len = split_params.len();
+    let params = if with_meta && params_len != 2 {
+        let (params, _) = take_till1(|c| c == ',')(params)?;
+        let (params, _) = tag(",")(params)?;
+        params
+    } else if !with_meta && params_len != 1 {
         let (params, _) = take_till1(|c| c == ',')(params)?;
         let (params, _) = tag(",")(params)?;
         params
     } else {
-        params
+        let (_, param) = take_till1(|c| c == ',')(params)?;
+        param
     };
 
     // With C++/Rust, possible namespace tokens up to right most "::"
