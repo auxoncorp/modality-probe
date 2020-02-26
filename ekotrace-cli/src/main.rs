@@ -1,13 +1,6 @@
-use crate::analysis::EventCoordinates;
-use crate::header_gen::Lang;
+use ekotrace_cli::{analysis, header_gen, manifest_gen};
 use std::path::PathBuf;
 use structopt::StructOpt;
-
-mod analysis;
-mod events;
-mod header_gen;
-mod manifest_gen;
-mod tracers;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "ekotrace", about = "Ekotrace command line interface")]
@@ -68,7 +61,7 @@ pub struct HeaderGen {
     tracers_csv_file: PathBuf,
 
     #[structopt(short, long, parse(try_from_str), default_value = "C")]
-    lang: Lang,
+    lang: header_gen::Lang,
 }
 
 #[derive(Debug, StructOpt)]
@@ -108,8 +101,8 @@ enum Analysis {
         #[structopt(parse(from_os_str))]
         event_log_csv_file: PathBuf,
 
-        event_a: EventCoordinates,
-        event_b: EventCoordinates,
+        event_a: analysis::EventCoordinates,
+        event_b: analysis::EventCoordinates,
     },
 }
 
