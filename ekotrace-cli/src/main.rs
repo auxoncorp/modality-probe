@@ -62,6 +62,10 @@ pub struct HeaderGen {
 
     #[structopt(short, long, parse(try_from_str), default_value = "C")]
     lang: header_gen::Lang,
+
+    /// C header include guard prefix
+    #[structopt(long, default_value = "EKOTRACE")]
+    include_guard_prefix: String,
 }
 
 #[derive(Debug, StructOpt)]
@@ -127,6 +131,7 @@ impl From<HeaderGen> for header_gen::Opt {
             events_csv_file: opt.events_csv_file,
             tracers_csv_file: opt.tracers_csv_file,
             lang: opt.lang,
+            include_guard_prefix: opt.include_guard_prefix,
         }
     }
 }
