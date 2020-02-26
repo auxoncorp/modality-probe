@@ -10,6 +10,7 @@ use std::str::FromStr;
 trait ConstGenerator {
     fn primitive_value(&self) -> u32;
     fn definition_name(&self) -> String;
+    fn doc_comment(&self, lang: Lang) -> String;
 
     fn generate_const_definition(&self, lang: Lang) -> String {
         let definition_name = self.definition_name();
@@ -29,6 +30,17 @@ impl ConstGenerator for Tracer {
     fn definition_name(&self) -> String {
         format!("{}", self.name.to_uppercase())
     }
+
+    fn doc_comment(&self, lang: Lang) -> String {
+        match lang {
+            Lang::C => {
+                format!("/*\n * Tracer: {}\n * {}\n */", self.name, self.description).to_string()
+            }
+            Lang::Rust => {
+                format!("/// Tracer: {}\n/// {}", self.name, self.description).to_string()
+            }
+        }
+    }
 }
 
 impl ConstGenerator for Event {
@@ -39,6 +51,19 @@ impl ConstGenerator for Event {
     fn definition_name(&self) -> String {
         format!("{}", self.name.to_uppercase())
     }
+
+    fn doc_comment(&self, lang: Lang) -> String {
+        match lang {
+            Lang::C => format!(
+                "/*\n * Trace event: {}\n * {}\n */",
+                self.name, self.description
+            )
+            .to_string(),
+            Lang::Rust => {
+                format!("/// Trace event: {}\n/// {}", self.name, self.description).to_string()
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -46,6 +71,7 @@ pub struct Opt {
     pub events_csv_file: PathBuf,
     pub tracers_csv_file: PathBuf,
     pub lang: Lang,
+    pub include_guard_prefix: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -116,14 +142,20 @@ pub fn run(opt: Opt) {
         File::open(&opt.events_csv_file).expect("Can't open events csv file"),
     );
 
-    println!("//");
-    println!("// GENERATED CODE, DO NOT EDIT");
-    println!("//");
+    println!("/*");
+    println!(" * GENERATED CODE, DO NOT EDIT");
+    println!(" */");
     println!();
 
     if opt.lang == Lang::C {
-        println!("#ifndef EKOTRACE_GENERATED_IDENTIFIERS_H");
-        println!("#define EKOTRACE_GENERATED_IDENTIFIERS_H");
+        println!(
+            "#ifndef {}_GENERATED_IDENTIFIERS_H",
+            opt.include_guard_prefix
+        );
+        println!(
+            "#define {}_GENERATED_IDENTIFIERS_H",
+            opt.include_guard_prefix
+        );
         println!();
         println!("#ifdef __cplusplus");
         println!("extern \"C\" {{");
@@ -131,30 +163,28 @@ pub fn run(opt: Opt) {
         println!();
     }
 
-    println!("//");
-    println!("// Tracers (csv sha256sum {})", tracers_csv_hash);
-    println!("//");
+    println!("/*");
+    println!(" * Tracers (csv sha256sum {})", tracers_csv_hash);
+    println!(" */");
 
     for maybe_tracer in tracers_reader.deserialize() {
         let t: Tracer = maybe_tracer.expect("Can't deserialize tracer");
 
         println!();
-        println!("/// Tracer: {}", t.name);
-        println!("/// {}", t.description);
+        println!("{}", t.doc_comment(opt.lang));
         println!("{}", t.generate_const_definition(opt.lang));
     }
 
     println!();
-    println!("//");
-    println!("// Events (csv sha256sum {})", events_csv_hash);
-    println!("//");
+    println!("/*");
+    println!(" * Events (csv sha256sum {})", events_csv_hash);
+    println!(" */");
 
     for maybe_event in events_reader.deserialize() {
         let e: Event = maybe_event.expect("Can't deserialize event");
 
         println!();
-        println!("/// Trace event: {}", e.name);
-        println!("/// {}", e.description);
+        println!("{}", e.doc_comment(opt.lang));
         println!("{}", e.generate_const_definition(opt.lang));
     }
 
@@ -164,7 +194,10 @@ pub fn run(opt: Opt) {
         println!("}} /* extern \"C\" */");
         println!("#endif");
         println!();
-        println!("#endif /* EKOTRACE_GENERATED_IDENTIFIERS_H */");
+        println!(
+            "#endif /* {}_GENERATED_IDENTIFIERS_H */",
+            opt.include_guard_prefix
+        );
         println!();
     }
 }
