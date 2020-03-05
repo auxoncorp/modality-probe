@@ -1,6 +1,3 @@
-// TODO - custom error type with location info?
-// trait with impls for C/C++ and Rust (plus a cli mode flag)?
-
 use crate::manifest_gen::event_metadata::EventMetadata;
 use crate::manifest_gen::tracer_metadata::TracerMetadata;
 

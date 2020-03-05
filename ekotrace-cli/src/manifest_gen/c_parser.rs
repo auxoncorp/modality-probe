@@ -13,6 +13,7 @@ use nom::{
     sequence::delimited,
 };
 use nom_locate::{position, LocatedSpan};
+use std::fmt;
 use std::str::FromStr;
 
 #[derive(Default)]
@@ -137,7 +138,6 @@ impl Parser for CParser {
     }
 }
 
-//fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
 fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, _) = comments_and_spacing(input)?;
     let (input, found_with_payload) = peek(opt(tag("EKT_RECORD_W_")))(input)?;
@@ -320,6 +320,23 @@ fn trimmed_string(s: &str) -> String {
         .replace(" ", "")
 }
 
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Error::MissingSemicolon(loc) => write!(
+                f,
+                "An Ekotrace record event invocation is missing a semicolon, expected near {}",
+                loc
+            ),
+            Error::UnrecognizedTypeHint(loc) => write!(
+                f,
+                "An Ekotrace record event with payload invocation has an unrecognized payload type hint near {}",
+                loc
+            ),
+        }
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 enum InternalErrorKind<I> {
     Nom(I, nom::error::ErrorKind),
@@ -447,7 +464,7 @@ mod tests {
     const size_t err = EKT_RECORD_W_I16(ekt, EVENT_B, (int16_t) data);
 
     const size_t err = EKT_RECORD_W_I16(ekt, EVENT_B, (int16_t) data, 4);
-    
+
     const size_t err = EKT_RECORD_W_i8(ekt, EVENT_C,
     (int8_t) *((uint8_t*) &mydata));
 "#;
@@ -551,7 +568,7 @@ mod tests {
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I8, "(int8_t) *((uint8_t*) &mydata)").into()),
                     assigned_id: None,
-                    location: (862, 31, 24).into(),
+                    location: (858, 31, 24).into(),
                 },
             ])
         );

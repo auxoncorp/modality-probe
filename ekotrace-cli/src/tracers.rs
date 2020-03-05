@@ -13,6 +13,9 @@ pub struct Tracer {
     pub id: TracerId,
     pub name: String,
     pub description: String,
+    pub file: String,
+    pub function: String,
+    pub line: String,
 }
 
 #[derive(Debug)]

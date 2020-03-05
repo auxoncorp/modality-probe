@@ -1,19 +1,15 @@
-use std::str::FromStr;
+use std::str;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum TypeHint {
     I8,
     I16,
     I32,
-    I64,
     U8,
     U16,
     U32,
-    U64,
     F32,
-    F64,
     Bool,
-    Enum,
 }
 
 impl Default for TypeHint {
@@ -23,7 +19,7 @@ impl Default for TypeHint {
     }
 }
 
-impl FromStr for TypeHint {
+impl str::FromStr for TypeHint {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -31,16 +27,31 @@ impl FromStr for TypeHint {
             "i8" => TypeHint::I8,
             "i16" => TypeHint::I16,
             "i32" => TypeHint::I32,
-            "i64" => TypeHint::I64,
             "u8" => TypeHint::U8,
             "u16" => TypeHint::U16,
             "u32" => TypeHint::U32,
-            "u64" => TypeHint::U64,
             "f32" => TypeHint::F32,
-            "f64" => TypeHint::F64,
             "boolean" | "bool" => TypeHint::Bool,
-            "enum" | "enumeration" => TypeHint::Enum,
             _ => return Err("Unsupported type hint"),
         })
+    }
+}
+
+impl TypeHint {
+    pub fn as_str(&self) -> &str {
+        match *self {
+            TypeHint::I8 => "i8",
+            TypeHint::I16 => "i16",
+            TypeHint::I32 => "i32",
+            TypeHint::U8 => "u8",
+            TypeHint::U16 => "u16",
+            TypeHint::U32 => "u32",
+            TypeHint::F32 => "f32",
+            TypeHint::Bool => "bool",
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        self.as_str().to_string()
     }
 }
