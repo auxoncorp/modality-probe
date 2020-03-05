@@ -26,6 +26,7 @@ walkdir = "2.3"
 itertools = "0.8.2"
 petgraph = "0.5.0"
 sha2 = "0.8"
+nom_locate = "2.0"
 
 [dependencies.util]
 path = "../util"
@@ -45,4 +46,5 @@ features = ["serde"]
 
 [dev-dependencies]
 proptest = "0.9.4"
+pretty_assertions = "0.6"
 

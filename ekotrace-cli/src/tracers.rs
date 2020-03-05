@@ -3,7 +3,9 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::path::PathBuf;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(
+    Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Deserialize, Serialize,
+)]
 pub struct TracerId(pub u32);
 
 #[derive(Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
