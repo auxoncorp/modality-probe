@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::fmt;
 use std::fs::File;
+use std::hash::Hash;
 use std::path::PathBuf;
 
 #[derive(
@@ -8,7 +10,7 @@ use std::path::PathBuf;
 )]
 pub struct EventId(pub u32);
 
-#[derive(Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Deserialize, Serialize)]
 pub struct Event {
     pub id: EventId,
     pub name: String,
@@ -65,28 +67,30 @@ impl Events {
     }
 
     pub fn validate_unique_ids(&self) {
-        let mut uniq = HashSet::new();
-        if !self
-            .0
-            .iter()
-            .into_iter()
-            .map(|event| event.id)
-            .all(move |x| uniq.insert(x))
-        {
+        if !has_unique_elements(self.0.iter().into_iter().map(|event| event.id)) {
             panic!("Events CSV contains duplicate event IDs");
         }
     }
+}
 
-    pub fn validate_unique_names(&self) {
-        let mut uniq = HashSet::new();
-        if !self
-            .0
-            .iter()
-            .into_iter()
-            .map(|event| event.name.clone())
-            .all(move |x| uniq.insert(x))
-        {
-            panic!("Events CSV contains duplicate event names");
-        }
+impl fmt::Display for Event {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Event (in-manifest)")?;
+        writeln!(f, "ID: {}", self.id.0)?;
+        writeln!(f, "Name: '{}'", self.name)?;
+        writeln!(f, "Description: '{}'", self.description)?;
+        writeln!(f, "Payload type: '{}'", self.type_hint)?;
+        writeln!(f, "File: '{}'", self.file)?;
+        writeln!(f, "Function: '{}'", self.function)?;
+        write!(f, "Line: {}", self.line)
     }
+}
+
+fn has_unique_elements<T>(iter: T) -> bool
+where
+    T: IntoIterator,
+    T::Item: Eq + Hash,
+{
+    let mut uniq = HashSet::new();
+    iter.into_iter().all(move |x| uniq.insert(x))
 }

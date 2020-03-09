@@ -1,4 +1,4 @@
-use crate::manifest_gen::event_metadata::{EventMetadata, Payload};
+use crate::manifest_gen::event_metadata::EventMetadata;
 use crate::manifest_gen::parser::Parser;
 use crate::manifest_gen::source_location::SourceLocation;
 use crate::manifest_gen::tracer_metadata::TracerMetadata;
@@ -7,9 +7,8 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take, take_till1, take_until},
     character::complete::{char, line_ending, multispace0},
-    combinator::{all_consuming, map, map_opt, opt, peek, rest},
+    combinator::{map, opt, peek, rest},
     error::ParseError,
-    multi::fold_many0,
     sequence::delimited,
 };
 use nom_locate::{position, LocatedSpan};
@@ -23,6 +22,7 @@ pub struct CParser {}
 pub enum Error {
     MissingSemicolon(SourceLocation),
     UnrecognizedTypeHint(SourceLocation),
+    AssignedEventIdParseIntError(SourceLocation),
 }
 
 type ParserResult<I, O> = nom::IResult<I, O, InternalError<I>>;
@@ -63,12 +63,6 @@ impl<'a> From<Span<'a>> for SourceLocation {
             line: span.location_line() as usize,
             column: span.get_column(),
         }
-    }
-}
-
-impl CParser {
-    pub fn new() -> CParser {
-        CParser::default()
     }
 }
 
@@ -168,9 +162,17 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         Err(_) => rest_string(args)?,
     };
 
-    let (_args, assigned_id) = match expect_arg3 {
+    let (_args, assigned_id_str) = match expect_arg3 {
         false => (args, None),
         true => map(rest_string, |id: String| Some(id))(args)?,
+    };
+
+    let assigned_id = match assigned_id_str {
+        None => None,
+        Some(id) => Some(
+            id.parse::<u32>()
+                .map_err(|_| make_error(input, Error::AssignedEventIdParseIntError(pos.into())))?,
+        ),
     };
 
     Ok((
@@ -210,9 +212,17 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         Err(_) => rest_literal(args)?,
     };
 
-    let (_args, assigned_id) = match expect_arg4 {
+    let (_args, assigned_id_str) = match expect_arg4 {
         false => (args, None),
         true => map(rest_string, |id: String| Some(id))(args)?,
+    };
+
+    let assigned_id = match assigned_id_str {
+        None => None,
+        Some(id) => Some(
+            id.parse::<u32>()
+                .map_err(|_| make_error(input, Error::AssignedEventIdParseIntError(pos.into())))?,
+        ),
     };
 
     Ok((
@@ -325,12 +335,17 @@ impl fmt::Display for Error {
         match *self {
             Error::MissingSemicolon(loc) => write!(
                 f,
-                "An Ekotrace record event invocation is missing a semicolon, expected near {}",
+                "An Ekotrace record event invocation is missing a semicolon, expected near\n{}",
                 loc
             ),
             Error::UnrecognizedTypeHint(loc) => write!(
                 f,
-                "An Ekotrace record event with payload invocation has an unrecognized payload type hint near {}",
+                "An Ekotrace record event with payload invocation has an unrecognized payload type hint near\n{}",
+                loc
+            ),
+            Error::AssignedEventIdParseIntError(loc) => write!(
+                f,
+                "Can't parse an Ekotrace record event invocation assigned identifier as u32 near \n{}",
                 loc
             ),
         }
@@ -341,15 +356,6 @@ impl fmt::Display for Error {
 enum InternalErrorKind<I> {
     Nom(I, nom::error::ErrorKind),
     Error(I, Error),
-}
-
-impl<I> InternalErrorKind<I> {
-    fn into_inner(self) -> I {
-        match self {
-            InternalErrorKind::Nom(i, _) => i,
-            InternalErrorKind::Error(i, _) => i,
-        }
-    }
 }
 
 impl<I> From<(I, nom::error::ErrorKind)> for InternalErrorKind<I> {
@@ -518,7 +524,7 @@ mod tests {
                     name: "EVENT_READ".to_string(),
                     ekotrace_instance: "g_ekotrace".to_string(),
                     payload: None,
-                    assigned_id: Some("1".to_string()),
+                    assigned_id: Some(1),
                     location: (231, 8, 24).into(),
                 },
                 EventMetadata {
@@ -532,7 +538,7 @@ mod tests {
                     name: "EVENT_WRITE".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: None,
-                    assigned_id: Some("2".to_string()),
+                    assigned_id: Some(2),
                     location: (407, 16, 5).into(),
                 },
                 EventMetadata {
@@ -546,7 +552,7 @@ mod tests {
                     name: "EVENT_A".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
-                    assigned_id: Some("3".to_string()),
+                    assigned_id: Some(3),
                     location: (581, 21, 24).into(),
                 },
                 EventMetadata {
@@ -560,7 +566,7 @@ mod tests {
                     name: "EVENT_B".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
-                    assigned_id: Some("4".to_string()),
+                    assigned_id: Some(4),
                     location: (783, 29, 24).into(),
                 },
                 EventMetadata {

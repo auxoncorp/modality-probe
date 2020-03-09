@@ -1,3 +1,5 @@
+mod error;
+
 pub mod analysis;
 pub mod events;
 pub mod header_gen;

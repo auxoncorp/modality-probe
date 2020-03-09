@@ -1,5 +1,6 @@
 use crate::manifest_gen::source_location::SourceLocation;
 use crate::manifest_gen::type_hint::TypeHint;
+use std::fmt;
 
 /// Event payload type hint and token
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
@@ -15,17 +16,13 @@ pub struct EventMetadata {
     pub name: String,
     pub ekotrace_instance: String,
     pub payload: Option<Payload>,
-    pub assigned_id: Option<String>,
+    pub assigned_id: Option<u32>,
     pub location: SourceLocation,
 }
 
 impl EventMetadata {
-    pub fn is_assigned(&self) -> bool {
-        self.assigned_id.is_some()
-    }
-
-    pub fn has_payload(&self) -> bool {
-        self.payload.is_some()
+    pub fn canonical_name(&self) -> String {
+        self.name.to_lowercase()
     }
 }
 
@@ -38,5 +35,29 @@ impl From<(TypeHint, String)> for Payload {
 impl From<(TypeHint, &str)> for Payload {
     fn from(triple: (TypeHint, &str)) -> Payload {
         Payload(triple.0, triple.1.to_string())
+    }
+}
+
+impl fmt::Display for EventMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "Name: '{}'", self.canonical_name())?;
+        writeln!(f, "Ekotrace instance: '{}'", self.ekotrace_instance)?;
+        write!(f, "Payload type: ")?;
+        match &self.payload {
+            None => writeln!(f, "None")?,
+            Some(p) => writeln!(f, "{}", p)?,
+        }
+        write!(f, "Assigned ID: ")?;
+        match &self.assigned_id {
+            None => writeln!(f, "None")?,
+            Some(id) => writeln!(f, "{}", id)?,
+        }
+        write!(f, "{}", self.location)
+    }
+}
+
+impl fmt::Display for Payload {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}, '{}')", self.0.as_str(), self.1,)
     }
 }

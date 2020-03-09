@@ -1,17 +1,13 @@
-use crate::events::{Event, EventId, Events};
-use crate::tracers::{Tracer, TracerId, Tracers};
-use event_metadata::EventMetadata;
-use in_source_event::InSourceEvent;
+use crate::error::GracefulExit;
+use crate::events::Events;
+use crate::exit_error;
+use crate::tracers::Tracers;
 use invocations::Invocations;
-use std::collections::HashMap;
-use std::ffi::OsStr;
-use std::fs::File;
-use std::io::Read;
 use std::path::PathBuf;
-use walkdir::WalkDir;
 
 mod c_parser;
 mod event_metadata;
+mod file_path;
 mod in_source_event;
 mod in_source_tracer;
 mod invocations;
@@ -34,101 +30,52 @@ pub struct Opt {
 
 impl Opt {
     pub fn validate(&self) {
-        assert!(
-            self.source_path.exists(),
-            "Source path \"{}\" does not exist",
-            self.source_path.display()
-        );
+        if !self.source_path.exists() {
+            exit_error!(
+                "The source path '{}' does not exist",
+                self.source_path.display()
+            );
+        }
     }
 }
 
 pub fn run(opt: Opt) {
     opt.validate();
 
-    // Read in existing CSVs if they exists
-    let mut csv_events = Events::from_csv(&opt.events_csv_file);
-    let mut csv_tracers = Tracers::from_csv(&opt.tracers_csv_file);
+    let mut manifest_tracers = Tracers::from_csv(&opt.tracers_csv_file);
+    let mut manifest_events = Events::from_csv(&opt.events_csv_file);
 
-    // TODO
-    // Check existing events and tracers
-    csv_events.validate_nonzero_ids();
-    csv_events.validate_unique_ids();
-    //csv_events.validate_unique_names();
+    manifest_tracers.validate_nonzero_ids();
+    manifest_tracers.validate_unique_ids();
+    manifest_tracers.validate_unique_names();
 
-    csv_tracers.validate_nonzero_ids();
-    csv_tracers.validate_unique_ids();
-    csv_tracers.validate_unique_names();
+    manifest_events.validate_nonzero_ids();
+    manifest_events.validate_unique_ids();
 
-    // Collect event and tracer info in each source file
     let invocations = Invocations::from_path(
         opt.no_tracers,
         opt.no_events,
         opt.source_path,
         &opt.file_extensions,
     )
-    .expect("TODO");
+    .unwrap_or_exit("Can't collect invocations");
 
-    // TODO
-    //invocations.check_tracers();
-    //invocations.check_events();
+    invocations
+        .check_tracers()
+        .unwrap_or_exit("Can't use the collected tracers");
 
-    // Generate tracer IDs for new tracers, with offset if provided
-    let tracer_id_offset = opt.tracer_id_offset.unwrap_or(0);
-    let mut next_available_tracer_id: u32 = match csv_tracers.next_available_tracer_id() {
-        id if tracer_id_offset > id => tracer_id_offset,
-        id @ _ => id,
-    };
+    invocations.merge_tracers_into(opt.tracer_id_offset, &mut manifest_tracers);
 
-    // TODO will refactor this
-    // Add new tracers to the CSV data
-    invocations.tracers.iter().for_each(|src_tracer| {
-        if csv_tracers
-            .0
-            .iter()
-            .find(|csv_tracer| {
-                csv_tracer
-                    .name
-                    .as_str()
-                    .eq_ignore_ascii_case(src_tracer.metadata.name.as_str())
-            })
-            .is_none()
-        {
-            csv_tracers
-                .0
-                .push(src_tracer.to_tracer(TracerId(next_available_tracer_id)));
-            next_available_tracer_id += 1;
-        }
-    });
-
-    // Generate event IDs for new events, with offset if provided
-    let event_id_offset = opt.event_id_offset.unwrap_or(0);
-    let mut next_available_event_id: u32 = match csv_events.next_available_event_id() {
-        id if event_id_offset > id => event_id_offset,
-        id @ _ => id,
-    };
-
-    // TODO will refactor this
-    // Add new events to the CSV data
-    invocations.events.iter().for_each(|src_event| {
-        if csv_events
-            .0
-            .iter()
-            .find(|csv_event| src_event.eq(csv_event))
-            .is_none()
-        {
-            csv_events
-                .0
-                .push(src_event.to_event(EventId(next_available_event_id)));
-            next_available_event_id += 1;
-        }
-    });
+    invocations
+        .merge_events_into(opt.event_id_offset, &mut manifest_events)
+        .unwrap_or_exit("Can't merge the collected events into the manifest");
 
     // Write out the new events and tracers CSV files
     if !opt.no_events {
-        csv_events.into_csv(&opt.events_csv_file);
+        manifest_events.into_csv(&opt.events_csv_file);
     }
 
     if !opt.no_tracers {
-        csv_tracers.into_csv(&opt.tracers_csv_file);
+        manifest_tracers.into_csv(&opt.tracers_csv_file);
     }
 }

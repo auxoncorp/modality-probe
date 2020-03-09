@@ -12,7 +12,7 @@ impl fmt::Display for SourceLocation {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "offset: {}, line: {}, column: {}",
+            "Offset: {}, line: {}, column: {}",
             self.offset, self.line, self.column
         )
     }

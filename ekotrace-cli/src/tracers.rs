@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::File;
+use std::hash::Hash;
 use std::path::PathBuf;
 
 #[derive(
@@ -8,7 +9,7 @@ use std::path::PathBuf;
 )]
 pub struct TracerId(pub u32);
 
-#[derive(Debug, Eq, PartialEq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Deserialize, Serialize)]
 pub struct Tracer {
     pub id: TracerId,
     pub name: String,
@@ -65,28 +66,23 @@ impl Tracers {
     }
 
     pub fn validate_unique_ids(&self) {
-        let mut uniq = HashSet::new();
-        if !self
-            .0
-            .iter()
-            .into_iter()
-            .map(|tracer| tracer.id)
-            .all(move |x| uniq.insert(x))
-        {
+        if !has_unique_elements(self.0.iter().into_iter().map(|tracer| tracer.id)) {
             panic!("Tracers CSV contains duplicate tracer IDs");
         }
     }
 
     pub fn validate_unique_names(&self) {
-        let mut uniq = HashSet::new();
-        if !self
-            .0
-            .iter()
-            .into_iter()
-            .map(|tracer| tracer.name.clone())
-            .all(move |x| uniq.insert(x))
-        {
+        if !has_unique_elements(self.0.iter().into_iter().map(|tracer| tracer.name.clone())) {
             panic!("Tracers CSV contains duplicate tracer names");
         }
     }
+}
+
+fn has_unique_elements<T>(iter: T) -> bool
+where
+    T: IntoIterator,
+    T::Item: Eq + Hash,
+{
+    let mut uniq = HashSet::new();
+    iter.into_iter().all(move |x| uniq.insert(x))
 }
