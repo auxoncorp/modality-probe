@@ -23,6 +23,8 @@ pub enum Error {
     MissingSemicolon(SourceLocation),
     UnrecognizedTypeHint(SourceLocation),
     AssignedEventIdParseIntError(SourceLocation),
+    PayloadArgumentSpansManyLines(SourceLocation),
+    Syntax(SourceLocation),
 }
 
 type ParserResult<I, O> = nom::IResult<I, O, InternalError<I>>;
@@ -147,10 +149,9 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, _) = tag("EKT_RECORD")(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
-    let (input, _) = tag("(")(input)?;
-    let (input, args) = take_until(");")(input)
-        .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let (input, _) = tag(");")(input)?;
+    let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
+    let (input, _) =
+        tag(";")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (args, ekotrace_instance) = variable_call_exp_arg(args)?;
 
     let mut expect_arg3 = false;
@@ -198,7 +199,8 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     let (input, _) = tag("(")(input)?;
     let (input, args) = take_until(");")(input)
         .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let (input, _) = tag(");")(input)?;
+    let (input, _) =
+        tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (args, ekotrace_instance) = variable_call_exp_arg(args)?;
     let (args, name) = variable_call_exp_arg(args)?;
 
@@ -211,6 +213,25 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         }
         Err(_) => rest_literal(args)?,
     };
+
+    // We have a constraint that the payload argument doesn't span
+    // multiple lines, trim off leading and trailing space
+    let payload = payload.trim().to_string();
+    for c in payload.chars() {
+        if c == '\n' {
+            return Err(make_error(
+                input,
+                Error::PayloadArgumentSpansManyLines(pos.into()),
+            ));
+        }
+    }
+
+    // Check for equal open/close parentheses
+    let open = payload.chars().filter(|&c| c == '(').count();
+    let close = payload.chars().filter(|&c| c == ')').count();
+    if open != close {
+        return Err(make_error(input, Error::Syntax(pos.into())));
+    }
 
     let (_args, assigned_id_str) = match expect_arg4 {
         false => (args, None),
@@ -345,7 +366,17 @@ impl fmt::Display for Error {
             ),
             Error::AssignedEventIdParseIntError(loc) => write!(
                 f,
-                "Can't parse an Ekotrace record event invocation assigned identifier as u32 near \n{}",
+                "Can't parse an Ekotrace record event invocation assigned identifier as u32 near\n{}",
+                loc
+            ),
+            Error::PayloadArgumentSpansManyLines(loc) => write!(
+                f,
+                "An Ekotrace record event with payload invocation has a payload argument that spans many lines near\n{}",
+                loc
+            ),
+            Error::Syntax(loc) => write!(
+                f,
+                "Enountered a syntax error while parsing an Ekotrace record event invocation near\n{}",
                 loc
             ),
         }
@@ -473,6 +504,19 @@ mod tests {
 
     const size_t err = EKT_RECORD_W_i8(ekt, EVENT_C,
     (int8_t) *((uint8_t*) &mydata));
+
+    const size_t err = EKT_RECORD_W_U16(
+        ekt,
+        EVENT_D,
+    (uint16_t) *((uint16_t*) &mydata)
+    );
+
+    const size_t err = EKT_RECORD_W_U16(
+        ekt,
+        EVENT_D,
+    (uint16_t) *((uint16_t*) &mydata),
+    5
+    );
 "#;
 
     #[test]
@@ -576,19 +620,58 @@ mod tests {
                     assigned_id: None,
                     location: (858, 31, 24).into(),
                 },
+                EventMetadata {
+                    name: "EVENT_D".to_string(),
+                    ekotrace_instance: "ekt".to_string(),
+                    payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
+                    assigned_id: None,
+                    location: (949, 34, 24).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_D".to_string(),
+                    ekotrace_instance: "ekt".to_string(),
+                    payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
+                    assigned_id: Some(5),
+                    location: (1066, 40, 24).into(),
+                },
             ])
         );
     }
 
     #[test]
-    fn missing_semicolon() {
+    fn missing_semicolon_errors() {
         let parser = CParser::default();
+        let input = r#"
+const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ)
+assert(err == EKOTRACE_RESULT_OK);
+"#;
+        let tokens = parser.parse_events(input);
+        assert_eq!(tokens, Err(Error::MissingSemicolon((20, 2, 20).into())));
         let input = "const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ)";
         let tokens = parser.parse_events(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((19, 1, 20).into())));
         let input = "EKT_RECORD_W_I16(ekt, E0, data)";
         let tokens = parser.parse_events(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
+    }
+
+    #[test]
+    fn syntax_errors() {
+        let parser = CParser::default();
+        let input = r#"
+const size_t err = EKT_RECORD_W_U8(g_ekotrace, EVENT_READ, (uint8_t) (( ))))status);
+"#;
+        let tokens = parser.parse_events(input);
+        assert_eq!(tokens, Err(Error::Syntax((20, 2, 20).into())));
+        let input = r#"
+const size_t err = EKT_RECORD_W_U8(g_ekotrace, EVENT_READ, (uint8_t) status)
+assert(err == EKOTRACE_RESULT_OK);
+"#;
+        let tokens = parser.parse_events(input);
+        assert_eq!(
+            tokens,
+            Err(Error::PayloadArgumentSpansManyLines((20, 2, 20).into()))
+        );
     }
 
     #[test]
