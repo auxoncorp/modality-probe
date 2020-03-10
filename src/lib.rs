@@ -10,6 +10,7 @@ mod compact_log;
 mod error;
 mod history;
 mod id;
+mod macros;
 
 pub use error::*;
 use history::DynamicHistory;

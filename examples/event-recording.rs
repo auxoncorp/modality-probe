@@ -8,14 +8,13 @@
 //! ekotrace header-gen --lang Rust events.csv tracers.csv > tracing_ids/mod.rs
 //! ```
 
+// The generated event and tracer identifiers
 mod tracing_ids;
 
 use crate::tracing_ids::*;
 use ekotrace::{Ekotrace, Tracer};
 use std::net::UdpSocket;
 use std::{thread, time};
-
-// The generated event and tracer identifiers
 
 fn main() {
     let socket = UdpSocket::bind("0.0.0.0:0").expect("Could not bind");
