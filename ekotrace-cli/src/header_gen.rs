@@ -16,7 +16,7 @@ trait ConstGenerator {
         let definition_name = self.definition_name();
         let primitive_value = self.primitive_value();
         match lang {
-            Lang::C => format!("#define {} {}", definition_name, primitive_value),
+            Lang::C => format!("#define {} ({}UL)", definition_name, primitive_value),
             Lang::Rust => format!("pub const {}: u32 = {};", definition_name, primitive_value),
         }
     }
