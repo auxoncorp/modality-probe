@@ -16,7 +16,7 @@ pub struct EventMetadata {
     pub name: String,
     pub ekotrace_instance: String,
     pub payload: Option<Payload>,
-    pub assigned_id: Option<u32>,
+    pub description: Option<String>,
     pub location: SourceLocation,
 }
 
@@ -46,11 +46,6 @@ impl fmt::Display for EventMetadata {
         match &self.payload {
             None => writeln!(f, "None")?,
             Some(p) => writeln!(f, "{}", p)?,
-        }
-        write!(f, "Assigned ID: ")?;
-        match &self.assigned_id {
-            None => writeln!(f, "None")?,
-            Some(id) => writeln!(f, "{}", id)?,
         }
         write!(f, "{}", self.location)
     }

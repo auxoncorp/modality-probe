@@ -71,6 +71,12 @@ impl Events {
             panic!("Events CSV contains duplicate event IDs");
         }
     }
+
+    pub fn validate_unique_names(&self) {
+        if !has_unique_elements(self.0.iter().into_iter().map(|event| event.name.clone())) {
+            panic!("Events CSV contains duplicate event names");
+        }
+    }
 }
 
 impl fmt::Display for Event {

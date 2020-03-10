@@ -51,6 +51,7 @@ pub fn run(opt: Opt) {
 
     manifest_events.validate_nonzero_ids();
     manifest_events.validate_unique_ids();
+    manifest_events.validate_unique_names();
 
     let invocations = Invocations::from_path(
         opt.no_tracers,
@@ -63,12 +64,12 @@ pub fn run(opt: Opt) {
     invocations
         .check_tracers()
         .unwrap_or_exit("Can't use the collected tracers");
+    invocations
+        .check_events()
+        .unwrap_or_exit("Can't use the collected events");
 
     invocations.merge_tracers_into(opt.tracer_id_offset, &mut manifest_tracers);
-
-    invocations
-        .merge_events_into(opt.event_id_offset, &mut manifest_events)
-        .unwrap_or_exit("Can't merge the collected events into the manifest");
+    invocations.merge_events_into(opt.event_id_offset, &mut manifest_events);
 
     // Write out the new events and tracers CSV files
     if !opt.no_events {

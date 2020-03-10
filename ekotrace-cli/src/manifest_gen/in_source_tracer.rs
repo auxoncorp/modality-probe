@@ -62,3 +62,28 @@ impl fmt::Display for InSourceTracer {
         write!(f, "{}", self.metadata)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn equality() {
+        let in_src_tracer = InSourceTracer {
+            file: "main.c".to_string(),
+            metadata: TracerMetadata {
+                name: "LOCATION_A".to_string(),
+                location: (1, 4, 3).into(),
+            },
+        };
+        let in_mf_tracer = Tracer {
+            id: TracerId(1),
+            name: "location_a".to_string(),
+            description: String::from("not in src"),
+            file: "main.c".to_string(),
+            function: String::new(),
+            line: "4".to_string(),
+        };
+        assert!(in_src_tracer.eq(&in_mf_tracer));
+    }
+}

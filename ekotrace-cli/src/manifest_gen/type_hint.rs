@@ -31,7 +31,7 @@ impl str::FromStr for TypeHint {
             "u16" => TypeHint::U16,
             "u32" => TypeHint::U32,
             "f32" => TypeHint::F32,
-            "boolean" | "bool" => TypeHint::Bool,
+            "bool" => TypeHint::Bool,
             _ => return Err("Unsupported type hint"),
         })
     }

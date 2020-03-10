@@ -1,4 +1,4 @@
-use crate::events::{Event, EventId, Events};
+use crate::events::{EventId, Events};
 use crate::manifest_gen::{
     c_parser::{self, CParser},
     file_path::{self, FilePath},
@@ -31,9 +31,9 @@ pub enum TracerCheckError {
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum EventMergeError {
-    AssignedIdChanged(Event, InSourceEvent),
-    AssignedIdConflictsWithManifest(Event, InSourceEvent),
+pub enum EventCheckError {
+    DuplicateNameInSource(InSourceEvent, InSourceEvent),
+    NameNotUpperCase(InSourceEvent),
 }
 
 pub struct Invocations {
@@ -108,18 +108,56 @@ impl Invocations {
         Ok(Invocations { tracers, events })
     }
 
+    pub fn check_tracers(&self) -> Result<(), TracerCheckError> {
+        let mut uniq = HashMap::new();
+        for t in self.tracers.iter() {
+            if let Some(prev_t) = uniq.insert(t.canonical_name(), t) {
+                return Err(TracerCheckError::MultipleLocationsInSource(
+                    prev_t.clone(),
+                    t.clone(),
+                ));
+            }
+        }
+
+        for t in self.tracers.iter() {
+            if t.name().to_uppercase() != t.name() {
+                return Err(TracerCheckError::NameNotUpperCase(t.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn check_events(&self) -> Result<(), EventCheckError> {
+        let mut uniq = HashMap::new();
+        for e in self.events.iter() {
+            if let Some(prev_e) = uniq.insert(e.canonical_name(), e) {
+                return Err(EventCheckError::DuplicateNameInSource(
+                    prev_e.clone(),
+                    e.clone(),
+                ));
+            }
+        }
+
+        for e in self.events.iter() {
+            if e.name().to_uppercase() != e.name() {
+                return Err(EventCheckError::NameNotUpperCase(e.clone()));
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn merge_tracers_into(&self, tracer_id_offset: Option<u32>, mf_tracers: &mut Tracers) {
-        // Update existing tracer locations
         self.tracers.iter().for_each(|src_tracer| {
             mf_tracers
                 .0
                 .iter_mut()
-                .find(|t| {
+                .filter(|t| {
                     t.name
                         .as_str()
                         .eq_ignore_ascii_case(&src_tracer.canonical_name())
                 })
-                .map(|t| {
+                .for_each(|t| {
                     if !src_tracer.eq(t) {
                         eprintln!("Relocating tracer '{}', ID {}", t.name, t.id.0);
                         eprintln!("Was in the manifest at {}:{}", t.file, t.line);
@@ -140,7 +178,6 @@ impl Invocations {
             id @ _ => id,
         };
 
-        // Add new tracers to the manifest
         self.tracers.iter().for_each(|src_tracer| {
             if mf_tracers.0.iter().find(|t| src_tracer.eq(t)).is_none() {
                 mf_tracers
@@ -149,63 +186,29 @@ impl Invocations {
                 next_available_tracer_id += 1;
             }
         });
-    }
 
-    pub fn merge_events_into(
-        &self,
-        event_id_offset: Option<u32>,
-        mf_events: &mut Events,
-    ) -> Result<(), EventMergeError> {
-        // Process assigned in-source events
-        for src_event in self
-            .events
-            .iter()
-            .filter(|src_event| src_event.is_assigned())
-        {
-            // Assigned events should exist in the manifest
-            if mf_events
-                .0
+        mf_tracers.0.iter().for_each(|mf_tracer| {
+            if self
+                .tracers
                 .iter()
-                .find(|e| {
-                    e.name
+                .find(|t| {
+                    mf_tracer
+                        .name
                         .as_str()
-                        .eq_ignore_ascii_case(&src_event.canonical_name())
+                        .eq_ignore_ascii_case(&t.canonical_name())
                 })
                 .is_none()
             {
-                // Already checked in above `is_assigned()`
-                let src_id = src_event.id().unwrap();
-
                 eprintln!(
-                    "Found an assigned event invocation ID {} that doesn't exist in the manfiest",
-                    src_id.0
+                    "The tracer '{}', ID {} in manifest no longer exists in source",
+                    mf_tracer.name, mf_tracer.id.0
                 );
-
-                match mf_events.0.iter().find(|e| e.id == src_id) {
-                    Some(e) => {
-                        return Err(EventMergeError::AssignedIdConflictsWithManifest(
-                            e.clone(),
-                            src_event.clone(),
-                        ));
-                    }
-                    None => {
-                        eprintln!("Adding an entry to the manifest for ID {}", src_id.0);
-                        mf_events.0.push(src_event.to_event(EventId(src_id.0)));
-                    }
-                }
             }
+        });
+    }
 
-            // Check if the IDs have changed
-            for e in mf_events.0.iter().filter(|e| src_event.eq(e)) {
-                if src_event.id() != Some(e.id) {
-                    return Err(EventMergeError::AssignedIdChanged(
-                        e.clone(),
-                        src_event.clone(),
-                    ));
-                }
-            }
-
-            // Check if the locations have changed
+    pub fn merge_events_into(&self, event_id_offset: Option<u32>, mf_events: &mut Events) {
+        for src_event in self.events.iter() {
             mf_events
                 .0
                 .iter_mut()
@@ -213,16 +216,6 @@ impl Invocations {
                     e.name
                         .as_str()
                         .eq_ignore_ascii_case(&src_event.canonical_name())
-                })
-                .filter(|e| src_event.id() == Some(e.id))
-                .filter(|e| {
-                    e.type_hint.as_str().eq_ignore_ascii_case(
-                        src_event
-                            .metadata
-                            .payload
-                            .as_ref()
-                            .map_or("", |p| p.0.as_str()),
-                    )
                 })
                 .for_each(|e| {
                     if !src_event.file.as_str().eq(e.file.as_str()) {
@@ -233,7 +226,9 @@ impl Invocations {
                             src_event.file, src_event.metadata.location.line
                         );
                         e.file = src_event.file.clone();
-                    } else if !src_event
+                    }
+
+                    if !src_event
                         .metadata
                         .location
                         .line
@@ -249,29 +244,7 @@ impl Invocations {
                         );
                         e.line = src_event.metadata.location.line.to_string();
                     }
-                });
 
-            // Check if the payload type hints have changed
-            mf_events
-                .0
-                .iter_mut()
-                .filter(|e| {
-                    e.name
-                        .as_str()
-                        .eq_ignore_ascii_case(&src_event.canonical_name())
-                })
-                .filter(|e| src_event.id() == Some(e.id))
-                .filter(|e| src_event.file.as_str().eq(e.file.as_str()))
-                .filter(|e| {
-                    src_event
-                        .metadata
-                        .location
-                        .line
-                        .to_string()
-                        .as_str()
-                        .eq(e.line.as_str())
-                })
-                .for_each(|e| {
                     if !e.type_hint.as_str().eq_ignore_ascii_case(
                         src_event
                             .metadata
@@ -291,6 +264,20 @@ impl Invocations {
                             .map_or(String::new(), |p| p.0.to_string());
                         eprintln!("Now {}", e.type_hint);
                     }
+
+                    if Some(&e.description) != src_event.metadata.description.as_ref() {
+                        if let Some(src_desc) = &src_event.metadata.description {
+                            if src_desc != "" {
+                                eprintln!(
+                                    "Event '{}', ID {} has changed its description",
+                                    e.name, e.id.0
+                                );
+                                eprintln!("Was in the manifest as '{}'", e.description);
+                                e.description = src_desc.clone();
+                                eprintln!("Now '{}'", e.description);
+                            }
+                        }
+                    }
                 });
         }
 
@@ -300,43 +287,33 @@ impl Invocations {
             id @ _ => id,
         };
 
-        // Add new unassigned events to the manifest
-        self.events
-            .iter()
-            .filter(|src_event| !src_event.is_assigned())
-            .for_each(|src_event| {
-                if mf_events.0.iter().find(|e| src_event.eq(e)).is_none() {
-                    mf_events
-                        .0
-                        .push(src_event.to_event(EventId(next_available_event_id)));
-                    next_available_event_id += 1;
-                }
-            });
-
-        Ok(())
-    }
-
-    pub fn check_tracers(&self) -> Result<(), TracerCheckError> {
-        // Check the in-source tracers for unique invocations
-        let mut uniq = HashMap::new();
-        for t in self.tracers.iter() {
-            if let Some(prev_t) = uniq.insert(t.canonical_name(), t) {
-                return Err(TracerCheckError::MultipleLocationsInSource(
-                    prev_t.clone(),
-                    t.clone(),
-                ));
+        self.events.iter().for_each(|src_event| {
+            if mf_events.0.iter().find(|e| src_event.eq(e)).is_none() {
+                mf_events
+                    .0
+                    .push(src_event.to_event(EventId(next_available_event_id)));
+                next_available_event_id += 1;
             }
-        }
+        });
 
-        // The header-gen will make upper-case constants, check that the user's are
-        // as well
-        for t in self.tracers.iter() {
-            if t.name().to_uppercase() != t.name() {
-                return Err(TracerCheckError::NameNotUpperCase(t.clone()));
+        mf_events.0.iter().for_each(|mf_event| {
+            if self
+                .events
+                .iter()
+                .find(|e| {
+                    mf_event
+                        .name
+                        .as_str()
+                        .eq_ignore_ascii_case(&e.canonical_name())
+                })
+                .is_none()
+            {
+                eprintln!(
+                    "The event '{}', ID {} in manifest no longer exists in source",
+                    mf_event.name, mf_event.id.0
+                );
             }
-        }
-
-        Ok(())
+        });
     }
 }
 
@@ -353,10 +330,36 @@ impl fmt::Display for TracerCheckError {
             TracerCheckError::NameNotUpperCase(t) => {
                 writeln!(
                     f,
-                    "Found an Ekotrace tracer token that needs to be converted to uppercase."
+                    "Found an Ekotrace tracer name '{}' that needs to be converted to uppercase.",
+                    t.name(),
                 )?;
                 writeln!(f)?;
                 writeln!(f, "{}", t)
+            }
+        }
+    }
+}
+impl fmt::Display for EventCheckError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EventCheckError::DuplicateNameInSource(first, dup) => {
+                writeln!(
+                    f,
+                    "Found an Ekotrace event name used in multiple locations."
+                )?;
+                writeln!(f)?;
+                writeln!(f, "First encounter:\n{}", first)?;
+                writeln!(f)?;
+                writeln!(f, "Duplicate:\n{}", dup)
+            }
+            EventCheckError::NameNotUpperCase(e) => {
+                writeln!(
+                    f,
+                    "Found an Ekotrace event name '{}' that needs to be converted to uppercase.",
+                    e.name(),
+                )?;
+                writeln!(f)?;
+                writeln!(f, "{}", e)
             }
         }
     }
@@ -401,44 +404,10 @@ impl From<file_path::Error> for CreationError {
     }
 }
 
-impl fmt::Display for EventMergeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EventMergeError::AssignedIdChanged(mf_e, src_e) => {
-                writeln!(
-                    f,
-                    "The assigned event ID in-source has changed from what the manifest expects."
-                )?;
-                writeln!(f)?;
-                writeln!(f, "Encountered:\n{}", src_e)?;
-                writeln!(f)?;
-                writeln!(f, "Expected:\n{}", mf_e)
-            }
-            EventMergeError::AssignedIdConflictsWithManifest(mf_e, src_e) => {
-                writeln!(
-                    f,
-                    "Encountered and event ID in-source that doesn't exist in the manifest."
-                )?;
-                writeln!(
-                    f,
-                    "It's ID is occupied by another event so we can't use the ID."
-                )?;
-                writeln!(
-                    f,
-                    "Remove the assigned ID in-source and re-run the CLI to generate a new ID."
-                )?;
-                writeln!(f)?;
-                writeln!(f, "Encountered:\n{}", src_e)?;
-                writeln!(f)?;
-                writeln!(f, "Conflicting event:\n{}", mf_e)
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::Event;
     use crate::manifest_gen::event_metadata::EventMetadata;
     use crate::manifest_gen::tracer_metadata::TracerMetadata;
     use crate::manifest_gen::type_hint::TypeHint;
@@ -560,92 +529,56 @@ mod tests {
     }
 
     #[test]
-    fn event_merge_assigned_id_changed_error() {
+    fn event_in_source_casing_error() {
         let in_src_event = InSourceEvent {
             file: "main.c".to_string(),
             metadata: EventMetadata {
                 name: "event_a".to_string(),
                 ekotrace_instance: "ekt".to_string(),
                 payload: None,
-                assigned_id: Some(2),
+                description: None,
                 location: (1, 2, 3).into(),
             },
-        };
-        let in_mf_event = Event {
-            id: EventId(1),
-            name: "event_a".to_string(),
-            description: String::new(),
-            type_hint: String::new(),
-            file: "main.c".to_string(),
-            function: String::new(),
-            line: "2".to_string(),
         };
         let invcs = Invocations {
             tracers: Vec::new(),
             events: vec![in_src_event.clone()],
         };
-        let mut mf_events = Events(vec![in_mf_event.clone()]);
         assert_eq!(
-            invcs.merge_events_into(None, &mut mf_events),
-            Err(EventMergeError::AssignedIdChanged(
-                in_mf_event,
-                in_src_event
-            ))
+            invcs.check_events(),
+            Err(EventCheckError::NameNotUpperCase(in_src_event))
         );
     }
 
     #[test]
-    fn event_merge_assigned_in_src_but_not_in_manifest() {
-        let in_src_event = InSourceEvent {
+    fn event_name_duplicate_error() {
+        let e0 = InSourceEvent {
             file: "main.c".to_string(),
             metadata: EventMetadata {
-                name: "event_a".to_string(),
+                name: "EVENT_A".to_string(),
                 ekotrace_instance: "ekt".to_string(),
                 payload: None,
-                assigned_id: Some(1),
+                description: None,
                 location: (1, 2, 3).into(),
+            },
+        };
+        let e1 = InSourceEvent {
+            file: "main.c".to_string(),
+            metadata: EventMetadata {
+                name: "EVENT_A".to_string(),
+                ekotrace_instance: "ekt".to_string(),
+                payload: None,
+                description: None,
+                location: (1, 3, 3).into(),
             },
         };
         let invcs = Invocations {
             tracers: Vec::new(),
-            events: vec![in_src_event.clone()],
+            events: vec![e0.clone(), e1.clone()],
         };
-        let mut mf_events = Events(vec![]);
-        // If the ID doesn't already exist in the manifest, then use it
-        assert_eq!(invcs.merge_events_into(None, &mut mf_events), Ok(()));
         assert_eq!(
-            mf_events.0,
-            vec![Event {
-                id: EventId(1),
-                name: "event_a".to_string(),
-                description: String::new(),
-                type_hint: String::new(),
-                file: "main.c".to_string(),
-                function: String::new(),
-                line: "2".to_string(),
-            }]
-        );
-        // If the ID is in use, throws an error
-        let in_mf_event = Event {
-            id: EventId(1),
-            name: "event_b".to_string(),
-            description: String::new(),
-            type_hint: String::new(),
-            file: "main.c".to_string(),
-            function: String::new(),
-            line: "2".to_string(),
-        };
-        let invcs = Invocations {
-            tracers: Vec::new(),
-            events: vec![in_src_event.clone()],
-        };
-        let mut mf_events = Events(vec![in_mf_event.clone()]);
-        assert_eq!(
-            invcs.merge_events_into(None, &mut mf_events),
-            Err(EventMergeError::AssignedIdConflictsWithManifest(
-                in_mf_event,
-                in_src_event
-            ))
+            invcs.check_events(),
+            Err(EventCheckError::DuplicateNameInSource(e0, e1))
         );
     }
 
@@ -654,10 +587,10 @@ mod tests {
         let in_src_event = InSourceEvent {
             file: "main.c".to_string(),
             metadata: EventMetadata {
-                name: "event_a".to_string(),
+                name: "EVENT_A".to_string(),
                 ekotrace_instance: "ekt".to_string(),
                 payload: None,
-                assigned_id: Some(1),
+                description: None,
                 location: (1, 2, 3).into(),
             },
         };
@@ -675,7 +608,7 @@ mod tests {
             events: vec![in_src_event.clone()],
         };
         let mut mf_events = Events(vec![in_mf_event.clone()]);
-        assert_eq!(invcs.merge_events_into(None, &mut mf_events), Ok(()));
+        invcs.merge_events_into(None, &mut mf_events);
         assert_eq!(
             mf_events.0,
             vec![Event {
@@ -695,10 +628,10 @@ mod tests {
         let in_src_event = InSourceEvent {
             file: "main.c".to_string(),
             metadata: EventMetadata {
-                name: "event_a".to_string(),
+                name: "EVENT_A".to_string(),
                 ekotrace_instance: "ekt".to_string(),
                 payload: None,
-                assigned_id: Some(1),
+                description: None,
                 location: (1, 8, 3).into(),
             },
         };
@@ -716,7 +649,7 @@ mod tests {
             events: vec![in_src_event.clone()],
         };
         let mut mf_events = Events(vec![in_mf_event.clone()]);
-        assert_eq!(invcs.merge_events_into(None, &mut mf_events), Ok(()));
+        invcs.merge_events_into(None, &mut mf_events);
         assert_eq!(
             mf_events.0,
             vec![Event {
@@ -736,10 +669,10 @@ mod tests {
         let in_src_event = InSourceEvent {
             file: "main.c".to_string(),
             metadata: EventMetadata {
-                name: "event_a".to_string(),
+                name: "EVENT_A".to_string(),
                 ekotrace_instance: "ekt".to_string(),
                 payload: Some((TypeHint::U8, "mydata").into()),
-                assigned_id: Some(1),
+                description: None,
                 location: (1, 2, 3).into(),
             },
         };
@@ -757,7 +690,7 @@ mod tests {
             events: vec![in_src_event.clone()],
         };
         let mut mf_events = Events(vec![in_mf_event.clone()]);
-        assert_eq!(invcs.merge_events_into(None, &mut mf_events), Ok(()));
+        invcs.merge_events_into(None, &mut mf_events);
         assert_eq!(
             mf_events.0,
             vec![Event {

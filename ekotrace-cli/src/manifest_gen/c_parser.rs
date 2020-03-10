@@ -22,7 +22,7 @@ pub struct CParser {}
 pub enum Error {
     MissingSemicolon(SourceLocation),
     UnrecognizedTypeHint(SourceLocation),
-    AssignedEventIdParseIntError(SourceLocation),
+    TypeHintNameNotUpperCase(SourceLocation),
     PayloadArgumentSpansManyLines(SourceLocation),
     Syntax(SourceLocation),
 }
@@ -163,17 +163,17 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         Err(_) => rest_string(args)?,
     };
 
-    let (_args, assigned_id_str) = match expect_arg3 {
+    let (_args, description) = match expect_arg3 {
         false => (args, None),
-        true => map(rest_string, |id: String| Some(id))(args)?,
-    };
-
-    let assigned_id = match assigned_id_str {
-        None => None,
-        Some(id) => Some(
-            id.parse::<u32>()
-                .map_err(|_| make_error(input, Error::AssignedEventIdParseIntError(pos.into())))?,
-        ),
+        true => map(rest_literal, |id: String| {
+            Some(
+                id.replace("\n", "")
+                    .replace("\t", "")
+                    .replace("\"", "")
+                    .trim()
+                    .to_string(),
+            )
+        })(args)?,
     };
 
     Ok((
@@ -182,7 +182,7 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
             name,
             ekotrace_instance,
             payload: None,
-            assigned_id,
+            description,
             location: pos.into(),
         },
     ))
@@ -192,6 +192,12 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     let (input, pos) = position(input)?;
     let (input, _) = tag("EKT_RECORD_W_")(input)?;
     let (input, type_hint) = take_until("(")(input)?;
+    if &type_hint.fragment().to_uppercase().as_str() != type_hint.fragment() {
+        return Err(make_error(
+            input,
+            Error::TypeHintNameNotUpperCase(pos.into()),
+        ));
+    }
     let type_hint = TypeHint::from_str(type_hint.fragment())
         .map_err(|_| make_error(input, Error::UnrecognizedTypeHint(pos.into())))?;
     let (input, _) = opt(line_ending)(input)?;
@@ -233,17 +239,17 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         return Err(make_error(input, Error::Syntax(pos.into())));
     }
 
-    let (_args, assigned_id_str) = match expect_arg4 {
+    let (_args, description) = match expect_arg4 {
         false => (args, None),
-        true => map(rest_string, |id: String| Some(id))(args)?,
-    };
-
-    let assigned_id = match assigned_id_str {
-        None => None,
-        Some(id) => Some(
-            id.parse::<u32>()
-                .map_err(|_| make_error(input, Error::AssignedEventIdParseIntError(pos.into())))?,
-        ),
+        true => map(rest_literal, |id: String| {
+            Some(
+                id.replace("\n", "")
+                    .replace("\t", "")
+                    .replace("\"", "")
+                    .trim()
+                    .to_string(),
+            )
+        })(args)?,
     };
 
     Ok((
@@ -252,7 +258,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
             name,
             ekotrace_instance,
             payload: Some((type_hint, payload).into()),
-            assigned_id,
+            description,
             location: pos.into(),
         },
     ))
@@ -364,9 +370,9 @@ impl fmt::Display for Error {
                 "An Ekotrace record event with payload invocation has an unrecognized payload type hint near\n{}",
                 loc
             ),
-            Error::AssignedEventIdParseIntError(loc) => write!(
+            Error::TypeHintNameNotUpperCase(loc) => write!(
                 f,
-                "Can't parse an Ekotrace record event invocation assigned identifier as u32 near\n{}",
+                "An Ekotrace record event with payload invocation has a payload type hint that needs to be upper case near\n{}",
                 loc
             ),
             Error::PayloadArgumentSpansManyLines(loc) => write!(
@@ -474,48 +480,48 @@ mod tests {
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
     /* The user writes this line: */
-    const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ);
+    const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ1);
 
     assert(err == EKOTRACE_RESULT_OK);
 
     /* The tooling replaces it with this (assumes it picked ID 1): */
-    const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ, 1);
+    const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ2, "my docs");
 
     assert(err == EKOTRACE_RESULT_OK);
 
     EKT_RECORD(
             ekt, /* comments */
-            EVENT_WRITE); // more comments
+            EVENT_WRITE1); // more comments
 
-    EKT_RECORD(  ekt, /* comments */ EVENT_WRITE, 2); // more comments
+    EKT_RECORD(  ekt, /* comments */ EVENT_WRITE2, "docs"); // more comments
 
     uint8_t status;
     const size_t err = EKT_RECORD_W_U8(ekt, EVENT_A, status);
 
     const size_t err = EKT_RECORD_W_U8(
         ekt, // stuff
-        EVENT_A, /* here */
+        EVENT_B, /* here */
         status,
-        3); // The end
+        "desc text here"); // The end
 
-    const size_t err = EKT_RECORD_W_I16(ekt, EVENT_B, (int16_t) data);
+    const size_t err = EKT_RECORD_W_I16(ekt, EVENT_C, (int16_t) data);
 
-    const size_t err = EKT_RECORD_W_I16(ekt, EVENT_B, (int16_t) data, 4);
+    const size_t err = EKT_RECORD_W_I16(ekt, EVENT_D, (int16_t) data, "docs");
 
-    const size_t err = EKT_RECORD_W_i8(ekt, EVENT_C,
+    const size_t err = EKT_RECORD_W_I8(ekt, EVENT_E,
     (int8_t) *((uint8_t*) &mydata));
 
     const size_t err = EKT_RECORD_W_U16(
         ekt,
-        EVENT_D,
+        EVENT_F,
     (uint16_t) *((uint16_t*) &mydata)
     );
 
     const size_t err = EKT_RECORD_W_U16(
         ekt,
-        EVENT_D,
+        EVENT_G,
     (uint16_t) *((uint16_t*) &mydata),
-    5
+    " docs "
     );
 "#;
 
@@ -558,81 +564,81 @@ mod tests {
             tokens,
             Ok(vec![
                 EventMetadata {
-                    name: "EVENT_READ".to_string(),
+                    name: "EVENT_READ1".to_string(),
                     ekotrace_instance: "g_ekotrace".to_string(),
                     payload: None,
-                    assigned_id: None,
+                    description: None,
                     location: (61, 3, 24).into(),
                 },
                 EventMetadata {
-                    name: "EVENT_READ".to_string(),
+                    name: "EVENT_READ2".to_string(),
                     ekotrace_instance: "g_ekotrace".to_string(),
                     payload: None,
-                    assigned_id: Some(1),
-                    location: (231, 8, 24).into(),
+                    description: Some("my docs".to_string()),
+                    location: (232, 8, 24).into(),
                 },
                 EventMetadata {
-                    name: "EVENT_WRITE".to_string(),
+                    name: "EVENT_WRITE1".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: None,
-                    assigned_id: None,
-                    location: (315, 12, 5).into(),
+                    description: None,
+                    location: (325, 12, 5).into(),
                 },
                 EventMetadata {
-                    name: "EVENT_WRITE".to_string(),
+                    name: "EVENT_WRITE2".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: None,
-                    assigned_id: Some(2),
-                    location: (407, 16, 5).into(),
+                    description: Some("docs".to_string()),
+                    location: (418, 16, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_A".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
-                    assigned_id: None,
-                    location: (518, 19, 24).into(),
+                    description: None,
+                    location: (535, 19, 24).into(),
                 },
                 EventMetadata {
-                    name: "EVENT_A".to_string(),
+                    name: "EVENT_B".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
-                    assigned_id: Some(3),
-                    location: (581, 21, 24).into(),
-                },
-                EventMetadata {
-                    name: "EVENT_B".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
-                    payload: Some((TypeHint::I16, "(int16_t) data").into()),
-                    assigned_id: None,
-                    location: (711, 27, 24).into(),
-                },
-                EventMetadata {
-                    name: "EVENT_B".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
-                    payload: Some((TypeHint::I16, "(int16_t) data").into()),
-                    assigned_id: Some(4),
-                    location: (783, 29, 24).into(),
+                    description: Some("desc text here".to_string()),
+                    location: (598, 21, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_C".to_string(),
                     ekotrace_instance: "ekt".to_string(),
+                    payload: Some((TypeHint::I16, "(int16_t) data").into()),
+                    description: None,
+                    location: (743, 27, 24).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_D".to_string(),
+                    ekotrace_instance: "ekt".to_string(),
+                    payload: Some((TypeHint::I16, "(int16_t) data").into()),
+                    description: Some("docs".to_string()),
+                    location: (815, 29, 24).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_E".to_string(),
+                    ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I8, "(int8_t) *((uint8_t*) &mydata)").into()),
-                    assigned_id: None,
-                    location: (858, 31, 24).into(),
+                    description: None,
+                    location: (895, 31, 24).into(),
                 },
                 EventMetadata {
-                    name: "EVENT_D".to_string(),
+                    name: "EVENT_F".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
-                    assigned_id: None,
-                    location: (949, 34, 24).into(),
+                    description: None,
+                    location: (986, 34, 24).into(),
                 },
                 EventMetadata {
-                    name: "EVENT_D".to_string(),
+                    name: "EVENT_G".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
-                    assigned_id: Some(5),
-                    location: (1066, 40, 24).into(),
+                    description: Some("docs".to_string()),
+                    location: (1103, 40, 24).into(),
                 },
             ])
         );
@@ -680,5 +686,16 @@ assert(err == EKOTRACE_RESULT_OK);
         let input = "EKT_RECORD_W_I12(ekt, E0, data);";
         let tokens = parser.parse_events(input);
         assert_eq!(tokens, Err(Error::UnrecognizedTypeHint((0, 1, 1).into())));
+    }
+
+    #[test]
+    fn event_payload_casing_errors() {
+        let parser = CParser::default();
+        let input = "EKT_RECORD_W_i8(ekt, EVENT_A, status);";
+        let tokens = parser.parse_events(input);
+        assert_eq!(
+            tokens,
+            Err(Error::TypeHintNameNotUpperCase((0, 1, 1).into()))
+        );
     }
 }
