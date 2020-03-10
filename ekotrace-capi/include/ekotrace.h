@@ -1,5 +1,6 @@
 #ifndef EKOTRACE_H
 #define EKOTRACE_H
+
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -115,6 +116,66 @@ typedef struct causal_snapshot {
 } causal_snapshot;
 
 /*
+ * Ekotrace event recording macro.
+ *
+ * Used to expose event recording information to the CLI tooling.
+ *
+ * Expands to call `ekotrace_record_event(ekt, event)`.
+ *
+ */
+#define EKT_RECORD(ekt, event, ...) \
+        ekotrace_record_event(ekt, event)
+
+/*
+ * Ekotrace event recording with metadata macro.
+ *
+ * Used to expose event recording information to the CLI tooling.
+ *
+ * Expands to call `ekotrace_record_event_with_metadata_<type>(ekt, event)`.
+ *
+ */
+#define EKT_RECORD_W_I8(ekt, event, meta_data, ...) \
+    ekotrace_record_event_with_metadata_i8(\
+            ekt, \
+            event, \
+            meta_data)
+#define EKT_RECORD_W_U8(ekt, event, meta_data, ...) \
+    ekotrace_record_event_with_metadata_u8(\
+            ekt, \
+            event, \
+            meta_data)
+#define EKT_RECORD_W_I16(ekt, event, meta_data, ...) \
+    ekotrace_record_event_with_metadata_i16(\
+            ekt, \
+            event, \
+            meta_data)
+#define EKT_RECORD_W_U16(ekt, event, meta_data, ...) \
+    ekotrace_record_event_with_metadata_u16(\
+            ekt, \
+            event, \
+            meta_data)
+#define EKT_RECORD_W_I32(ekt, event, meta_data, ...) \
+    ekotrace_record_event_with_metadata_i32(\
+            ekt, \
+            event, \
+            meta_data)
+#define EKT_RECORD_W_U32(ekt, event, meta_data, ...) \
+    ekotrace_record_event_with_metadata_u32(\
+            ekt, \
+            event, \
+            meta_data)
+#define EKT_RECORD_W_BOOL(ekt, event, meta_data, ...) \
+    ekotrace_record_event_with_metadata_bool(\
+            ekt, \
+            event, \
+            meta_data)
+#define EKT_RECORD_W_F32(ekt, event, meta_data, ...) \
+    ekotrace_record_event_with_metadata_f32(\
+            ekt, \
+            event, \
+            meta_data)
+
+/*
  * Create a ekotrace instance. ekotrace_id must be non-zero
  */
 size_t ekotrace_initialize(uint8_t *destination, size_t destination_size_bytes, uint32_t ekotrace_id, ekotrace * * out);
@@ -131,6 +192,62 @@ size_t ekotrace_record_event(ekotrace *ekotrace, uint32_t event_id);
  * event_id must be non-zero.
  */
 size_t ekotrace_record_event_with_metadata(ekotrace *ekotrace, uint32_t event_id, uint32_t meta);
+
+/*
+ * Record an event along with a i8 payload.
+ *
+ * event_id must be non-zero.
+ */
+size_t ekotrace_record_event_with_metadata_i8(ekotrace *ekotrace, uint32_t event_id, int8_t meta);
+
+/*
+ * Record an event along with a u8 payload.
+ *
+ * event_id must be non-zero.
+ */
+size_t ekotrace_record_event_with_metadata_u8(ekotrace *ekotrace, uint32_t event_id, uint8_t meta);
+
+/*
+ * Record an event along with a i16 payload.
+ *
+ * event_id must be non-zero.
+ */
+size_t ekotrace_record_event_with_metadata_i16(ekotrace *ekotrace, uint32_t event_id, int16_t meta);
+
+/*
+ * Record an event along with a u16 payload.
+ *
+ * event_id must be non-zero.
+ */
+size_t ekotrace_record_event_with_metadata_u16(ekotrace *ekotrace, uint32_t event_id, uint16_t meta);
+
+/*
+ * Record an event along with a i32 payload.
+ *
+ * event_id must be non-zero.
+ */
+size_t ekotrace_record_event_with_metadata_i32(ekotrace *ekotrace, uint32_t event_id, int32_t meta);
+
+/*
+ * Record an event along with a u32 payload.
+ *
+ * event_id must be non-zero.
+ */
+size_t ekotrace_record_event_with_metadata_u32(ekotrace *ekotrace, uint32_t event_id, uint32_t meta);
+
+/*
+ * Record an event along with a bool payload.
+ *
+ * event_id must be non-zero.
+ */
+size_t ekotrace_record_event_with_metadata_bool(ekotrace *ekotrace, uint32_t event_id, bool meta);
+
+/*
+ * Record an event along with a f32 payload.
+ *
+ * event_id must be non-zero.
+ */
+size_t ekotrace_record_event_with_metadata_f32(ekotrace *ekotrace, uint32_t event_id, float meta);
 
 /*
  * Conduct necessary background activities, then

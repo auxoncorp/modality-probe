@@ -4,4 +4,4 @@ set -ex
 
 cargo clean --manifest-path ../Cargo.toml -p ekotrace-capi
 cargo build --manifest-path ../Cargo.toml
-gcc -DDEBUG -o test test.c -ansi -Wall -I../include -L../target/debug -lekotrace_capi
+gcc -DDEBUG -o test test.c -ansi -Wall -Wextra -Werror -Wconversion -Wsign-conversion -I../include -L../target/debug -lekotrace_capi

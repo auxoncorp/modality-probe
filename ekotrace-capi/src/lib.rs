@@ -32,6 +32,90 @@ pub extern "C" fn ekotrace_record_event_with_metadata(
 }
 
 #[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_metadata_i8(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    meta: i8,
+) -> EkotraceResult {
+    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta as _) }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_metadata_u8(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    meta: u8,
+) -> EkotraceResult {
+    unsafe {
+        ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, u32::from(meta))
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_metadata_i16(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    meta: i16,
+) -> EkotraceResult {
+    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta as _) }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_metadata_u16(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    meta: u16,
+) -> EkotraceResult {
+    unsafe {
+        ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, u32::from(meta))
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_metadata_i32(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    meta: i32,
+) -> EkotraceResult {
+    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta as _) }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_metadata_u32(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    meta: u32,
+) -> EkotraceResult {
+    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta) }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_metadata_bool(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    meta: bool,
+) -> EkotraceResult {
+    unsafe {
+        ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, u32::from(meta))
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_metadata_f32(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    meta: f32,
+) -> EkotraceResult {
+    unsafe {
+        ekotrace_capi_impl::ekotrace_record_event_with_metadata(
+            tracer,
+            event_id,
+            u32::from_le_bytes(meta.to_le_bytes()),
+        )
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn ekotrace_report(
     tracer: *mut Ekotrace<'static>,
     log_report_destination: *mut u8,

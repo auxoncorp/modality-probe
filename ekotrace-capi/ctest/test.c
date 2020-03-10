@@ -30,7 +30,7 @@ bool test_backend_piping() {
         passed = false;
     }
     bool all_zeros = true;
-    int i;
+    unsigned int i;
     for (i = 0; i < DEFAULT_LOG_STORAGE; i++) {
         if (log_storage[i] != 0) {
             all_zeros = false;
@@ -70,6 +70,51 @@ bool test_event_recording() {
     result = ekotrace_record_event(t, EVENT_A);
     if (result != EKOTRACE_RESULT_OK) {
         fprintf(stderr, "failed at record event: %d\n", result);
+        passed = false;
+    }
+    result = ekotrace_record_event_with_metadata(t, EVENT_A, 1);
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        passed = false;
+    }
+    result = EKT_RECORD_W_I8(t, EVENT_A, (int8_t) 1);
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        passed = false;
+    }
+    result = EKT_RECORD_W_U8(t, EVENT_A, (uint8_t) 1, "more docs");
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        passed = false;
+    }
+    result = EKT_RECORD_W_I16(t, EVENT_A, (int16_t) 1);
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        passed = false;
+    }
+    result = EKT_RECORD_W_U16(t, EVENT_A, (uint16_t) 1);
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        passed = false;
+    }
+    result = EKT_RECORD_W_I32(t, EVENT_A, (int32_t) 1, "some docs");
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        passed = false;
+    }
+    result = EKT_RECORD_W_U32(t, EVENT_A, (uint32_t) 1);
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        passed = false;
+    }
+    result = EKT_RECORD_W_BOOL(t, EVENT_A, true, "my docs");
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        passed = false;
+    }
+    result = EKT_RECORD_W_F32(t, EVENT_A, 1.23f, "my docs");
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with metadata: %d\n", result);
         passed = false;
     }
     causal_snapshot snap_b;
