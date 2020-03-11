@@ -1,4 +1,4 @@
-use ekotrace_cli::{analysis, header_gen, manifest_gen};
+use ekotrace_cli::{analysis, header_gen, lang::Lang, manifest_gen};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -17,6 +17,10 @@ enum Opt {
 
 #[derive(Debug, StructOpt)]
 pub struct ManifestGen {
+    /// Language (C or Rust), if not specified then guess based on file extensions
+    #[structopt(short, long, parse(try_from_str))]
+    lang: Option<Lang>,
+
     /// Event ID offset
     #[structopt(long)]
     event_id_offset: Option<u32>,
@@ -61,7 +65,7 @@ pub struct HeaderGen {
     tracers_csv_file: PathBuf,
 
     #[structopt(short, long, parse(try_from_str), default_value = "C")]
-    lang: header_gen::Lang,
+    lang: Lang,
 
     /// C header include guard prefix
     #[structopt(long, default_value = "EKOTRACE")]
@@ -113,6 +117,7 @@ enum Analysis {
 impl From<ManifestGen> for manifest_gen::Opt {
     fn from(opt: ManifestGen) -> Self {
         manifest_gen::Opt {
+            lang: opt.lang,
             event_id_offset: opt.event_id_offset,
             tracer_id_offset: opt.tracer_id_offset,
             file_extensions: opt.file_extensions,

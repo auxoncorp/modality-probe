@@ -1,5 +1,4 @@
-use crate::events::Event;
-use crate::tracers::Tracer;
+use crate::{events::Event, lang::Lang, tracers::Tracer};
 use csv;
 use sha2::{Digest, Sha256};
 use std::fs::File;
@@ -72,12 +71,6 @@ pub struct Opt {
     pub tracers_csv_file: PathBuf,
     pub lang: Lang,
     pub include_guard_prefix: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Lang {
-    C,
-    Rust,
 }
 
 #[derive(Debug)]

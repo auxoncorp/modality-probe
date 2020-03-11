@@ -1,8 +1,10 @@
-use crate::manifest_gen::event_metadata::EventMetadata;
-use crate::manifest_gen::parser::Parser;
-use crate::manifest_gen::source_location::SourceLocation;
-use crate::manifest_gen::tracer_metadata::TracerMetadata;
-use crate::manifest_gen::type_hint::TypeHint;
+use crate::manifest_gen::{
+    event_metadata::EventMetadata,
+    parser::{self, Parser, Span},
+    source_location::SourceLocation,
+    tracer_metadata::TracerMetadata,
+    type_hint::TypeHint,
+};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take, take_till1, take_until},
@@ -11,7 +13,7 @@ use nom::{
     error::ParseError,
     sequence::delimited,
 };
-use nom_locate::{position, LocatedSpan};
+use nom_locate::position;
 use std::fmt;
 use std::str::FromStr;
 
@@ -20,64 +22,33 @@ pub struct CParser {}
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Error {
+    Syntax(SourceLocation),
     MissingSemicolon(SourceLocation),
     UnrecognizedTypeHint(SourceLocation),
     TypeHintNameNotUpperCase(SourceLocation),
     PayloadArgumentSpansManyLines(SourceLocation),
-    Syntax(SourceLocation),
-}
-
-type ParserResult<I, O> = nom::IResult<I, O, InternalError<I>>;
-
-impl<I> ParseError<I> for InternalError<I> {
-    fn from_error_kind(input: I, kind: nom::error::ErrorKind) -> Self {
-        Self {
-            kind: InternalErrorKind::Nom(input, kind),
-            backtrace: Vec::new(),
-        }
-    }
-
-    fn append(input: I, kind: nom::error::ErrorKind, mut other: Self) -> Self {
-        other.backtrace.push(InternalErrorKind::Nom(input, kind));
-        other
-    }
-}
-
-fn convert_error<I>(nom_err: nom::Err<InternalError<I>>, err: Error) -> nom::Err<InternalError<I>> {
-    match nom_err {
-        nom::Err::Failure(i) | nom::Err::Error(i) => {
-            nom::Err::Failure((i.into_inner(), err).into())
-        }
-        nom::Err::Incomplete(i) => nom::Err::Incomplete(i),
-    }
-}
-
-fn make_error<I>(input: I, err: Error) -> nom::Err<InternalError<I>> {
-    nom::Err::Failure((input, err).into())
-}
-
-type Span<'a> = LocatedSpan<&'a str>;
-
-impl<'a> From<Span<'a>> for SourceLocation {
-    fn from(span: Span<'a>) -> SourceLocation {
-        SourceLocation {
-            offset: span.location_offset(),
-            line: span.location_line() as usize,
-            column: span.get_column(),
-        }
-    }
 }
 
 impl Parser for CParser {
-    type Error = Error;
+    fn parse_events(&self, input: &str) -> Result<Vec<EventMetadata>, parser::Error> {
+        let md = self.parse_event_md(input)?;
+        Ok(md)
+    }
 
-    fn parse_events(&self, input: &str) -> Result<Vec<EventMetadata>, Error> {
-        let mut tracers = vec![];
+    fn parse_tracers(&self, input: &str) -> Result<Vec<TracerMetadata>, parser::Error> {
+        let md = self.parse_tracer_md(input)?;
+        Ok(md)
+    }
+}
+
+impl CParser {
+    fn parse_event_md(&self, input: &str) -> Result<Vec<EventMetadata>, Error> {
+        let mut md = vec![];
         let mut input = Span::new(input);
         while input.fragment().len() != 0 {
             match parse_record_event_call_exp(input) {
                 Ok((rem, metadata)) => {
-                    tracers.push(metadata);
+                    md.push(metadata);
                     input = rem;
                 }
                 Err(e) => match e {
@@ -99,16 +70,16 @@ impl Parser for CParser {
                 },
             }
         }
-        Ok(tracers)
+        Ok(md)
     }
 
-    fn parse_tracers(&self, input: &str) -> Result<Vec<TracerMetadata>, Error> {
-        let mut tracers = vec![];
+    fn parse_tracer_md(&self, input: &str) -> Result<Vec<TracerMetadata>, Error> {
+        let mut md = vec![];
         let mut input = Span::new(input);
         while input.fragment().len() != 0 {
             match parse_init_call_exp(input) {
                 Ok((rem, metadata)) => {
-                    tracers.push(metadata);
+                    md.push(metadata);
                     input = rem;
                 }
                 Err(e) => match e {
@@ -130,7 +101,7 @@ impl Parser for CParser {
                 },
             }
         }
-        Ok(tracers)
+        Ok(md)
     }
 }
 
@@ -193,13 +164,13 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     let (input, _) = tag("EKT_RECORD_W_")(input)?;
     let (input, type_hint) = take_until("(")(input)?;
     if &type_hint.fragment().to_uppercase().as_str() != type_hint.fragment() {
-        return Err(make_error(
+        return Err(make_failure(
             input,
             Error::TypeHintNameNotUpperCase(pos.into()),
         ));
     }
     let type_hint = TypeHint::from_str(type_hint.fragment())
-        .map_err(|_| make_error(input, Error::UnrecognizedTypeHint(pos.into())))?;
+        .map_err(|_| make_failure(input, Error::UnrecognizedTypeHint(pos.into())))?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
     let (input, _) = tag("(")(input)?;
@@ -225,7 +196,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     let payload = payload.trim().to_string();
     for c in payload.chars() {
         if c == '\n' {
-            return Err(make_error(
+            return Err(make_failure(
                 input,
                 Error::PayloadArgumentSpansManyLines(pos.into()),
             ));
@@ -236,7 +207,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     let open = payload.chars().filter(|&c| c == '(').count();
     let close = payload.chars().filter(|&c| c == ')').count();
     if open != close {
-        return Err(make_error(input, Error::Syntax(pos.into())));
+        return Err(make_failure(input, Error::Syntax(pos.into())));
     }
 
     let (_args, description) = match expect_arg4 {
@@ -313,6 +284,7 @@ fn comments_and_spacing(input: Span) -> ParserResult<Span, ()> {
     let (input, _) = comment(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
+    let (input, _) = comment(input)?;
     Ok((input, ()))
 }
 
@@ -359,7 +331,7 @@ fn trimmed_string(s: &str) -> String {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
+        match self {
             Error::MissingSemicolon(loc) => write!(
                 f,
                 "An Ekotrace record event invocation is missing a semicolon, expected near\n{}",
@@ -393,6 +365,35 @@ impl fmt::Display for Error {
 enum InternalErrorKind<I> {
     Nom(I, nom::error::ErrorKind),
     Error(I, Error),
+}
+
+type ParserResult<I, O> = nom::IResult<I, O, InternalError<I>>;
+
+impl<I> ParseError<I> for InternalError<I> {
+    fn from_error_kind(input: I, kind: nom::error::ErrorKind) -> Self {
+        Self {
+            kind: InternalErrorKind::Nom(input, kind),
+            backtrace: Vec::new(),
+        }
+    }
+
+    fn append(input: I, kind: nom::error::ErrorKind, mut other: Self) -> Self {
+        other.backtrace.push(InternalErrorKind::Nom(input, kind));
+        other
+    }
+}
+
+fn convert_error<I>(nom_err: nom::Err<InternalError<I>>, err: Error) -> nom::Err<InternalError<I>> {
+    match nom_err {
+        nom::Err::Failure(i) | nom::Err::Error(i) => {
+            nom::Err::Failure((i.into_inner(), err).into())
+        }
+        nom::Err::Incomplete(i) => nom::Err::Incomplete(i),
+    }
+}
+
+fn make_failure<I>(input: I, err: Error) -> nom::Err<InternalError<I>> {
+    nom::Err::Failure((input, err).into())
 }
 
 impl<I> From<(I, nom::error::ErrorKind)> for InternalErrorKind<I> {
@@ -504,6 +505,9 @@ mod tests {
         status,
         "desc text here"); // The end
 
+    /* stuff
+     * EKT_RECORD_W_U8(ekt, SOME_EVENT, status);
+     */
     const size_t err = EKT_RECORD_W_I16(ekt, EVENT_C, (int16_t) data);
 
     const size_t err = EKT_RECORD_W_I16(ekt, EVENT_D, (int16_t) data, "docs");
@@ -559,7 +563,7 @@ mod tests {
     #[test]
     fn event_metadata_in_mixed_input() {
         let parser = CParser::default();
-        let tokens = parser.parse_events(MIXED_EVENT_RECORDING_INPUT);
+        let tokens = parser.parse_event_md(MIXED_EVENT_RECORDING_INPUT);
         assert_eq!(
             tokens,
             Ok(vec![
@@ -610,35 +614,35 @@ mod tests {
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: None,
-                    location: (743, 27, 24).into(),
+                    location: (813, 30, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_D".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: Some("docs".to_string()),
-                    location: (815, 29, 24).into(),
+                    location: (885, 32, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_E".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I8, "(int8_t) *((uint8_t*) &mydata)").into()),
                     description: None,
-                    location: (895, 31, 24).into(),
+                    location: (965, 34, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_F".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: None,
-                    location: (986, 34, 24).into(),
+                    location: (1056, 37, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_G".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: Some("docs".to_string()),
-                    location: (1103, 40, 24).into(),
+                    location: (1173, 43, 24).into(),
                 },
             ])
         );
@@ -651,13 +655,13 @@ mod tests {
 const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ)
 assert(err == EKOTRACE_RESULT_OK);
 "#;
-        let tokens = parser.parse_events(input);
+        let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((20, 2, 20).into())));
         let input = "const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ)";
-        let tokens = parser.parse_events(input);
+        let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((19, 1, 20).into())));
         let input = "EKT_RECORD_W_I16(ekt, E0, data)";
-        let tokens = parser.parse_events(input);
+        let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
     }
 
@@ -667,13 +671,13 @@ assert(err == EKOTRACE_RESULT_OK);
         let input = r#"
 const size_t err = EKT_RECORD_W_U8(g_ekotrace, EVENT_READ, (uint8_t) (( ))))status);
 "#;
-        let tokens = parser.parse_events(input);
+        let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((20, 2, 20).into())));
         let input = r#"
 const size_t err = EKT_RECORD_W_U8(g_ekotrace, EVENT_READ, (uint8_t) status)
 assert(err == EKOTRACE_RESULT_OK);
 "#;
-        let tokens = parser.parse_events(input);
+        let tokens = parser.parse_event_md(input);
         assert_eq!(
             tokens,
             Err(Error::PayloadArgumentSpansManyLines((20, 2, 20).into()))
@@ -684,7 +688,7 @@ assert(err == EKOTRACE_RESULT_OK);
     fn event_payload_type_hint_errors() {
         let parser = CParser::default();
         let input = "EKT_RECORD_W_I12(ekt, E0, data);";
-        let tokens = parser.parse_events(input);
+        let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::UnrecognizedTypeHint((0, 1, 1).into())));
     }
 
@@ -692,7 +696,7 @@ assert(err == EKOTRACE_RESULT_OK);
     fn event_payload_casing_errors() {
         let parser = CParser::default();
         let input = "EKT_RECORD_W_i8(ekt, EVENT_A, status);";
-        let tokens = parser.parse_events(input);
+        let tokens = parser.parse_event_md(input);
         assert_eq!(
             tokens,
             Err(Error::TypeHintNameNotUpperCase((0, 1, 1).into()))

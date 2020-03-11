@@ -1,7 +1,4 @@
-use crate::error::GracefulExit;
-use crate::events::Events;
-use crate::exit_error;
-use crate::tracers::Tracers;
+use crate::{error::GracefulExit, events::Events, exit_error, lang::Lang, tracers::Tracers};
 use invocations::Invocations;
 use std::path::PathBuf;
 
@@ -12,12 +9,14 @@ mod in_source_event;
 mod in_source_tracer;
 mod invocations;
 mod parser;
+mod rust_parser;
 mod source_location;
 mod tracer_metadata;
 mod type_hint;
 
 #[derive(Debug)]
 pub struct Opt {
+    pub lang: Option<Lang>,
     pub event_id_offset: Option<u32>,
     pub tracer_id_offset: Option<u32>,
     pub file_extensions: Option<Vec<String>>,
@@ -54,6 +53,7 @@ pub fn run(opt: Opt) {
     manifest_events.validate_unique_names();
 
     let invocations = Invocations::from_path(
+        opt.lang,
         opt.no_tracers,
         opt.no_events,
         opt.source_path,

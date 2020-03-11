@@ -1,12 +1,16 @@
-use crate::events::{EventId, Events};
 use crate::manifest_gen::{
-    c_parser::{self, CParser},
+    c_parser::CParser,
     file_path::{self, FilePath},
     in_source_event::InSourceEvent,
     in_source_tracer::InSourceTracer,
-    parser::Parser,
+    parser::{self, Parser},
+    rust_parser::RustParser,
 };
-use crate::tracers::{TracerId, Tracers};
+use crate::{
+    events::{EventId, Events},
+    lang::Lang,
+    tracers::{TracerId, Tracers},
+};
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
@@ -14,12 +18,12 @@ use std::fs::File;
 use std::hash::Hash;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
+use walkdir::{DirEntry, WalkDir};
 
 #[derive(Debug)]
 pub enum CreationError {
     Io(io::Error),
-    Parser(c_parser::Error),
+    Parser(parser::Error),
     FileDoesNotExist(PathBuf),
     NotRegularFile(PathBuf),
 }
@@ -43,6 +47,7 @@ pub struct Invocations {
 
 impl Invocations {
     pub fn from_path<P: AsRef<Path>>(
+        lang: Option<Lang>,
         no_tracers: bool,
         no_events: bool,
         p: P,
@@ -53,10 +58,10 @@ impl Invocations {
         let mut buffer = String::new();
         for entry in WalkDir::new(&p)
             .into_iter()
+            .filter_entry(|e| !is_hidden(e))
             .filter_map(Result::ok)
             .filter(|e| !e.file_type().is_dir())
         {
-            // Filter by file extensions, if provided
             if file_extensions.as_ref().map_or(true, |exts| {
                 exts.iter()
                     .find(|&ext| Some(OsStr::new(ext)) == entry.path().extension())
@@ -79,8 +84,40 @@ impl Invocations {
                     let file = entry.path().canonicalize()?;
                     let file_path = FilePath::resolve(&search_path, &file)?;
 
+                    let parser: Box<dyn Parser> = match lang {
+                        Some(Lang::C) => Box::new(CParser::default()),
+                        Some(Lang::Rust) => Box::new(RustParser::default()),
+                        None => match entry.path().extension() {
+                            Some(os_str) => match os_str.to_str() {
+                                Some("rs") => Box::new(RustParser::default()),
+                                Some("c") => Box::new(CParser::default()),
+                                Some(ext) => {
+                                    eprintln!(
+                                        "Guessing C parser based on file extension '{}'",
+                                        ext
+                                    );
+                                    Box::new(CParser::default())
+                                }
+                                None => {
+                                    eprintln!(
+                                        "Guessing C parser based on file extension '{}'",
+                                        os_str.to_string_lossy()
+                                    );
+                                    Box::new(CParser::default())
+                                }
+                            },
+                            None => {
+                                eprintln!(
+                                    "No file extension available for '{:?}', defaulting to using the C parser",
+                                    entry.path()
+                                );
+                                Box::new(CParser::default())
+                            }
+                        },
+                    };
+
                     if !no_tracers {
-                        let tracer_metadata = CParser::default().parse_tracers(&buffer)?;
+                        let tracer_metadata = parser.parse_tracers(&buffer)?;
                         let mut tracers_in_file: Vec<InSourceTracer> = tracer_metadata
                             .into_iter()
                             .map(|md| InSourceTracer {
@@ -92,7 +129,7 @@ impl Invocations {
                     }
 
                     if !no_events {
-                        let event_metadata = CParser::default().parse_events(&buffer)?;
+                        let event_metadata = parser.parse_events(&buffer)?;
                         let mut events_in_file: Vec<InSourceEvent> = event_metadata
                             .into_iter()
                             .map(|md| InSourceEvent {
@@ -317,6 +354,14 @@ impl Invocations {
     }
 }
 
+fn is_hidden(entry: &DirEntry) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .map(|s| s.starts_with(".") && s != ".")
+        .unwrap_or(false)
+}
+
 impl fmt::Display for TracerCheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -390,8 +435,8 @@ impl From<io::Error> for CreationError {
     }
 }
 
-impl From<c_parser::Error> for CreationError {
-    fn from(e: c_parser::Error) -> Self {
+impl From<parser::Error> for CreationError {
+    fn from(e: parser::Error) -> Self {
         CreationError::Parser(e)
     }
 }
