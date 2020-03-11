@@ -12,7 +12,7 @@
 mod tracing_ids;
 
 use crate::tracing_ids::*;
-use ekotrace::{Ekotrace, Tracer};
+use ekotrace::{ekt_try_record, ekt_try_record_w_u32, Ekotrace, Tracer};
 use std::net::UdpSocket;
 use std::{thread, time};
 
@@ -26,13 +26,11 @@ fn main() {
 
     let mut loop_counter = 0;
     loop {
-        tracer
-            .try_record_event(TOP_OF_THE_LOOP)
+        ekt_try_record!(tracer, TOP_OF_THE_LOOP, "At the top of the loop")
             .expect("Could not record event");
 
         if loop_counter % 2 == 0 {
-            tracer
-                .try_record_event(LOOP_COUNTER_EVEN)
+            ekt_try_record!(tracer, LOOP_COUNTER_EVENT, "Loop counter event happened")
                 .expect("Could not record event");
         }
 
@@ -46,9 +44,13 @@ fn main() {
             socket
                 .send_to(&report_buffer[..n_report_bytes], remote)
                 .expect("Could not send_to");
-            tracer
-                .try_record_event_with_metadata(REPORT_CREATED, n_report_bytes as u32)
-                .expect("could not record event with metadata");
+            ekt_try_record_w_u32!(
+                tracer,
+                REPORT_CREATED,
+                n_report_bytes as u32,
+                "Report created"
+            )
+            .expect("could not record event with metadata");
         }
 
         loop_counter += 1;

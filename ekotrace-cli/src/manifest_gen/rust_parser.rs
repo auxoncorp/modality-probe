@@ -11,7 +11,7 @@ use nom::{
     character::complete::{char, line_ending, multispace0},
     combinator::{map, opt, peek, rest},
     error::ParseError,
-    sequence::delimited,
+    sequence::{delimited, preceded},
 };
 use nom_locate::position;
 use std::fmt;
@@ -105,6 +105,7 @@ impl RustParser {
 
 fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, _) = comments_and_spacing(input)?;
+    let (input, _) = imports(input)?;
     let (input, found_try) = peek(opt(tag("ekt_try_record")))(input)?;
     let (input, metadata) = match found_try {
         None => {
@@ -221,9 +222,8 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
 fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, pos) = position(input)?;
     let (input, _) = tag("ekt_try_record_w_")(input)?;
-    let (input, type_hint) =
-        take_until("!")(input).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    let (input, _) = tag("!")(input).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (input, type_hint) = take_until("!")(input)?;
+    let (input, _) = tag("!")(input)?;
     let type_hint = TypeHint::from_str(type_hint.fragment())
         .map_err(|_| make_failure(input, Error::UnrecognizedTypeHint(pos.into())))?;
     let (input, _) = opt(line_ending)(input)?;
@@ -267,9 +267,8 @@ fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetad
 fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, pos) = position(input)?;
     let (input, _) = tag("ekt_record_w_")(input)?;
-    let (input, type_hint) =
-        take_until("!")(input).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    let (input, _) = tag("!")(input).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (input, type_hint) = take_until("!")(input)?;
+    let (input, _) = tag("!")(input)?;
     let type_hint = TypeHint::from_str(type_hint.fragment())
         .map_err(|_| make_failure(input, Error::UnrecognizedTypeHint(pos.into())))?;
     let (input, _) = tag("(")(input).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
@@ -366,6 +365,7 @@ fn variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
 
 fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
     let (input, _) = comments_and_spacing(input)?;
+    let (input, _) = imports(input)?;
     let (input, pos) = position(input)?;
     let (input, _) = alt((
         tag("Ekotrace::try_initialize_at"),
@@ -436,6 +436,11 @@ fn comment(input: Span) -> ParserResult<Span, ()> {
         input
     };
 
+    Ok((input, ()))
+}
+
+fn imports(input: Span) -> ParserResult<Span, ()> {
+    let (input, _) = opt(preceded(tag("use "), take_until(";")))(input)?;
     Ok((input, ()))
 }
 
@@ -840,5 +845,22 @@ ekt_record!(tracer, EventId::try_from::<>EVENT_E);
         let input = "ekt_record_w_f64!(t, EVENT, 1, asdf);";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::UnrecognizedTypeHint((0, 1, 1).into())));
+    }
+
+    #[test]
+    fn ignores_include_statements() {
+        let parser = RustParser::default();
+        let input = r#"
+use crate::tracing_ids::*;
+use ekotrace::{ekt_try_record, ekt_record, ekt_try_record_w_u32, ekt_record_w_i8, Ekotrace, Tracer};
+use std::net::UdpSocket;
+use std::{thread, time};
+
+another_macro!(mything);
+"#;
+        let tokens = parser.parse_tracer_md(input);
+        assert_eq!(tokens, Ok(vec![]));
+        let tokens = parser.parse_event_md(input);
+        assert_eq!(tokens, Ok(vec![]));
     }
 }

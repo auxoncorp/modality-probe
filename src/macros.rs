@@ -34,7 +34,243 @@ macro_rules! ekt_try_record {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_record_with_metadata {
+macro_rules! ekt_record_w_i8 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::record_event_with_metadata](struct.Ekotrace.html#method.record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_record_w_u8 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::record_event_with_metadata](struct.Ekotrace.html#method.record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_record_w_i16 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::record_event_with_metadata](struct.Ekotrace.html#method.record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_record_w_u16 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::record_event_with_metadata](struct.Ekotrace.html#method.record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_record_w_i32 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::record_event_with_metadata](struct.Ekotrace.html#method.record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_record_w_u32 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::record_event_with_metadata](struct.Ekotrace.html#method.record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_record_w_bool {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::record_event_with_metadata](struct.Ekotrace.html#method.record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_record_w_f32 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::try_record_event_with_metadata](struct.Ekotrace.html#method.try_record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_try_record_w_i8 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __try_record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __try_record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::try_record_event_with_metadata](struct.Ekotrace.html#method.try_record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_try_record_w_u8 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __try_record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __try_record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::try_record_event_with_metadata](struct.Ekotrace.html#method.try_record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_try_record_w_i16 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __try_record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __try_record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::try_record_event_with_metadata](struct.Ekotrace.html#method.try_record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_try_record_w_u16 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __try_record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __try_record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::try_record_event_with_metadata](struct.Ekotrace.html#method.try_record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_try_record_w_i32 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __try_record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __try_record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::try_record_event_with_metadata](struct.Ekotrace.html#method.try_record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_try_record_w_u32 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __try_record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __try_record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::try_record_event_with_metadata](struct.Ekotrace.html#method.try_record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_try_record_w_bool {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __try_record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __try_record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::try_record_event_with_metadata](struct.Ekotrace.html#method.try_record_event_with_metadata).
+///
+/// The optional description string argument compiles away, and is
+/// used only by the CLI tooling.
+#[macro_export(local_inner_macros)]
+macro_rules! ekt_try_record_w_f32 {
+    ($tracer:expr, $event:expr, $meta:expr) => {{
+        __try_record_with!($tracer, $event, $meta)
+    }};
+    ($tracer:expr, $event:expr, $meta:expr, $desc:tt) => {{
+        __try_record_with!($tracer, $event, $meta, $desc)
+    }};
+}
+
+#[doc(hidden)]
+#[macro_export(local_inner_macros)]
+macro_rules! __record_with {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __meta_as_u32_impls!();
         $tracer.record_event_with_metadata($event, $meta.as_u32())
@@ -45,13 +281,9 @@ macro_rules! ekt_record_with_metadata {
     }};
 }
 
-/// Convenience macro that calls
-/// [Ekotrace::try_record_event_with_metadata](struct.Ekotrace.html#method.try_record_event_with_metadata).
-///
-/// The optional description string argument compiles away, and is
-/// used only by the CLI tooling.
+#[doc(hidden)]
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_try_record_with_metadata {
+macro_rules! __try_record_with {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __meta_as_u32_impls!();
         $tracer.try_record_event_with_metadata($event, $meta.as_u32())
