@@ -62,11 +62,11 @@ impl Invocations {
             .filter_map(Result::ok)
             .filter(|e| !e.file_type().is_dir())
         {
-            if file_extensions.as_ref().map_or(true, |exts| {
+            let should_consider = file_extensions.as_ref().map_or(true, |exts| {
                 exts.iter()
-                    .find(|&ext| Some(OsStr::new(ext)) == entry.path().extension())
-                    .is_some()
-            }) {
+                    .any(|ext| Some(OsStr::new(ext)) == entry.path().extension())
+            });
+            if should_consider {
                 let mut f = File::open(entry.path())?;
                 buffer.clear();
 
@@ -212,7 +212,7 @@ impl Invocations {
         let tracer_id_offset = tracer_id_offset.unwrap_or(0);
         let mut next_available_tracer_id: u32 = match mf_tracers.next_available_tracer_id() {
             id if tracer_id_offset > id => tracer_id_offset,
-            id @ _ => id,
+            id => id,
         };
 
         self.tracers.iter().for_each(|src_tracer| {
@@ -225,7 +225,7 @@ impl Invocations {
         });
 
         mf_tracers.0.iter().for_each(|mf_tracer| {
-            if self
+            let missing_tracer = self
                 .tracers
                 .iter()
                 .find(|t| {
@@ -234,8 +234,8 @@ impl Invocations {
                         .as_str()
                         .eq_ignore_ascii_case(&t.canonical_name())
                 })
-                .is_none()
-            {
+                .is_none();
+            if missing_tracer {
                 eprintln!(
                     "The tracer '{}', ID {} in manifest no longer exists in source",
                     mf_tracer.name, mf_tracer.id.0
@@ -321,7 +321,7 @@ impl Invocations {
         let event_id_offset = event_id_offset.unwrap_or(0);
         let mut next_available_event_id: u32 = match mf_events.next_available_event_id() {
             id if event_id_offset > id => event_id_offset,
-            id @ _ => id,
+            id => id,
         };
 
         self.events.iter().for_each(|src_event| {
@@ -334,7 +334,7 @@ impl Invocations {
         });
 
         mf_events.0.iter().for_each(|mf_event| {
-            if self
+            let missing_event = self
                 .events
                 .iter()
                 .find(|e| {
@@ -343,8 +343,8 @@ impl Invocations {
                         .as_str()
                         .eq_ignore_ascii_case(&e.canonical_name())
                 })
-                .is_none()
-            {
+                .is_none();
+            if missing_event {
                 eprintln!(
                     "The event '{}', ID {} in manifest no longer exists in source",
                     mf_event.name, mf_event.id.0
@@ -358,7 +358,7 @@ fn is_hidden(entry: &DirEntry) -> bool {
     entry
         .file_name()
         .to_str()
-        .map(|s| s.starts_with(".") && s != "." && s != "./")
+        .map(|s| s.starts_with('.') && s != "." && s != "./")
         .unwrap_or(false)
 }
 

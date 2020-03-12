@@ -45,7 +45,7 @@ impl CParser {
     fn parse_event_md(&self, input: &str) -> Result<Vec<EventMetadata>, Error> {
         let mut md = vec![];
         let mut input = Span::new(input);
-        while input.fragment().len() != 0 {
+        while !input.fragment().is_empty() {
             match parse_record_event_call_exp(input) {
                 Ok((rem, metadata)) => {
                     md.push(metadata);
@@ -76,7 +76,7 @@ impl CParser {
     fn parse_tracer_md(&self, input: &str) -> Result<Vec<TracerMetadata>, Error> {
         let mut md = vec![];
         let mut input = Span::new(input);
-        while input.fragment().len() != 0 {
+        while !input.fragment().is_empty() {
             match parse_init_call_exp(input) {
                 Ok((rem, metadata)) => {
                     md.push(metadata);
@@ -124,7 +124,6 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, _) =
         tag(";")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (args, ekotrace_instance) = variable_call_exp_arg(args)?;
-
     let mut expect_arg3 = false;
     let (args, name) = match peek(variable_call_exp_arg)(args) {
         Ok(_) => {
@@ -133,10 +132,8 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         }
         Err(_) => rest_string(args)?,
     };
-
-    let (_args, description) = match expect_arg3 {
-        false => (args, None),
-        true => map(rest_literal, |id: String| {
+    let (_args, description) = if expect_arg3 {
+        map(rest_literal, |id: String| {
             Some(
                 id.replace("\n", "")
                     .replace("\t", "")
@@ -144,9 +141,10 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
                     .trim()
                     .to_string(),
             )
-        })(args)?,
+        })(args)?
+    } else {
+        (args, None)
     };
-
     Ok((
         input,
         EventMetadata {
@@ -210,9 +208,8 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
 
-    let (_args, description) = match expect_arg4 {
-        false => (args, None),
-        true => map(rest_literal, |id: String| {
+    let (_args, description) = if expect_arg4 {
+        map(rest_literal, |id: String| {
             Some(
                 id.replace("\n", "")
                     .replace("\t", "")
@@ -220,9 +217,10 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
                     .trim()
                     .to_string(),
             )
-        })(args)?,
+        })(args)?
+    } else {
+        (args, None)
     };
-
     Ok((
         input,
         EventMetadata {
@@ -246,7 +244,7 @@ fn variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
     let (input, _) = comments_and_spacing(input)?;
     let (input, arg) = take_until(",")(input)?;
     let (input, _) = tag(",")(input)?;
-    Ok((input, arg.fragment().to_string()))
+    Ok((input, (*arg.fragment()).to_string()))
 }
 
 fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
@@ -318,7 +316,7 @@ fn rest_string(input: Span) -> ParserResult<Span, String> {
 fn rest_literal(input: Span) -> ParserResult<Span, String> {
     let (input, _) = comments_and_spacing(input)?;
     let (input, rst) = rest(input)?;
-    Ok((input, rst.fragment().to_string()))
+    Ok((input, (*rst.fragment()).to_string()))
 }
 
 fn trimmed_string(s: &str) -> String {

@@ -39,7 +39,7 @@ impl Tracers {
         Tracers(tracers)
     }
 
-    pub fn into_csv(&self, tracers_csv_file: &PathBuf) {
+    pub fn write_csv(&self, tracers_csv_file: &PathBuf) {
         let mut writer = csv::Writer::from_writer(
             File::create(tracers_csv_file).expect("Can't open tracers csv file"),
         );
@@ -66,13 +66,13 @@ impl Tracers {
     }
 
     pub fn validate_unique_ids(&self) {
-        if !has_unique_elements(self.0.iter().into_iter().map(|tracer| tracer.id)) {
+        if !has_unique_elements(self.0.iter().map(|tracer| tracer.id)) {
             panic!("Tracers CSV contains duplicate tracer IDs");
         }
     }
 
     pub fn validate_unique_names(&self) {
-        if !has_unique_elements(self.0.iter().into_iter().map(|tracer| tracer.name.clone())) {
+        if !has_unique_elements(self.0.iter().map(|tracer| tracer.name.clone())) {
             panic!("Tracers CSV contains duplicate tracer names");
         }
     }

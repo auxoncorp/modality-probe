@@ -73,10 +73,10 @@ pub fn run(opt: Opt) {
 
     // Write out the new events and tracers CSV files
     if !opt.no_events {
-        manifest_events.into_csv(&opt.events_csv_file);
+        manifest_events.write_csv(&opt.events_csv_file);
     }
 
     if !opt.no_tracers {
-        manifest_tracers.into_csv(&opt.tracers_csv_file);
+        manifest_tracers.write_csv(&opt.tracers_csv_file);
     }
 }

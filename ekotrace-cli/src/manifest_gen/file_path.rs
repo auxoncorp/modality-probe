@@ -16,13 +16,15 @@ impl FilePath {
             // Can't resolve past the file name
             Ok(file
                 .file_name()
-                .ok_or(Error::NotRegularFile(file.to_path_buf()))?
+                .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
                 .to_str()
-                .ok_or(Error::NotRegularFile(file.to_path_buf()))?
+                .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
                 .to_string())
         } else if file.starts_with(search_path) {
             let mut path = PathBuf::new();
-            search_path.iter().last().map(|p| path.push(p));
+            if let Some(p) = search_path.iter().last() {
+                path.push(p)
+            }
             let mut sp_iter = search_path.iter();
             for c in file.iter() {
                 let sp_c = sp_iter.next();
@@ -37,15 +39,15 @@ impl FilePath {
             };
             Ok(path
                 .to_str()
-                .ok_or(Error::NotRegularFile(path.clone()))?
+                .ok_or_else(|| Error::NotRegularFile(path.clone()))?
                 .to_string())
         } else {
             // Default to file name
             Ok(file
                 .file_name()
-                .ok_or(Error::NotRegularFile(file.to_path_buf()))?
+                .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
                 .to_str()
-                .ok_or(Error::NotRegularFile(file.to_path_buf()))?
+                .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
                 .to_string())
         }
     }

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::str;
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -50,8 +51,10 @@ impl TypeHint {
             TypeHint::Bool => "bool",
         }
     }
+}
 
-    pub fn to_string(&self) -> String {
-        self.as_str().to_string()
+impl fmt::Display for TypeHint {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_str())
     }
 }

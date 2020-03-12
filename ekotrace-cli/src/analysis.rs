@@ -74,7 +74,7 @@ impl FromStr for EventCoordinates {
     type Err = EventParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut it = s.split(".");
+        let mut it = s.split('.');
         let session_id = it
             .next()
             .ok_or(EventParseError::MissingSessionId)?
@@ -176,7 +176,6 @@ impl ClusteredNodeFmt for model::LogEntry {
 fn print_clustered_graph<N: ClusteredNodeFmt, E>(g: &Graph<N, E>) {
     let node_indicies_by_cluster = g
         .node_references()
-        .into_iter()
         .map(|(node_index, node)| ((node.cluster_id(), node.cluster_label()), node_index))
         .into_group_map();
 
@@ -185,7 +184,7 @@ fn print_clustered_graph<N: ClusteredNodeFmt, E>(g: &Graph<N, E>) {
     for ((cluster_id, cluster_label), node_indicies) in node_indicies_by_cluster.iter() {
         println!("  subgraph cluster_{} {{", cluster_id);
         println!("    label = \"{}\";", cluster_label);
-        for node_index in node_indicies.into_iter() {
+        for node_index in node_indicies.iter() {
             let id = node_index.index();
             println!(
                 "    node_{} [label=\"{}\"]",

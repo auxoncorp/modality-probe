@@ -50,7 +50,7 @@ impl CompactLogItem {
     //     (self.0 & EVENT_WITH_META_MASK) == EVENT_WITH_META_MASK
     // }
 
-    pub(crate) fn is_clock(&self) -> bool {
+    pub(crate) fn is_clock(self) -> bool {
         (self.0 & CLOCK_MASK) == CLOCK_MASK
     }
 

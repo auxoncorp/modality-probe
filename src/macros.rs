@@ -338,7 +338,7 @@ macro_rules! __meta_as_u32_impls {
         }
         impl MetaAsU32 for f32 {
             fn as_u32(&self) -> u32 {
-                u32::from_le_bytes(self.to_le_bytes())
+                self.to_bits()
             }
         }
     };

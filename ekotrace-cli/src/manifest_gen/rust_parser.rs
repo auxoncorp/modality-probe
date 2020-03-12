@@ -43,7 +43,7 @@ impl RustParser {
     fn parse_event_md(&self, input: &str) -> Result<Vec<EventMetadata>, Error> {
         let mut md = vec![];
         let mut input = Span::new(input);
-        while input.fragment().len() != 0 {
+        while !input.fragment().is_empty() {
             match parse_record_event_call_exp(input) {
                 Ok((rem, metadata)) => {
                     md.push(metadata);
@@ -74,7 +74,7 @@ impl RustParser {
     fn parse_tracer_md(&self, input: &str) -> Result<Vec<TracerMetadata>, Error> {
         let mut md = vec![];
         let mut input = Span::new(input);
-        while input.fragment().len() != 0 {
+        while !input.fragment().is_empty() {
             match parse_init_call_exp(input) {
                 Ok((rem, metadata)) => {
                     md.push(metadata);
@@ -141,9 +141,8 @@ fn event_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         }
         Err(_) => rest_string(args)?,
     };
-    let (_args, description) = match expect_desc {
-        false => (args, None),
-        true => map(rest_literal, |desc: String| {
+    let (_args, description) = if expect_desc {
+        map(rest_literal, |desc: String| {
             Some(
                 desc.replace("\n", "")
                     .replace("\t", "")
@@ -151,7 +150,9 @@ fn event_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
                     .trim()
                     .to_string(),
             )
-        })(args)?,
+        })(args)?
+    } else {
+        (args, None)
     };
     Ok((
         input,
@@ -176,9 +177,9 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let split: Vec<&str> = args
         .fragment()
-        .split(",")
+        .split(',')
         .map(|s| s.trim())
-        .filter(|s| s.len() != 0)
+        .filter(|s| !s.is_empty())
         .collect();
     if split.len() != 2 && split.len() != 3 {
         return Err(make_failure(input, Error::Syntax(pos.into())));
@@ -239,9 +240,8 @@ fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetad
         }
         Err(_) => rest_literal(args)?,
     };
-    let (_args, description) = match expect_arg4 {
-        false => (args, None),
-        true => map(rest_literal, |desc: String| {
+    let (_args, description) = if expect_arg4 {
+        map(rest_literal, |desc: String| {
             Some(
                 desc.replace("\n", "")
                     .replace("\t", "")
@@ -249,7 +249,9 @@ fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetad
                     .trim()
                     .to_string(),
             )
-        })(args)?,
+        })(args)?
+    } else {
+        (args, None)
     };
 
     Ok((
@@ -280,9 +282,9 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let split: Vec<&str> = args
         .fragment()
-        .split(",")
+        .split(',')
         .map(|s| s.trim())
-        .filter(|s| s.len() != 0)
+        .filter(|s| !s.is_empty())
         .collect();
     if split.len() != 3 && split.len() != 4 {
         return Err(make_failure(input, Error::Syntax(pos.into())));
@@ -360,7 +362,7 @@ fn variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
     let (input, _) = comments_and_spacing(input)?;
     let (input, arg) = take_until(",")(input)?;
     let (input, _) = tag(",")(input)?;
-    Ok((input, arg.fragment().to_string()))
+    Ok((input, (*arg.fragment()).to_string()))
 }
 
 fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
@@ -399,7 +401,7 @@ fn init_call_exp_tracer_arg(input: Span) -> ParserResult<Span, String> {
                 if *last == "" {
                     return Err(make_failure(input, Error::Syntax(pos.into())));
                 }
-                last.to_string()
+                (*last).to_string()
             }
         }
     } else {
@@ -453,7 +455,7 @@ fn rest_string(input: Span) -> ParserResult<Span, String> {
 fn rest_literal(input: Span) -> ParserResult<Span, String> {
     let (input, _) = comments_and_spacing(input)?;
     let (input, rst) = rest(input)?;
-    Ok((input, rst.fragment().to_string()))
+    Ok((input, (*rst.fragment()).to_string()))
 }
 
 fn trimmed_string(s: &str) -> String {

@@ -54,7 +54,7 @@ impl EventId {
         EventId(id & !super::EVENT_WITH_META_MASK)
     }
 
-    pub fn get_raw(&self) -> u32 {
+    pub fn get_raw(self) -> u32 {
         self.0
     }
 }

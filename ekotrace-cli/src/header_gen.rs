@@ -27,17 +27,13 @@ impl ConstGenerator for Tracer {
     }
 
     fn definition_name(&self) -> String {
-        format!("{}", self.name.to_uppercase())
+        self.name.to_uppercase()
     }
 
     fn doc_comment(&self, lang: Lang) -> String {
         match lang {
-            Lang::C => {
-                format!("/*\n * Tracer: {}\n * {}\n */", self.name, self.description).to_string()
-            }
-            Lang::Rust => {
-                format!("/// Tracer: {}\n/// {}", self.name, self.description).to_string()
-            }
+            Lang::C => format!("/*\n * Tracer: {}\n * {}\n */", self.name, self.description),
+            Lang::Rust => format!("/// Tracer: {}\n/// {}", self.name, self.description),
         }
     }
 }
@@ -48,7 +44,7 @@ impl ConstGenerator for Event {
     }
 
     fn definition_name(&self) -> String {
-        format!("{}", self.name.to_uppercase())
+        self.name.to_uppercase()
     }
 
     fn doc_comment(&self, lang: Lang) -> String {
@@ -56,11 +52,8 @@ impl ConstGenerator for Event {
             Lang::C => format!(
                 "/*\n * Trace event: {}\n * {}\n */",
                 self.name, self.description
-            )
-            .to_string(),
-            Lang::Rust => {
-                format!("/// Trace event: {}\n/// {}", self.name, self.description).to_string()
-            }
+            ),
+            Lang::Rust => format!("/// Trace event: {}\n/// {}", self.name, self.description),
         }
     }
 }

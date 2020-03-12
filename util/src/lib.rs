@@ -359,9 +359,9 @@ pub fn build_log_entry_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + C
             log_entry_graph.update_edge(node_index, *last_node_index, ());
         }
 
-        if !first_node_index_in_segment.contains_key(&segment_id) {
-            first_node_index_in_segment.insert(segment_id, node_index);
-        }
+        first_node_index_in_segment
+            .entry(segment_id)
+            .or_insert(node_index);
 
         last_node_index_in_segment.insert(segment_id, node_index);
     }
