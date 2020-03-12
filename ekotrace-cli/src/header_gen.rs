@@ -32,8 +32,14 @@ impl ConstGenerator for Tracer {
 
     fn doc_comment(&self, lang: Lang) -> String {
         match lang {
-            Lang::C => format!("/*\n * Tracer: {}\n * {}\n */", self.name, self.description),
-            Lang::Rust => format!("/// Tracer: {}\n/// {}", self.name, self.description),
+            Lang::C => format!(
+                "/*\n * Name: {}\n * Description: {}\n * Location: {}:{}\n */",
+                self.name, self.description, self.file, self.line
+            ),
+            Lang::Rust => format!(
+                "/// Name: {}\n/// Description: {}\n/// Location: {}:{}",
+                self.name, self.description, self.file, self.line
+            ),
         }
     }
 }
@@ -50,10 +56,13 @@ impl ConstGenerator for Event {
     fn doc_comment(&self, lang: Lang) -> String {
         match lang {
             Lang::C => format!(
-                "/*\n * Trace event: {}\n * {}\n */",
-                self.name, self.description
+                "/*\n * Name: {}\n * Description: {}\n * Payload type: {}\n * Location: {}:{}\n */",
+                self.name, self.description, self.type_hint, self.file, self.line
             ),
-            Lang::Rust => format!("/// Trace event: {}\n/// {}", self.name, self.description),
+            Lang::Rust => format!(
+                "/// Name: {}\n/// Description: {}\n/// Payload type: {}\n/// Location: {}:{}",
+                self.name, self.description, self.type_hint, self.file, self.line
+            ),
         }
     }
 }
