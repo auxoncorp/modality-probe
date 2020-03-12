@@ -4,7 +4,7 @@
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export]
-macro_rules! ekt_record {
+macro_rules! record {
     ($tracer:expr, $event:expr) => {
         $tracer.record_event($event)
     };
@@ -19,7 +19,7 @@ macro_rules! ekt_record {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export]
-macro_rules! ekt_try_record {
+macro_rules! try_record {
     ($tracer:expr, $event:expr) => {
         $tracer.try_record_event($event)
     };
@@ -34,7 +34,7 @@ macro_rules! ekt_try_record {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_record_w_i8 {
+macro_rules! record_w_i8 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __record_with!($tracer, $event, $meta)
     }};
@@ -49,7 +49,7 @@ macro_rules! ekt_record_w_i8 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_record_w_u8 {
+macro_rules! record_w_u8 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __record_with!($tracer, $event, $meta)
     }};
@@ -64,7 +64,7 @@ macro_rules! ekt_record_w_u8 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_record_w_i16 {
+macro_rules! record_w_i16 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __record_with!($tracer, $event, $meta)
     }};
@@ -79,7 +79,7 @@ macro_rules! ekt_record_w_i16 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_record_w_u16 {
+macro_rules! record_w_u16 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __record_with!($tracer, $event, $meta)
     }};
@@ -94,7 +94,7 @@ macro_rules! ekt_record_w_u16 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_record_w_i32 {
+macro_rules! record_w_i32 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __record_with!($tracer, $event, $meta)
     }};
@@ -109,7 +109,7 @@ macro_rules! ekt_record_w_i32 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_record_w_u32 {
+macro_rules! record_w_u32 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __record_with!($tracer, $event, $meta)
     }};
@@ -124,7 +124,7 @@ macro_rules! ekt_record_w_u32 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_record_w_bool {
+macro_rules! record_w_bool {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __record_with!($tracer, $event, $meta)
     }};
@@ -139,7 +139,7 @@ macro_rules! ekt_record_w_bool {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_record_w_f32 {
+macro_rules! record_w_f32 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __record_with!($tracer, $event, $meta)
     }};
@@ -154,7 +154,7 @@ macro_rules! ekt_record_w_f32 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_try_record_w_i8 {
+macro_rules! try_record_w_i8 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __try_record_with!($tracer, $event, $meta)
     }};
@@ -169,7 +169,7 @@ macro_rules! ekt_try_record_w_i8 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_try_record_w_u8 {
+macro_rules! try_record_w_u8 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __try_record_with!($tracer, $event, $meta)
     }};
@@ -184,7 +184,7 @@ macro_rules! ekt_try_record_w_u8 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_try_record_w_i16 {
+macro_rules! try_record_w_i16 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __try_record_with!($tracer, $event, $meta)
     }};
@@ -199,7 +199,7 @@ macro_rules! ekt_try_record_w_i16 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_try_record_w_u16 {
+macro_rules! try_record_w_u16 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __try_record_with!($tracer, $event, $meta)
     }};
@@ -214,7 +214,7 @@ macro_rules! ekt_try_record_w_u16 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_try_record_w_i32 {
+macro_rules! try_record_w_i32 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __try_record_with!($tracer, $event, $meta)
     }};
@@ -229,7 +229,7 @@ macro_rules! ekt_try_record_w_i32 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_try_record_w_u32 {
+macro_rules! try_record_w_u32 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __try_record_with!($tracer, $event, $meta)
     }};
@@ -244,7 +244,7 @@ macro_rules! ekt_try_record_w_u32 {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_try_record_w_bool {
+macro_rules! try_record_w_bool {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __try_record_with!($tracer, $event, $meta)
     }};
@@ -259,7 +259,7 @@ macro_rules! ekt_try_record_w_bool {
 /// The optional description string argument compiles away, and is
 /// used only by the CLI tooling.
 #[macro_export(local_inner_macros)]
-macro_rules! ekt_try_record_w_f32 {
+macro_rules! try_record_w_f32 {
     ($tracer:expr, $event:expr, $meta:expr) => {{
         __try_record_with!($tracer, $event, $meta)
     }};

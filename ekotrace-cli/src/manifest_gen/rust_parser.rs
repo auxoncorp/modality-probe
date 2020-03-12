@@ -116,17 +116,17 @@ impl RustParser {
 fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, _) = comments_and_spacing(input)?;
     let (input, _) = imports(input)?;
-    let (input, found_try) = peek(opt(tag("ekt_try_record")))(input)?;
+    let (input, found_try) = peek(opt(tag("try_record")))(input)?;
     let (input, metadata) = match found_try {
         None => {
-            let (input, found_with_payload) = peek(opt(tag("ekt_record_w_")))(input)?;
+            let (input, found_with_payload) = peek(opt(tag("record_w_")))(input)?;
             match found_with_payload {
                 None => event_call_exp(input)?,
                 Some(_) => event_with_payload_call_exp(input)?,
             }
         }
         Some(_) => {
-            let (input, found_with_payload) = peek(opt(tag("ekt_try_record_w_")))(input)?;
+            let (input, found_with_payload) = peek(opt(tag("try_record_w_")))(input)?;
             match found_with_payload {
                 None => event_try_call_exp(input)?,
                 Some(_) => event_try_with_payload_call_exp(input)?,
@@ -138,7 +138,7 @@ fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
 
 fn event_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, pos) = position(input)?;
-    let (input, _) = tag("ekt_try_record!")(input)?;
+    let (input, _) = tag("try_record!")(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
     let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
@@ -181,7 +181,7 @@ fn event_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
 
 fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, pos) = position(input)?;
-    let (input, _) = tag("ekt_record!(")(input)?;
+    let (input, _) = tag("record!(")(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
     let (input, args) = take_until(");")(input)
@@ -238,7 +238,7 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
 
 fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, pos) = position(input)?;
-    let (input, _) = tag("ekt_try_record_w_")(input)?;
+    let (input, _) = tag("try_record_w_")(input)?;
     let (input, type_hint) = take_until("!")(input)?;
     let (input, _) = tag("!")(input)?;
     let type_hint = TypeHint::from_str(type_hint.fragment())
@@ -287,7 +287,7 @@ fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetad
 
 fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, pos) = position(input)?;
-    let (input, _) = tag("ekt_record_w_")(input)?;
+    let (input, _) = tag("record_w_")(input)?;
     let (input, type_hint) = take_until("!")(input)?;
     let (input, _) = tag("!")(input)?;
     let type_hint = TypeHint::from_str(type_hint.fragment())
@@ -627,42 +627,42 @@ mod tests {
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
     /* Comments */
-    ekt_try_record!(tracer, EVENT_A, "my text").expect("Could not record event");
+    try_record!(tracer, EVENT_A, "my text").expect("Could not record event");
 
-    ekt_try_record!(
+    try_record!(
         tracer, // docs
         EVENT_B, /* docs */
         "my text") /// docs
     .expect("Could not record event");
 
     /// More docs
-    ekt_try_record!(tracer, EVENT_C).expect("Could not record event");
+    try_record!(tracer, EVENT_C).expect("Could not record event");
 
-    ekt_record!(
+    record!(
         tracer, // docs
         EventId::try_from(EVENT_D).unwrap(), /* docs */
         "my text" //docs
     ); // docs
 
-    ekt_record!(tracer, EVENT_E.try_into()?);
-    ekt_record!(tracer, EVENT_EAGAIN1.try_into()?,
+    record!(tracer, EVENT_E.try_into()?);
+    record!(tracer, EVENT_EAGAIN1.try_into()?,
     );
-    ekt_record!(tracer, EventId::try_from(EVENT_EAGAIN2).unwrap(),
+    record!(tracer, EventId::try_from(EVENT_EAGAIN2).unwrap(),
     );
-    ekt_record!(tracer, EVENT_F.try_into().unwrap());
-    ekt_record!(tracer, EventId::try_from(EVENT_G).expect("abc"), "docs");
+    record!(tracer, EVENT_F.try_into().unwrap());
+    record!(tracer, EventId::try_from(EVENT_G).expect("abc"), "docs");
 
-    ekt_try_record_w_u32!(tracer, EVENT_H, 1_u32)
+    try_record_w_u32!(tracer, EVENT_H, 1_u32)
         .expect("Could not record event");
 
     /*
      * docs
-     * ekt_record!(tracer, EventId::try_from(EVENT_NONE).unwrap());
+     * record!(tracer, EventId::try_from(EVENT_NONE).unwrap());
      */
-    ekt_try_record_w_f32!(tracer, EVENT_I, 1.234_f32, "desc") // docs
+    try_record_w_f32!(tracer, EVENT_I, 1.234_f32, "desc") // docs
         .expect("Could not record event");
 
-    ekt_record_w_i8!(
+    record_w_i8!(
         tracer,
         EventId::try_from(EVENT_J).unwrap(),
         -2_i8,
@@ -720,77 +720,77 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: Some("my text".to_string()),
-                    location: (107, 5, 5).into(),
+                    location: (103, 5, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_C".to_string(),
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: None,
-                    location: (266, 12, 5).into(),
+                    location: (258, 12, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_D".to_string(),
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: Some("my text".to_string()),
-                    location: (338, 14, 5).into(),
+                    location: (326, 14, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_E".to_string(),
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: None,
-                    location: (476, 20, 5).into(),
+                    location: (460, 20, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_EAGAIN1".to_string(),
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: None,
-                    location: (522, 21, 5).into(),
+                    location: (502, 21, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_EAGAIN2".to_string(),
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: None,
-                    location: (580, 23, 5).into(),
+                    location: (556, 23, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_F".to_string(),
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: None,
-                    location: (654, 25, 5).into(),
+                    location: (626, 25, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_G".to_string(),
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: Some("docs".to_string()),
-                    location: (708, 26, 5).into(),
+                    location: (676, 26, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_H".to_string(),
                     ekotrace_instance: "tracer".to_string(),
                     payload: Some((TypeHint::U32, "1_u32").into()),
                     description: None,
-                    location: (784, 28, 5).into(),
+                    location: (748, 28, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_I".to_string(),
                     ekotrace_instance: "tracer".to_string(),
                     payload: Some((TypeHint::F32, "1.234_f32").into()),
                     description: Some("desc".to_string()),
-                    location: (973, 35, 5).into(),
+                    location: (929, 35, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_J".to_string(),
                     ekotrace_instance: "tracer".to_string(),
                     payload: Some((TypeHint::I8, "-2_i8").into()),
                     description: Some("desc".to_string()),
-                    location: (1087, 38, 5).into(),
+                    location: (1039, 38, 5).into(),
                 },
             ])
         );
@@ -808,13 +808,13 @@ mod tests {
     fn missing_semicolon_errors() {
         let parser = RustParser::default();
         let input = r#"
-ekt_record!(tracer, EVENT_F.try_into().unwrap())
+record!(tracer, EVENT_F.try_into().unwrap())
 let a = b;
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((1, 2, 1).into())));
         let input = r#"
-ekt_record_w_i8!(
+record_w_i8!(
         tracer,
         EventId::try_from(EVENT_J).unwrap(),
         -2_i8,
@@ -830,17 +830,17 @@ let a = b;
     fn event_syntax_errors() {
         let parser = RustParser::default();
         let input = r#"
-ekt_record!(tracer, abc, EVENT_F.try_into().unwrap());
+record!(tracer, abc, EVENT_F.try_into().unwrap());
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
-ekt_record!(tracer, EVENT_F.try_into().unwrap(), abc, abc);
+record!(tracer, EVENT_F.try_into().unwrap(), abc, abc);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
-ekt_record_w_f32!(
+record_w_f32!(
             tracer,
             EventId::try_from(EVENT_J).unwrap(),
             1.234_f32,
@@ -851,7 +851,7 @@ ekt_record_w_f32!(
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
-ekt_record_w_i32!(
+record_w_i32!(
             tracer,
             EventId::try_from(EVENT_J).unwrap(),
         );
@@ -859,14 +859,14 @@ ekt_record_w_i32!(
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
-ekt_record!(tracer, EventId::try_from::<>EVENT_E);
+record!(tracer, EventId::try_from::<>EVENT_E);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
-ekt_try_record!(
+try_record!(
                         
-ekt_record!(tracer, EventId::try_from(EVENT_D).unwrap(), "my text");
+record!(tracer, EventId::try_from(EVENT_D).unwrap(), "my text");
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
@@ -875,10 +875,10 @@ ekt_record!(tracer, EventId::try_from(EVENT_D).unwrap(), "my text");
     #[test]
     fn event_payload_type_hint_errors() {
         let parser = RustParser::default();
-        let input = "ekt_record_w_i12!(t, EVENT, 1);";
+        let input = "record_w_i12!(t, EVENT, 1);";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::UnrecognizedTypeHint((0, 1, 1).into())));
-        let input = "ekt_record_w_f64!(t, EVENT, 1, asdf);";
+        let input = "record_w_f64!(t, EVENT, 1, asdf);";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::UnrecognizedTypeHint((0, 1, 1).into())));
     }
@@ -888,7 +888,7 @@ ekt_record!(tracer, EventId::try_from(EVENT_D).unwrap(), "my text");
         let parser = RustParser::default();
         let input = r#"
 use crate::tracing_ids::*;
-use ekotrace::{ekt_try_record, ekt_record, ekt_try_record_w_u32, ekt_record_w_i8, Ekotrace, Tracer};
+use ekotrace::{try_record, record, try_record_w_u32, record_w_i8, Ekotrace, Tracer};
 use std::net::UdpSocket;
 use std::{thread, time};
 

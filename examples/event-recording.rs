@@ -12,7 +12,7 @@
 mod tracing_ids;
 
 use crate::tracing_ids::*;
-use ekotrace::{ekt_try_record, ekt_try_record_w_u32, Ekotrace, Tracer};
+use ekotrace::{try_record, try_record_w_u32, Ekotrace, Tracer};
 use std::net::UdpSocket;
 use std::{thread, time};
 
@@ -26,11 +26,11 @@ fn main() {
 
     let mut loop_counter = 0;
     loop {
-        ekt_try_record!(tracer, TOP_OF_THE_LOOP, "At the top of the loop")
+        try_record!(tracer, TOP_OF_THE_LOOP, "At the top of the loop")
             .expect("Could not record event");
 
         if loop_counter % 2 == 0 {
-            ekt_try_record!(tracer, LOOP_COUNTER_EVENT, "Loop counter event happened")
+            try_record!(tracer, LOOP_COUNTER_EVENT, "Loop counter event happened")
                 .expect("Could not record event");
         }
 
@@ -44,7 +44,7 @@ fn main() {
             socket
                 .send_to(&report_buffer[..n_report_bytes], remote)
                 .expect("Could not send_to");
-            ekt_try_record_w_u32!(
+            try_record_w_u32!(
                 tracer,
                 REPORT_CREATED,
                 n_report_bytes as u32,
