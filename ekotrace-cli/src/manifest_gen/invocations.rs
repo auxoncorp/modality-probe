@@ -10,6 +10,7 @@ use crate::{
     events::{EventId, Events},
     lang::Lang,
     tracers::{TracerId, Tracers},
+    warn,
 };
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -23,7 +24,7 @@ use walkdir::{DirEntry, WalkDir};
 #[derive(Debug)]
 pub enum CreationError {
     Io(io::Error),
-    Parser(parser::Error),
+    Parser(String, parser::Error),
     FileDoesNotExist(PathBuf),
     NotRegularFile(PathBuf),
 }
@@ -92,14 +93,15 @@ impl Invocations {
                                 Some("rs") => Box::new(RustParser::default()),
                                 Some("c") => Box::new(CParser::default()),
                                 Some(ext) => {
-                                    eprintln!(
-                                        "Guessing C parser based on file extension '{}'",
-                                        ext
+                                    warn!(
+                                        "manifest-gen",
+                                        "Guessing C parser based on file extension '{}'", ext
                                     );
                                     Box::new(CParser::default())
                                 }
                                 None => {
-                                    eprintln!(
+                                    warn!(
+                                        "manifest-gen",
                                         "Guessing C parser based on file extension '{}'",
                                         os_str.to_string_lossy()
                                     );
@@ -107,7 +109,7 @@ impl Invocations {
                                 }
                             },
                             None => {
-                                eprintln!(
+                                warn!("manifest-gen",
                                     "No file extension available for '{:?}', defaulting to using the C parser",
                                     entry.path()
                                 );
@@ -117,7 +119,9 @@ impl Invocations {
                     };
 
                     if !no_tracers {
-                        let tracer_metadata = parser.parse_tracers(&buffer)?;
+                        let tracer_metadata = parser
+                            .parse_tracers(&buffer)
+                            .map_err(|e| CreationError::Parser(file_path.clone(), e))?;
                         let mut tracers_in_file: Vec<InSourceTracer> = tracer_metadata
                             .into_iter()
                             .map(|md| InSourceTracer {
@@ -129,7 +133,9 @@ impl Invocations {
                     }
 
                     if !no_events {
-                        let event_metadata = parser.parse_events(&buffer)?;
+                        let event_metadata = parser
+                            .parse_events(&buffer)
+                            .map_err(|e| CreationError::Parser(file_path.clone(), e))?;
                         let mut events_in_file: Vec<InSourceEvent> = event_metadata
                             .into_iter()
                             .map(|md| InSourceEvent {
@@ -196,11 +202,17 @@ impl Invocations {
                 })
                 .for_each(|t| {
                     if !src_tracer.eq(t) {
-                        eprintln!("Relocating tracer '{}', ID {}", t.name, t.id.0);
-                        eprintln!("Was in the manifest at {}:{}", t.file, t.line);
-                        eprintln!(
-                            "New location at {}:{}",
-                            src_tracer.file, src_tracer.metadata.location.line
+                        warn!(
+                            "manifest-gen",
+                            "Tracer {}, ID {} may have moved\n\
+                            Prior location: {}:{}\n\
+                            New location in source code: {}:{}",
+                            t.name,
+                            t.id.0,
+                            t.file,
+                            t.line,
+                            src_tracer.file,
+                            src_tracer.metadata.location.line
                         );
 
                         t.file = src_tracer.file.clone();
@@ -236,9 +248,11 @@ impl Invocations {
                 })
                 .is_none();
             if missing_tracer {
-                eprintln!(
-                    "The tracer '{}', ID {} in manifest no longer exists in source",
-                    mf_tracer.name, mf_tracer.id.0
+                warn!(
+                    "manifest-gen",
+                    "Tracer {}, ID {} in manifest no longer exists in source",
+                    mf_tracer.name,
+                    mf_tracer.id.0
                 );
             }
         });
@@ -255,30 +269,28 @@ impl Invocations {
                         .eq_ignore_ascii_case(&src_event.canonical_name())
                 })
                 .for_each(|e| {
-                    if !src_event.file.as_str().eq(e.file.as_str()) {
-                        eprintln!("Relocating event '{}', ID {}", e.name, e.id.0);
-                        eprintln!("Was in the manifest at {}:{}", e.file, e.line);
-                        eprintln!(
-                            "New location at {}:{}",
-                            src_event.file, src_event.metadata.location.line
-                        );
-                        e.file = src_event.file.clone();
-                    }
-
-                    if !src_event
+                    let file_eq = src_event.file.as_str().eq(e.file.as_str());
+                    let line_eq = src_event
                         .metadata
                         .location
                         .line
                         .to_string()
                         .as_str()
-                        .eq(e.line.as_str())
-                    {
-                        eprintln!("Relocating event '{}', ID {}", e.name, e.id.0);
-                        eprintln!("Was in the manifest at {}:{}", e.file, e.line);
-                        eprintln!(
-                            "New location at {}:{}",
-                            src_event.file, src_event.metadata.location.line
+                        .eq(e.line.as_str());
+                    if !file_eq || !line_eq {
+                        warn!(
+                            "manifest-gen",
+                            "Event {}, ID {} may have moved\n\
+                            Prior location: {}:{}\n\
+                            New location in source code: {}:{}",
+                            e.name,
+                            e.id.0,
+                            e.file,
+                            e.line,
+                            src_event.file,
+                            src_event.metadata.location.line
                         );
+                        e.file = src_event.file.clone();
                         e.line = src_event.metadata.location.line.to_string();
                     }
 
@@ -289,29 +301,47 @@ impl Invocations {
                             .as_ref()
                             .map_or("", |p| p.0.as_str()),
                     ) {
-                        eprintln!(
-                            "Event '{}', ID {} has changed its payload type",
-                            e.name, e.id.0
+                        warn!(
+                            "manifest-gen",
+                            "Event {}, ID {} has changed its payload type\n\
+                            {}:{}\n\
+                            Prior payload type: {}\n\
+                            New payload type: {}",
+                            e.name,
+                            e.id.0,
+                            e.file,
+                            e.line,
+                            e.type_hint,
+                            src_event
+                                .metadata
+                                .payload
+                                .as_ref()
+                                .map_or(String::new(), |p| p.0.to_string())
                         );
-                        eprintln!("Was in the manifest as {}", e.type_hint);
                         e.type_hint = src_event
                             .metadata
                             .payload
                             .as_ref()
                             .map_or(String::new(), |p| p.0.to_string());
-                        eprintln!("Now {}", e.type_hint);
                     }
 
                     if Some(&e.description) != src_event.metadata.description.as_ref() {
                         if let Some(src_desc) = &src_event.metadata.description {
                             if src_desc != "" {
-                                eprintln!(
-                                    "Event '{}', ID {} has changed its description",
-                                    e.name, e.id.0
+                                warn!(
+                                    "manifest-gen",
+                                    "Event {}, ID {} has changed its description\n\
+                                    {}:{}\n\
+                                    Prior description: '{}'\n\
+                                    New description: '{}'",
+                                    e.name,
+                                    e.id.0,
+                                    e.file,
+                                    e.line,
+                                    e.description,
+                                    src_desc,
                                 );
-                                eprintln!("Was in the manifest as '{}'", e.description);
                                 e.description = src_desc.clone();
-                                eprintln!("Now '{}'", e.description);
                             }
                         }
                     }
@@ -345,9 +375,11 @@ impl Invocations {
                 })
                 .is_none();
             if missing_event {
-                eprintln!(
-                    "The event '{}', ID {} in manifest no longer exists in source",
-                    mf_event.name, mf_event.id.0
+                warn!(
+                    "manifest-gen",
+                    "Event {}, ID {} in manifest no longer exists in source",
+                    mf_event.name,
+                    mf_event.id.0
                 );
             }
         });
@@ -366,20 +398,18 @@ impl fmt::Display for TracerCheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TracerCheckError::MultipleLocationsInSource(first, dup) => {
-                writeln!(f, "Found an Ekotrace tracer used in multiple locations.")?;
+                writeln!(f, "Duplicate tracer identifiers found for {}", first.name())?;
+                writeln!(f, "{}:{}", first.file, first.metadata.location.line,)?;
                 writeln!(f)?;
-                writeln!(f, "First encounter:\n{}", first)?;
-                writeln!(f)?;
-                writeln!(f, "Duplicate:\n{}", dup)
+                writeln!(f, "{}:{}", dup.file, dup.metadata.location.line,)
             }
             TracerCheckError::NameNotUpperCase(t) => {
                 writeln!(
                     f,
-                    "Found an Ekotrace tracer name '{}' that needs to be converted to uppercase.",
+                    "The tracer name '{}' needs to be converted to uppercase",
                     t.name(),
                 )?;
-                writeln!(f)?;
-                writeln!(f, "{}", t)
+                writeln!(f, "{}:{}", t.file, t.metadata.location.line,)
             }
         }
     }
@@ -388,23 +418,18 @@ impl fmt::Display for EventCheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EventCheckError::DuplicateNameInSource(first, dup) => {
-                writeln!(
-                    f,
-                    "Found an Ekotrace event name used in multiple locations."
-                )?;
+                writeln!(f, "Duplicate event identifiers found for {}", first.name())?;
+                writeln!(f, "{}:{}", first.file, first.metadata.location.line,)?;
                 writeln!(f)?;
-                writeln!(f, "First encounter:\n{}", first)?;
-                writeln!(f)?;
-                writeln!(f, "Duplicate:\n{}", dup)
+                writeln!(f, "{}:{}", dup.file, dup.metadata.location.line,)
             }
             EventCheckError::NameNotUpperCase(e) => {
                 writeln!(
                     f,
-                    "Found an Ekotrace event name '{}' that needs to be converted to uppercase.",
+                    "The event name '{}' needs to be converted to uppercase",
                     e.name(),
                 )?;
-                writeln!(f)?;
-                writeln!(f, "{}", e)
+                writeln!(f, "{}:{}", e.file, e.metadata.location.line,)
             }
         }
     }
@@ -413,18 +438,17 @@ impl fmt::Display for EventCheckError {
 impl fmt::Display for CreationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CreationError::Parser(t) => writeln!(f, "{}", t),
+            CreationError::Parser(file, e) => {
+                writeln!(f, "{}", e)?;
+                writeln!(f, "{}:{}", file, e.location().line)
+            }
             CreationError::Io(t) => writeln!(f, "{}", t),
-            CreationError::FileDoesNotExist(p) => write!(
-                f,
-                "Trying to resolve a file '{}' that doesn't exist",
-                p.display()
-            ),
-            CreationError::NotRegularFile(p) => write!(
-                f,
-                "Trying to resolve a file '{}' that isn't regular",
-                p.display()
-            ),
+            CreationError::FileDoesNotExist(p) => {
+                write!(f, "Trying to resolve a nonexistent file '{}'", p.display())
+            }
+            CreationError::NotRegularFile(p) => {
+                write!(f, "Trying to resolve an irregular file '{}'", p.display())
+            }
         }
     }
 }
@@ -435,9 +459,9 @@ impl From<io::Error> for CreationError {
     }
 }
 
-impl From<parser::Error> for CreationError {
-    fn from(e: parser::Error) -> Self {
-        CreationError::Parser(e)
+impl From<(String, parser::Error)> for CreationError {
+    fn from(e: (String, parser::Error)) -> Self {
+        CreationError::Parser(e.0, e.1)
     }
 }
 

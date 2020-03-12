@@ -31,6 +31,7 @@ impl Opt {
     pub fn validate(&self) {
         if !self.source_path.exists() {
             exit_error!(
+                "manifest-gen",
                 "The source path '{}' does not exist",
                 self.source_path.display()
             );
@@ -59,14 +60,10 @@ pub fn run(opt: Opt) {
         opt.source_path,
         &opt.file_extensions,
     )
-    .unwrap_or_exit("Can't collect invocations");
+    .unwrap_or_exit("manifest-gen");
 
-    invocations
-        .check_tracers()
-        .unwrap_or_exit("Can't use the collected tracers");
-    invocations
-        .check_events()
-        .unwrap_or_exit("Can't use the collected events");
+    invocations.check_tracers().unwrap_or_exit("manifest-gen");
+    invocations.check_events().unwrap_or_exit("manifest-gen");
 
     invocations.merge_tracers_into(opt.tracer_id_offset, &mut manifest_tracers);
     invocations.merge_events_into(opt.event_id_offset, &mut manifest_events);

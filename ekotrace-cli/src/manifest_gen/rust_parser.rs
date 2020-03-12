@@ -27,6 +27,16 @@ pub enum Error {
     UnrecognizedTypeHint(SourceLocation),
 }
 
+impl Error {
+    pub fn location(&self) -> &SourceLocation {
+        match self {
+            Error::Syntax(l) => l,
+            Error::MissingSemicolon(l) => l,
+            Error::UnrecognizedTypeHint(l) => l,
+        }
+    }
+}
+
 impl Parser for RustParser {
     fn parse_events(&self, input: &str) -> Result<Vec<EventMetadata>, parser::Error> {
         let md = self.parse_event_md(input)?;
@@ -141,6 +151,9 @@ fn event_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         }
         Err(_) => rest_string(args)?,
     };
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
     let (_args, description) = if expect_desc {
         map(rest_literal, |desc: String| {
             Some(
@@ -191,6 +204,9 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let arg1 = Span::new(split[1]);
     let (_, name) = alt((reduced_event_id_exp_alt_a, reduced_event_id_exp_alt_b))(arg1)
         .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
     let description = if split.len() == 3 {
         let arg2 = Span::new(split[2]);
         let (arg2, _) =
@@ -232,6 +248,9 @@ fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetad
     let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
     let (args, ekotrace_instance) = variable_call_exp_arg(args)?;
     let (args, name) = variable_call_exp_arg(args)?;
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
     let mut expect_arg4 = false;
     let (args, payload) = match peek(variable_call_exp_arg_literal)(args) {
         Ok(_) => {
@@ -296,6 +315,9 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     let arg = Span::new(split[1]);
     let (_, name) = alt((reduced_event_id_exp_alt_a, reduced_event_id_exp_alt_b))(arg)
         .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
     let arg = Span::new(split[2]);
     let (_, payload) =
         rest_literal(arg).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
@@ -345,9 +367,17 @@ fn reduced_event_id_exp_alt_a(input: Span) -> ParserResult<Span, String> {
 
 fn reduced_event_id_exp_alt_b(input: Span) -> ParserResult<Span, String> {
     let (input, _) = comments_and_spacing(input)?;
+    let (input, pos) = position(input)?;
     let (input, _) = take_until("(")(input)?;
     let (input, _) = tag("(")(input)?;
     let (input, id) = take_until(")")(input)?;
+    if !id
+        .fragment()
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_')
+    {
+        return Err(make_error(input, Error::Syntax(pos.into())));
+    }
     Ok((input, trimmed_string(id.fragment())))
 }
 
@@ -469,20 +499,17 @@ fn trimmed_string(s: &str) -> String {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Syntax(loc) => write!(
+            Error::Syntax(_) => write!(
                 f,
-                "Enountered a syntax error while parsing an Ekotrace record event invocation near\n{}",
-                loc
+                "Enountered a syntax error while parsing an Ekotrace record event call-site",
             ),
-             Error::MissingSemicolon(loc) => write!(
+             Error::MissingSemicolon(_) => write!(
                 f,
-                "An Ekotrace record event invocation is missing a semicolon, expected near\n{}",
-                loc
+                "Ekotrace record event call-site is missing a semicolon",
             ),
-            Error::UnrecognizedTypeHint(loc) => write!(
+            Error::UnrecognizedTypeHint(_) => write!(
                 f,
-                "An Ekotrace record event with payload invocation has an unrecognized payload type hint near\n{}",
-                loc
+                "Ekotrace record event with payload call-site has an unrecognized payload type hint",
             ),
         }
     }
@@ -833,6 +860,13 @@ ekt_record_w_i32!(
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
 ekt_record!(tracer, EventId::try_from::<>EVENT_E);
+"#;
+        let tokens = parser.parse_event_md(input);
+        assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
+        let input = r#"
+ekt_try_record!(
+                        
+ekt_record!(tracer, EventId::try_from(EVENT_D).unwrap(), "my text");
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));

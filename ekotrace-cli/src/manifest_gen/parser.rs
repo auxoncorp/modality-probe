@@ -11,6 +11,15 @@ pub enum Error {
     RustParser(rust_parser::Error),
 }
 
+impl Error {
+    pub fn location(&self) -> &SourceLocation {
+        match self {
+            Error::CParser(inner) => inner.location(),
+            Error::RustParser(inner) => inner.location(),
+        }
+    }
+}
+
 pub trait Parser {
     fn parse_events(&self, input: &str) -> Result<Vec<EventMetadata>, Error>;
 
@@ -44,8 +53,8 @@ impl From<rust_parser::Error> for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::CParser(t) => writeln!(f, "{}", t),
-            Error::RustParser(t) => writeln!(f, "{}", t),
+            Error::CParser(t) => write!(f, "{}", t),
+            Error::RustParser(t) => write!(f, "{}", t),
         }
     }
 }
