@@ -123,7 +123,7 @@ typedef struct causal_snapshot {
  * Expands to call `ekotrace_record_event(ekt, event)`.
  *
  */
-#define EKT_RECORD(ekt, event, ...) \
+#define EKOTRACE_RECORD(ekt, event, ...) \
         ekotrace_record_event(ekt, event)
 
 /*
@@ -134,42 +134,42 @@ typedef struct causal_snapshot {
  * Expands to call `ekotrace_record_event_with_metadata_<type>(ekt, event)`.
  *
  */
-#define EKT_RECORD_W_I8(ekt, event, meta_data, ...) \
+#define EKOTRACE_RECORD_W_I8(ekt, event, meta_data, ...) \
     ekotrace_record_event_with_metadata_i8(\
             ekt, \
             event, \
             meta_data)
-#define EKT_RECORD_W_U8(ekt, event, meta_data, ...) \
+#define EKOTRACE_RECORD_W_U8(ekt, event, meta_data, ...) \
     ekotrace_record_event_with_metadata_u8(\
             ekt, \
             event, \
             meta_data)
-#define EKT_RECORD_W_I16(ekt, event, meta_data, ...) \
+#define EKOTRACE_RECORD_W_I16(ekt, event, meta_data, ...) \
     ekotrace_record_event_with_metadata_i16(\
             ekt, \
             event, \
             meta_data)
-#define EKT_RECORD_W_U16(ekt, event, meta_data, ...) \
+#define EKOTRACE_RECORD_W_U16(ekt, event, meta_data, ...) \
     ekotrace_record_event_with_metadata_u16(\
             ekt, \
             event, \
             meta_data)
-#define EKT_RECORD_W_I32(ekt, event, meta_data, ...) \
+#define EKOTRACE_RECORD_W_I32(ekt, event, meta_data, ...) \
     ekotrace_record_event_with_metadata_i32(\
             ekt, \
             event, \
             meta_data)
-#define EKT_RECORD_W_U32(ekt, event, meta_data, ...) \
+#define EKOTRACE_RECORD_W_U32(ekt, event, meta_data, ...) \
     ekotrace_record_event_with_metadata_u32(\
             ekt, \
             event, \
             meta_data)
-#define EKT_RECORD_W_BOOL(ekt, event, meta_data, ...) \
+#define EKOTRACE_RECORD_W_BOOL(ekt, event, meta_data, ...) \
     ekotrace_record_event_with_metadata_bool(\
             ekt, \
             event, \
             meta_data)
-#define EKT_RECORD_W_F32(ekt, event, meta_data, ...) \
+#define EKOTRACE_RECORD_W_F32(ekt, event, meta_data, ...) \
     ekotrace_record_event_with_metadata_f32(\
             ekt, \
             event, \

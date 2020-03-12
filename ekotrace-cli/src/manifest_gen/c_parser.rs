@@ -119,7 +119,7 @@ impl CParser {
 
 fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, _) = comments_and_spacing(input)?;
-    let (input, found_with_payload) = peek(opt(tag("EKT_RECORD_W_")))(input)?;
+    let (input, found_with_payload) = peek(opt(tag("EKOTRACE_RECORD_W_")))(input)?;
     let (input, metadata) = match found_with_payload {
         None => event_call_exp(input)?,
         Some(_) => event_with_payload_call_exp(input)?,
@@ -129,7 +129,7 @@ fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
 
 fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, pos) = position(input)?;
-    let (input, _) = tag("EKT_RECORD")(input)?;
+    let (input, _) = tag("EKOTRACE_RECORD")(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
     let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
@@ -175,7 +175,7 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
 
 fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, pos) = position(input)?;
-    let (input, _) = tag("EKT_RECORD_W_")(input)?;
+    let (input, _) = tag("EKOTRACE_RECORD_W_")(input)?;
     let (input, type_hint) = take_until("(")(input)?;
     if &type_hint.fragment().to_uppercase().as_str() != type_hint.fragment() {
         return Err(make_failure(
@@ -494,47 +494,47 @@ mod tests {
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
     /* The user writes this line: */
-    const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ1);
+    const size_t err = EKOTRACE_RECORD(g_ekotrace, EVENT_READ1);
 
     assert(err == EKOTRACE_RESULT_OK);
 
     /* The tooling replaces it with this (assumes it picked ID 1): */
-    const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ2, "my docs");
+    const size_t err = EKOTRACE_RECORD(g_ekotrace, EVENT_READ2, "my docs");
 
     assert(err == EKOTRACE_RESULT_OK);
 
-    EKT_RECORD(
+    EKOTRACE_RECORD(
             ekt, /* comments */
             EVENT_WRITE1); // more comments
 
-    EKT_RECORD(  ekt, /* comments */ EVENT_WRITE2, "docs"); // more comments
+    EKOTRACE_RECORD(  ekt, /* comments */ EVENT_WRITE2, "docs"); // more comments
 
     uint8_t status;
-    const size_t err = EKT_RECORD_W_U8(ekt, EVENT_A, status);
+    const size_t err = EKOTRACE_RECORD_W_U8(ekt, EVENT_A, status);
 
-    const size_t err = EKT_RECORD_W_U8(
+    const size_t err = EKOTRACE_RECORD_W_U8(
         ekt, // stuff
         EVENT_B, /* here */
         status,
         "desc text here"); // The end
 
     /* stuff
-     * EKT_RECORD_W_U8(ekt, SOME_EVENT, status);
+     * EKOTRACE_RECORD_W_U8(ekt, SOME_EVENT, status);
      */
-    const size_t err = EKT_RECORD_W_I16(ekt, EVENT_C, (int16_t) data);
+    const size_t err = EKOTRACE_RECORD_W_I16(ekt, EVENT_C, (int16_t) data);
 
-    const size_t err = EKT_RECORD_W_I16(ekt, EVENT_D, (int16_t) data, "docs");
+    const size_t err = EKOTRACE_RECORD_W_I16(ekt, EVENT_D, (int16_t) data, "docs");
 
-    const size_t err = EKT_RECORD_W_I8(ekt, EVENT_E,
+    const size_t err = EKOTRACE_RECORD_W_I8(ekt, EVENT_E,
     (int8_t) *((uint8_t*) &mydata));
 
-    const size_t err = EKT_RECORD_W_U16(
+    const size_t err = EKOTRACE_RECORD_W_U16(
         ekt,
         EVENT_F,
     (uint16_t) *((uint16_t*) &mydata)
     );
 
-    const size_t err = EKT_RECORD_W_U16(
+    const size_t err = EKOTRACE_RECORD_W_U16(
         ekt,
         EVENT_G,
     (uint16_t) *((uint16_t*) &mydata),
@@ -592,70 +592,70 @@ mod tests {
                     ekotrace_instance: "g_ekotrace".to_string(),
                     payload: None,
                     description: Some("my docs".to_string()),
-                    location: (232, 8, 24).into(),
+                    location: (237, 8, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_WRITE1".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: None,
                     description: None,
-                    location: (325, 12, 5).into(),
+                    location: (335, 12, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_WRITE2".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: None,
                     description: Some("docs".to_string()),
-                    location: (418, 16, 5).into(),
+                    location: (433, 16, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_A".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
                     description: None,
-                    location: (535, 19, 24).into(),
+                    location: (555, 19, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_B".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
                     description: Some("desc text here".to_string()),
-                    location: (598, 21, 24).into(),
+                    location: (623, 21, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_C".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: None,
-                    location: (813, 30, 24).into(),
+                    location: (848, 30, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_D".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: Some("docs".to_string()),
-                    location: (885, 32, 24).into(),
+                    location: (925, 32, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_E".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I8, "(int8_t) *((uint8_t*) &mydata)").into()),
                     description: None,
-                    location: (965, 34, 24).into(),
+                    location: (1010, 34, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_F".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: None,
-                    location: (1056, 37, 24).into(),
+                    location: (1106, 37, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_G".to_string(),
                     ekotrace_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: Some("docs".to_string()),
-                    location: (1173, 43, 24).into(),
+                    location: (1228, 43, 24).into(),
                 },
             ])
         );
@@ -665,15 +665,15 @@ mod tests {
     fn missing_semicolon_errors() {
         let parser = CParser::default();
         let input = r#"
-const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ)
+const size_t err = EKOTRACE_RECORD(g_ekotrace, EVENT_READ)
 assert(err == EKOTRACE_RESULT_OK);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((20, 2, 20).into())));
-        let input = "const size_t err = EKT_RECORD(g_ekotrace, EVENT_READ)";
+        let input = "const size_t err = EKOTRACE_RECORD(g_ekotrace, EVENT_READ)";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((19, 1, 20).into())));
-        let input = "EKT_RECORD_W_I16(ekt, E0, data)";
+        let input = "EKOTRACE_RECORD_W_I16(ekt, E0, data)";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
     }
@@ -682,12 +682,12 @@ assert(err == EKOTRACE_RESULT_OK);
     fn syntax_errors() {
         let parser = CParser::default();
         let input = r#"
-const size_t err = EKT_RECORD_W_U8(g_ekotrace, EVENT_READ, (uint8_t) (( ))))status);
+const size_t err = EKOTRACE_RECORD_W_U8(g_ekotrace, EVENT_READ, (uint8_t) (( ))))status);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((20, 2, 20).into())));
         let input = r#"
-const size_t err = EKT_RECORD_W_U8(g_ekotrace, EVENT_READ, (uint8_t) status)
+const size_t err = EKOTRACE_RECORD_W_U8(g_ekotrace, EVENT_READ, (uint8_t) status)
 assert(err == EKOTRACE_RESULT_OK);
 "#;
         let tokens = parser.parse_event_md(input);
@@ -696,7 +696,7 @@ assert(err == EKOTRACE_RESULT_OK);
             Err(Error::PayloadArgumentSpansManyLines((20, 2, 20).into()))
         );
         let input = r#"
-err = EKT_RECORD_W_U8(
+err = EKOTRACE_RECORD_W_U8(
         g_ekotrace,
         EVENT_READ_STATUS2,
         (uint8_t) status,
@@ -705,7 +705,7 @@ assert(err == EKOTRACE_RESULT_OK);
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((7, 2, 7).into())));
         let input = r#"
-err = EKT_RECORD(
+err = EKOTRACE_RECORD(
         g_ekotrace,
         EVENT_READ_STATUS2,
 assert(err == EKOTRACE_RESULT_OK);
@@ -717,7 +717,7 @@ assert(err == EKOTRACE_RESULT_OK);
     #[test]
     fn event_payload_type_hint_errors() {
         let parser = CParser::default();
-        let input = "EKT_RECORD_W_I12(ekt, E0, data);";
+        let input = "EKOTRACE_RECORD_W_I12(ekt, E0, data);";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::UnrecognizedTypeHint((0, 1, 1).into())));
     }
@@ -725,7 +725,7 @@ assert(err == EKOTRACE_RESULT_OK);
     #[test]
     fn event_payload_casing_errors() {
         let parser = CParser::default();
-        let input = "EKT_RECORD_W_i8(ekt, EVENT_A, status);";
+        let input = "EKOTRACE_RECORD_W_i8(ekt, EVENT_A, status);";
         let tokens = parser.parse_event_md(input);
         assert_eq!(
             tokens,
