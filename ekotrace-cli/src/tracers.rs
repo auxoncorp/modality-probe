@@ -20,7 +20,10 @@ pub struct Tracer {
 }
 
 #[derive(Debug)]
-pub struct Tracers(pub Vec<Tracer>);
+pub struct Tracers {
+    pub path: PathBuf,
+    pub tracers: Vec<Tracer>,
+}
 
 impl Tracers {
     pub fn from_csv(tracers_csv_file: &PathBuf) -> Self {
@@ -31,19 +34,26 @@ impl Tracers {
             reader
                 .deserialize()
                 .map(|maybe_tracer| maybe_tracer.expect("Can't deserialize tracer"))
+                .map(|mut t: Tracer| {
+                    t.name = t.name.to_uppercase();
+                    t
+                })
                 .collect()
         } else {
             vec![]
         };
 
-        Tracers(tracers)
+        Tracers {
+            path: tracers_csv_file.clone(),
+            tracers,
+        }
     }
 
     pub fn write_csv(&self, tracers_csv_file: &PathBuf) {
         let mut writer = csv::Writer::from_writer(
             File::create(tracers_csv_file).expect("Can't open tracers csv file"),
         );
-        self.0
+        self.tracers
             .iter()
             .for_each(|tracer| writer.serialize(tracer).expect("Can't serialize tracer"));
         writer.flush().expect("Can't flush tracers writer");
@@ -51,11 +61,16 @@ impl Tracers {
 
     pub fn next_available_tracer_id(&self) -> u32 {
         // Tracer IDs start at 1
-        1 + self.0.iter().map(|tracer| tracer.id.0).max().unwrap_or(0)
+        1 + self
+            .tracers
+            .iter()
+            .map(|tracer| tracer.id.0)
+            .max()
+            .unwrap_or(0)
     }
 
     pub fn validate_nonzero_ids(&self) {
-        self.0.iter().for_each(|tracer| {
+        self.tracers.iter().for_each(|tracer| {
             if tracer.id.0 == 0 {
                 panic!(
                     "Tracers CSV contains invalid TracerId (0) \"{}\"",
@@ -66,13 +81,13 @@ impl Tracers {
     }
 
     pub fn validate_unique_ids(&self) {
-        if !has_unique_elements(self.0.iter().map(|tracer| tracer.id)) {
+        if !has_unique_elements(self.tracers.iter().map(|tracer| tracer.id)) {
             panic!("Tracers CSV contains duplicate tracer IDs");
         }
     }
 
     pub fn validate_unique_names(&self) {
-        if !has_unique_elements(self.0.iter().map(|tracer| tracer.name.clone())) {
+        if !has_unique_elements(self.tracers.iter().map(|tracer| tracer.name.clone())) {
             panic!("Tracers CSV contains duplicate tracer names");
         }
     }

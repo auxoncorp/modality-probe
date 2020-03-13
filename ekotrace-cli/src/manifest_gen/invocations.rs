@@ -23,7 +23,7 @@ use walkdir::{DirEntry, WalkDir};
 
 #[derive(Debug)]
 pub enum CreationError {
-    Io(io::Error),
+    Io(PathBuf, io::Error),
     Parser(String, parser::Error),
     FileDoesNotExist(PathBuf),
     NotRegularFile(PathBuf),
@@ -68,7 +68,8 @@ impl Invocations {
                     .any(|ext| Some(OsStr::new(ext)) == entry.path().extension())
             });
             if should_consider {
-                let mut f = File::open(entry.path())?;
+                let mut f = File::open(entry.path())
+                    .map_err(|e| CreationError::Io(entry.path().to_path_buf(), e))?;
                 buffer.clear();
 
                 // Skips binary/invalid data
@@ -81,9 +82,15 @@ impl Invocations {
                         return Err(CreationError::NotRegularFile(entry.path().to_path_buf()));
                     }
 
-                    let search_path = p.as_ref().canonicalize()?;
-                    let file = entry.path().canonicalize()?;
-                    let file_path = FilePath::resolve(&search_path, &file)?;
+                    let search_path = p
+                        .as_ref()
+                        .canonicalize()
+                        .map_err(|e| CreationError::Io(p.as_ref().to_path_buf(), e))?;
+                    let file = entry
+                        .path()
+                        .canonicalize()
+                        .map_err(|e| CreationError::Io(entry.path().to_path_buf(), e))?;
+                    let file_path = FilePath::from_path_file(&search_path, &file)?;
 
                     let parser: Box<dyn Parser> = match lang {
                         Some(Lang::C) => Box::new(CParser::default()),
@@ -110,7 +117,8 @@ impl Invocations {
                             },
                             None => {
                                 warn!("manifest-gen",
-                                    "No file extension available for '{:?}', defaulting to using the C parser",
+                                    "No file extension available, defaulting to using the C parser\n\
+                                    {:?}",
                                     entry.path()
                                 );
                                 Box::new(CParser::default())
@@ -121,7 +129,7 @@ impl Invocations {
                     if !no_tracers {
                         let tracer_metadata = parser
                             .parse_tracers(&buffer)
-                            .map_err(|e| CreationError::Parser(file_path.clone(), e))?;
+                            .map_err(|e| CreationError::Parser(file_path.path.clone(), e))?;
                         let mut tracers_in_file: Vec<InSourceTracer> = tracer_metadata
                             .into_iter()
                             .map(|md| InSourceTracer {
@@ -135,7 +143,7 @@ impl Invocations {
                     if !no_events {
                         let event_metadata = parser
                             .parse_events(&buffer)
-                            .map_err(|e| CreationError::Parser(file_path.clone(), e))?;
+                            .map_err(|e| CreationError::Parser(file_path.path.clone(), e))?;
                         let mut events_in_file: Vec<InSourceEvent> = event_metadata
                             .into_iter()
                             .map(|md| InSourceEvent {
@@ -191,9 +199,10 @@ impl Invocations {
     }
 
     pub fn merge_tracers_into(&self, tracer_id_offset: Option<u32>, mf_tracers: &mut Tracers) {
+        let mf_path = mf_tracers.path.clone();
         self.tracers.iter().for_each(|src_tracer| {
             mf_tracers
-                .0
+                .tracers
                 .iter_mut()
                 .filter(|t| {
                     t.name
@@ -205,17 +214,19 @@ impl Invocations {
                         warn!(
                             "manifest-gen",
                             "Tracer {}, ID {} may have moved\n\
-                            Prior location: {}:{}\n\
-                            New location in source code: {}:{}",
+                            Prior location from {}: {}:{}\n\
+                            New location in source code: {}:{}:{}",
                             t.name,
                             t.id.0,
+                            mf_path.display(),
                             t.file,
                             t.line,
-                            src_tracer.file,
-                            src_tracer.metadata.location.line
+                            src_tracer.file.path,
+                            src_tracer.metadata.location.line,
+                            src_tracer.metadata.location.column
                         );
 
-                        t.file = src_tracer.file.clone();
+                        t.file = src_tracer.file.path.clone();
                         t.line = src_tracer.metadata.location.line.to_string();
                     }
                 });
@@ -228,15 +239,25 @@ impl Invocations {
         };
 
         self.tracers.iter().for_each(|src_tracer| {
-            if mf_tracers.0.iter().find(|t| src_tracer.eq(t)).is_none() {
-                mf_tracers
-                    .0
-                    .push(src_tracer.to_tracer(TracerId(next_available_tracer_id)));
+            if mf_tracers
+                .tracers
+                .iter()
+                .find(|t| src_tracer.eq(t))
+                .is_none()
+            {
+                let tracer = src_tracer.to_tracer(TracerId(next_available_tracer_id));
+                println!(
+                    "Adding tracer {}, ID {} to {}",
+                    tracer.name,
+                    tracer.id.0,
+                    mf_path.display(),
+                );
+                mf_tracers.tracers.push(tracer);
                 next_available_tracer_id += 1;
             }
         });
 
-        mf_tracers.0.iter().for_each(|mf_tracer| {
+        mf_tracers.tracers.iter().for_each(|mf_tracer| {
             let missing_tracer = self
                 .tracers
                 .iter()
@@ -259,9 +280,10 @@ impl Invocations {
     }
 
     pub fn merge_events_into(&self, event_id_offset: Option<u32>, mf_events: &mut Events) {
+        let mf_path = mf_events.path.clone();
         for src_event in self.events.iter() {
             mf_events
-                .0
+                .events
                 .iter_mut()
                 .filter(|e| {
                     e.name
@@ -269,7 +291,7 @@ impl Invocations {
                         .eq_ignore_ascii_case(&src_event.canonical_name())
                 })
                 .for_each(|e| {
-                    let file_eq = src_event.file.as_str().eq(e.file.as_str());
+                    let file_eq = src_event.file.path.as_str().eq(e.file.as_str());
                     let line_eq = src_event
                         .metadata
                         .location
@@ -281,16 +303,18 @@ impl Invocations {
                         warn!(
                             "manifest-gen",
                             "Event {}, ID {} may have moved\n\
-                            Prior location: {}:{}\n\
-                            New location in source code: {}:{}",
+                            Prior location from {}: {}:{}\n\
+                            New location in source code: {}:{}:{}",
                             e.name,
                             e.id.0,
+                            mf_path.display(),
                             e.file,
                             e.line,
-                            src_event.file,
-                            src_event.metadata.location.line
+                            src_event.file.path,
+                            src_event.metadata.location.line,
+                            src_event.metadata.location.column
                         );
-                        e.file = src_event.file.clone();
+                        e.file = src_event.file.path.clone();
                         e.line = src_event.metadata.location.line.to_string();
                     }
 
@@ -304,13 +328,15 @@ impl Invocations {
                         warn!(
                             "manifest-gen",
                             "Event {}, ID {} has changed its payload type\n\
-                            {}:{}\n\
-                            Prior payload type: {}\n\
+                            {}:{}:{}\n\
+                            Prior payload type from {}: {}\n\
                             New payload type: {}",
                             e.name,
                             e.id.0,
-                            e.file,
+                            src_event.file.path,
                             e.line,
+                            src_event.metadata.location.column,
+                            mf_path.display(),
                             e.type_hint,
                             src_event
                                 .metadata
@@ -325,25 +351,13 @@ impl Invocations {
                             .map_or(String::new(), |p| p.0.to_string());
                     }
 
-                    if Some(&e.description) != src_event.metadata.description.as_ref() {
-                        if let Some(src_desc) = &src_event.metadata.description {
-                            if src_desc != "" {
-                                warn!(
-                                    "manifest-gen",
-                                    "Event {}, ID {} has changed its description\n\
-                                    {}:{}\n\
-                                    Prior description: '{}'\n\
-                                    New description: '{}'",
-                                    e.name,
-                                    e.id.0,
-                                    e.file,
-                                    e.line,
-                                    e.description,
-                                    src_desc,
-                                );
-                                e.description = src_desc.clone();
-                            }
-                        }
+                    let src_desc = src_event
+                        .metadata
+                        .description
+                        .as_ref()
+                        .map_or("", |d| d.as_str());
+                    if !e.description.as_str().eq(src_desc) {
+                        e.description = String::from(src_desc);
                     }
                 });
         }
@@ -355,15 +369,20 @@ impl Invocations {
         };
 
         self.events.iter().for_each(|src_event| {
-            if mf_events.0.iter().find(|e| src_event.eq(e)).is_none() {
-                mf_events
-                    .0
-                    .push(src_event.to_event(EventId(next_available_event_id)));
+            if mf_events.events.iter().find(|e| src_event.eq(e)).is_none() {
+                let event = src_event.to_event(EventId(next_available_event_id));
+                println!(
+                    "Adding event {}, ID {} to {}",
+                    event.name,
+                    event.id.0,
+                    mf_path.display(),
+                );
+                mf_events.events.push(event);
                 next_available_event_id += 1;
             }
         });
 
-        mf_events.0.iter().for_each(|mf_event| {
+        mf_events.events.iter().for_each(|mf_event| {
             let missing_event = self
                 .events
                 .iter()
@@ -399,9 +418,17 @@ impl fmt::Display for TracerCheckError {
         match self {
             TracerCheckError::MultipleLocationsInSource(first, dup) => {
                 writeln!(f, "Duplicate tracer identifiers found for {}", first.name())?;
-                writeln!(f, "{}:{}", first.file, first.metadata.location.line,)?;
+                writeln!(
+                    f,
+                    "{}:{}:{}",
+                    first.file.path, first.metadata.location.line, first.metadata.location.column
+                )?;
                 writeln!(f)?;
-                writeln!(f, "{}:{}", dup.file, dup.metadata.location.line,)
+                writeln!(
+                    f,
+                    "{}:{}:{}",
+                    dup.file.path, dup.metadata.location.line, dup.metadata.location.column
+                )
             }
             TracerCheckError::NameNotUpperCase(t) => {
                 writeln!(
@@ -409,7 +436,11 @@ impl fmt::Display for TracerCheckError {
                     "The tracer name '{}' needs to be converted to uppercase",
                     t.name(),
                 )?;
-                writeln!(f, "{}:{}", t.file, t.metadata.location.line,)
+                writeln!(
+                    f,
+                    "{}:{}:{}",
+                    t.file.path, t.metadata.location.line, t.metadata.location.column
+                )
             }
         }
     }
@@ -419,9 +450,17 @@ impl fmt::Display for EventCheckError {
         match self {
             EventCheckError::DuplicateNameInSource(first, dup) => {
                 writeln!(f, "Duplicate event identifiers found for {}", first.name())?;
-                writeln!(f, "{}:{}", first.file, first.metadata.location.line,)?;
+                writeln!(
+                    f,
+                    "{}:{}:{}",
+                    first.file.path, first.metadata.location.line, first.metadata.location.column
+                )?;
                 writeln!(f)?;
-                writeln!(f, "{}:{}", dup.file, dup.metadata.location.line,)
+                writeln!(
+                    f,
+                    "{}:{}:{}",
+                    dup.file.path, dup.metadata.location.line, dup.metadata.location.column
+                )
             }
             EventCheckError::NameNotUpperCase(e) => {
                 writeln!(
@@ -429,7 +468,11 @@ impl fmt::Display for EventCheckError {
                     "The event name '{}' needs to be converted to uppercase",
                     e.name(),
                 )?;
-                writeln!(f, "{}:{}", e.file, e.metadata.location.line,)
+                writeln!(
+                    f,
+                    "{}:{}:{}",
+                    e.file.path, e.metadata.location.line, e.metadata.location.column
+                )
             }
         }
     }
@@ -438,30 +481,23 @@ impl fmt::Display for EventCheckError {
 impl fmt::Display for CreationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CreationError::Parser(file, e) => {
+            CreationError::Parser(p, e) => {
                 writeln!(f, "{}", e)?;
-                writeln!(f, "{}:{}", file, e.location().line)
+                writeln!(f, "{}:{}:{}", p, e.location().line, e.location().column)
             }
-            CreationError::Io(t) => writeln!(f, "{}", t),
+            CreationError::Io(p, t) => {
+                writeln!(f, "{}", t)?;
+                writeln!(f, "{}", p.display())
+            }
             CreationError::FileDoesNotExist(p) => {
-                write!(f, "Trying to resolve a nonexistent file '{}'", p.display())
+                write!(f, "Trying to resolve a nonexistent file")?;
+                writeln!(f, "{}", p.display())
             }
             CreationError::NotRegularFile(p) => {
-                write!(f, "Trying to resolve an irregular file '{}'", p.display())
+                write!(f, "Trying to resolve an irregular file")?;
+                writeln!(f, "{}", p.display())
             }
         }
-    }
-}
-
-impl From<io::Error> for CreationError {
-    fn from(e: io::Error) -> Self {
-        CreationError::Io(e)
-    }
-}
-
-impl From<(String, parser::Error)> for CreationError {
-    fn from(e: (String, parser::Error)) -> Self {
-        CreationError::Parser(e.0, e.1)
     }
 }
 
@@ -486,14 +522,20 @@ mod tests {
     #[test]
     fn tracer_multi_location_file_error() {
         let loc_0 = InSourceTracer {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
             },
         };
         let loc_1 = InSourceTracer {
-            file: "file.c".to_string(),
+            file: FilePath {
+                full_path: "file.c".to_string(),
+                path: "file.c".to_string(),
+            },
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
@@ -512,14 +554,20 @@ mod tests {
     #[test]
     fn tracer_multi_location_line_error() {
         let loc_0 = InSourceTracer {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
             },
         };
         let loc_1 = InSourceTracer {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 2, 1).into(),
@@ -538,14 +586,20 @@ mod tests {
     #[test]
     fn tracer_in_source_casing_error() {
         let loc_0 = InSourceTracer {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 2, 3).into(),
             },
         };
         let loc_1 = InSourceTracer {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: TracerMetadata {
                 name: "location_b".to_string(),
                 location: (4, 5, 6).into(),
@@ -564,7 +618,10 @@ mod tests {
     #[test]
     fn tracer_merge_relocated() {
         let in_src_tracer = InSourceTracer {
-            file: "file.c".to_string(),
+            file: FilePath {
+                full_path: "file.c".to_string(),
+                path: "file.c".to_string(),
+            },
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 4, 3).into(),
@@ -582,10 +639,13 @@ mod tests {
             tracers: vec![in_src_tracer],
             events: Vec::new(),
         };
-        let mut mf_tracers = Tracers(vec![in_mf_tracer.clone()]);
+        let mut mf_tracers = Tracers {
+            path: PathBuf::new(),
+            tracers: vec![in_mf_tracer.clone()],
+        };
         invcs.merge_tracers_into(None, &mut mf_tracers);
         assert_eq!(
-            mf_tracers.0,
+            mf_tracers.tracers,
             vec![Tracer {
                 id: TracerId(1),
                 name: "location_a".to_string(),
@@ -600,7 +660,10 @@ mod tests {
     #[test]
     fn event_in_source_casing_error() {
         let in_src_event = InSourceEvent {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: EventMetadata {
                 name: "event_a".to_string(),
                 ekotrace_instance: "ekt".to_string(),
@@ -622,7 +685,10 @@ mod tests {
     #[test]
     fn event_name_duplicate_error() {
         let e0 = InSourceEvent {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
                 ekotrace_instance: "ekt".to_string(),
@@ -632,7 +698,10 @@ mod tests {
             },
         };
         let e1 = InSourceEvent {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
                 ekotrace_instance: "ekt".to_string(),
@@ -654,7 +723,10 @@ mod tests {
     #[test]
     fn event_merge_file_location_change() {
         let in_src_event = InSourceEvent {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
                 ekotrace_instance: "ekt".to_string(),
@@ -676,10 +748,13 @@ mod tests {
             tracers: Vec::new(),
             events: vec![in_src_event.clone()],
         };
-        let mut mf_events = Events(vec![in_mf_event.clone()]);
+        let mut mf_events = Events {
+            path: PathBuf::new(),
+            events: vec![in_mf_event.clone()],
+        };
         invcs.merge_events_into(None, &mut mf_events);
         assert_eq!(
-            mf_events.0,
+            mf_events.events,
             vec![Event {
                 id: EventId(1),
                 name: "event_a".to_string(),
@@ -695,7 +770,10 @@ mod tests {
     #[test]
     fn event_merge_line_location_change() {
         let in_src_event = InSourceEvent {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
                 ekotrace_instance: "ekt".to_string(),
@@ -717,10 +795,13 @@ mod tests {
             tracers: Vec::new(),
             events: vec![in_src_event.clone()],
         };
-        let mut mf_events = Events(vec![in_mf_event.clone()]);
+        let mut mf_events = Events {
+            path: PathBuf::new(),
+            events: vec![in_mf_event.clone()],
+        };
         invcs.merge_events_into(None, &mut mf_events);
         assert_eq!(
-            mf_events.0,
+            mf_events.events,
             vec![Event {
                 id: EventId(1),
                 name: "event_a".to_string(),
@@ -736,7 +817,10 @@ mod tests {
     #[test]
     fn event_merge_type_hint_change() {
         let in_src_event = InSourceEvent {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
                 ekotrace_instance: "ekt".to_string(),
@@ -758,10 +842,13 @@ mod tests {
             tracers: Vec::new(),
             events: vec![in_src_event.clone()],
         };
-        let mut mf_events = Events(vec![in_mf_event.clone()]);
+        let mut mf_events = Events {
+            path: PathBuf::new(),
+            events: vec![in_mf_event.clone()],
+        };
         invcs.merge_events_into(None, &mut mf_events);
         assert_eq!(
-            mf_events.0,
+            mf_events.events,
             vec![Event {
                 id: EventId(1),
                 name: "event_a".to_string(),

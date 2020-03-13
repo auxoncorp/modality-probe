@@ -151,6 +151,8 @@ fn event_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         }
         Err(_) => rest_string(args)?,
     };
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
@@ -204,6 +206,8 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let arg1 = Span::new(split[1]);
     let (_, name) = alt((reduced_event_id_exp_alt_a, reduced_event_id_exp_alt_b))(arg1)
         .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
@@ -248,6 +252,8 @@ fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetad
     let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
     let (args, ekotrace_instance) = variable_call_exp_arg(args)?;
     let (args, name) = variable_call_exp_arg(args)?;
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
@@ -315,6 +321,8 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     let arg = Span::new(split[1]);
     let (_, name) = alt((reduced_event_id_exp_alt_a, reduced_event_id_exp_alt_b))(arg)
         .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
@@ -358,7 +366,7 @@ fn reduced_event_id_exp_alt_a(input: Span) -> ParserResult<Span, String> {
     if !id
         .fragment()
         .chars()
-        .all(|c| c.is_alphanumeric() || c == '_')
+        .all(|c| c.is_alphanumeric() || c == '_' || c == ':')
     {
         return Err(make_error(input, Error::Syntax(pos.into())));
     }
@@ -374,7 +382,7 @@ fn reduced_event_id_exp_alt_b(input: Span) -> ParserResult<Span, String> {
     if !id
         .fragment()
         .chars()
-        .all(|c| c.is_alphanumeric() || c == '_')
+        .all(|c| c.is_alphanumeric() || c == '_' || c == ':')
     {
         return Err(make_error(input, Error::Syntax(pos.into())));
     }
@@ -423,20 +431,8 @@ fn init_call_exp_tracer_arg(input: Span) -> ParserResult<Span, String> {
     let (input, _) = tag(",")(input)?;
     let (input, pos) = position(input)?;
     let (input, name) = rest_string(input)?;
-    let name = if name.contains("::") {
-        let split: Vec<&str> = name.split("::").collect();
-        match split.last() {
-            None => return Err(make_failure(input, Error::Syntax(pos.into()))),
-            Some(last) => {
-                if *last == "" {
-                    return Err(make_failure(input, Error::Syntax(pos.into())));
-                }
-                (*last).to_string()
-            }
-        }
-    } else {
-        name
-    };
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     Ok((input, name))
 }
 
@@ -494,6 +490,24 @@ fn trimmed_string(s: &str) -> String {
         .replace("\n", "")
         .replace("\t", "")
         .replace(" ", "")
+}
+
+fn reduce_namespace(s: &str) -> Result<String, ()> {
+    if s.contains("::") {
+        let split: Vec<&str> = s.split("::").collect();
+        match split.last() {
+            None => Err(()),
+            Some(last) => {
+                if *last == "" {
+                    Err(())
+                } else {
+                    Ok((*last).to_string())
+                }
+            }
+        }
+    } else {
+        Ok(s.to_string())
+    }
 }
 
 impl fmt::Display for Error {
@@ -865,7 +879,7 @@ record!(tracer, EventId::try_from::<>EVENT_E);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
 try_record!(
-                        
+
 record!(tracer, EventId::try_from(EVENT_D).unwrap(), "my text");
 "#;
         let tokens = parser.parse_event_md(input);
@@ -898,5 +912,53 @@ another_macro!(mything);
         assert_eq!(tokens, Ok(vec![]));
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Ok(vec![]));
+    }
+
+    #[test]
+    fn events_with_namespace() {
+        let parser = RustParser::default();
+        let input = r#"
+try_record!(tracer, events::EVENT_A, "desc").unwrap();
+
+record!(tracer, EventId::try_from(events::more_events::EVENT_B).unwrap(), "my text");
+
+try_record_w_u32!(tracer, events::EVENT_C, 1_u32).expect("Could not record event");
+
+record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "desc");
+"#;
+        let tokens = parser.parse_event_md(input);
+        assert_eq!(
+            tokens,
+            Ok(vec![
+                EventMetadata {
+                    name: "EVENT_A".to_string(),
+                    ekotrace_instance: "tracer".to_string(),
+                    payload: None,
+                    description: Some("desc".to_string()),
+                    location: (1, 2, 1).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_B".to_string(),
+                    ekotrace_instance: "tracer".to_string(),
+                    payload: None,
+                    description: Some("my text".to_string()),
+                    location: (57, 4, 1).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_C".to_string(),
+                    ekotrace_instance: "tracer".to_string(),
+                    payload: Some((TypeHint::U32, "1_u32").into()),
+                    description: None,
+                    location: (144, 6, 1).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_D".to_string(),
+                    ekotrace_instance: "tracer".to_string(),
+                    payload: Some((TypeHint::I8, "1_i8").into()),
+                    description: Some("desc".to_string()),
+                    location: (229, 8, 1).into(),
+                },
+            ])
+        );
     }
 }

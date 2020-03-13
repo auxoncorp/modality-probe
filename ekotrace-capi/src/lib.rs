@@ -107,11 +107,7 @@ pub extern "C" fn ekotrace_record_event_with_metadata_f32(
     meta: f32,
 ) -> EkotraceResult {
     unsafe {
-        ekotrace_capi_impl::ekotrace_record_event_with_metadata(
-            tracer,
-            event_id,
-            u32::from_le_bytes(meta.to_le_bytes()),
-        )
+        ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta.to_bits())
     }
 }
 

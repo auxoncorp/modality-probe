@@ -5,21 +5,31 @@ pub enum Error {
     NotRegularFile(PathBuf),
 }
 
-pub struct FilePath;
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+pub struct FilePath {
+    pub full_path: String,
+    pub path: String,
+}
 
 impl FilePath {
-    pub fn resolve<P: AsRef<Path>>(search_path: P, file: P) -> Result<String, Error> {
+    pub fn from_path_file<P: AsRef<Path>>(search_path: P, file: P) -> Result<FilePath, Error> {
         let search_path = search_path.as_ref();
         let file = file.as_ref();
 
         if file == search_path {
             // Can't resolve past the file name
-            Ok(file
-                .file_name()
-                .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
-                .to_str()
-                .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
-                .to_string())
+            Ok(FilePath {
+                full_path: file
+                    .to_str()
+                    .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
+                    .to_string(),
+                path: file
+                    .file_name()
+                    .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
+                    .to_str()
+                    .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
+                    .to_string(),
+            })
         } else if file.starts_with(search_path) {
             let mut path = PathBuf::new();
             if let Some(p) = search_path.iter().last() {
@@ -37,18 +47,31 @@ impl FilePath {
             } else {
                 path
             };
-            Ok(path
-                .to_str()
-                .ok_or_else(|| Error::NotRegularFile(path.clone()))?
-                .to_string())
+
+            Ok(FilePath {
+                full_path: file
+                    .to_str()
+                    .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
+                    .to_string(),
+                path: path
+                    .to_str()
+                    .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
+                    .to_string(),
+            })
         } else {
             // Default to file name
-            Ok(file
-                .file_name()
-                .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
-                .to_str()
-                .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
-                .to_string())
+            Ok(FilePath {
+                full_path: file
+                    .to_str()
+                    .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
+                    .to_string(),
+                path: file
+                    .file_name()
+                    .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
+                    .to_str()
+                    .ok_or_else(|| Error::NotRegularFile(file.to_path_buf()))?
+                    .to_string(),
+            })
         }
     }
 }
@@ -61,28 +84,46 @@ mod tests {
     #[test]
     fn sane_file_paths() {
         assert_eq!(
-            FilePath::resolve("/path/proj/src/main.c", "/path/proj/src/main.c"),
-            Ok("main.c".to_string())
+            FilePath::from_path_file("/path/proj/src/main.c", "/path/proj/src/main.c"),
+            Ok(FilePath {
+                full_path: "/path/proj/src/main.c".to_string(),
+                path: "main.c".to_string()
+            })
         );
         assert_eq!(
-            FilePath::resolve("/path/proj/", "/path/proj/src/main.c"),
-            Ok("proj/src/main.c".to_string())
+            FilePath::from_path_file("/path/proj/", "/path/proj/src/main.c"),
+            Ok(FilePath {
+                full_path: "/path/proj/src/main.c".to_string(),
+                path: "proj/src/main.c".to_string(),
+            })
         );
         assert_eq!(
-            FilePath::resolve("/path/to/my/proj/", "/path/to/my/proj/src/main.c"),
-            Ok("proj/src/main.c".to_string())
+            FilePath::from_path_file("/path/to/my/proj/", "/path/to/my/proj/src/main.c"),
+            Ok(FilePath {
+                full_path: "/path/to/my/proj/src/main.c".to_string(),
+                path: "proj/src/main.c".to_string(),
+            })
         );
         assert_eq!(
-            FilePath::resolve("proj/", "proj/src/main.c"),
-            Ok("proj/src/main.c".to_string())
+            FilePath::from_path_file("proj/", "proj/src/main.c"),
+            Ok(FilePath {
+                full_path: "proj/src/main.c".to_string(),
+                path: "proj/src/main.c".to_string(),
+            })
         );
         assert_eq!(
-            FilePath::resolve("./proj/", "./proj/src/main.c"),
-            Ok("proj/src/main.c".to_string())
+            FilePath::from_path_file("./proj/", "./proj/src/main.c"),
+            Ok(FilePath {
+                full_path: "./proj/src/main.c".to_string(),
+                path: "proj/src/main.c".to_string(),
+            })
         );
         assert_eq!(
-            FilePath::resolve("/", "/proj/src/main.c"),
-            Ok("proj/src/main.c".to_string())
+            FilePath::from_path_file("/", "/proj/src/main.c"),
+            Ok(FilePath {
+                full_path: "/proj/src/main.c".to_string(),
+                path: "proj/src/main.c".to_string(),
+            })
         );
     }
 }

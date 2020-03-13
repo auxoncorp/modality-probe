@@ -1,6 +1,5 @@
 use crate::manifest_gen::source_location::SourceLocation;
 use crate::manifest_gen::type_hint::TypeHint;
-use std::fmt;
 
 /// Event payload type hint and token
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
@@ -22,7 +21,7 @@ pub struct EventMetadata {
 
 impl EventMetadata {
     pub fn canonical_name(&self) -> String {
-        self.name.to_lowercase()
+        self.name.to_uppercase()
     }
 }
 
@@ -35,24 +34,5 @@ impl From<(TypeHint, String)> for Payload {
 impl From<(TypeHint, &str)> for Payload {
     fn from(triple: (TypeHint, &str)) -> Payload {
         Payload(triple.0, triple.1.to_string())
-    }
-}
-
-impl fmt::Display for EventMetadata {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "Name: '{}'", self.canonical_name())?;
-        writeln!(f, "Ekotrace instance: '{}'", self.ekotrace_instance)?;
-        write!(f, "Payload type: ")?;
-        match &self.payload {
-            None => writeln!(f, "None")?,
-            Some(p) => writeln!(f, "{}", p)?,
-        }
-        write!(f, "{}", self.location)
-    }
-}
-
-impl fmt::Display for Payload {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({}, '{}')", self.0.as_str(), self.1,)
     }
 }

@@ -1,10 +1,11 @@
-use crate::manifest_gen::tracer_metadata::TracerMetadata;
-use crate::tracers::{Tracer, TracerId};
-use std::fmt;
+use crate::{
+    manifest_gen::{file_path::FilePath, tracer_metadata::TracerMetadata},
+    tracers::{Tracer, TracerId},
+};
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct InSourceTracer {
-    pub file: String,
+    pub file: FilePath,
     pub metadata: TracerMetadata,
 }
 
@@ -22,7 +23,7 @@ impl InSourceTracer {
             id,
             name: self.canonical_name(),
             description: String::new(),
-            file: self.file.clone(),
+            file: self.file.path.clone(),
             function: String::new(),
             line: self.metadata.location.line.to_string(),
         }
@@ -32,7 +33,11 @@ impl InSourceTracer {
         self.canonical_name()
             .as_str()
             .eq_ignore_ascii_case(other.name.as_str())
-            && self.file.as_str().eq_ignore_ascii_case(other.file.as_str())
+            && self
+                .file
+                .path
+                .as_str()
+                .eq_ignore_ascii_case(other.file.as_str())
             && self
                 .metadata
                 .location
@@ -55,14 +60,6 @@ impl PartialEq<&Tracer> for InSourceTracer {
     }
 }
 
-impl fmt::Display for InSourceTracer {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        writeln!(f, "Tracer (in-source)")?;
-        writeln!(f, "file: '{}'", self.file)?;
-        write!(f, "{}", self.metadata)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,7 +67,10 @@ mod tests {
     #[test]
     fn equality() {
         let in_src_tracer = InSourceTracer {
-            file: "main.c".to_string(),
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 4, 3).into(),
