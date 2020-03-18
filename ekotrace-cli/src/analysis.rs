@@ -152,13 +152,13 @@ impl ClusteredNodeFmt for model::LogEntry {
                 self.segment_index,
                 eid.get_raw(),
             ),
-            model::LogEntryData::EventWithMetadata(eid, meta) => format!(
-                "{}.{}.{}\\nEvent: {}\\nMetadata: {}",
+            model::LogEntryData::EventWithPayload(eid, payload) => format!(
+                "{}.{}.{}\\nEvent: {}\\nPayload: {}",
                 self.session_id.0,
                 self.segment_id.0,
                 self.segment_index,
                 eid.get_raw(),
-                meta
+                payload
             ),
         }
     }

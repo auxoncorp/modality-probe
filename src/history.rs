@@ -294,24 +294,24 @@ impl<'a> DynamicHistory<'a> {
         }
     }
 
-    /// Add the event and its metadata to the internal log, recording
+    /// Add the event and its payload to the internal log, recording
     /// that this event occurred.
     ///
     /// Note: This function silently drop events if the log has
     /// overflowed.
     #[inline]
-    pub(crate) fn record_event_with_metadata(&mut self, event_id: EventId, meta: u32) {
+    pub(crate) fn record_event_with_payload(&mut self, event_id: EventId, payload: u32) {
         let len = self.compact_log.len();
         let cap = self.compact_log.capacity();
         // Room for two?
         if len + 1 >= cap {
             return;
         }
-        let (ev, meta) = CompactLogItem::event_with_metadata(event_id, meta);
+        let (ev, payload) = CompactLogItem::event_with_payload(event_id, payload);
         if self.compact_log.try_push(ev).is_err() {
             return;
         }
-        if self.compact_log.try_push(meta).is_ok() {
+        if self.compact_log.try_push(payload).is_ok() {
             self.event_count = self.event_count.saturating_add(1);
         }
     }

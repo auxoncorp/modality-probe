@@ -23,91 +23,97 @@ pub extern "C" fn ekotrace_record_event(
 }
 
 #[no_mangle]
-pub extern "C" fn ekotrace_record_event_with_metadata(
+pub extern "C" fn ekotrace_record_event_with_payload(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
-    meta: u32,
+    payload: u32,
 ) -> EkotraceResult {
-    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta) }
+    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload) }
 }
 
 #[no_mangle]
-pub extern "C" fn ekotrace_record_event_with_metadata_i8(
+pub extern "C" fn ekotrace_record_event_with_payload_i8(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
-    meta: i8,
-) -> EkotraceResult {
-    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta as _) }
-}
-
-#[no_mangle]
-pub extern "C" fn ekotrace_record_event_with_metadata_u8(
-    tracer: *mut Ekotrace<'static>,
-    event_id: u32,
-    meta: u8,
+    payload: i8,
 ) -> EkotraceResult {
     unsafe {
-        ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, u32::from(meta))
+        ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload as _)
     }
 }
 
 #[no_mangle]
-pub extern "C" fn ekotrace_record_event_with_metadata_i16(
+pub extern "C" fn ekotrace_record_event_with_payload_u8(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
-    meta: i16,
-) -> EkotraceResult {
-    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta as _) }
-}
-
-#[no_mangle]
-pub extern "C" fn ekotrace_record_event_with_metadata_u16(
-    tracer: *mut Ekotrace<'static>,
-    event_id: u32,
-    meta: u16,
+    payload: u8,
 ) -> EkotraceResult {
     unsafe {
-        ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, u32::from(meta))
+        ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, u32::from(payload))
     }
 }
 
 #[no_mangle]
-pub extern "C" fn ekotrace_record_event_with_metadata_i32(
+pub extern "C" fn ekotrace_record_event_with_payload_i16(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
-    meta: i32,
-) -> EkotraceResult {
-    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta as _) }
-}
-
-#[no_mangle]
-pub extern "C" fn ekotrace_record_event_with_metadata_u32(
-    tracer: *mut Ekotrace<'static>,
-    event_id: u32,
-    meta: u32,
-) -> EkotraceResult {
-    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta) }
-}
-
-#[no_mangle]
-pub extern "C" fn ekotrace_record_event_with_metadata_bool(
-    tracer: *mut Ekotrace<'static>,
-    event_id: u32,
-    meta: bool,
+    payload: i16,
 ) -> EkotraceResult {
     unsafe {
-        ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, u32::from(meta))
+        ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload as _)
     }
 }
 
 #[no_mangle]
-pub extern "C" fn ekotrace_record_event_with_metadata_f32(
+pub extern "C" fn ekotrace_record_event_with_payload_u16(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
-    meta: f32,
+    payload: u16,
 ) -> EkotraceResult {
     unsafe {
-        ekotrace_capi_impl::ekotrace_record_event_with_metadata(tracer, event_id, meta.to_bits())
+        ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, u32::from(payload))
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_payload_i32(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    payload: i32,
+) -> EkotraceResult {
+    unsafe {
+        ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload as _)
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_payload_u32(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    payload: u32,
+) -> EkotraceResult {
+    unsafe { ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload) }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_payload_bool(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    payload: bool,
+) -> EkotraceResult {
+    unsafe {
+        ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, u32::from(payload))
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_record_event_with_payload_f32(
+    tracer: *mut Ekotrace<'static>,
+    event_id: u32,
+    payload: f32,
+) -> EkotraceResult {
+    unsafe {
+        ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload.to_bits())
     }
 }
 

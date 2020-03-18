@@ -193,7 +193,7 @@ fn add_log_report_to_entries(
                         receive_time,
                     });
                 }
-                Event::EventWithMetadata(ev, meta) => {
+                Event::EventWithPayload(ev, payload) => {
                     let event_val = *ev as u32;
                     if event_val == 0 {
                         panic!("Discovered an event value of 0 while converting a LogReport to CSV log entries, which is totally uncool.\n{:#?}", log_report);
@@ -204,9 +204,9 @@ fn add_log_report_to_entries(
                         segment_id: raw_segment_id.into(),
                         segment_index,
                         tracer_id,
-                        data: LogEntryData::EventWithMetadata(
+                        data: LogEntryData::EventWithPayload(
                             EventId::new(event_val),
-                            *meta as u32,
+                            *payload as u32,
                         ),
                         receive_time,
                     });
@@ -488,16 +488,16 @@ mod tests {
     const LOG_REPORT_BYTES_SIZE: usize = 512;
 
     #[derive(Debug, Clone, Copy)]
-    enum EventOrEventWithMeta {
+    enum EventOrEventWithPayload {
         Event(ekotrace::EventId),
-        WithMeta(ekotrace::EventId, u32),
+        WithPayload(ekotrace::EventId, u32),
     }
 
-    impl EventOrEventWithMeta {
+    impl EventOrEventWithPayload {
         fn get_raw_id(&self) -> u32 {
             match self {
-                EventOrEventWithMeta::Event(id) => id.get_raw(),
-                EventOrEventWithMeta::WithMeta(id, _) => id.get_raw(),
+                EventOrEventWithPayload::Event(id) => id.get_raw(),
+                EventOrEventWithPayload::WithPayload(id, _) => id.get_raw(),
             }
         }
     }
@@ -541,9 +541,9 @@ mod tests {
         let tracer_a_id = ekotrace::TracerId::new(31).unwrap();
         let tracer_b_id = ekotrace::TracerId::new(41).unwrap();
         let tracer_c_id = ekotrace::TracerId::new(59).unwrap();
-        let event_foo = EventOrEventWithMeta::Event(ekotrace::EventId::new(7).unwrap());
-        let event_bar = EventOrEventWithMeta::Event(ekotrace::EventId::new(23).unwrap());
-        let event_baz = EventOrEventWithMeta::Event(ekotrace::EventId::new(29).unwrap());
+        let event_foo = EventOrEventWithPayload::Event(ekotrace::EventId::new(7).unwrap());
+        let event_bar = EventOrEventWithPayload::Event(ekotrace::EventId::new(23).unwrap());
+        let event_baz = EventOrEventWithPayload::Event(ekotrace::EventId::new(29).unwrap());
         const NUM_MESSAGES_FROM_A: usize = 11;
 
         let (network_done_sender, network_done_receiver) = crossbeam::bounded(0);
@@ -625,7 +625,7 @@ mod tests {
                         );
                     }
                 }
-                LogEntryData::EventWithMetadata(_, _) => (),
+                LogEntryData::EventWithPayload(_, _) => (),
                 LogEntryData::LogicalClock(tid, _count) => {
                     if e.tracer_id.0 == tracer_a_id.get_raw() {
                         // Process A should only know about itself, since it doesn't receive history from anyone else
@@ -677,8 +677,8 @@ mod tests {
         let mut net = proc_graph::Network::new();
         let tracer_a_id = ekotrace::TracerId::new(31).unwrap();
         let tracer_b_id = ekotrace::TracerId::new(41).unwrap();
-        let event_foo = EventOrEventWithMeta::Event(ekotrace::EventId::new(7).unwrap());
-        let event_bar = EventOrEventWithMeta::Event(ekotrace::EventId::new(23).unwrap());
+        let event_foo = EventOrEventWithPayload::Event(ekotrace::EventId::new(7).unwrap());
+        let event_bar = EventOrEventWithPayload::Event(ekotrace::EventId::new(23).unwrap());
         const NUM_MESSAGES_FROM_A: usize = 11;
 
         let (network_done_sender, network_done_receiver) = crossbeam::bounded(0);
@@ -751,7 +751,7 @@ mod tests {
                         );
                     }
                 }
-                LogEntryData::EventWithMetadata(_, _) => (),
+                LogEntryData::EventWithPayload(_, _) => (),
                 LogEntryData::LogicalClock(tid, _count) => {
                     if e.tracer_id.0 == tracer_a_id.get_raw() {
                         // Process A should only know about itself, since it doesn't receive history from anyone else
@@ -766,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn linear_pair_graph_with_metadata() {
+    fn linear_pair_graph_with_payload() {
         let addrs = find_usable_addrs(1);
         let server_addr = addrs[0];
         let (shutdown_sender, shutdown_receiver) = ShutdownSignalSender::new(server_addr);
@@ -803,12 +803,12 @@ mod tests {
         let mut net = proc_graph::Network::new();
         let tracer_a_id = ekotrace::TracerId::new(31).unwrap();
         let tracer_b_id = ekotrace::TracerId::new(41).unwrap();
-        let foo_metadata = 777;
+        let foo_payload = 777;
         let event_foo =
-            EventOrEventWithMeta::WithMeta(ekotrace::EventId::new(7).unwrap(), foo_metadata);
-        let bar_metadata = 490;
+            EventOrEventWithPayload::WithPayload(ekotrace::EventId::new(7).unwrap(), foo_payload);
+        let bar_payload = 490;
         let event_bar =
-            EventOrEventWithMeta::WithMeta(ekotrace::EventId::new(23).unwrap(), bar_metadata);
+            EventOrEventWithPayload::WithPayload(ekotrace::EventId::new(23).unwrap(), bar_payload);
 
         const NUM_MESSAGES_FROM_A: usize = 11;
 
@@ -862,11 +862,11 @@ mod tests {
             assert!(expected_tracer_ids.contains(&e.tracer_id.0));
             match e.data {
                 LogEntryData::Event(_) => (),
-                LogEntryData::EventWithMetadata(event, meta) => {
+                LogEntryData::EventWithPayload(event, payload) => {
                     if event.get_raw() == event_foo.get_raw_id() {
-                        assert_eq!(foo_metadata, meta);
+                        assert_eq!(foo_payload, payload);
                     } else if event.get_raw() == event_bar.get_raw_id() {
-                        assert_eq!(bar_metadata, meta);
+                        assert_eq!(bar_payload, payload);
                     } else {
                         // it's that the model implementation of
                         // EventId doesn't or out the marker bits on
@@ -892,7 +892,7 @@ mod tests {
         tracer_id: ekotrace::TracerId,
         n_messages: usize,
         collector_addr: SocketAddr,
-        per_iteration_event: Option<EventOrEventWithMeta>,
+        per_iteration_event: Option<EventOrEventWithPayload>,
     ) -> impl Fn(
         HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
         std::sync::mpsc::Receiver<(String, Vec<u8>)>,
@@ -905,9 +905,9 @@ mod tests {
             let mut causal_history_blob = vec![0u8; IN_SYSTEM_SNAPSHOT_BYTES_SIZE];
             for _ in 0..n_messages {
                 match per_iteration_event {
-                    Some(EventOrEventWithMeta::Event(e)) => tracer.record_event(e),
-                    Some(EventOrEventWithMeta::WithMeta(e, meta)) => {
-                        tracer.record_event_with_metadata(e, meta)
+                    Some(EventOrEventWithPayload::Event(e)) => tracer.record_event(e),
+                    Some(EventOrEventWithPayload::WithPayload(e, payload)) => {
+                        tracer.record_event_with_payload(e, payload)
                     }
                     _ => (),
                 }
@@ -946,7 +946,7 @@ mod tests {
         tracer_id: ekotrace::TracerId,
         stop_relaying_after_receiving_n_messages: usize,
         send_log_report_every_n_messages: Option<SendLogReportEveryFewMessages>,
-        per_iteration_event: Option<EventOrEventWithMeta>,
+        per_iteration_event: Option<EventOrEventWithPayload>,
     ) -> impl Fn(
         HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
         std::sync::mpsc::Receiver<(String, Vec<u8>)>,
@@ -971,9 +971,9 @@ mod tests {
                     }
                 };
                 match per_iteration_event {
-                    Some(EventOrEventWithMeta::Event(e)) => tracer.record_event(e),
-                    Some(EventOrEventWithMeta::WithMeta(e, meta)) => {
-                        tracer.record_event_with_metadata(e, meta)
+                    Some(EventOrEventWithPayload::Event(e)) => tracer.record_event(e),
+                    Some(EventOrEventWithPayload::WithPayload(e, payload)) => {
+                        tracer.record_event_with_payload(e, payload)
                     }
                     _ => (),
                 }
@@ -1017,7 +1017,7 @@ mod tests {
         tracer_id: ekotrace::TracerId,
         stop_after_receiving_n_messages: usize,
         send_log_report_every_n_messages: SendLogReportEveryFewMessages,
-        per_iteration_event: Option<EventOrEventWithMeta>,
+        per_iteration_event: Option<EventOrEventWithPayload>,
         stopped_sender: crossbeam::Sender<()>,
     ) -> impl Fn(
         HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
@@ -1045,9 +1045,9 @@ mod tests {
                     .merge_snapshot(&message)
                     .expect("Could not merge in history");
                 match per_iteration_event {
-                    Some(EventOrEventWithMeta::Event(e)) => tracer.record_event(e),
-                    Some(EventOrEventWithMeta::WithMeta(e, meta)) => {
-                        tracer.record_event_with_metadata(e, meta)
+                    Some(EventOrEventWithPayload::Event(e)) => tracer.record_event(e),
+                    Some(EventOrEventWithPayload::WithPayload(e, payload)) => {
+                        tracer.record_event_with_payload(e, payload)
                     }
                     _ => (),
                 }

@@ -9,7 +9,7 @@ use std::io::{Read, Write};
 pub mod alloc_log_report;
 pub mod model;
 
-pub(crate) const EVENT_WITH_META_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
+pub(crate) const EVENT_WITH_PAYLOAD_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
 
 /// Serialization record for CSV storage
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
@@ -20,7 +20,7 @@ struct LogFileLine {
     receive_time: DateTime<Utc>,
     tracer_id: u32,
     event_id: Option<u32>,
-    event_meta: Option<u32>,
+    event_payload: Option<u32>,
     lc_tracer_id: Option<u32>,
     lc_clock: Option<u32>,
 }
@@ -34,11 +34,11 @@ impl From<&model::LogEntry> for LogFileLine {
             tracer_id: e.tracer_id.0,
             event_id: match &e.data {
                 model::LogEntryData::Event(id) => Some(id.get_raw()),
-                model::LogEntryData::EventWithMetadata(id, _) => Some(id.get_raw()),
+                model::LogEntryData::EventWithPayload(id, _) => Some(id.get_raw()),
                 _ => None,
             },
-            event_meta: match &e.data {
-                model::LogEntryData::EventWithMetadata(_, meta) => Some(*meta),
+            event_payload: match &e.data {
+                model::LogEntryData::EventWithPayload(_, payload) => Some(*payload),
                 _ => None,
             },
             lc_tracer_id: match &e.data {
@@ -79,8 +79,8 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
                 });
             }
 
-            if let Some(meta) = l.event_meta {
-                model::LogEntryData::EventWithMetadata(model::EventId::new(event_id), meta)
+            if let Some(payload) = l.event_payload {
+                model::LogEntryData::EventWithPayload(model::EventId::new(event_id), payload)
             } else {
                 model::LogEntryData::Event(model::EventId::new(event_id))
             }
@@ -392,7 +392,7 @@ mod test {
             model::test::arb_datetime(),
             any::<u32>(),
             // util::model::EventId requires a valid event id now.
-            proptest::option::of(proptest::bits::u32::masked(!crate::EVENT_WITH_META_MASK)),
+            proptest::option::of(proptest::bits::u32::masked(!crate::EVENT_WITH_PAYLOAD_MASK)),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
@@ -405,7 +405,7 @@ mod test {
                     receive_time,
                     tracer_id,
                     event_id,
-                    event_meta,
+                    event_payload,
                     lc_tracer_id,
                     lc_clock,
                 )| LogFileLine {
@@ -415,10 +415,10 @@ mod test {
                     receive_time,
                     tracer_id,
                     event_id,
-                    // The event meta can only be set if there's also
+                    // The event payload can only be set if there's also
                     // an event id.
-                    event_meta: if event_id.is_some() && event_meta.is_some() {
-                        event_meta
+                    event_payload: if event_id.is_some() && event_payload.is_some() {
+                        event_payload
                     } else {
                         None
                     },
