@@ -14,7 +14,7 @@ static uint32_t EVENT_A = 100;
 bool test_backend_piping() {
     bool passed = true;
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
-    ekotrace * t;
+    ekotrace * t = EKOTRACE_NULL_TRACER_INITIALIZER;
     ekotrace_result result = ekotrace_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &t);
     if (result != EKOTRACE_RESULT_OK) {
         passed = false;
@@ -72,49 +72,49 @@ bool test_event_recording() {
         fprintf(stderr, "failed at record event: %d\n", result);
         passed = false;
     }
-    result = ekotrace_record_event_with_metadata(t, EVENT_A, 1);
+    result = ekotrace_record_event_with_payload(t, EVENT_A, 1);
     if (result != EKOTRACE_RESULT_OK) {
-        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
     result = EKOTRACE_RECORD_W_I8(t, EVENT_A, (int8_t) 1);
     if (result != EKOTRACE_RESULT_OK) {
-        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
     result = EKOTRACE_RECORD_W_U8(t, EVENT_A, (uint8_t) 1, "more docs");
     if (result != EKOTRACE_RESULT_OK) {
-        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
     result = EKOTRACE_RECORD_W_I16(t, EVENT_A, (int16_t) 1);
     if (result != EKOTRACE_RESULT_OK) {
-        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
     result = EKOTRACE_RECORD_W_U16(t, EVENT_A, (uint16_t) 1);
     if (result != EKOTRACE_RESULT_OK) {
-        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
     result = EKOTRACE_RECORD_W_I32(t, EVENT_A, (int32_t) 1, "some docs");
     if (result != EKOTRACE_RESULT_OK) {
-        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
     result = EKOTRACE_RECORD_W_U32(t, EVENT_A, (uint32_t) 1);
     if (result != EKOTRACE_RESULT_OK) {
-        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
     result = EKOTRACE_RECORD_W_BOOL(t, EVENT_A, true, "my docs");
     if (result != EKOTRACE_RESULT_OK) {
-        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
     result = EKOTRACE_RECORD_W_F32(t, EVENT_A, 1.23f, "my docs");
     if (result != EKOTRACE_RESULT_OK) {
-        fprintf(stderr, "failed at record event with metadata: %d\n", result);
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
     causal_snapshot snap_b;

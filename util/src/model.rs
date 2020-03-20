@@ -51,7 +51,7 @@ pub struct EventId(u32);
 // library that both ekotrace and the udp collector can share?
 impl EventId {
     pub fn new(id: u32) -> Self {
-        EventId(id & !super::EVENT_WITH_META_MASK)
+        EventId(id & !super::EVENT_WITH_PAYLOAD_MASK)
     }
 
     pub fn get_raw(self) -> u32 {
@@ -87,7 +87,7 @@ pub struct TracerMapping {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum LogEntryData {
     Event(EventId),
-    EventWithMetadata(EventId, u32),
+    EventWithPayload(EventId, u32),
     LogicalClock(TracerId, u32),
 }
 
@@ -139,14 +139,14 @@ pub struct LogEntry {
 impl LogEntry {
     pub fn is_event(&self) -> bool {
         match self.data {
-            LogEntryData::Event(_) | LogEntryData::EventWithMetadata(_, _) => true,
+            LogEntryData::Event(_) | LogEntryData::EventWithPayload(_, _) => true,
             LogEntryData::LogicalClock(_, _) => false,
         }
     }
 
     pub fn is_clock(&self) -> bool {
         match self.data {
-            LogEntryData::Event(_) | LogEntryData::EventWithMetadata(_, _) => false,
+            LogEntryData::Event(_) | LogEntryData::EventWithPayload(_, _) => false,
             LogEntryData::LogicalClock(_, _) => true,
         }
     }
@@ -178,7 +178,7 @@ pub mod test {
     }
 
     pub fn arb_event_id() -> impl Strategy<Value = EventId> {
-        proptest::bits::u32::masked(crate::EVENT_WITH_META_MASK).prop_map(EventId::new)
+        proptest::bits::u32::masked(crate::EVENT_WITH_PAYLOAD_MASK).prop_map(EventId::new)
     }
 
     pub fn arb_tracer_id() -> impl Strategy<Value = TracerId> {

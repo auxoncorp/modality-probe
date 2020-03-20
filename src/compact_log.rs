@@ -2,7 +2,7 @@ use super::{EventId, LogicalClock, TracerId};
 use fixed_slice_vec::FixedSliceVec;
 
 const CLOCK_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
-const EVENT_WITH_META_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
+const EVENT_WITH_PAYLOAD_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
 
 pub(crate) type CompactLogVec<'a> = FixedSliceVec<'a, CompactLogItem>;
 
@@ -15,8 +15,8 @@ pub(crate) type CompactLogVec<'a> = FixedSliceVec<'a, CompactLogItem>;
 ///   next item in the stream as a count for that bucket.
 ///
 /// * If the first bit is not set AND the second bit is set, this is
-///   an event with metadata. Treat the next item in the stream as that
-///   metadata.
+///   an event with payload. Treat the next item in the stream as that
+///   payload.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
 pub(crate) struct CompactLogItem(u32);
@@ -37,17 +37,17 @@ impl CompactLogItem {
     }
 
     #[must_use]
-    pub(crate) fn event_with_metadata(event_id: EventId, meta: u32) -> (Self, Self) {
+    pub(crate) fn event_with_payload(event_id: EventId, payload: u32) -> (Self, Self) {
         (
-            CompactLogItem(event_id.get_raw() | EVENT_WITH_META_MASK),
-            // We're just giving meta back out as is for now.
-            CompactLogItem(meta),
+            CompactLogItem(event_id.get_raw() | EVENT_WITH_PAYLOAD_MASK),
+            // We're just giving payload back out as is for now.
+            CompactLogItem(payload),
         )
     }
 
     // NOTE(pittma): Maybe we don't need this?
-    // pub(crate) fn is_event_with_metadata(&self) -> bool {
-    //     (self.0 & EVENT_WITH_META_MASK) == EVENT_WITH_META_MASK
+    // pub(crate) fn is_event_with_payload(&self) -> bool {
+    //     (self.0 & EVENT_WITH_PAYLOAD_MASK) == EVENT_WITH_PAYLOAD_MASK
     // }
 
     pub(crate) fn is_clock(self) -> bool {
@@ -207,9 +207,9 @@ mod tests {
     }
 
     #[test]
-    fn meta_events_are_well_represented() {
-        let (ev, meta) = CompactLogItem::event_with_metadata(EventId::new(4).unwrap(), 777);
-        assert_eq!(ev.0 & EVENT_WITH_META_MASK, EVENT_WITH_META_MASK);
-        assert_eq!(meta.0, 777);
+    fn payload_events_are_well_represented() {
+        let (ev, payload) = CompactLogItem::event_with_payload(EventId::new(4).unwrap(), 777);
+        assert_eq!(ev.0 & EVENT_WITH_PAYLOAD_MASK, EVENT_WITH_PAYLOAD_MASK);
+        assert_eq!(payload.0, 777);
     }
 }

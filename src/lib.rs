@@ -61,12 +61,12 @@ pub trait Tracer {
     fn record_event(&mut self, event_id: EventId);
 
     /// Record that an event occurred with a `u32`'s width's worth (4
-    /// bytes) of context via `meta`. The end user is responsible for
+    /// bytes) of context via `payload`. The end user is responsible for
     /// associating meaning with each event_id.
     ///
     /// Accepts an event_id pre-validated to be within the acceptable
     /// range.
-    fn record_event_with_metadata(&mut self, event_id: EventId, meta: u32);
+    fn record_event_with_payload(&mut self, event_id: EventId, payload: u32);
 
     /// Write a summary of this tracer's causal history for use
     /// by another Tracer elsewhere in the system.
@@ -202,7 +202,7 @@ impl<'a> Ekotrace<'a> {
     }
 
     /// Record that an event occurred and associate some context with
-    /// via a 4-byte payload, `meta`. The end user is responsible for
+    /// via a 4-byte payload, `payload`. The end user is responsible for
     /// associating meaning with each event_id.
     ///
     /// Accepts a primitive event_id and returns an error if the
@@ -210,16 +210,16 @@ impl<'a> Ekotrace<'a> {
     ///
     /// If you're working in Rust and want type assurances around id
     /// kinds or want to avoid the performance penalty of id
-    /// validation every call, use `record_event_with_metadata`
+    /// validation every call, use `record_event_with_payload`
     /// instead.
     #[inline]
-    pub fn try_record_event_with_metadata(
+    pub fn try_record_event_with_payload(
         &mut self,
         event_id: u32,
-        meta: u32,
+        payload: u32,
     ) -> Result<(), InvalidEventId> {
         let event_id = EventId::try_from(event_id)?;
-        self.history.record_event_with_metadata(event_id, meta);
+        self.history.record_event_with_payload(event_id, payload);
         Ok(())
     }
 
@@ -339,8 +339,8 @@ impl<'a> Tracer for Ekotrace<'a> {
         self.history.record_event(event_id);
     }
 
-    fn record_event_with_metadata(&mut self, event_id: EventId, meta: u32) {
-        self.history.record_event_with_metadata(event_id, meta)
+    fn record_event_with_payload(&mut self, event_id: EventId, payload: u32) {
+        self.history.record_event_with_payload(event_id, payload)
     }
 
     #[inline]

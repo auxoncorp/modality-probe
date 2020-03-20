@@ -15,7 +15,7 @@ pub struct LogReport {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     Event(i32),
-    EventWithMetadata(i32, i32),
+    EventWithPayload(i32, i32),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -31,9 +31,9 @@ impl LogSegment {
             .fold(Vec::new(), |mut raw_events, event| {
                 match event {
                     Event::Event(id) => raw_events.push(*id),
-                    Event::EventWithMetadata(id, meta) => {
+                    Event::EventWithPayload(id, payload) => {
                         raw_events.push(*id);
-                        raw_events.push(*meta);
+                        raw_events.push(*payload);
                     }
                 }
                 raw_events
@@ -74,17 +74,17 @@ impl LogReport {
                         })?;
                     }
                     let mut sr = sr.done()?;
-                    let mut next_meta = (0, false);
+                    let mut next_payload = (0, false);
                     for event_item_reader in &mut sr {
                         let raw_ev = event_item_reader.read()?;
-                        if let (ev, true) = next_meta {
-                            segment.events.push(Event::EventWithMetadata(ev, raw_ev));
-                            next_meta = (0, false);
+                        if let (ev, true) = next_payload {
+                            segment.events.push(Event::EventWithPayload(ev, raw_ev));
+                            next_payload = (0, false);
                         } else {
-                            if (raw_ev & (super::EVENT_WITH_META_MASK as i32))
-                                == (super::EVENT_WITH_META_MASK as i32)
+                            if (raw_ev & (super::EVENT_WITH_PAYLOAD_MASK as i32))
+                                == (super::EVENT_WITH_PAYLOAD_MASK as i32)
                             {
-                                next_meta = (raw_ev, true);
+                                next_payload = (raw_ev, true);
                                 continue;
                             }
                             segment.events.push(Event::Event(raw_ev));
