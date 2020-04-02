@@ -84,7 +84,10 @@ impl LogReport {
                             if (raw_ev & (super::EVENT_WITH_PAYLOAD_MASK as i32))
                                 == (super::EVENT_WITH_PAYLOAD_MASK as i32)
                             {
-                                next_payload = (raw_ev, true);
+                                next_payload = (
+                                    (raw_ev as u32 & !super::EVENT_WITH_PAYLOAD_MASK) as i32,
+                                    true,
+                                );
                                 continue;
                             }
                             segment.events.push(Event::Event(raw_ev));
