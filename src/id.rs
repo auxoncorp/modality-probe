@@ -234,6 +234,38 @@ mod id_tests {
     use super::*;
     use proptest::prelude::*;
 
+    #[test]
+    fn new_ids_cannot_have_zero_values() {
+        assert!(TracerId::new(0).is_none());
+        assert!(EventId::new(0).is_none());
+        assert!(EventId::new_internal(0).is_none());
+    }
+
+    prop_compose! {
+        fn gen_raw_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> u32 {
+            raw_id
+        }
+    }
+
+    prop_compose! {
+        fn gen_raw_invalid_tracer_id()(raw_id in (TracerId::MAX_ID+1)..core::u32::MAX) -> u32 {
+            raw_id
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn valid_tracer_ids_are_accepted(raw_id in gen_raw_tracer_id()) {
+            let t = TracerId::new(raw_id).unwrap();
+            assert_eq!(t.get_raw(), raw_id);
+        }
+
+        #[test]
+        fn invalid_tracer_ids_are_rejected(raw_id in gen_raw_invalid_tracer_id()) {
+            assert_eq!(None, TracerId::new(raw_id));
+        }
+    }
+
     prop_compose! {
         fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
             raw_id
@@ -245,28 +277,41 @@ mod id_tests {
             raw_id
         }
     }
+    prop_compose! {
+        fn gen_raw_invalid_event_id()(raw_id in (EventId::MAX_INTERNAL_ID+1)..core::u32::MAX) -> u32 {
+            raw_id
+        }
+    }
 
     proptest! {
         #[test]
-        fn user_ids_are_allowed_via_regular_new_constructor(raw_id in gen_raw_user_event_id()) {
+        fn user_event_ids_are_allowed_via_regular_new_constructor(raw_id in gen_raw_user_event_id()) {
             let e = EventId::new(raw_id).unwrap();
             assert!(!e.is_internal());
+            assert_eq!(e.get_raw(), raw_id);
         }
 
         #[test]
-        fn user_ids_are_not_allowed_via_internal_constructor(raw_id in gen_raw_user_event_id()) {
+        fn user_event_ids_are_not_allowed_via_internal_constructor(raw_id in gen_raw_user_event_id()) {
             assert!(EventId::new_internal(raw_id).is_none());
         }
 
         #[test]
-        fn internal_ids_are_allowed_via_internal_constructor(raw_id in gen_raw_internal_event_id()) {
+        fn internal_event_ids_are_allowed_via_internal_constructor(raw_id in gen_raw_internal_event_id()) {
             let e = EventId::new_internal(raw_id).unwrap();
             assert!(e.is_internal());
+            assert_eq!(e.get_raw(), raw_id);
         }
 
         #[test]
-        fn internal_ids_are_not_allowed_via_regular_new_constructor(raw_id in gen_raw_internal_event_id()) {
+        fn internal_event_ids_are_not_allowed_via_regular_new_constructor(raw_id in gen_raw_internal_event_id()) {
             assert!(EventId::new(raw_id).is_none());
+        }
+
+        #[test]
+        fn invalid_event_ids_are_rejected(raw_id in gen_raw_invalid_event_id()) {
+            assert_eq!(None, EventId::new(raw_id));
+            assert_eq!(None, EventId::new_internal(raw_id));
         }
     }
 }
