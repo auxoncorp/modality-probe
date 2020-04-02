@@ -7,7 +7,8 @@ use core::num::NonZeroU32;
 ///
 /// Typically represents a single thread.
 ///
-/// Must be backed by a value greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
+/// Must be backed by a value greater than 0 and less than or equal to
+/// TracerId::MAX_ID.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct TracerId(NonZeroU32);
@@ -136,7 +137,7 @@ impl EventId {
     /// The number of id values that are reserved for use by the
     /// tracer implementation.
     pub const NUM_RESERVED_IDS: u32 = 256;
-    /// The maximum-permissable id value for for an Event
+    /// The maximum-permissible id value for for an Event
     /// defined by end users.
     pub const MAX_USER_ID: u32 = EventId::MAX_INTERNAL_ID - EventId::NUM_RESERVED_IDS;
 
@@ -172,6 +173,18 @@ impl EventId {
         NonZeroU32::new(raw_id).map(Self)
     }
 
+    /// A means of generating ids for internal protocol use.
+    /// raw_id must be greater than EventId::MAX_USER_ID and
+    /// less than or equal to EventId::MAX_INTERNAL_ID
+    #[inline]
+    pub fn new_internal(raw_id: u32) -> Option<Self> {
+        if raw_id > Self::MAX_USER_ID && raw_id <= Self::MAX_INTERNAL_ID {
+            NonZeroU32::new(raw_id).map(Self)
+        } else {
+            None
+        }
+    }
+
     /// Get the underlying value with Rust's assurances
     /// of non-zero-ness.
     #[inline]
@@ -183,6 +196,13 @@ impl EventId {
     #[inline]
     pub fn get_raw(self) -> u32 {
         self.0.get()
+    }
+
+    /// Is this id part of the set of IDs reserved for internal
+    /// protocol use?
+    #[inline]
+    pub fn is_internal(self) -> bool {
+        self.get_raw() > Self::MAX_USER_ID && self.get_raw() <= Self::MAX_INTERNAL_ID
     }
 }
 
@@ -208,5 +228,92 @@ impl From<EventId> for u32 {
     #[inline]
     fn from(e: EventId) -> Self {
         e.0.get()
+    }
+}
+
+#[cfg(test)]
+mod id_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    #[test]
+    fn new_ids_cannot_have_zero_values() {
+        assert!(TracerId::new(0).is_none());
+        assert!(EventId::new(0).is_none());
+        assert!(EventId::new_internal(0).is_none());
+    }
+
+    prop_compose! {
+        fn gen_raw_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> u32 {
+            raw_id
+        }
+    }
+
+    prop_compose! {
+        fn gen_raw_invalid_tracer_id()(raw_id in (TracerId::MAX_ID+1)..core::u32::MAX) -> u32 {
+            raw_id
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn valid_tracer_ids_are_accepted(raw_id in gen_raw_tracer_id()) {
+            let t = TracerId::new(raw_id).unwrap();
+            assert_eq!(t.get_raw(), raw_id);
+        }
+
+        #[test]
+        fn invalid_tracer_ids_are_rejected(raw_id in gen_raw_invalid_tracer_id()) {
+            assert_eq!(None, TracerId::new(raw_id));
+        }
+    }
+
+    prop_compose! {
+        fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
+            raw_id
+        }
+    }
+
+    prop_compose! {
+        fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
+            raw_id
+        }
+    }
+    prop_compose! {
+        fn gen_raw_invalid_event_id()(raw_id in (EventId::MAX_INTERNAL_ID+1)..core::u32::MAX) -> u32 {
+            raw_id
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn user_event_ids_are_allowed_via_regular_new_constructor(raw_id in gen_raw_user_event_id()) {
+            let e = EventId::new(raw_id).unwrap();
+            assert!(!e.is_internal());
+            assert_eq!(e.get_raw(), raw_id);
+        }
+
+        #[test]
+        fn user_event_ids_are_not_allowed_via_internal_constructor(raw_id in gen_raw_user_event_id()) {
+            assert!(EventId::new_internal(raw_id).is_none());
+        }
+
+        #[test]
+        fn internal_event_ids_are_allowed_via_internal_constructor(raw_id in gen_raw_internal_event_id()) {
+            let e = EventId::new_internal(raw_id).unwrap();
+            assert!(e.is_internal());
+            assert_eq!(e.get_raw(), raw_id);
+        }
+
+        #[test]
+        fn internal_event_ids_are_not_allowed_via_regular_new_constructor(raw_id in gen_raw_internal_event_id()) {
+            assert!(EventId::new(raw_id).is_none());
+        }
+
+        #[test]
+        fn invalid_event_ids_are_rejected(raw_id in gen_raw_invalid_event_id()) {
+            assert_eq!(None, EventId::new(raw_id));
+            assert_eq!(None, EventId::new_internal(raw_id));
+        }
     }
 }
