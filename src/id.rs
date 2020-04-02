@@ -7,7 +7,8 @@ use core::num::NonZeroU32;
 ///
 /// Typically represents a single thread.
 ///
-/// Must be backed by a value greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
+/// Must be backed by a value greater than 0 and less than or equal to
+/// TracerId::MAX_ID.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct TracerId(NonZeroU32);
@@ -136,7 +137,7 @@ impl EventId {
     /// The number of id values that are reserved for use by the
     /// tracer implementation.
     pub const NUM_RESERVED_IDS: u32 = 256;
-    /// The maximum-permissable id value for for an Event
+    /// The maximum-permissible id value for for an Event
     /// defined by end users.
     pub const MAX_USER_ID: u32 = EventId::MAX_INTERNAL_ID - EventId::NUM_RESERVED_IDS;
 
@@ -173,7 +174,8 @@ impl EventId {
     }
 
     /// A means of generating ids for internal protocol use.
-    /// raw_id must be greater than EventId::MAX_USER_ID and less than EventId::MAX_INTERNAL_ID
+    /// raw_id must be greater than EventId::MAX_USER_ID and
+    /// less than or equal to EventId::MAX_INTERNAL_ID
     #[inline]
     pub fn new_internal(raw_id: u32) -> Option<Self> {
         if raw_id > Self::MAX_USER_ID && raw_id <= Self::MAX_INTERNAL_ID {
