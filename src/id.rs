@@ -172,6 +172,17 @@ impl EventId {
         NonZeroU32::new(raw_id).map(Self)
     }
 
+    /// A means of generating ids for internal protocol use.
+    /// raw_id must be greater than EventId::MAX_USER_ID and less than EventId::MAX_INTERNAL_ID
+    #[inline]
+    pub fn new_internal(raw_id: u32) -> Option<Self> {
+        if raw_id > Self::MAX_USER_ID && raw_id <= Self::MAX_INTERNAL_ID {
+            NonZeroU32::new(raw_id).map(Self)
+        } else {
+            None
+        }
+    }
+
     /// Get the underlying value with Rust's assurances
     /// of non-zero-ness.
     #[inline]
@@ -183,6 +194,13 @@ impl EventId {
     #[inline]
     pub fn get_raw(self) -> u32 {
         self.0.get()
+    }
+
+    /// Is this id part of the set of IDs reserved for internal
+    /// protocol use?
+    #[inline]
+    pub fn is_internal(self) -> bool {
+        self.get_raw() > Self::MAX_USER_ID && self.get_raw() <= Self::MAX_INTERNAL_ID
     }
 }
 
@@ -208,5 +226,47 @@ impl From<EventId> for u32 {
     #[inline]
     fn from(e: EventId) -> Self {
         e.0.get()
+    }
+}
+
+#[cfg(test)]
+mod id_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    prop_compose! {
+        fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
+            raw_id
+        }
+    }
+
+    prop_compose! {
+        fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
+            raw_id
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn user_ids_are_allowed_via_regular_new_constructor(raw_id in gen_raw_user_event_id()) {
+            let e = EventId::new(raw_id).unwrap();
+            assert!(!e.is_internal());
+        }
+
+        #[test]
+        fn user_ids_are_not_allowed_via_internal_constructor(raw_id in gen_raw_user_event_id()) {
+            assert!(EventId::new_internal(raw_id).is_none());
+        }
+
+        #[test]
+        fn internal_ids_are_allowed_via_internal_constructor(raw_id in gen_raw_internal_event_id()) {
+            let e = EventId::new_internal(raw_id).unwrap();
+            assert!(e.is_internal());
+        }
+
+        #[test]
+        fn internal_ids_are_not_allowed_via_regular_new_constructor(raw_id in gen_raw_internal_event_id()) {
+            assert!(EventId::new(raw_id).is_none());
+        }
     }
 }
