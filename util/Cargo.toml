@@ -20,4 +20,4 @@ rust-lcm-codec = "0.2"
 rust-lcm-codegen = "0.2"
 
 [dev-dependencies]
-proptest = "0.9.4"
+proptest = "0.9"

@@ -37,6 +37,6 @@ rust-lcm-codegen = "0.2"
 crossbeam = "0.7.3"
 lazy_static = "1.4.0"
 proc-graph = "0.1.0"
-proptest = "0.9.4"
+proptest = "0.9"
 tempfile = "3"
 ekotrace = { path = ".." }
