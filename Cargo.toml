@@ -27,7 +27,7 @@ rust-lcm-codec = "0.2"
 
 [dev-dependencies]
 ekotrace-udp-collector = { path = "./ekotrace-udp-collector" }
-proptest = "0.9.5"
+proptest = "0.9"
 util = { path = "./util" }
 
 [build-dependencies]

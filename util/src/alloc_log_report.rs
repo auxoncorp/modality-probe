@@ -1,3 +1,4 @@
+use super::EVENT_WITH_PAYLOAD_MASK;
 #[allow(dead_code)]
 pub mod lcm {
     include!(concat!(env!("OUT_DIR"), "/log_reporting.rs"));
@@ -25,14 +26,15 @@ pub struct LogSegment {
 }
 
 impl LogSegment {
-    fn raw_events(&self) -> Vec<i32> {
+    /// Represent the events in the compact-log format
+    fn raw_compact_events(&self) -> Vec<i32> {
         self.events
             .iter()
             .fold(Vec::new(), |mut raw_events, event| {
                 match event {
                     Event::Event(id) => raw_events.push(*id),
                     Event::EventWithPayload(id, payload) => {
-                        raw_events.push(*id);
+                        raw_events.push(((*id as u32) | EVENT_WITH_PAYLOAD_MASK) as i32);
                         raw_events.push(*payload);
                     }
                 }
@@ -74,23 +76,17 @@ impl LogReport {
                         })?;
                     }
                     let mut sr = sr.done()?;
-                    let mut next_payload = (0, false);
+                    let mut event_expecting_payload = None;
                     for event_item_reader in &mut sr {
-                        let raw_ev = event_item_reader.read()?;
-                        if let (ev, true) = next_payload {
-                            segment.events.push(Event::EventWithPayload(ev, raw_ev));
-                            next_payload = (0, false);
+                        let raw_ev = event_item_reader.read()? as u32;
+                        if let Some(ev) = event_expecting_payload.take() {
+                            segment
+                                .events
+                                .push(Event::EventWithPayload(ev as i32, raw_ev as i32));
+                        } else if raw_ev & EVENT_WITH_PAYLOAD_MASK == EVENT_WITH_PAYLOAD_MASK {
+                            event_expecting_payload = Some(raw_ev & !EVENT_WITH_PAYLOAD_MASK)
                         } else {
-                            if (raw_ev & (super::EVENT_WITH_PAYLOAD_MASK as i32))
-                                == (super::EVENT_WITH_PAYLOAD_MASK as i32)
-                            {
-                                next_payload = (
-                                    (raw_ev as u32 & !super::EVENT_WITH_PAYLOAD_MASK) as i32,
-                                    true,
-                                );
-                                continue;
-                            }
-                            segment.events.push(Event::Event(raw_ev));
+                            segment.events.push(Event::Event(raw_ev as i32));
                         }
                     }
                     Ok(sr.done()?)
@@ -125,7 +121,8 @@ impl LogReport {
             segment_item_writer
                 .write(|sw| {
                     let sw = sw.write_n_clocks(segment.clocks.len() as i32)?;
-                    let mut sw = sw.write_n_events(segment.events.len() as i32)?;
+                    let raw_events = segment.raw_compact_events();
+                    let mut sw = sw.write_n_events(raw_events.len() as i32)?;
                     for (bucket_item_writer, bucket) in (&mut sw).zip(&segment.clocks) {
                         bucket_item_writer.write(|bw| {
                             Ok(bw
@@ -134,7 +131,7 @@ impl LogReport {
                         })?;
                     }
                     let mut sw = sw.done()?;
-                    for (event_item_writer, event) in (&mut sw).zip(segment.raw_events()) {
+                    for (event_item_writer, event) in (&mut sw).zip(raw_events) {
                         event_item_writer.write(event)?;
                     }
                     Ok(sw.done()?)
@@ -153,8 +150,102 @@ impl LogReport {
 }
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
     #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
+    fn round_trip_report() {
+        let tid_a = 10;
+        let tid_b = 15;
+        let input_report = LogReport {
+            tracer_id: tid_a,
+            segments: vec![LogSegment {
+                clocks: vec![
+                    Clock {
+                        tracer_id: tid_a,
+                        count: 1,
+                    },
+                    Clock {
+                        tracer_id: tid_b,
+                        count: 200,
+                    },
+                ],
+                events: vec![
+                    Event::Event(3),
+                    Event::EventWithPayload(1, 4),
+                    Event::EventWithPayload(5, 1),
+                    Event::Event(2),
+                ],
+            }],
+            extension_bytes: vec![1, 2, 3, 9, 8, 7],
+        };
+
+        let mut buffer = vec![0u8; 1024];
+        let n_bytes = input_report.write_lcm(&mut buffer).unwrap();
+
+        let output_report = LogReport::from_lcm(&buffer[..n_bytes]).unwrap();
+
+        assert_eq!(input_report, output_report);
+    }
+
+    prop_compose! {
+        fn gen_extension_bytes(max_length: usize)(vec in prop::collection::vec(proptest::num::u8::ANY, 0..max_length)) -> Vec<u8> {
+            vec
+        }
+    }
+
+    prop_compose! {
+        fn gen_clock()(tracer_id in 1..2000, count in proptest::num::i32::ANY) -> Clock {
+            Clock { tracer_id, count }
+        }
+    }
+
+    prop_compose! {
+        fn gen_event()(has_payload in proptest::bool::ANY, event_id in 1..std::i16::MAX, payload in proptest::num::i32::ANY) -> Event {
+            if has_payload {
+                Event::EventWithPayload(event_id as i32, payload)
+            } else {
+                Event::Event(event_id as i32)
+            }
+        }
+    }
+
+    prop_compose! {
+        fn gen_segment(max_clocks: usize, max_events: usize)
+            (clocks in prop::collection::vec(gen_clock(), 0..max_clocks),
+                events in prop::collection::vec(gen_event(), 0..max_events)) -> LogSegment {
+            LogSegment {
+                clocks,
+                events,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn gen_segments(max_length: usize)(vec in prop::collection::vec(gen_segment(100, 258), 0..max_length)) -> Vec<LogSegment> {
+            vec
+        }
+    }
+
+    prop_compose! {
+        fn gen_log_report()
+            (tracer_id in 1i32..1000, segments in gen_segments(257), extension_bytes in gen_extension_bytes(200)) -> LogReport {
+            LogReport {
+                tracer_id,
+                segments,
+                extension_bytes,
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn generative_round_trip_log_report(input_report in gen_log_report()) {
+            const MEGABYTE: usize = 1024*1024;
+            let mut buffer = vec![0u8; MEGABYTE];
+            let n_bytes = input_report.write_lcm(&mut buffer).unwrap();
+            let output_report = LogReport::from_lcm(&buffer[..n_bytes]).unwrap();
+            assert_eq!(input_report, output_report);
+        }
     }
 }

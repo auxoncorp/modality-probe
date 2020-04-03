@@ -45,5 +45,5 @@ version = "0.4"
 features = ["serde"]
 
 [dev-dependencies]
-proptest = "0.9.4"
+proptest = "0.9"
 pretty_assertions = "0.6"
