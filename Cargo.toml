@@ -13,6 +13,10 @@ repository = "https://github.com/auxoncorp/ekotrace"
 readme = "README.md"
 build = "build.rs"
 
+[features]
+default = []
+std = ["serde", "proptest", "schemars"]
+
 [workspace]
 members = [
   "ekotrace-cli",
@@ -24,6 +28,11 @@ members = [
 static_assertions = "1.1.0"
 fixed-slice-vec = "0.2"
 rust-lcm-codec = "0.2"
+
+# Used if the std feature is enabled.
+serde = { version = "1.0", features = ["derive"], optional = true }
+proptest = { version = "0.9.5", optional = true }
+schemars = { version = "0.6.5", optional = true }
 
 [dev-dependencies]
 ekotrace-udp-collector = { path = "./ekotrace-udp-collector" }
