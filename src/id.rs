@@ -125,6 +125,10 @@ fallible_sizing_try_from_impl!(isize, EventId, InvalidEventId, InvalidEventId);
 
 /// Uniquely identify an event or kind of event.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
 #[repr(transparent)]
 pub struct EventId(NonZeroU32);
 
@@ -230,6 +234,77 @@ impl From<EventId> for u32 {
         e.0.get()
     }
 }
+
+/// This module contains a proptest `Arbitrary` implementation for
+/// event ids. It is only present if the `"std"` feature is set.
+#[cfg(feature = "std")]
+pub mod prop {
+    use proptest::{
+        num::u32::BinarySearch,
+        prelude::{Arbitrary, RngCore},
+        strategy::{NewTree, Strategy, ValueTree},
+        test_runner::TestRunner,
+    };
+
+    use super::*;
+
+    /// A proptest value tree for event ids. It builds off of u32's
+    /// binary search and clamps on valid _user_ values.
+    pub struct EventIdBinarySearch(BinarySearch);
+
+    impl EventIdBinarySearch {
+        fn or_max(x: u32) -> EventId {
+            let x1 = x.checked_add(1).unwrap_or_else(|| EventId::MAX_USER_ID);
+            if x1 > EventId::MAX_USER_ID {
+                return EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_USER_ID) });
+            }
+            EventId(unsafe { NonZeroU32::new_unchecked(x1) })
+        }
+    }
+
+    impl ValueTree for EventIdBinarySearch {
+        type Value = EventId;
+
+        fn current(&self) -> EventId {
+            EventIdBinarySearch::or_max(self.0.current())
+        }
+
+        fn simplify(&mut self) -> bool {
+            self.0.simplify()
+        }
+
+        fn complicate(&mut self) -> bool {
+            self.0.complicate()
+        }
+    }
+
+    #[derive(Debug)]
+    /// A proptest strategy to be used for any valid user event id.
+    pub struct AnyEventId;
+
+    impl Strategy for AnyEventId {
+        type Tree = EventIdBinarySearch;
+        type Value = EventId;
+
+        fn new_tree(&self, runner: &mut TestRunner) -> NewTree<Self> {
+            Ok(EventIdBinarySearch(BinarySearch::new(
+                runner.rng().next_u32(),
+            )))
+        }
+    }
+
+    impl Arbitrary for EventId {
+        type Parameters = ();
+        type Strategy = AnyEventId;
+
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            AnyEventId
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+pub use prop::*;
 
 #[cfg(test)]
 mod id_tests {

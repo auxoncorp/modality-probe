@@ -1,5 +1,5 @@
 //! ekotrace, a causal history tracing system
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![deny(warnings)]
 #![deny(missing_docs)]
 
