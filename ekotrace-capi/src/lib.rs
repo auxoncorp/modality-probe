@@ -1,6 +1,8 @@
 #![no_std]
 #![feature(lang_items, core_intrinsics)]
-pub use ekotrace_capi_impl::{CausalSnapshot, Ekotrace, EkotraceInstant, EkotraceResult};
+pub use ekotrace_capi_impl::{
+    CausalSnapshot, ChunkedReportToken, Ekotrace, EkotraceInstant, EkotraceResult,
+};
 
 #[no_mangle]
 pub extern "C" fn ekotrace_initialize(
@@ -182,6 +184,41 @@ pub extern "C" fn ekotrace_merge_fixed_size_snapshot(
 #[no_mangle]
 pub extern "C" fn ekotrace_now(tracer: *mut Ekotrace<'static>) -> EkotraceInstant {
     unsafe { ekotrace_capi_impl::ekotrace_now(tracer) }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_start_chunked_report(
+    tracer: *mut Ekotrace<'static>,
+    out_report_token: *mut ChunkedReportToken,
+) -> EkotraceResult {
+    unsafe { ekotrace_capi_impl::ekotrace_start_chunked_report(tracer, out_report_token) }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_write_next_report_chunk(
+    tracer: *mut Ekotrace<'static>,
+    report_token: *const ChunkedReportToken,
+    log_report_destination: *mut u8,
+    log_report_destination_size_bytes: usize,
+    out_written_bytes: *mut usize,
+) -> EkotraceResult {
+    unsafe {
+        ekotrace_capi_impl::ekotrace_write_next_report_chunk(
+            tracer,
+            report_token,
+            log_report_destination,
+            log_report_destination_size_bytes,
+            out_written_bytes,
+        )
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn ekotrace_finish_chunked_report(
+    tracer: *mut Ekotrace<'static>,
+    report_token: *const ChunkedReportToken,
+) -> EkotraceResult {
+    unsafe { ekotrace_capi_impl::ekotrace_finish_chunked_report(tracer, report_token) }
 }
 
 #[cfg(not(test))]

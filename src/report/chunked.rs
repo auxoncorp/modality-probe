@@ -149,10 +149,6 @@ pub enum ChunkedReportError {
     ReportError(crate::ReportError),
     /// No chunked report transaction has been started.
     NoChunkedReportInProgress,
-    /// The chunked reporting format presently supports a
-    /// report containing up to MAX_PAYLOAD_BYTES_PER_CHUNK times
-    /// u16::MAX chunks in payload content.
-    ExceededMaximumReportSize,
 }
 
 /// Correlation value threaded through the steps of a chunked
@@ -161,7 +157,7 @@ pub enum ChunkedReportError {
 #[derive(Debug, PartialEq, Eq)]
 pub struct ChunkedReportToken {
     /// The identifier for this report / group-of-chunks
-    pub group_id: u16,
+    group_id: u16,
 }
 
 /// Write reports in 1+ chunks.

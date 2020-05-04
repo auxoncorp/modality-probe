@@ -105,11 +105,18 @@ impl<'data> BulkReporter for DynamicHistory<'data> {
             return Err(ReportError::ReportLockConflict);
         }
         let log = self.compact_log.as_slice();
-        BulkReportSourceComponents {
+        let r = BulkReportSourceComponents {
             location_id: self.tracer_id,
             log,
         }
-        .report_with_extension(destination, extension_metadata)
+        .report_with_extension(destination, extension_metadata);
+        match r {
+            Ok(v) => {
+                self.finished_report_logging();
+                Ok(v)
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 
