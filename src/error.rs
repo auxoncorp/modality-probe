@@ -64,6 +64,11 @@ pub enum DistributeError {
     Encoding,
     /// The tracer encountered a problem dealing with extension metadata
     Extension,
+
+    /// A reporting transaction is in progress. Cannot
+    /// do mutating operations on the agent until calling
+    /// `finish_chunked_report`.
+    ReportLockConflict,
 }
 
 /// The errors than can occur when merging in the causal history from some
@@ -84,6 +89,10 @@ pub enum MergeError {
     ExternalHistorySemantics,
     /// The tracer encountered a problem dealing with extension metadata
     Extension,
+    /// A reporting transaction is in progress. Cannot
+    /// do mutating operations on the agent until calling
+    /// `finish_chunked_report`.
+    ReportLockConflict,
 }
 /// The error relating to using the `report` method to
 /// produce a full causal history log report.
@@ -100,6 +109,10 @@ pub enum ReportError {
     Encoding,
     /// The tracer encountered a problem dealing with extension metadata
     Extension,
+    /// A reporting transaction is in progress. Cannot
+    /// do mutating operations on the agent until calling
+    /// `finish_chunked_report`.
+    ReportLockConflict,
 }
 
 /// General purpose error that captures all errors that arise

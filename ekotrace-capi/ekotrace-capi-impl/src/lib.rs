@@ -33,6 +33,9 @@ pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING: EkotraceResult = 8;
 pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS: EkotraceResult = 9;
 /// The tracer encountered a problem dealing with extension metadata
 pub const EKOTRACE_RESULT_EXTENSION_ERROR: EkotraceResult = 10;
+/// The tracer attempted to mutate internal state while
+/// a report lock was active.
+pub const EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR: EkotraceResult = 11;
 
 /// # Safety
 ///
@@ -151,6 +154,7 @@ pub unsafe fn ekotrace_report(
         }
         Err(ReportError::Encoding) => return EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
         Err(ReportError::Extension) => return EKOTRACE_RESULT_EXTENSION_ERROR,
+        Err(ReportError::ReportLockConflict) => return EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR,
     };
 
     *out_written_bytes = written_bytes;
@@ -186,6 +190,7 @@ pub unsafe fn ekotrace_distribute_snapshot(
         }
         Err(DistributeError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
         Err(DistributeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
+        Err(DistributeError::ReportLockConflict) => EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
 
@@ -213,6 +218,7 @@ pub unsafe fn ekotrace_distribute_fixed_size_snapshot(
         }
         Err(DistributeError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
         Err(DistributeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
+        Err(DistributeError::ReportLockConflict) => EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
 
@@ -244,6 +250,7 @@ pub unsafe fn ekotrace_merge_snapshot(
             EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS
         }
         Err(MergeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
+        Err(MergeError::ReportLockConflict) => EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
 
@@ -271,6 +278,7 @@ pub unsafe fn ekotrace_merge_fixed_size_snapshot(
             EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS
         }
         Err(MergeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
+        Err(MergeError::ReportLockConflict) => EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
 

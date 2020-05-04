@@ -307,7 +307,7 @@ pub mod prop {
 pub use prop::*;
 
 #[cfg(test)]
-mod id_tests {
+pub(crate) mod id_tests {
     use super::*;
     use proptest::prelude::*;
 
@@ -319,7 +319,7 @@ mod id_tests {
     }
 
     prop_compose! {
-        fn gen_raw_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> u32 {
+        pub(crate) fn gen_raw_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> u32 {
             raw_id
         }
     }
@@ -344,13 +344,13 @@ mod id_tests {
     }
 
     prop_compose! {
-        fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
+        pub(crate) fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
             raw_id
         }
     }
 
     prop_compose! {
-        fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
+        pub(crate) fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
             raw_id
         }
     }

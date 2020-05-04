@@ -6,16 +6,19 @@
 use static_assertions::{assert_cfg, const_assert};
 assert_cfg!(not(target_pointer_width = "16"));
 
-mod compact_log;
+pub mod compact_log;
 mod error;
 mod history;
 mod id;
 mod macros;
+pub mod report;
 
 pub use error::*;
 use history::DynamicHistory;
 pub use id::*;
+pub use report::chunked::ChunkedReporter;
 
+use crate::report::chunked::{ChunkedReportError, ChunkedReportToken};
 use core::cmp::Ordering;
 use core::convert::TryFrom;
 use core::mem::size_of;
@@ -331,6 +334,7 @@ impl PartialOrd for EkotraceInstant {
 /// Raw bytes related to extension metadata stored alongside
 /// the messages transmitted in this system (snapshots or
 /// reports).
+#[derive(Debug)]
 pub struct ExtensionBytes<'a>(pub &'a [u8]);
 
 impl<'a> Tracer for Ekotrace<'a> {
@@ -357,5 +361,26 @@ impl<'a> Tracer for Ekotrace<'a> {
     #[inline]
     fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
         self.report_with_extension(destination, ExtensionBytes(&[]))
+    }
+}
+
+impl<'a> ChunkedReporter for Ekotrace<'a> {
+    fn start_chunked_report(&mut self) -> Result<ChunkedReportToken, ChunkedReportError> {
+        self.history.start_chunked_report()
+    }
+
+    fn write_next_report_chunk(
+        &mut self,
+        token: &ChunkedReportToken,
+        destination: &mut [u32],
+    ) -> Result<usize, ChunkedReportError> {
+        self.history.write_next_report_chunk(token, destination)
+    }
+
+    fn finish_chunked_report(
+        &mut self,
+        token: ChunkedReportToken,
+    ) -> Result<(), ChunkedReportError> {
+        self.history.finish_chunked_report(token)
     }
 }
