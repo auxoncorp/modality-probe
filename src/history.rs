@@ -657,5 +657,4 @@ impl From<rust_lcm_codec::EncodeFingerprintError<rust_lcm_codec::BufferWriterErr
 #[allow(dead_code)]
 mod lcm {
     include!(concat!(env!("OUT_DIR"), "/in_system.rs"));
-    include!(concat!(env!("OUT_DIR"), "/log_reporting.rs"));
 }

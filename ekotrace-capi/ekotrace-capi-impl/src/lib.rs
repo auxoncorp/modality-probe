@@ -308,7 +308,7 @@ pub unsafe fn ekotrace_now(tracer: *mut Ekotrace<'static>) -> EkotraceInstant {
                     count: 0,
                 },
                 event_count: 0,
-            }
+            };
         }
     };
     tracer.now()

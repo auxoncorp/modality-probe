@@ -6,7 +6,6 @@ edition = "2018"
 license = "Apache-2.0"
 repository = "https://github.com/auxoncorp/ekotrace"
 readme = "README.md"
-build = "build.rs"
 
 [dependencies]
 ekotrace = { path = ".." }
