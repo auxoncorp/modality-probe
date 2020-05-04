@@ -28,7 +28,7 @@ pub(crate) type CompactLogVec<'a> = FixedSliceVec<'a, CompactLogItem>;
 /// * If the first bit is not set AND the second bit is set, this is
 ///   an event with payload. Treat the next item in the stream as that
 ///   payload.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 #[repr(transparent)]
 pub struct CompactLogItem(u32);
 

@@ -103,13 +103,6 @@ impl From<(TracerId, u32)> for LogEntryData {
     }
 }
 
-// Can't make this assumption anymore.
-// impl From<(u32, u32)> for LogEntryData {
-//     fn from((id, count): (u32, u32)) -> LogEntryData {
-//         LogEntryData::LogicalClock(id.into(), count)
-//     }
-// }
-
 /// A single entry in the log
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct LogEntry {

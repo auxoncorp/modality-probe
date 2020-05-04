@@ -27,7 +27,7 @@ pub struct WireChunk {
     pub header: WireChunkHeader,
     /// The content of the report chunk, only certain to be initialized
     /// after a write_next_report_chunk up to offset `header.n_chunk_payload_bytes`.
-    pub payload: [u8; MAX_PAYLOAD_BYTES_PER_CHUNK],
+    pub payload: [MaybeUninit<u8>; MAX_PAYLOAD_BYTES_PER_CHUNK],
 }
 
 /// Fixed-sized always-initialized header portion of the WireChunk format
@@ -300,7 +300,6 @@ impl<'data> ChunkedReporter for DynamicHistory<'data> {
         destination_chunk.header.chunk_data_type = ChunkPayloadDataType::Log.data_type_le_byte();
         destination_chunk.header.reserved = 0;
 
-        {}
         let (log_index, is_last_chunk, items_for_current_chunk) = {
             let curr_log_len = self.compact_log.len();
             let possible_log_index = usize::from(self.chunked_report_state.n_written_chunks)
@@ -388,6 +387,7 @@ impl<'data> ChunkedReporter for DynamicHistory<'data> {
 /// An interpreted version of the chunk format
 /// which represents the values in the correct
 /// endianness for the executing platform.
+#[derive(PartialEq)]
 pub enum NativeChunk {
     /// A chunk containing values in the compact log format.
     Log {
@@ -497,7 +497,7 @@ impl NativeChunk {
                 let mut payload: [MaybeUninit<u8>; MAX_PAYLOAD_BYTES_PER_CHUNK] =
                     unsafe { MaybeUninit::uninit().assume_init() };
                 for (sink, source) in payload.iter_mut().zip(wire_chunk.payload.iter()) {
-                    *sink = MaybeUninit::new(*source);
+                    *sink = *source;
                 }
                 NativeChunk::Extension {
                     header,
@@ -528,6 +528,7 @@ pub enum ParseChunkFromWireError {
 
 /// Chunk framing information, owned and accessible in the native
 /// endianness.
+#[derive(Debug, PartialEq)]
 pub struct NativeChunkHeader {
     /// The tracer_id (a.k.a. location id) of the
     /// ekotrace agent instance producing this report.
@@ -557,6 +558,21 @@ pub struct NativeChunkLogContents {
     payload: [MaybeUninit<CompactLogItem>; MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK],
 }
 
+impl PartialEq for NativeChunkLogContents {
+    fn eq(&self, other: &Self) -> bool {
+        self.payload
+            .iter()
+            .take(usize::from(self.n_chunk_payload_items))
+            .zip(
+                other
+                    .payload
+                    .iter()
+                    .take(usize::from(other.n_chunk_payload_items)),
+            )
+            .all(|(s, o)| unsafe { s.assume_init() == o.assume_init() })
+    }
+}
+
 impl NativeChunkLogContents {
     /// Access to the log as an immutable slice
     pub fn log_slice(&self) -> &[CompactLogItem] {
@@ -583,6 +599,21 @@ pub struct NativeChunkExtensionContents {
     n_chunk_payload_bytes: u8,
     /// The content of the report chunk
     payload: [MaybeUninit<u8>; MAX_PAYLOAD_BYTES_PER_CHUNK],
+}
+
+impl PartialEq for NativeChunkExtensionContents {
+    fn eq(&self, other: &Self) -> bool {
+        self.payload
+            .iter()
+            .take(usize::from(self.n_chunk_payload_bytes))
+            .zip(
+                other
+                    .payload
+                    .iter()
+                    .take(usize::from(other.n_chunk_payload_bytes)),
+            )
+            .all(|(s, o)| unsafe { s.assume_init() == o.assume_init() })
+    }
 }
 
 impl NativeChunkExtensionContents {
@@ -955,6 +986,7 @@ mod tests {
                     let buffer_slice: &[u32] = &report_transmission_buffer[..];
                     let wire_chunk : &WireChunk = buffer_slice.try_into().unwrap();
                     let native_chunk = NativeChunk::from_wire_chunk(wire_chunk).unwrap();
+                    assert_eq!(tracer_id, native_chunk.header().location_id);
                     let curr_group_id = native_chunk.header().chunk_group_id;
                     if !has_checked_group_id {
                         if !seen_group_ids.insert(curr_group_id) && seen_group_ids.len() < (core::u16::MAX - 1) as usize {
