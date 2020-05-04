@@ -2,7 +2,7 @@ use super::{
     CausalSnapshot, DistributeError, EkotraceInstant, EventId, ExtensionBytes, LogicalClock,
     MergeError, ReportError, StorageSetupError, TracerId,
 };
-use crate::compact_log::{self, CompactLogItem, CompactLogVec};
+use crate::compact_log::{CompactLogItem, CompactLogVec};
 use crate::report::chunked::ChunkedReportState;
 use core::cmp::{max, Ordering, PartialEq};
 use core::convert::TryInto;
@@ -14,7 +14,7 @@ use rust_lcm_codec::{DecodeFingerprintError, DecodeValueError, EncodeValueError}
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_assert_eq};
 
 impl LogicalClock {
-    /// zeros out any empty clocks (0-id or 0-count) and sorts the clocks
+    /// zeros out any empty clocks (0-count) and sorts the clocks
     /// by id
     ///
     /// returns the sorted subset of the slice containing only non-empty clocks
@@ -22,9 +22,8 @@ impl LogicalClock {
     fn normalize_clocks(clocks: &mut [LogicalClock]) -> &[LogicalClock] {
         let mut measured_self_len = 0;
         for b in clocks.iter_mut() {
-            if b.id == 0 || b.count == 0 {
+            if b.count == 0 {
                 b.count = 0;
-                b.id = 0;
             } else {
                 measured_self_len += 1;
             }
@@ -260,7 +259,7 @@ impl<'a> DynamicHistory<'a> {
         }
         clocks
             .try_push(LogicalClock {
-                id: tracer_id.get_raw(),
+                id: tracer_id,
                 count: 0,
             })
             .expect(
@@ -333,7 +332,7 @@ impl<'a> DynamicHistory<'a> {
     fn increment_local_clock_count(&mut self) {
         // N.B. We rely on the fact that the first member of the clocks
         // collection is always the clock for this tracer
-        debug_assert!(self.tracer_id.get_raw() == self.clocks[0].id);
+        debug_assert!(self.tracer_id == self.clocks[0].id);
         debug_assert!(
             !self.chunked_report_state.is_report_in_progress(),
             "Should not be incrementing the local clock count when a report is in progress"
@@ -370,7 +369,7 @@ impl<'a> DynamicHistory<'a> {
         for (item_writer, clock) in (&mut w).zip(self.clocks.as_slice()) {
             item_writer.write(|bw| {
                 Ok(bw
-                    .write_tracer_id(clock.id as i32)?
+                    .write_tracer_id(clock.id.get_raw() as i32)?
                     .write_count(clock.count as i32)?)
             })?
         }
@@ -388,7 +387,10 @@ impl<'a> DynamicHistory<'a> {
         if self.chunked_report_state.is_report_in_progress() {
             return Err(DistributeError::ReportLockConflict);
         }
-        let mut clocks = [LogicalClock { id: 0, count: 0 }; 256];
+        let mut clocks = [LogicalClock {
+            id: TracerId::new(TracerId::MAX_ID).unwrap(),
+            count: 0,
+        }; 256];
         if self.clocks.len() > clocks.len() {
             return Err(DistributeError::InsufficientDestinationSize);
         }
@@ -450,10 +452,13 @@ impl<'a> DynamicHistory<'a> {
             if item_read_result.is_err() {
                 Err(MergeError::ExternalHistoryEncoding)
             } else {
-                Ok(LogicalClock {
-                    id: found_id as u32,
-                    count: found_count as u32,
-                })
+                match TracerId::new(found_id as u32) {
+                    Some(id) => Ok(LogicalClock {
+                        id,
+                        count: found_count as u32,
+                    }),
+                    None => Err(MergeError::ExternalHistorySemantics),
+                }
             }
         });
         let merge_result = self.merge_internal(neighbor_id as u32, clocks_iterator);
@@ -506,17 +511,12 @@ impl<'a> DynamicHistory<'a> {
             Some(id) => id,
             None => return Err(MergeError::ExternalHistorySemantics),
         };
-        let raw_neighbor_id = external_id.get_raw();
         // Ensure that there is a clock for the neighbor that sent the snapshot
-        if !self
-            .clocks
-            .as_slice()
-            .iter()
-            .any(|b| b.id == raw_neighbor_id)
+        if !self.clocks.as_slice().iter().any(|b| b.id == external_id)
             && self
                 .clocks
                 .try_push(LogicalClock {
-                    id: raw_neighbor_id,
+                    id: external_id,
                     count: 0,
                 })
                 .is_err()
@@ -547,13 +547,12 @@ impl<'a> DynamicHistory<'a> {
                     break;
                 }
             };
-            let raw_id = id.get_raw();
             for internal_clock in self.clocks.as_mut_slice() {
                 // N.B This depends on the local clock already having been created, above,
                 // when we received a history from the clock's source tracer_id.
                 // During early tracing, may cause us to drop data from an indirect neighbor that
                 // is also a direct neighbor (but has not yet sent us a message).
-                if internal_clock.id == raw_id {
+                if internal_clock.id == id {
                     internal_clock.count = max(internal_clock.count, external_clock.count);
                     break;
                 }
@@ -600,72 +599,6 @@ impl<'a> DynamicHistory<'a> {
         let clocks = self.clocks.as_slice();
         let log = &mut self.compact_log;
         DynamicHistory::write_clocks_to_log(log, clocks);
-    }
-
-    /// Produce a report for external use, containing:
-    ///   * The local tracer id
-    ///   * Error flags
-    ///   * Event ids for events that have happened since the last backend send
-    ///   * Interspersed snapshots of the logical clock
-    #[inline]
-    pub(crate) fn write_lcm_log_report(
-        &mut self,
-        destination: &mut [u8],
-        extension: ExtensionBytes<'_>,
-    ) -> Result<usize, ReportError> {
-        if self.chunked_report_state.is_report_in_progress() {
-            return Err(ReportError::ReportLockConflict);
-        }
-        let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
-        let w = lcm::log_reporting::begin_log_report_write(&mut buffer_writer)?;
-        let w = w.write_tracer_id(self.tracer_id.get_raw() as i32)?;
-        let mut log_items = self.compact_log.as_slice();
-        let expected_n_segments = compact_log::count_segments(log_items, self.tracer_id);
-        let mut w = w.write_n_segments(expected_n_segments as i32)?;
-        let mut actually_written_segments = 0;
-        let mut actually_written_log_items = 0;
-        for segment_item_writer in &mut w {
-            let segment = compact_log::split_next_segment(log_items, self.tracer_id);
-            log_items = segment.rest;
-            segment_item_writer.write(|sw| {
-                let sw = sw.write_n_clocks(segment.clock_region.len() as i32 / 2)?;
-                let mut sw = sw.write_n_events(segment.event_region.len() as i32)?;
-                for (clock_item_writer, clock_parts) in
-                    (&mut sw).zip(segment.clock_region.chunks_exact(2))
-                {
-                    clock_item_writer.write(|bw| {
-                        let tracer_id = clock_parts[0].interpret_as_logical_clock_tracer_id();
-                        Ok(bw
-                            .write_tracer_id(tracer_id as i32)?
-                            .write_count(clock_parts[1].raw() as i32)?)
-                    })?;
-                }
-                actually_written_log_items += segment.clock_region.len();
-                let mut sw = sw.done()?;
-                for (event_item_writer, event) in (&mut sw).zip(segment.event_region) {
-                    event_item_writer.write(event.raw() as i32)?;
-                }
-                actually_written_log_items += segment.event_region.len();
-                Ok(sw.done()?)
-            })?;
-            actually_written_segments += 1;
-        }
-        assert_eq!(
-            expected_n_segments, actually_written_segments,
-            "number of written segments should match the amount we tried"
-        );
-        assert_eq!(
-            actually_written_log_items,
-            self.compact_log.len(),
-            "we should have written all of the log items into the segments"
-        );
-        let w = w.done()?;
-        let w = w.write_n_extension_bytes(extension.0.len() as i32)?;
-        let _w: lcm::log_reporting::log_report_write_done<_> =
-            w.extension_bytes_copy_from_slice(extension.0)?;
-
-        self.finished_report_logging();
-        Ok(buffer_writer.cursor())
     }
 
     pub(crate) fn finished_report_logging(&mut self) {

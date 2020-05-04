@@ -10,6 +10,8 @@
 //! the use of a "local" id value that represents the id of
 //! the location where the log was generated.
 use super::{EventId, LogicalClock, TracerId};
+use core::convert::TryInto;
+use core::num::NonZeroU32;
 use fixed_slice_vec::FixedSliceVec;
 
 const CLOCK_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
@@ -36,7 +38,7 @@ impl CompactLogItem {
     /// Create a single event `CompactLogItem` with no payload
     #[must_use]
     #[inline]
-    pub(crate) fn event(event_id: EventId) -> Self {
+    pub fn event(event_id: EventId) -> Self {
         // The construction checks for EventId should prevent the top bit from being set
         CompactLogItem(event_id.get_raw())
     }
@@ -47,14 +49,14 @@ impl CompactLogItem {
     pub fn clock(clock: LogicalClock) -> (Self, Self) {
         // Set the top bit for id to indicate that it is not an event but a logical clock bucket,
         // and to treat the next item as the count. Don't separate these two!
-        let id = clock.id | CLOCK_MASK;
+        let id = clock.id.get_raw() | CLOCK_MASK;
         (CompactLogItem(id), CompactLogItem(clock.count))
     }
 
     /// Create a pair of `CompactLogItem`s representing an event and associated payload.
     #[must_use]
     #[inline]
-    pub(crate) fn event_with_payload(event_id: EventId, payload: u32) -> (Self, Self) {
+    pub fn event_with_payload(event_id: EventId, payload: u32) -> (Self, Self) {
         (
             CompactLogItem(event_id.get_raw() | EVENT_WITH_PAYLOAD_MASK),
             // We're just giving payload back out as is for now.
@@ -158,10 +160,6 @@ pub(crate) fn split_next_segment(
     }
 }
 
-pub(crate) fn count_segments(items: &[CompactLogItem], local_tracer_id: TracerId) -> usize {
-    LogSegmentIterator::new(local_tracer_id, items).count()
-}
-
 #[derive(Debug)]
 pub(crate) struct SplitSegment<'a> {
     pub(crate) clock_region: &'a [CompactLogItem],
@@ -244,9 +242,11 @@ impl<'a> Iterator for LogSegmentLogicalClockIterator<'a> {
         let (curr, remainder) = self.remaining_clock_region.split_at(2);
         self.remaining_clock_region = remainder;
         Some(LogicalClock {
-            // TODO - switch LogicalClock to use TracerId for id, since it should be repr(transparent),
-            // which repr(C) should be able to handle just fine
-            id: curr[0].interpret_as_logical_clock_tracer_id(),
+            // N.B. Currently relying on the fact that these are internally-managed
+            // clocks to ensure their validity.
+            id: TracerId(unsafe {
+                NonZeroU32::new_unchecked(curr[0].interpret_as_logical_clock_tracer_id())
+            }),
             count: curr[1].raw(),
         })
     }
@@ -278,11 +278,9 @@ impl<'a> Iterator for LogSegmentEventIterator<'a> {
             let raw_ev = first.raw();
             if first.has_event_with_payload_bit_set() {
                 let event_expecting_payload = raw_ev & !EVENT_WITH_PAYLOAD_MASK;
-                let event_expecting_payload = EventId::new(event_expecting_payload)
-                    .or_else(|| EventId::new_internal(event_expecting_payload))
-                    .ok_or_else(|| {
-                        LogEventInterpretationError::InvalidEventId(event_expecting_payload)
-                    });
+                let event_expecting_payload = event_expecting_payload.try_into().map_err(|_e| {
+                    LogEventInterpretationError::InvalidEventId(event_expecting_payload)
+                });
                 if let Some((second, remaining)) = self.remaining_event_region.split_first() {
                     self.remaining_event_region = remaining;
                     Some(
@@ -299,9 +297,9 @@ impl<'a> Iterator for LogSegmentEventIterator<'a> {
                 }
             } else {
                 Some(
-                    EventId::new(raw_ev)
-                        .or_else(|| EventId::new_internal(raw_ev))
-                        .ok_or_else(|| LogEventInterpretationError::InvalidEventId(raw_ev))
+                    raw_ev
+                        .try_into()
+                        .map_err(|_e| LogEventInterpretationError::InvalidEventId(raw_ev))
                         .map(LogEvent::Event),
                 )
             }
@@ -326,12 +324,24 @@ mod tests {
 
     /// Compact event
     fn ce(e: u32) -> CompactLogItem {
-        CompactLogItem::event(EventId::new(e).unwrap())
+        CompactLogItem::event(e.try_into().unwrap())
+    }
+
+    /// Compact event with payload
+    fn cep(e: u32, v: u32) -> (CompactLogItem, CompactLogItem) {
+        CompactLogItem::event_with_payload(e.try_into().unwrap(), v)
     }
 
     /// Compact logical clock bucket
     fn cb(id: u32, count: u32) -> (CompactLogItem, CompactLogItem) {
-        CompactLogItem::clock(LogicalClock { id, count })
+        CompactLogItem::clock(LogicalClock {
+            id: id.try_into().unwrap(),
+            count,
+        })
+    }
+
+    fn count_segments(log_items: &[CompactLogItem], tracer_id: TracerId) -> usize {
+        LogSegmentIterator::new(tracer_id, log_items).count()
     }
 
     #[test]
@@ -376,11 +386,22 @@ mod tests {
     }
 
     #[test]
+    fn segmentation_distinguishes_events_with_payloads_from_clocks() {
+        let local_tracer_id = TracerId::new(314).unwrap();
+        let (a, b) = cb(314, 1);
+        let (c, d) = cep(99, core::u32::MAX);
+        assert_eq!(1, count_segments(&[a, b, c, d], local_tracer_id));
+    }
+
+    #[test]
     fn expected_representation() {
         let e = CompactLogItem::event(EventId::new(4).expect("Could not make EventId"));
         assert!(!e.has_clock_bit_set());
 
-        let (id, count) = CompactLogItem::clock(LogicalClock { id: 4, count: 5 });
+        let (id, count) = CompactLogItem::clock(LogicalClock {
+            id: 4.try_into().unwrap(),
+            count: 5,
+        });
         assert!(id.has_clock_bit_set());
         assert!(!count.has_clock_bit_set());
     }
@@ -390,5 +411,20 @@ mod tests {
         let (ev, payload) = CompactLogItem::event_with_payload(EventId::new(4).unwrap(), 777);
         assert_eq!(ev.0 & EVENT_WITH_PAYLOAD_MASK, EVENT_WITH_PAYLOAD_MASK);
         assert_eq!(payload.0, 777);
+    }
+
+    #[test]
+    fn can_iterate_through_internal_events() {
+        let raw_event = EventId::MAX_INTERNAL_ID;
+        let segment = LogSegment {
+            clock_region: &[],
+            event_region: &[ce(raw_event)],
+        };
+        let mut iter = segment.iter_events();
+        assert_eq!(
+            LogEvent::Event(EventId::new_internal(raw_event).unwrap()),
+            iter.next().unwrap().unwrap()
+        );
+        assert!(iter.next().is_none());
     }
 }

@@ -3,13 +3,11 @@ use itertools::Itertools;
 use petgraph::graph::Graph;
 use serde;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
 
 pub mod alloc_log_report;
 pub mod model;
-
-pub(crate) const EVENT_WITH_PAYLOAD_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
 
 /// Serialization record for CSV storage
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
@@ -31,7 +29,7 @@ impl From<&model::LogEntry> for LogFileLine {
             session_id: e.session_id.0,
             segment_id: e.segment_id.0,
             segment_index: e.segment_index,
-            tracer_id: e.tracer_id.0,
+            tracer_id: e.tracer_id.get_raw(),
             event_id: match &e.data {
                 model::LogEntryData::Event(id) => Some(id.get_raw()),
                 model::LogEntryData::EventWithPayload(id, _) => Some(id.get_raw()),
@@ -42,7 +40,7 @@ impl From<&model::LogEntry> for LogFileLine {
                 _ => None,
             },
             lc_tracer_id: match &e.data {
-                model::LogEntryData::LogicalClock(tracer_id, _) => Some(tracer_id.0),
+                model::LogEntryData::LogicalClock(tracer_id, _) => Some(tracer_id.get_raw()),
                 _ => None,
             },
             lc_clock: match &e.data {
@@ -79,10 +77,18 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
                 });
             }
 
+            let event_id = event_id
+                .try_into()
+                .map_err(|_e| ReadError::InvalidContent {
+                    session_id,
+                    segment_id,
+                    segment_index,
+                    message: "Invalid event id",
+                })?;
             if let Some(payload) = l.event_payload {
-                model::LogEntryData::EventWithPayload(model::EventId::new(event_id), payload)
+                model::LogEntryData::EventWithPayload(event_id, payload)
             } else {
-                model::LogEntryData::Event(model::EventId::new(event_id))
+                model::LogEntryData::Event(event_id)
             }
         } else if let Some(lc_tracer_id) = l.lc_tracer_id {
             match l.lc_clock {
@@ -94,7 +100,14 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
                         message: "When lc_tracer_id is present, lc_clock must also be present",
                     });
                 }
-                Some(lc_clock) => model::LogEntryData::LogicalClock(lc_tracer_id.into(), lc_clock),
+                Some(lc_clock) => model::LogEntryData::LogicalClock(lc_tracer_id.try_into().map_err(|_e|
+                    ReadError::InvalidContent {
+                        session_id,
+                        segment_id,
+                        segment_index,
+                        message: "When lc_tracer_id is present, it must be a valid ekotrac::TracerId",
+                    }
+                )?, lc_clock),
             }
         } else {
             return Err(ReadError::InvalidContent {
@@ -107,7 +120,15 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
             session_id,
             segment_id,
             segment_index,
-            tracer_id: l.tracer_id.into(),
+            tracer_id: l
+                .tracer_id
+                .try_into()
+                .map_err(|_e| ReadError::InvalidContent {
+                    session_id,
+                    segment_id,
+                    segment_index,
+                    message: "When lc_tracer_id is present, it must be a valid ekotrac::TracerId",
+                })?,
             data,
             receive_time: l.receive_time,
         })
@@ -160,8 +181,8 @@ pub fn read_csv_log_entries<R: Read>(r: &mut R) -> Result<Vec<model::LogEntry>, 
 #[derive(Clone, Debug)]
 struct SegmentMetadata {
     id: model::SegmentId,
-    tracer_id: model::TracerId,
-    logical_clock: HashMap<model::TracerId, u32>,
+    tracer_id: ekotrace::TracerId,
+    logical_clock: HashMap<ekotrace::TracerId, u32>,
 }
 
 impl SegmentMetadata {
@@ -187,7 +208,7 @@ impl SegmentMetadataIndex {
 
 // source tracer id -> local clock value -> segment id
 #[derive(Debug)]
-struct LCIndex(HashMap<model::TracerId, BTreeMap<u32, model::SegmentId>>);
+struct LCIndex(HashMap<ekotrace::TracerId, BTreeMap<u32, model::SegmentId>>);
 
 #[derive(Debug)]
 pub enum LCIndexError {
@@ -305,7 +326,7 @@ pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogE
 }
 
 pub struct SegmentGraphNode {
-    pub tracer_id: model::TracerId,
+    pub tracer_id: ekotrace::TracerId,
     pub segment_id: model::SegmentId,
     pub event_count: usize,
 }
@@ -382,7 +403,14 @@ pub fn build_log_entry_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + C
 #[cfg(test)]
 mod test {
     use super::*;
+    use ekotrace::EventId;
     use proptest::prelude::*;
+
+    prop_compose! {
+        pub(crate) fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
+            raw_id
+        }
+    }
 
     fn arb_log_file_line() -> impl Strategy<Value = LogFileLine> {
         (
@@ -392,7 +420,7 @@ mod test {
             model::test::arb_datetime(),
             any::<u32>(),
             // util::model::EventId requires a valid event id now.
-            proptest::option::of(proptest::bits::u32::masked(!crate::EVENT_WITH_PAYLOAD_MASK)),
+            proptest::option::of(gen_raw_user_event_id()),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),

@@ -16,6 +16,7 @@ pub mod report;
 pub use error::*;
 use history::DynamicHistory;
 pub use id::*;
+pub use report::bulk::BulkReporter;
 pub use report::chunked::ChunkedReporter;
 
 use crate::report::chunked::{ChunkedReportError, ChunkedReportToken};
@@ -42,14 +43,12 @@ pub struct CausalSnapshot {
 }
 
 /// A single logical clock, usable as an entry in a vector clock
-///
-/// Note the use of bare integer types rather than the safety-oriented
-/// wrappers (TracerId, NonZero*) for C representation reasons.
-#[derive(Copy, Clone, Default, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 #[repr(C)]
 pub struct LogicalClock {
     /// The tracer node that this clock is tracking
-    pub id: u32,
+    /// Equivalent structurally to a u32.
+    pub id: TracerId,
     /// Clock tick count
     pub count: u32,
 }
@@ -87,15 +86,6 @@ pub trait Tracer {
     /// Consume a causal history summary structure provided
     /// by some other Tracer via `distribute_snapshot`.
     fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError>;
-
-    /// Conduct necessary background activities and write
-    /// the recorded reporting log to a collection backend.
-    ///
-    /// Writes the Tracer's internal state according to the
-    /// log reporting schema.
-    ///
-    /// If the write was successful, returns the number of bytes written
-    fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError>;
 }
 
 /// Reference implementation of an `ekotrace` tracer.
@@ -278,22 +268,6 @@ impl<'a> Ekotrace<'a> {
     ) -> Result<ExtensionBytes<'d>, MergeError> {
         self.history.merge_from_lcm_snapshot_bytes(source)
     }
-    /// Conduct necessary background activities and write
-    /// the recorded reporting log to a collection backend,
-    /// including arbitrary extension bytes provided.
-    ///
-    /// Writes the Tracer's internal state according to the
-    /// log reporting schema.
-    ///
-    /// If the write was successful, returns the number of bytes written
-    pub fn report_with_extension(
-        &mut self,
-        destination: &mut [u8],
-        extension_metadata: ExtensionBytes<'_>,
-    ) -> Result<usize, ReportError> {
-        self.history
-            .write_lcm_log_report(destination, extension_metadata)
-    }
 
     /// Capture the current instance's moment in causal time
     /// for correlation with external systems.
@@ -357,10 +331,16 @@ impl<'a> Tracer for Ekotrace<'a> {
         let _extension_bytes = self.merge_snapshot_with_metadata(source)?;
         Ok(())
     }
+}
 
-    #[inline]
-    fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
-        self.report_with_extension(destination, ExtensionBytes(&[]))
+impl<'a> BulkReporter for Ekotrace<'a> {
+    fn report_with_extension(
+        &mut self,
+        destination: &mut [u8],
+        extension_metadata: ExtensionBytes<'_>,
+    ) -> Result<usize, ReportError> {
+        self.history
+            .report_with_extension(destination, extension_metadata)
     }
 }
 
@@ -372,7 +352,7 @@ impl<'a> ChunkedReporter for Ekotrace<'a> {
     fn write_next_report_chunk(
         &mut self,
         token: &ChunkedReportToken,
-        destination: &mut [u32],
+        destination: &mut [u8],
     ) -> Result<usize, ChunkedReportError> {
         self.history.write_next_report_chunk(token, destination)
     }

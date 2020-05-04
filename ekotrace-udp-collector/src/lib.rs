@@ -1,9 +1,10 @@
 use chrono::{DateTime, Utc};
+use ekotrace::compact_log::LogEvent;
 use std::io::{Error as IoError, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
 use util::alloc_log_report::*;
-use util::model::{EventId, LogEntry, LogEntryData, SegmentId, SessionId};
+use util::model::{LogEntry, LogEntryData, SegmentId, SessionId};
 
 mod chunked;
 
@@ -95,10 +96,7 @@ pub fn start_receiving_from_socket<W: Write>(
     chunk_handling_config: ChunkHandlingConfig,
 ) {
     let addr = socket.local_addr().map(|a| a.to_string());
-    // Note the use of u32 backing buffer to ensure 4-byte alignment for low-cost
-    // copy operations and ease of handling with the chunk wire format, which requires
-    // 4-byte alignment.
-    let mut backing_buf = vec![0u32; 1024 * 1024];
+    let mut buf = vec![0u8; 1024 * 1024];
     let mut next_segment_id: u32 = 0;
     let mut chunk_handler = ChunkHandler::new(chunk_handling_config);
     let mut log_entries_buffer: Vec<LogEntry> = Vec::with_capacity(4096);
@@ -106,19 +104,12 @@ pub fn start_receiving_from_socket<W: Write>(
         if shutdown_signal_receiver.try_recv().is_ok() {
             return;
         }
-        // Present the backing buffer as regular bytes for the socket to write into.
-        let buf = unsafe {
-            std::slice::from_raw_parts_mut(
-                backing_buf.as_mut_slice().as_mut_ptr() as *mut u8,
-                backing_buf.len() * std::mem::size_of::<u32>(),
-            )
-        };
         // Be sure to zero out the first few bytes to ensure that the
         // magic fingerprint words are not stale.
         for b in buf[..8].iter_mut() {
             *b = 0;
         }
-        let (bytes_read, _src) = match socket.recv_from(buf) {
+        let (bytes_read, _src) = match socket.recv_from(&mut buf) {
             Ok(r) => r,
             Err(e) => {
                 match addr.as_ref() {
@@ -146,7 +137,7 @@ pub fn start_receiving_from_socket<W: Write>(
 
         if matches_chunk_fingerprint(&buf[..bytes_read]) {
             chunk_handler.add_incoming_chunk(
-                &backing_buf[..ekotrace::report::chunked::MAX_CHUNK_U32_WORDS],
+                &buf[..ekotrace::report::chunked::MAX_CHUNK_BYTES],
                 receive_time,
             );
             let owned_reports = chunk_handler.materialize_completed_reports();
@@ -161,7 +152,7 @@ pub fn start_receiving_from_socket<W: Write>(
             }
             chunk_handler.remove_stale_reports();
         } else {
-            match LogReport::from_lcm(&buf[..bytes_read]) {
+            match LogReport::try_from_bulk_bytes(&buf[..bytes_read]) {
                 Ok(log_report) => {
                     next_segment_id = add_log_report_to_entries(
                         &log_report,
@@ -172,7 +163,7 @@ pub fn start_receiving_from_socket<W: Write>(
                     );
                 }
                 Err(_) => {
-                    eprintln!("Error parsing a message.");
+                    eprintln!("Error parsing a message as a bulk report");
                     continue;
                 }
             };
@@ -198,7 +189,7 @@ fn add_log_report_to_entries(
     log_entries_buffer: &mut Vec<LogEntry>,
 ) -> u32 {
     let mut next_segment_id = initial_segment_id.0;
-    let tracer_id = (log_report.tracer_id as u32).into();
+    let tracer_id = log_report.tracer_id;
     for segment in &log_report.segments {
         let mut segment_index = 0;
 
@@ -208,10 +199,7 @@ fn add_log_report_to_entries(
                 segment_id: next_segment_id.into(),
                 segment_index,
                 tracer_id,
-                data: LogEntryData::LogicalClock(
-                    (clock_bucket.tracer_id as u32).into(),
-                    clock_bucket.count as u32,
-                ),
+                data: LogEntryData::LogicalClock(clock_bucket.id, clock_bucket.count),
                 receive_time,
             });
 
@@ -220,36 +208,23 @@ fn add_log_report_to_entries(
 
         for event in &segment.events {
             match event {
-                Event::Event(ev) => {
-                    let event_val = *ev as u32;
-                    if event_val == 0 {
-                        panic!("Discovered an event value of 0 while converting a LogReport to CSV log entries, which is totally uncool.\n{:#?}", log_report);
-                    }
-
+                LogEvent::Event(ev) => {
                     log_entries_buffer.push(LogEntry {
                         session_id,
                         segment_id: next_segment_id.into(),
                         segment_index,
                         tracer_id,
-                        data: LogEntryData::Event(EventId::new(event_val)),
+                        data: LogEntryData::Event(*ev),
                         receive_time,
                     });
                 }
-                Event::EventWithPayload(ev, payload) => {
-                    let event_val = *ev as u32;
-                    if event_val == 0 {
-                        panic!("Discovered an event value of 0 while converting a LogReport to CSV log entries, which is totally uncool.\n{:#?}", log_report);
-                    }
-
+                LogEvent::EventWithPayload(ev, payload) => {
                     log_entries_buffer.push(LogEntry {
                         session_id,
                         segment_id: next_segment_id.into(),
                         segment_index,
                         tracer_id,
-                        data: LogEntryData::EventWithPayload(
-                            EventId::new(event_val),
-                            *payload as u32,
-                        ),
+                        data: LogEntryData::EventWithPayload(*ev, *payload),
                         receive_time,
                     });
                 }
@@ -266,7 +241,7 @@ fn add_log_report_to_entries(
 
 /// Returns the smallest available segment id
 fn add_owned_report_to_entries(
-    report: OwnedReport,
+    report: LogReport,
     session_id: SessionId,
     initial_segment_id: SegmentId,
     receive_time: DateTime<Utc>,
@@ -282,7 +257,7 @@ fn add_owned_report_to_entries(
                 session_id,
                 segment_id: next_segment_id.into(),
                 segment_index,
-                tracer_id: util::model::TracerId(tracer_id.get_raw()),
+                tracer_id,
                 data: LogEntryData::LogicalClock(
                     (clock_bucket.id).into(),
                     clock_bucket.count as u32,
@@ -300,8 +275,8 @@ fn add_owned_report_to_entries(
                         session_id,
                         segment_id: next_segment_id.into(),
                         segment_index,
-                        tracer_id: util::model::TracerId(tracer_id.get_raw()),
-                        data: LogEntryData::Event(EventId::new(ev.get_raw())),
+                        tracer_id,
+                        data: LogEntryData::Event(*ev),
                         receive_time,
                     });
                 }
@@ -310,8 +285,8 @@ fn add_owned_report_to_entries(
                         session_id,
                         segment_id: next_segment_id.into(),
                         segment_index,
-                        tracer_id: util::model::TracerId(tracer_id.get_raw()),
-                        data: LogEntryData::EventWithPayload(EventId::new(ev.get_raw()), *payload),
+                        tracer_id,
+                        data: LogEntryData::EventWithPayload(*ev, *payload),
                         receive_time,
                     });
                 }
@@ -330,6 +305,7 @@ fn add_owned_report_to_entries(
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
+        convert::TryInto,
         net::{Ipv4Addr, SocketAddrV4, TcpListener},
         sync::{
             atomic::{AtomicU16, AtomicU32, Ordering},
@@ -340,33 +316,36 @@ mod tests {
 
     use lazy_static::*;
 
-    use ekotrace::{ChunkedReporter, Tracer};
+    use ekotrace::{BulkReporter, ChunkedReporter, LogicalClock, Tracer};
 
     use super::*;
 
-    fn dummy_report(raw_main_tracer_id: i32) -> LogReport {
+    fn dummy_report(raw_main_tracer_id: u32) -> LogReport {
         LogReport {
-            tracer_id: raw_main_tracer_id,
+            tracer_id: raw_main_tracer_id.try_into().unwrap(),
             segments: vec![
-                LogSegment {
+                OwnedLogSegment {
                     clocks: vec![
-                        Clock {
-                            tracer_id: 31,
+                        LogicalClock {
+                            id: 31.try_into().unwrap(),
                             count: 14,
                         },
-                        Clock {
-                            tracer_id: 15,
+                        LogicalClock {
+                            id: 15.try_into().unwrap(),
                             count: 9,
                         },
                     ],
-                    events: vec![Event::Event(2653)],
+                    events: vec![LogEvent::Event(2653.try_into().unwrap())],
                 },
-                LogSegment {
-                    clocks: vec![Clock {
-                        tracer_id: 271,
+                OwnedLogSegment {
+                    clocks: vec![LogicalClock {
+                        id: 271.try_into().unwrap(),
                         count: 1,
                     }],
-                    events: vec![Event::Event(793), Event::Event(2384)],
+                    events: vec![
+                        LogEvent::Event(793.try_into().unwrap()),
+                        LogEvent::Event(2384.try_into().unwrap()),
+                    ],
                 },
             ],
             extension_bytes: vec![],
@@ -374,12 +353,12 @@ mod tests {
     }
 
     fn report_and_matching_entries(
-        raw_main_tracer_id: i32,
+        raw_main_tracer_id: u32,
         session_id: SessionId,
         start_segment_id: util::model::SegmentId,
         receive_time: DateTime<Utc>,
     ) -> (LogReport, Vec<LogEntry>) {
-        let main_tracer_id = (raw_main_tracer_id as u32).into();
+        let main_tracer_id = raw_main_tracer_id.try_into().unwrap();
 
         (
             dummy_report(raw_main_tracer_id),
@@ -389,7 +368,7 @@ mod tests {
                     segment_id: start_segment_id,
                     segment_index: 0,
                     tracer_id: main_tracer_id,
-                    data: LogEntryData::LogicalClock(31.into(), 14),
+                    data: LogEntryData::LogicalClock(31.try_into().unwrap(), 14),
                     receive_time,
                 },
                 LogEntry {
@@ -397,7 +376,7 @@ mod tests {
                     segment_id: start_segment_id,
                     segment_index: 1,
                     tracer_id: main_tracer_id,
-                    data: LogEntryData::LogicalClock(15.into(), 9),
+                    data: LogEntryData::LogicalClock(15.try_into().unwrap(), 9),
                     receive_time,
                 },
                 LogEntry {
@@ -405,7 +384,7 @@ mod tests {
                     segment_id: start_segment_id,
                     segment_index: 2,
                     tracer_id: main_tracer_id,
-                    data: LogEntryData::Event(EventId::new(2653)),
+                    data: LogEntryData::Event(2653.try_into().unwrap()),
                     receive_time,
                 },
                 LogEntry {
@@ -413,7 +392,7 @@ mod tests {
                     segment_id: (start_segment_id.0 + 1).into(),
                     segment_index: 0,
                     tracer_id: main_tracer_id,
-                    data: LogEntryData::LogicalClock(271.into(), 1),
+                    data: LogEntryData::LogicalClock(271.try_into().unwrap(), 1),
                     receive_time,
                 },
                 LogEntry {
@@ -421,7 +400,7 @@ mod tests {
                     segment_id: (start_segment_id.0 + 1).into(),
                     segment_index: 1,
                     tracer_id: main_tracer_id,
-                    data: LogEntryData::Event(EventId::new(793)),
+                    data: LogEntryData::Event(793.try_into().unwrap()),
                     receive_time,
                 },
                 LogEntry {
@@ -429,7 +408,7 @@ mod tests {
                     segment_id: (start_segment_id.0 + 1).into(),
                     segment_index: 2,
                     tracer_id: main_tracer_id,
-                    data: LogEntryData::Event(EventId::new(2384)),
+                    data: LogEntryData::Event(2384.try_into().unwrap()),
                     receive_time,
                 },
             ],
@@ -545,7 +524,7 @@ mod tests {
         {
             let mut lcm_log_report = [0u8; 1024];
             let lcm_bytes = log_report
-                .write_lcm(&mut lcm_log_report)
+                .write_bulk_bytes(&mut lcm_log_report)
                 .expect("Could not write log report as lcm");
             let client_addr = addrs[1];
             let socket =
@@ -589,7 +568,7 @@ mod tests {
 
         for e in found_log_entries.iter() {
             assert_eq!(session_id, e.session_id);
-            assert_eq!(log_report.tracer_id as u32, e.tracer_id.0);
+            assert_eq!(log_report.tracer_id, e.tracer_id);
         }
         h.join().expect("Couldn't join server handler thread");
     }
@@ -597,17 +576,17 @@ mod tests {
     const IN_SYSTEM_SNAPSHOT_BYTES_SIZE: usize = 256;
     const LOG_REPORT_BYTES_SIZE: usize = 512;
 
-    #[derive(Debug, Clone, Copy)]
-    enum EventOrEventWithPayload {
-        Event(ekotrace::EventId),
-        WithPayload(ekotrace::EventId, u32),
-    }
-
-    impl EventOrEventWithPayload {
+    trait HasEventId {
+        fn get_id(&self) -> ekotrace::EventId;
         fn get_raw_id(&self) -> u32 {
+            self.get_id().get_raw()
+        }
+    }
+    impl HasEventId for LogEvent {
+        fn get_id(&self) -> ekotrace::EventId {
             match self {
-                EventOrEventWithPayload::Event(id) => id.get_raw(),
-                EventOrEventWithPayload::WithPayload(id, _) => id.get_raw(),
+                LogEvent::Event(e) => *e,
+                LogEvent::EventWithPayload(e, _) => *e,
             }
         }
     }
@@ -653,9 +632,9 @@ mod tests {
             let tracer_a_id = ekotrace::TracerId::new(131).unwrap();
             let tracer_b_id = ekotrace::TracerId::new(141).unwrap();
             let tracer_c_id = ekotrace::TracerId::new(159).unwrap();
-            let event_foo = EventOrEventWithPayload::Event(ekotrace::EventId::new(7).unwrap());
-            let event_bar = EventOrEventWithPayload::Event(ekotrace::EventId::new(23).unwrap());
-            let event_baz = EventOrEventWithPayload::Event(ekotrace::EventId::new(29).unwrap());
+            let event_foo = LogEvent::Event(ekotrace::EventId::new(7).unwrap());
+            let event_bar = LogEvent::Event(ekotrace::EventId::new(23).unwrap());
+            let event_baz = LogEvent::Event(ekotrace::EventId::new(29).unwrap());
             const NUM_MESSAGES_FROM_A: usize = 11;
 
             let (network_done_sender, network_done_receiver) = crossbeam::bounded(0);
@@ -715,34 +694,30 @@ mod tests {
                 .expect("Could not read output file as csv log entries");
 
             assert!(found_log_entries.len() > 0);
-            let expected_direct_tracer_ids: HashSet<_> = [tracer_a_id, tracer_c_id]
-                .iter()
-                .map(|id| id.get_raw())
-                .collect();
-            let built_in_event_ids: HashSet<_> = ekotrace::EventId::INTERNAL_EVENTS
-                .iter()
-                .map(|id| id.get_raw())
-                .collect();
+            let expected_direct_tracer_ids: HashSet<_> =
+                [tracer_a_id, tracer_c_id].iter().copied().collect();
+            let built_in_event_ids: HashSet<_> =
+                ekotrace::EventId::INTERNAL_EVENTS.iter().collect();
             for e in found_log_entries {
                 assert_eq!(session_id, e.session_id);
-                assert!(expected_direct_tracer_ids.contains(&e.tracer_id.0));
+                assert!(expected_direct_tracer_ids.contains(&e.tracer_id));
                 match e.data {
                     LogEntryData::Event(event) => {
                         // Event bar is logged only on b, and thus lost
                         if event.get_raw() == event_bar.get_raw_id() {
                             panic!("How the heck did bar get ove there?");
                         }
-                        if e.tracer_id.0 == tracer_a_id.get_raw() {
+                        if e.tracer_id.get_raw() == tracer_a_id.get_raw() {
                             // Process A should only be writing about event foo or the tracer internal events
                             assert!(
                                 event.get_raw() == event_foo.get_raw_id()
-                                    || built_in_event_ids.contains(&event.get_raw())
+                                    || built_in_event_ids.contains(&event)
                             );
-                        } else if e.tracer_id.0 == tracer_c_id.get_raw() {
+                        } else if e.tracer_id.get_raw() == tracer_c_id.get_raw() {
                             // Process C should only be writing about event baz or the tracer internals events
                             assert!(
                                 event.get_raw() == event_baz.get_raw_id()
-                                    || built_in_event_ids.contains(&event.get_raw()),
+                                    || built_in_event_ids.contains(&event),
                                 "unexpected event for entry: {:?}",
                                 e
                             );
@@ -750,14 +725,12 @@ mod tests {
                     }
                     LogEntryData::EventWithPayload(_, _) => (),
                     LogEntryData::LogicalClock(tid, _count) => {
-                        if e.tracer_id.0 == tracer_a_id.get_raw() {
+                        if e.tracer_id == tracer_a_id {
                             // Process A should only know about itself, since it doesn't receive history from anyone else
-                            assert_eq!(tid.0, tracer_a_id.get_raw());
-                        } else if e.tracer_id.0 == tracer_c_id.get_raw() {
+                            assert_eq!(tid, tracer_a_id);
+                        } else if e.tracer_id == tracer_c_id {
                             // Process C should have clocks for itself and its direct precursor, B
-                            assert!(
-                                tid.0 == tracer_c_id.get_raw() || tid.0 == tracer_b_id.get_raw()
-                            );
+                            assert!(tid == tracer_c_id || tid == tracer_b_id);
                         }
                     }
                 }
@@ -805,8 +778,8 @@ mod tests {
             let mut net = proc_graph::Network::new();
             let tracer_a_id = ekotrace::TracerId::new(31).unwrap();
             let tracer_b_id = ekotrace::TracerId::new(41).unwrap();
-            let event_foo = EventOrEventWithPayload::Event(ekotrace::EventId::new(7).unwrap());
-            let event_bar = EventOrEventWithPayload::Event(ekotrace::EventId::new(23).unwrap());
+            let event_foo = LogEvent::Event(ekotrace::EventId::new(7).unwrap());
+            let event_bar = LogEvent::Event(ekotrace::EventId::new(23).unwrap());
             const NUM_MESSAGES_FROM_A: usize = 11;
 
             let (network_done_sender, network_done_receiver) = crossbeam::bounded(0);
@@ -854,26 +827,24 @@ mod tests {
                 .expect("Could not read output file as csv log entries");
 
             assert!(found_log_entries.len() > 0);
-            let expected_tracer_ids: HashSet<_> = [tracer_a_id, tracer_b_id]
-                .iter()
-                .map(|id| id.get_raw())
-                .collect();
+            let expected_tracer_ids: HashSet<_> =
+                [tracer_a_id, tracer_b_id].iter().copied().collect();
             let built_in_event_ids: HashSet<_> = ekotrace::EventId::INTERNAL_EVENTS
                 .iter()
                 .map(|id| id.get_raw())
                 .collect();
             for e in found_log_entries {
                 assert_eq!(session_id, e.session_id);
-                assert!(expected_tracer_ids.contains(&e.tracer_id.0));
+                assert!(expected_tracer_ids.contains(&e.tracer_id));
                 match e.data {
                     LogEntryData::Event(event) => {
-                        if e.tracer_id.0 == tracer_a_id.get_raw() {
+                        if e.tracer_id == tracer_a_id {
                             // Process A should only be writing about event foo or the tracer internal events
                             assert!(
                                 event.get_raw() == event_foo.get_raw_id()
                                     || built_in_event_ids.contains(&event.get_raw())
                             );
-                        } else if e.tracer_id.0 == tracer_b_id.get_raw() {
+                        } else if e.tracer_id == tracer_b_id {
                             // Process B should only be writing about event bar or the tracer internals events
                             assert!(
                                 event.get_raw() == event_bar.get_raw_id()
@@ -885,12 +856,12 @@ mod tests {
                     }
                     LogEntryData::EventWithPayload(_, _) => (),
                     LogEntryData::LogicalClock(tid, _count) => {
-                        if e.tracer_id.0 == tracer_a_id.get_raw() {
+                        if e.tracer_id == tracer_a_id {
                             // Process A should only know about itself, since it doesn't receive history from anyone else
-                            assert_eq!(tid.0, tracer_a_id.get_raw());
+                            assert_eq!(tid, tracer_a_id);
                         } else {
                             // Process B should have clocks for both process's tracer ids
-                            assert!(expected_tracer_ids.contains(&tid.0));
+                            assert!(expected_tracer_ids.contains(&tid));
                         }
                     }
                 }
@@ -939,15 +910,11 @@ mod tests {
             let tracer_a_id = ekotrace::TracerId::new(31).unwrap();
             let tracer_b_id = ekotrace::TracerId::new(41).unwrap();
             let foo_payload = 777;
-            let event_foo = EventOrEventWithPayload::WithPayload(
-                ekotrace::EventId::new(7).unwrap(),
-                foo_payload,
-            );
+            let event_foo =
+                LogEvent::EventWithPayload(ekotrace::EventId::new(7).unwrap(), foo_payload);
             let bar_payload = 490;
-            let event_bar = EventOrEventWithPayload::WithPayload(
-                ekotrace::EventId::new(23).unwrap(),
-                bar_payload,
-            );
+            let event_bar =
+                LogEvent::EventWithPayload(ekotrace::EventId::new(23).unwrap(), bar_payload);
 
             const NUM_MESSAGES_FROM_A: usize = 11;
 
@@ -996,19 +963,17 @@ mod tests {
                 .expect("Could not read output file as csv log entries");
 
             assert!(found_log_entries.len() > 0);
-            let expected_tracer_ids: HashSet<_> = [tracer_a_id, tracer_b_id]
-                .iter()
-                .map(|id| id.get_raw())
-                .collect();
+            let expected_tracer_ids: HashSet<_> =
+                [tracer_a_id, tracer_b_id].iter().copied().collect();
             for e in found_log_entries {
                 assert_eq!(session_id, e.session_id);
-                assert!(expected_tracer_ids.contains(&e.tracer_id.0));
+                assert!(expected_tracer_ids.contains(&e.tracer_id));
                 match e.data {
                     LogEntryData::Event(_) => (),
                     LogEntryData::EventWithPayload(event, payload) => {
-                        if event.get_raw() == event_foo.get_raw_id() {
+                        if event == event_foo.get_id() {
                             assert_eq!(foo_payload, payload);
-                        } else if event.get_raw() == event_bar.get_raw_id() {
+                        } else if event == event_bar.get_id() {
                             assert_eq!(bar_payload, payload);
                         } else {
                             // it's that the model implementation of
@@ -1018,12 +983,12 @@ mod tests {
                         }
                     }
                     LogEntryData::LogicalClock(tid, _count) => {
-                        if e.tracer_id.0 == tracer_a_id.get_raw() {
+                        if e.tracer_id == tracer_a_id {
                             // Process A should only know about itself, since it doesn't receive history from anyone else
-                            assert_eq!(tid.0, tracer_a_id.get_raw());
+                            assert_eq!(tid, tracer_a_id);
                         } else {
                             // Process B should have clocks for both process's tracer ids
-                            assert!(expected_tracer_ids.contains(&tid.0));
+                            assert!(expected_tracer_ids.contains(&tid));
                         }
                     }
                 }
@@ -1036,7 +1001,7 @@ mod tests {
         tracer_id: ekotrace::TracerId,
         n_messages: usize,
         collector_addr: SocketAddr,
-        per_iteration_event: Option<EventOrEventWithPayload>,
+        per_iteration_event: Option<LogEvent>,
         use_chunked_reporting: bool,
     ) -> impl Fn(
         HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
@@ -1050,8 +1015,8 @@ mod tests {
             let mut causal_history_blob = vec![0u8; IN_SYSTEM_SNAPSHOT_BYTES_SIZE];
             for _ in 0..n_messages {
                 match per_iteration_event {
-                    Some(EventOrEventWithPayload::Event(e)) => tracer.record_event(e),
-                    Some(EventOrEventWithPayload::WithPayload(e, payload)) => {
+                    Some(LogEvent::Event(e)) => tracer.record_event(e),
+                    Some(LogEvent::EventWithPayload(e, payload)) => {
                         tracer.record_event_with_payload(e, payload)
                     }
                     _ => (),
@@ -1068,38 +1033,28 @@ mod tests {
                 }
             }
 
+            let mut log_report_storage = vec![0u8; LOG_REPORT_BYTES_SIZE];
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
             if use_chunked_reporting {
-                let mut log_report_chunked_storage = vec![0u32; LOG_REPORT_BYTES_SIZE / 4];
                 let token = tracer
                     .start_chunked_report()
                     .expect("Could not start chunked report");
                 loop {
-                    let n_payload_bytes = tracer
-                        .write_next_report_chunk(&token, &mut log_report_chunked_storage)
+                    let log_report_bytes = tracer
+                        .write_next_report_chunk(&token, &mut log_report_storage)
                         .expect("Could not write report chunk");
-                    if n_payload_bytes == 0 {
+                    if log_report_bytes == 0 {
                         break;
                     }
                     socket
-                        .send_to(
-                            unsafe {
-                                std::slice::from_raw_parts(
-                                    log_report_chunked_storage.as_slice().as_ptr() as *const u32
-                                        as *const u8,
-                                    16 + n_payload_bytes,
-                                )
-                            },
-                            collector_addr,
-                        )
+                        .send_to(&log_report_storage[..log_report_bytes], collector_addr)
                         .expect("Could not send log report to server");
                 }
                 tracer
                     .finish_chunked_report(token)
                     .expect("Could not finish chunked report");
             } else {
-                let mut log_report_storage = vec![0u8; LOG_REPORT_BYTES_SIZE];
                 let log_report_bytes = tracer
                     .report(&mut log_report_storage)
                     .expect("Could not write log report in broadcaster");
@@ -1121,7 +1076,7 @@ mod tests {
         tracer_id: ekotrace::TracerId,
         stop_relaying_after_receiving_n_messages: usize,
         send_log_report_every_n_messages: Option<SendLogReportEveryFewMessages>,
-        per_iteration_event: Option<EventOrEventWithPayload>,
+        per_iteration_event: Option<LogEvent>,
         use_chunked_reporting: bool,
     ) -> impl Fn(
         HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
@@ -1136,7 +1091,6 @@ mod tests {
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
             let mut log_report_storage = vec![0u8; LOG_REPORT_BYTES_SIZE];
-            let mut log_report_chunked_storage = vec![0u32; LOG_REPORT_BYTES_SIZE / 4];
 
             let mut causal_history_blob = vec![0u8; IN_SYSTEM_SNAPSHOT_BYTES_SIZE];
             let mut messages_received = 0;
@@ -1148,8 +1102,8 @@ mod tests {
                     }
                 };
                 match per_iteration_event {
-                    Some(EventOrEventWithPayload::Event(e)) => tracer.record_event(e),
-                    Some(EventOrEventWithPayload::WithPayload(e, payload)) => {
+                    Some(LogEvent::Event(e)) => tracer.record_event(e),
+                    Some(LogEvent::EventWithPayload(e, payload)) => {
                         tracer.record_event_with_payload(e, payload)
                     }
                     _ => (),
@@ -1182,24 +1136,15 @@ mod tests {
                                 .start_chunked_report()
                                 .expect("Could not start chunked report");
                             loop {
-                                let n_payload_bytes = tracer
-                                    .write_next_report_chunk(
-                                        &token,
-                                        &mut log_report_chunked_storage,
-                                    )
+                                let log_report_bytes = tracer
+                                    .write_next_report_chunk(&token, &mut log_report_storage)
                                     .expect("Could not write report chunk");
-                                if n_payload_bytes == 0 {
+                                if log_report_bytes == 0 {
                                     break;
                                 }
                                 socket
                                     .send_to(
-                                        unsafe {
-                                            std::slice::from_raw_parts(
-                                                log_report_chunked_storage.as_ptr() as *const u32
-                                                    as *const u8,
-                                                16 + n_payload_bytes,
-                                            )
-                                        },
+                                        &log_report_storage[..log_report_bytes],
                                         collector_addr,
                                     )
                                     .expect("Could not send log report to server");
@@ -1226,7 +1171,7 @@ mod tests {
         tracer_id: ekotrace::TracerId,
         stop_after_receiving_n_messages: usize,
         send_log_report_every_n_messages: SendLogReportEveryFewMessages,
-        per_iteration_event: Option<EventOrEventWithPayload>,
+        per_iteration_event: Option<LogEvent>,
         stopped_sender: crossbeam::Sender<()>,
         use_chunked_reporting: bool,
     ) -> impl Fn(
@@ -1242,7 +1187,6 @@ mod tests {
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
             let mut log_report_storage = vec![0u8; LOG_REPORT_BYTES_SIZE];
-            let mut log_report_chunked_storage = vec![0u32; LOG_REPORT_BYTES_SIZE / 4];
 
             let mut messages_received = 0;
             while messages_received < stop_after_receiving_n_messages {
@@ -1256,8 +1200,8 @@ mod tests {
                     .merge_snapshot(&message)
                     .expect("Could not merge in history");
                 match per_iteration_event {
-                    Some(EventOrEventWithPayload::Event(e)) => tracer.record_event(e),
-                    Some(EventOrEventWithPayload::WithPayload(e, payload)) => {
+                    Some(LogEvent::Event(e)) => tracer.record_event(e),
+                    Some(LogEvent::EventWithPayload(e, payload)) => {
                         tracer.record_event_with_payload(e, payload)
                     }
                     _ => (),
@@ -1269,21 +1213,15 @@ mod tests {
                             .start_chunked_report()
                             .expect("Could not start chunked report");
                         loop {
-                            let n_payload_bytes = tracer
-                                .write_next_report_chunk(&token, &mut log_report_chunked_storage)
+                            let log_report_bytes = tracer
+                                .write_next_report_chunk(&token, &mut log_report_storage)
                                 .expect("Could not write report chunk");
-                            if n_payload_bytes == 0 {
+                            if log_report_bytes == 0 {
                                 break;
                             }
                             socket
                                 .send_to(
-                                    unsafe {
-                                        std::slice::from_raw_parts(
-                                            log_report_chunked_storage.as_ptr() as *const u32
-                                                as *const u8,
-                                            16 + n_payload_bytes,
-                                        )
-                                    },
+                                    &log_report_storage[..log_report_bytes],
                                     send_log_report_every_n_messages.collector_addr,
                                 )
                                 .expect("Could not send log report to server");

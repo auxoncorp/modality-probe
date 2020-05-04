@@ -294,13 +294,19 @@ pub unsafe fn ekotrace_merge_fixed_size_snapshot(
 /// The Ekotrace instance pointer must be non-null and point
 /// to an initialized instance operating in a single-threaded
 /// fashion.
+#[allow(invalid_value)]
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_now(tracer: *mut Ekotrace<'static>) -> EkotraceInstant {
     let tracer = match tracer.as_mut() {
         Some(t) => t,
         None => {
             return EkotraceInstant {
-                clock: LogicalClock { id: 0, count: 0 },
+                clock: LogicalClock {
+                    // This is intentionally generating an invalid value,
+                    // per the documentation above
+                    id: core::mem::transmute(0u32),
+                    count: 0,
+                },
                 event_count: 0,
             }
         }

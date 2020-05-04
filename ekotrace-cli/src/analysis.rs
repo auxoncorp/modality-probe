@@ -130,11 +130,11 @@ impl ClusteredNodeFmt for lib::SegmentGraphNode {
     }
 
     fn cluster_id(&self) -> u32 {
-        self.tracer_id.0
+        self.tracer_id.get_raw()
     }
 
     fn cluster_label(&self) -> String {
-        format!("Tracer {}", self.tracer_id.0)
+        format!("Tracer {}", self.tracer_id.get_raw())
     }
 }
 
@@ -143,7 +143,11 @@ impl ClusteredNodeFmt for model::LogEntry {
         match self.data {
             model::LogEntryData::LogicalClock(tracer_id, count) => format!(
                 "{}.{}.{}\\nLogical Clock: Tracer {} => {}",
-                self.session_id.0, self.segment_id.0, self.segment_index, tracer_id.0, count
+                self.session_id.0,
+                self.segment_id.0,
+                self.segment_index,
+                tracer_id.get_raw(),
+                count
             ),
             model::LogEntryData::Event(eid) => format!(
                 "{}.{}.{}\\nEvent: {}",
@@ -164,11 +168,11 @@ impl ClusteredNodeFmt for model::LogEntry {
     }
 
     fn cluster_id(&self) -> u32 {
-        self.tracer_id.0
+        self.tracer_id.get_raw()
     }
 
     fn cluster_label(&self) -> String {
-        format!("Tracer {}", self.tracer_id.0)
+        format!("Tracer {}", self.tracer_id.get_raw())
     }
 }
 

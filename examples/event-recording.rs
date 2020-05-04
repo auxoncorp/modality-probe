@@ -12,7 +12,7 @@
 mod tracing_ids;
 
 use crate::tracing_ids::*;
-use ekotrace::{try_record, try_record_w_u32, Ekotrace, Tracer};
+use ekotrace::{try_record, try_record_w_u32, BulkReporter, Ekotrace};
 use std::net::UdpSocket;
 use std::{thread, time};
 

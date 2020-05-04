@@ -7,9 +7,7 @@ use crate::history::DynamicHistory;
 use crate::ReportError;
 use crate::TracerId;
 use core::borrow::Borrow;
-use core::convert::{TryFrom, TryInto};
-use core::mem::{align_of, size_of};
-use static_assertions::_core::mem::MaybeUninit;
+use core::mem::{align_of, size_of, MaybeUninit};
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert_eq, const_assert_ne};
 
 /// struct that represents a single report chunk
@@ -18,10 +16,11 @@ use static_assertions::{assert_eq_align, assert_eq_size, const_assert_eq, const_
 /// Report chunks have a maximum size of 256 bytes
 /// Report chunks ought to be aligned to 4 since their
 /// payload (in the most common log data type case) is
-/// often best interpreted as 4-byte u32s.
+/// often best interpreted as 4-byte u32s. However,
+/// this alignment is not mandatory.
 ///
 /// Numeric fields are encoded in little endian format.
-#[repr(C, align(4))]
+#[repr(C, align(1))]
 pub struct WireChunk {
     /// Fixed-sized always-fully-initialized header portion of the WireChunk format
     pub header: WireChunkHeader,
@@ -29,9 +28,10 @@ pub struct WireChunk {
     /// after a write_next_report_chunk up to offset `header.n_chunk_payload_bytes`.
     pub payload: [MaybeUninit<u8>; MAX_PAYLOAD_BYTES_PER_CHUNK],
 }
+assert_eq_size!([u32; MAX_CHUNK_U32_WORDS], WireChunk);
 
 /// Fixed-sized always-initialized header portion of the WireChunk format
-#[repr(C, align(4))]
+#[repr(C, align(1))]
 pub struct WireChunkHeader {
     /// A magical (constant) value used as a hint about the
     /// data encoded in this pile of bytes.
@@ -89,8 +89,8 @@ pub const MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK: usize =
 assert_eq_size!([u8; MAX_CHUNK_BYTES], WireChunk);
 assert_eq_size!([u32; MAX_CHUNK_U32_WORDS], WireChunk);
 const_assert_eq!(MAX_CHUNK_BYTES, size_of::<WireChunk>());
-const_assert_eq!(4, align_of::<WireChunk>());
-const_assert_eq!(4, align_of::<WireChunkHeader>());
+const_assert_eq!(1, align_of::<WireChunk>());
+const_assert_eq!(1, align_of::<WireChunkHeader>());
 const_assert_eq!(16, size_of::<WireChunkHeader>());
 
 const DATA_TYPE_LOG: u8 = 0b0001;
@@ -118,10 +118,10 @@ impl ChunkPayloadDataType {
 impl From<&mut [u32; MAX_CHUNK_U32_WORDS]> for &mut WireChunk {
     fn from(exact_array_ref: &mut [u32; MAX_CHUNK_U32_WORDS]) -> Self {
         // We consider this relatively safe because WireChunk is a largely
-        // uninterpreted pile of bytes fields all with alignments <= 4,
+        // uninterpreted pile of bytes fields all with alignments == 1,
         // and we know from static assertions that the sizes line up.
         assert_eq_size!([u32; MAX_CHUNK_U32_WORDS], WireChunk);
-        assert_eq_align!([u32; MAX_CHUNK_U32_WORDS], WireChunk);
+        assert_eq_align!(u8, WireChunk);
         unsafe { &mut *(exact_array_ref.as_mut_ptr() as *mut WireChunk) }
     }
 }
@@ -129,10 +129,10 @@ impl From<&mut [u32; MAX_CHUNK_U32_WORDS]> for &mut WireChunk {
 impl From<&[u32; MAX_CHUNK_U32_WORDS]> for &WireChunk {
     fn from(exact_array_ref: &[u32; MAX_CHUNK_U32_WORDS]) -> Self {
         // We consider this relatively safe because WireChunk is a largely
-        // uninterpreted pile of bytes fields all with alignments <= 4,
+        // uninterpreted pile of bytes fields all with alignments == 1,
         // and we know from static assertions that the sizes line up.
         assert_eq_size!([u32; MAX_CHUNK_U32_WORDS], WireChunk);
-        assert_eq_align!([u32; MAX_CHUNK_U32_WORDS], WireChunk);
+        assert_eq_align!(u8, WireChunk);
         unsafe { &*(exact_array_ref.as_ptr() as *const WireChunk) }
     }
 }
@@ -140,37 +140,6 @@ impl From<&[u32; MAX_CHUNK_U32_WORDS]> for &WireChunk {
 /// The slice input was an incorrect length.
 #[derive(Debug, PartialEq, Eq)]
 pub struct IncorrectLengthSlice;
-
-impl TryFrom<&mut [u32]> for &mut WireChunk {
-    type Error = IncorrectLengthSlice;
-
-    fn try_from(slice: &mut [u32]) -> Result<Self, Self::Error> {
-        if slice.len() < MAX_CHUNK_U32_WORDS {
-            return Err(IncorrectLengthSlice);
-        }
-        // Considered safe to pointer-transmute between slices and arrays
-        // if the slice's length is >= the array's length, as checked above.
-        let exact_array_ref: &mut [u32; MAX_CHUNK_U32_WORDS] = unsafe {
-            &mut *(slice[..MAX_CHUNK_U32_WORDS].as_mut_ptr() as *mut [_; MAX_CHUNK_U32_WORDS])
-        };
-        Ok(exact_array_ref.into())
-    }
-}
-
-impl TryFrom<&[u32]> for &WireChunk {
-    type Error = IncorrectLengthSlice;
-
-    fn try_from(slice: &[u32]) -> Result<Self, Self::Error> {
-        if slice.len() < MAX_CHUNK_U32_WORDS {
-            return Err(IncorrectLengthSlice);
-        }
-        // Considered safe to pointer-transmute between slices and arrays
-        // if the slice's length is >= the array's length, as checked above.
-        let exact_array_ref: &[u32; MAX_CHUNK_U32_WORDS] =
-            unsafe { &*(slice[..MAX_CHUNK_U32_WORDS].as_ptr() as *const [_; MAX_CHUNK_U32_WORDS]) };
-        Ok(exact_array_ref.into())
-    }
-}
 
 /// The things that can go wrong when writing a chunked report.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -210,15 +179,14 @@ pub trait ChunkedReporter {
 
     /// Write up to MAX_CHUNK_BYTES bytes of the chunked format into the provided buffer.
     ///
-    /// Return number of *payload* bytes written on success. This does not count the
-    /// 16-byte chunk framing header written into the start of every chunk.
+    /// Return number of bytes written on success.
     ///
     /// A successful return value of 0 bytes indicates that no payload bytes could be written
     /// because all chunks for this report transaction have been handled.
     fn write_next_report_chunk(
         &mut self,
         token: &ChunkedReportToken,
-        destination: &mut [u32],
+        destination: &mut [u8],
     ) -> Result<usize, ChunkedReportError>;
 
     /// Idempotent cessation and cleanup of a (possibly error'd out)
@@ -276,7 +244,7 @@ impl<'data> ChunkedReporter for DynamicHistory<'data> {
     fn write_next_report_chunk(
         &mut self,
         token: &ChunkedReportToken,
-        destination: &mut [u32],
+        destination: &mut [u8],
     ) -> Result<usize, ChunkedReportError> {
         if !self.chunked_report_state.is_report_in_progress() {
             return Err(ChunkedReportError::NoChunkedReportInProgress);
@@ -287,18 +255,6 @@ impl<'data> ChunkedReporter for DynamicHistory<'data> {
             ));
         }
         let current_chunk_index = self.chunked_report_state.n_written_chunks;
-
-        let destination_chunk: &mut WireChunk =
-            destination.try_into().map_err(|_e: IncorrectLengthSlice| {
-                ChunkedReportError::ReportError(ReportError::InsufficientDestinationSize)
-            })?;
-
-        destination_chunk.header.fingerprint = chunk_framing_fingerprint();
-        destination_chunk.header.location_id = self.tracer_id.get_raw().to_le_bytes();
-        destination_chunk.header.chunk_group_id = token.group_id.to_le_bytes();
-        destination_chunk.header.chunk_index = current_chunk_index.to_le_bytes();
-        destination_chunk.header.chunk_data_type = ChunkPayloadDataType::Log.data_type_le_byte();
-        destination_chunk.header.reserved = 0;
 
         let (log_index, is_last_chunk, items_for_current_chunk) = {
             let curr_log_len = self.compact_log.len();
@@ -318,46 +274,47 @@ impl<'data> ChunkedReporter for DynamicHistory<'data> {
         let n_chunk_payload_bytes = items_for_current_chunk * size_of::<CompactLogItem>();
         debug_assert!(n_chunk_payload_bytes <= core::u8::MAX as usize);
 
-        destination_chunk.header.is_last_chunk = u8::from(is_last_chunk).to_le_bytes()[0];
-        destination_chunk.header.n_chunk_payload_bytes = n_chunk_payload_bytes as u8;
-
-        let payload_destination: &mut [u32; MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK] = unsafe {
-            // Allow casting to a higher-alignment here because we know that this field is 4-byte
-            // aligned within the struct (specifically, at the 16 byte offset) and that the struct
-            // itself is backed by a 4-byte aligned slice of u32s
-            #[allow(clippy::cast_ptr_alignment)]
-            &mut *(destination_chunk.payload.as_mut_ptr()
-                as *mut [u32; MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK])
-        };
-        let log_slice =
-            &self.compact_log.as_slice()[log_index..log_index + items_for_current_chunk];
-        if cfg!(target_endian = "little") {
-            payload_destination[..items_for_current_chunk].copy_from_slice(unsafe {
-                // Safe to do this sort of slice reinterpretation because CompactLogItem
-                // is repr(transparent) and backed by a u32. Since the cfg check above
-                // demonstrates that the endian-ness of the wire format and the current device
-                // line up, no further conversion is necessary.
-                core::slice::from_raw_parts(
-                    log_slice.as_ptr() as *const u32,
-                    items_for_current_chunk,
-                )
-            })
-        } else {
-            for (item, dest) in log_slice.iter().zip(payload_destination.iter_mut()) {
-                *dest = item.raw().to_le();
-            }
+        if n_chunk_payload_bytes == 0 {
+            self.chunked_report_state.n_written_chunks = current_chunk_index.saturating_add(1);
+            return Ok(0);
         }
 
-        // Zero out all the non-populated-payload bytes as an extra safety precaution
-        // and as a hint to debugging if something isn't respecting the
-        if items_for_current_chunk < MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK {
-            for dest in payload_destination[items_for_current_chunk..].iter_mut() {
-                *dest = 0;
-            }
+        let required_bytes = size_of::<WireChunkHeader>() + n_chunk_payload_bytes;
+        if destination.len() < required_bytes {
+            return Err(ChunkedReportError::ReportError(
+                ReportError::InsufficientDestinationSize,
+            ));
+        }
+
+        let log_slice =
+            &self.compact_log.as_slice()[log_index..log_index + items_for_current_chunk];
+
+        assert_eq_align!(u8, WireChunkHeader);
+        debug_assert_eq!(
+            0,
+            destination.as_ptr() as usize % align_of::<WireChunkHeader>()
+        );
+        let header = unsafe { &mut *(destination.as_mut_ptr() as *mut WireChunkHeader) };
+        *header = WireChunkHeader {
+            fingerprint: chunk_framing_fingerprint(),
+            location_id: self.tracer_id.get_raw().to_le_bytes(),
+            chunk_group_id: token.group_id.to_le_bytes(),
+            chunk_index: current_chunk_index.to_le_bytes(),
+            chunk_data_type: ChunkPayloadDataType::Log.data_type_le_byte(),
+            reserved: 0,
+            is_last_chunk: u8::from(is_last_chunk).to_le_bytes()[0],
+            n_chunk_payload_bytes: n_chunk_payload_bytes as u8,
+        };
+        let payload_destination = &mut destination[size_of::<WireChunkHeader>()..];
+
+        if super::write_log_as_little_endian_bytes(payload_destination, log_slice).is_err() {
+            return Err(ChunkedReportError::ReportError(
+                ReportError::InsufficientDestinationSize,
+            ));
         }
 
         self.chunked_report_state.n_written_chunks = current_chunk_index.saturating_add(1);
-        Ok(n_chunk_payload_bytes)
+        Ok(required_bytes)
     }
 
     fn finish_chunked_report(
@@ -426,20 +383,31 @@ impl NativeChunk {
 
     /// Produce an owned natively-usable interpretation of a chunked report
     /// from the barely-structured on-the-wire representation
-    pub fn from_wire_chunk<B: Borrow<WireChunk>>(
-        borrow_wire_chunk: B,
+    pub fn from_wire_bytes<B: Borrow<[u8]>>(
+        borrow_wire_bytes: B,
     ) -> Result<NativeChunk, ParseChunkFromWireError> {
-        let wire_chunk = borrow_wire_chunk.borrow();
-        if wire_chunk.header.fingerprint != chunk_framing_fingerprint() {
+        let wire_bytes = borrow_wire_bytes.borrow();
+        if wire_bytes.len() < size_of::<WireChunkHeader>() {
+            return Err(ParseChunkFromWireError::MissingHeader);
+        }
+        assert_eq_align!(u8, WireChunkHeader);
+        debug_assert_eq!(
+            0,
+            wire_bytes.as_ptr() as usize % align_of::<WireChunkHeader>()
+        );
+        let wire_header = unsafe { &*(wire_bytes.as_ptr() as *const WireChunkHeader) };
+        if wire_header.fingerprint != chunk_framing_fingerprint() {
             return Err(ParseChunkFromWireError::InvalidFingerprint);
         }
-        let raw_location_id = u32::from_le_bytes(wire_chunk.header.location_id);
-        let chunk_group_id = u16::from_le_bytes(wire_chunk.header.chunk_group_id);
-        let chunk_index = u16::from_le_bytes(wire_chunk.header.chunk_index);
+        let raw_location_id = u32::from_le_bytes(wire_header.location_id);
+        let chunk_group_id = u16::from_le_bytes(wire_header.chunk_group_id);
+        let chunk_index = u16::from_le_bytes(wire_header.chunk_index);
         let location_id = TracerId::new(raw_location_id)
             .ok_or_else(|| ParseChunkFromWireError::InvalidTracerId(raw_location_id))?;
-        let is_last_chunk = u8::from_le_bytes([wire_chunk.header.n_chunk_payload_bytes]) != 0;
-        let reserved = u8::from_le_bytes([wire_chunk.header.reserved]);
+        let is_last_chunk = u8::from_le_bytes([wire_header.n_chunk_payload_bytes]) != 0;
+        let reserved = u8::from_le_bytes([wire_header.reserved]);
+        let n_payload_bytes = u8::from_le_bytes([wire_header.n_chunk_payload_bytes]);
+        let data_type_byte = u8::from_le_bytes([wire_header.chunk_data_type]);
 
         let header = NativeChunkHeader {
             location_id,
@@ -448,8 +416,10 @@ impl NativeChunk {
             is_last_chunk,
             reserved,
         };
-        let n_payload_bytes = u8::from_le_bytes([wire_chunk.header.n_chunk_payload_bytes]);
-        let data_type_byte = u8::from_le_bytes([wire_chunk.header.chunk_data_type]);
+        let payload_bytes = &wire_bytes[size_of::<WireChunkHeader>()..];
+        if payload_bytes.len() < usize::from(n_payload_bytes) {
+            return Err(ParseChunkFromWireError::IncompletePayload);
+        }
         Ok(match data_type_byte {
             DATA_TYPE_LOG => {
                 // Assuming init is always safe when initializing an array of MaybeUninit values
@@ -457,32 +427,13 @@ impl NativeChunk {
                     MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK] =
                     unsafe { MaybeUninit::uninit().assume_init() };
                 let n_payload_items = n_payload_bytes / (size_of::<CompactLogItem>() as u8);
-
-                if cfg!(target_endian = "little") {
-                    // Allow casting to a higher-alignment here because we know that the payload
-                    // field is 4-byte aligned in the struct (specifically, at the 16 byte offset)
-                    #[allow(clippy::cast_ptr_alignment)]
-                    payload[..usize::from(n_payload_items)].copy_from_slice(unsafe {
-                        core::slice::from_raw_parts(
-                            wire_chunk.payload.as_ptr() as *const u32 as *const CompactLogItem
-                                as *const MaybeUninit<CompactLogItem>,
-                            usize::from(n_payload_items),
-                        )
-                    })
-                } else {
-                    let source_slice = unsafe {
-                        // Interpret those payload bytes in groups of 4 bytes, which lines up
-                        // with the size of CompactLogItems (and their backing u32s)
-                        core::slice::from_raw_parts(
-                            wire_chunk.payload.as_ptr() as *const [u8; 4],
-                            usize::from(n_payload_items),
-                        )
-                    };
-                    for (source_item, dest) in source_slice.iter().zip(payload.iter_mut()) {
-                        *dest = MaybeUninit::new(CompactLogItem::from_raw(u32::from_le_bytes(
-                            *source_item,
-                        )));
-                    }
+                for (source, dest) in payload_bytes
+                    .chunks_exact(size_of::<CompactLogItem>())
+                    .zip(payload.iter_mut())
+                {
+                    *dest = MaybeUninit::new(CompactLogItem::from_raw(u32::from_le_bytes([
+                        source[0], source[1], source[2], source[3],
+                    ])));
                 }
                 NativeChunk::Log {
                     header,
@@ -496,8 +447,8 @@ impl NativeChunk {
                 // Assuming init is always safe when initializing an array of MaybeUninit values
                 let mut payload: [MaybeUninit<u8>; MAX_PAYLOAD_BYTES_PER_CHUNK] =
                     unsafe { MaybeUninit::uninit().assume_init() };
-                for (sink, source) in payload.iter_mut().zip(wire_chunk.payload.iter()) {
-                    *sink = *source;
+                for (source, sink) in payload_bytes.iter().zip(payload.iter_mut()) {
+                    *sink = MaybeUninit::new(*source);
                 }
                 NativeChunk::Extension {
                     header,
@@ -514,11 +465,16 @@ impl NativeChunk {
     }
 }
 
-/// Everything that can go wrong converting a WireChunk to a NativeChunk
+/// Everything that can go wrong converting bytes off the wire to a NativeChunk
 #[derive(Debug, PartialEq, Eq)]
 pub enum ParseChunkFromWireError {
     /// The fingerprint didn't match expectations
     InvalidFingerprint,
+    /// There weren't enough bytes for a full header
+    MissingHeader,
+    /// There weren't enough payload bytes (based on
+    /// expectations from inspecting the header).
+    IncompletePayload,
     /// The data type was not one of the supported varieties
     UnsupportedDataType(u8),
     /// The tracer id didn't follow the rules for being
@@ -652,23 +608,24 @@ mod tests {
     #[test]
     fn chunked_report_happy_path_single_chunk() {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
-        let mut report_transmission_buffer = [0u32; MAX_CHUNK_U32_WORDS];
+        let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
         let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
         let token = eko
             .start_chunked_report()
             .expect("Could not start chunked report");
-        let n_payload_bytes = eko
+        let n_report_bytes = eko
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
             .expect("Could not write chunk");
         // For now, we expect just a single logical clock (the local one) to be written in the log since no events were recorded
         // and no other logical histories merged in.
-        assert_eq!(8, n_payload_bytes);
-        let n_payload_bytes = eko
+        let expected_size_bytes = size_of::<WireChunkHeader>() + size_of::<LogicalClock>();
+        assert_eq!(expected_size_bytes, n_report_bytes);
+        let n_report_bytes = eko
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
             .expect("Could not write chunk");
-        assert_eq!(0, n_payload_bytes);
+        assert_eq!(0, n_report_bytes);
         eko.finish_chunked_report(token)
             .expect("Could not finish chunked report")
     }
@@ -676,7 +633,7 @@ mod tests {
     #[test]
     fn chunked_report_happy_path_multi_chunk() {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
-        let mut report_transmission_buffer = [0u32; MAX_CHUNK_U32_WORDS];
+        let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
         let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
@@ -686,21 +643,23 @@ mod tests {
         let token = eko
             .start_chunked_report()
             .expect("Could not start chunked report");
-        let n_payload_bytes = eko
+        let n_report_bytes = eko
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
             .expect("Could not write chunk");
         // For now, we expect a single logical clock (the local one) to be written plus most of the events above
-        assert_eq!(MAX_PAYLOAD_BYTES_PER_CHUNK, n_payload_bytes);
-        let n_payload_bytes = eko
+        // completely filling the chunk
+        assert_eq!(MAX_CHUNK_BYTES, n_report_bytes);
+        let n_report_bytes = eko
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
             .expect("Could not write chunk");
         // Two events shouldn't have been able to fit in the prior report
-        assert_eq!(8, n_payload_bytes);
-        let n_payload_bytes = eko
+        let expected_size_bytes = size_of::<WireChunkHeader>() + 2 * size_of::<CompactLogItem>();
+        assert_eq!(expected_size_bytes, n_report_bytes);
+        let n_report_bytes = eko
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
             .expect("Could not write chunk");
         // Should signal done-ness with a 0-payload-written return
-        assert_eq!(0, n_payload_bytes);
+        assert_eq!(0, n_report_bytes);
         eko.finish_chunked_report(token)
             .expect("Could not finish chunked report")
     }
@@ -710,7 +669,7 @@ mod tests {
         let mut other_transmission_buffer = [0u8; 1024];
 
         let tracer_id_foo = 1u32.try_into().expect("Invalid tracer id");
-        let mut report_transmission_buffer = [0u32; MAX_CHUNK_U32_WORDS];
+        let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage_foo = [0u8; 4096];
         let mut eko_foo = Ekotrace::new_with_storage(&mut storage_foo, tracer_id_foo)
             .expect("Could not initialize ekotrace");
@@ -781,16 +740,17 @@ mod tests {
         // Recorded events are silently dropped
         eko_foo.record_event(EventId::new(271).unwrap());
 
-        let n_payload_bytes = eko_foo
+        let n_report_bytes = eko_foo
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
             .expect("Could not write chunk");
         // For now, we expect just a single logical clock (the local one) to be written in the log since no events were recorded
         // and no other logical histories merged in.
-        assert_eq!(8, n_payload_bytes);
-        let n_payload_bytes = eko_foo
+        let expected_size_bytes = size_of::<WireChunkHeader>() + size_of::<LogicalClock>();
+        assert_eq!(expected_size_bytes, n_report_bytes);
+        let n_report_bytes = eko_foo
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
             .expect("Could not write chunk");
-        assert_eq!(0, n_payload_bytes);
+        assert_eq!(0, n_report_bytes);
         eko_foo
             .finish_chunked_report(token)
             .expect("Could not finish chunked report");
@@ -825,7 +785,7 @@ mod tests {
     #[test]
     fn chunked_no_report_in_progress_causes_error() {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
-        let mut report_transmission_buffer = [0u32; MAX_CHUNK_U32_WORDS];
+        let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
         let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
@@ -844,7 +804,7 @@ mod tests {
     #[test]
     fn chunked_report_invalid_destination_buffer_size() {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
-        let mut report_transmission_buffer = [0u32; MAX_CHUNK_U32_WORDS];
+        let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
         let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
@@ -856,13 +816,21 @@ mod tests {
             eko.write_next_report_chunk(&token, &mut report_transmission_buffer[0..0])
                 .unwrap_err()
         );
+        // Starts to work when you give it a minimally-sized buffer
+        let expected_size_bytes = size_of::<WireChunkHeader>() + size_of::<LogicalClock>();
         assert_eq!(
-            ChunkedReportError::ReportError(ReportError::InsufficientDestinationSize),
+            expected_size_bytes,
             eko.write_next_report_chunk(
                 &token,
-                &mut report_transmission_buffer[0..MAX_CHUNK_U32_WORDS - 1]
+                &mut report_transmission_buffer[..expected_size_bytes]
             )
-            .unwrap_err()
+            .unwrap()
+        );
+        // No buffer size is required when there's no remaining report chunk to write
+        assert_eq!(
+            0,
+            eko.write_next_report_chunk(&token, &mut report_transmission_buffer[0..0])
+                .unwrap()
         );
         eko.finish_chunked_report(token)
             .expect("Could not finish chunked report");
@@ -887,7 +855,7 @@ mod tests {
     #[test]
     fn chunked_report_attempt_multiple_finishes_causes_error() {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
-        let mut report_transmission_buffer = [0u32; MAX_CHUNK_U32_WORDS];
+        let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
         let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
@@ -900,13 +868,13 @@ mod tests {
         let unrelated_token = ChunkedReportToken {
             group_id: token.group_id + 20,
         };
-        let _n_payload_bytes = eko
+        let _n_report_bytes = eko
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
             .expect("Could not write chunk");
-        let n_payload_bytes = eko
+        let n_report_bytes = eko
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
             .expect("Could not write chunk");
-        assert_eq!(0, n_payload_bytes);
+        assert_eq!(0, n_report_bytes);
         eko.finish_chunked_report(token)
             .expect("Could not finish chunked report");
         assert_eq!(
@@ -952,8 +920,8 @@ mod tests {
                 raw_tracer_id in id_tests::gen_raw_tracer_id(),
                 event_lists in gen_lists_of_events(10, 513)) {
             let tracer_id = raw_tracer_id.try_into().expect("Invalid tracer id");
-            let mut report_transmission_buffer: Vec<u32> = Vec::new();
-            report_transmission_buffer.resize(MAX_CHUNK_U32_WORDS, 0u32);
+            let mut report_transmission_buffer: Vec<u8> = Vec::new();
+            report_transmission_buffer.resize(MAX_CHUNK_BYTES, 0u8);
             let mut storage = [0u8; 4096];
             let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id).expect("Could not initialize ekotrace");
             let mut seen_group_ids = HashSet::new();
@@ -979,13 +947,12 @@ mod tests {
                 let mut last_seen_chunk_index = None;
                 let token = eko.start_chunked_report().expect("Could not start chunked report");
                 loop {
-                    let n_payload_bytes = eko.write_next_report_chunk(&token, &mut report_transmission_buffer).expect("Could not write chunk");
-                    if n_payload_bytes == 0 {
+                    let n_report_bytes = eko.write_next_report_chunk(&token, &mut report_transmission_buffer).expect("Could not write chunk");
+                    if n_report_bytes == 0 {
                         break;
                     }
-                    let buffer_slice: &[u32] = &report_transmission_buffer[..];
-                    let wire_chunk : &WireChunk = buffer_slice.try_into().unwrap();
-                    let native_chunk = NativeChunk::from_wire_chunk(wire_chunk).unwrap();
+                    let buffer_slice: &[u8] = &report_transmission_buffer[..n_report_bytes];
+                    let native_chunk = NativeChunk::from_wire_bytes(buffer_slice).unwrap();
                     assert_eq!(tracer_id, native_chunk.header().location_id);
                     let curr_group_id = native_chunk.header().chunk_group_id;
                     if !has_checked_group_id {
@@ -1014,7 +981,7 @@ mod tests {
                 let segment = &log_segments[0];
                 let logical_clocks: Vec<crate::LogicalClock> = segment.iter_clocks().collect();
                 assert_eq!(1, logical_clocks.len());
-                assert_eq!(tracer_id.get_raw(), logical_clocks[0].id);
+                assert_eq!(tracer_id, logical_clocks[0].id);
                 assert_eq!(produced_report_index, logical_clocks[0].count as usize);
                 let found_events: Vec<LogEvent> = segment.iter_events().map(|r| r.expect("Should be able to interpret event")).collect();
                 let mut expected_events = Vec::new();

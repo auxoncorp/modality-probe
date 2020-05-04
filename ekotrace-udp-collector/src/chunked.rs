@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use std::collections::{BTreeMap, HashMap};
+use util::alloc_log_report::LogReport;
 
 pub struct ChunkHandlingConfig {
     pub max_total_open_time: chrono::Duration,
@@ -33,20 +34,9 @@ impl ChunkHandler {
         }
     }
 
-    pub fn add_incoming_chunk(&mut self, message_words: &[u32], receive_time: DateTime<Utc>) {
+    pub fn add_incoming_chunk(&mut self, message_bytes: &[u8], receive_time: DateTime<Utc>) {
         use ekotrace::report::chunked::*;
-        use std::convert::TryInto;
-        let wire_chunk: &WireChunk = match message_words.try_into() {
-            Ok(wc) => wc,
-            Err(_e) => {
-                eprintln!(
-                    "Invalid message size for report chunk. Message words len: {}",
-                    message_words.len()
-                );
-                return;
-            }
-        };
-        let native_chunk = match NativeChunk::from_wire_chunk(wire_chunk) {
+        let native_chunk = match NativeChunk::from_wire_bytes(message_bytes) {
             Ok(nc) => nc,
             Err(e) => {
                 eprintln!(
@@ -86,7 +76,7 @@ impl ChunkHandler {
         }
     }
 
-    pub fn materialize_completed_reports(&mut self) -> Vec<(OwnedReport, DateTime<Utc>)> {
+    pub fn materialize_completed_reports(&mut self) -> Vec<(LogReport, DateTime<Utc>)> {
         let mut completed_report_keys = Vec::new();
         for ((tracer_id, report_group_id), chunks) in self.open_reports.iter() {
             let mut prior_chunk_index = None;
@@ -130,7 +120,8 @@ impl ChunkHandler {
                     break;
                 }
             }
-            match OwnedReport::try_from_log(key.0, &log_payload_items) {
+            // N.B. - If we decide we want to log extension bytes, will need to pipe them through here
+            match LogReport::try_from_log(key.0, &log_payload_items, &[]) {
                 Ok(report) => {
                     complete_reports.push((report, latest_receive_time.unwrap_or_else(Utc::now)));
                 }
@@ -192,40 +183,6 @@ impl ChunkHandler {
             self.open_reports.remove(&k);
         }
     }
-}
-
-// TODO - this may be moveable to util, possibly eventually replacing LogReport
-pub struct OwnedReport {
-    pub tracer_id: ekotrace::TracerId,
-    pub segments: Vec<OwnedLogSegment>,
-}
-
-impl OwnedReport {
-    pub fn try_from_log(
-        tracer_id: ekotrace::TracerId,
-        log: &[ekotrace::compact_log::CompactLogItem],
-    ) -> Result<Self, ekotrace::compact_log::LogEventInterpretationError> {
-        let mut segments = Vec::new();
-        for segment in ekotrace::compact_log::LogSegmentIterator::new(tracer_id, log) {
-            let mut events = Vec::new();
-            for event_result in segment.iter_events() {
-                events.push(event_result?);
-            }
-            segments.push(OwnedLogSegment {
-                clocks: segment.iter_clocks().collect(),
-                events,
-            })
-        }
-        Ok(OwnedReport {
-            tracer_id,
-            segments,
-        })
-    }
-}
-
-pub struct OwnedLogSegment {
-    pub clocks: Vec<ekotrace::LogicalClock>,
-    pub events: Vec<ekotrace::compact_log::LogEvent>,
 }
 
 pub fn matches_chunk_fingerprint(message_bytes: &[u8]) -> bool {
