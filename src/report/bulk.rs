@@ -186,8 +186,6 @@ pub enum ParseBulkFromWireError {
     /// There weren't enough payload bytes (based on
     /// expectations from inspecting the header).
     IncompletePayload,
-    /// The data type was not one of the supported varieties
-    UnsupportedDataType(u8),
     /// The tracer id didn't follow the rules for being
     /// a valid ekotrace-location-specifying TracerId
     InvalidTracerId(u32),

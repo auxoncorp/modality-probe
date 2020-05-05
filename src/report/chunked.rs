@@ -53,14 +53,14 @@ pub struct WireChunkHeader {
     pub chunk_group_id: [u8; 2],
     /// In what ordinal position does this chunk's payload live relative to the other chunks.
     pub chunk_index: [u8; 2],
-    /// Does this chunk contain log data (0001) or extension data (0010)?
-    pub chunk_data_type: u8,
+    /// Does this chunk's payload contain log data (0001) or extension data (0010)?
+    pub payload_data_type: u8,
     /// Is this chunk the last chunk in the report (0001) or not (0000)?
     pub is_last_chunk: u8,
     /// Reserved for future enhancements and to make the payload 4-byte aligned
     ///
     /// Note that in general, the three bytes of data currently encoding
-    /// `chunk_data_type`, `is_last_chunk`, and `reserved`, are ripe for future
+    /// `payload_data_type`, `is_last_chunk`, and `reserved`, are ripe for future
     /// compaction for bit-field use.
     pub reserved: u8,
     /// How many of the payload bytes are populated?
@@ -196,11 +196,13 @@ pub trait ChunkedReporter {
 
 #[derive(Debug)]
 pub(crate) struct ChunkedReportState {
-    /// Use the None-value to indicate "no chunked report in progress"
+    /// Use the `false` value to indicate "no chunked report in progress"
     is_report_in_progress: bool,
     /// Indicate the group id of the most recently or currently
     /// active report.
     pub most_recent_group_id: u16,
+    /// How many chunks have been written for the report in progress
+    /// already.
     pub n_written_chunks: u16,
 }
 
@@ -296,7 +298,7 @@ impl<'data> ChunkedReporter for DynamicHistory<'data> {
             location_id: self.tracer_id.get_raw().to_le_bytes(),
             chunk_group_id: token.group_id.to_le_bytes(),
             chunk_index: current_chunk_index.to_le_bytes(),
-            chunk_data_type: ChunkPayloadDataType::Log.data_type_le_byte(),
+            payload_data_type: ChunkPayloadDataType::Log.data_type_le_byte(),
             reserved: 0,
             is_last_chunk: u8::from(is_last_chunk).to_le_bytes()[0],
             n_chunk_payload_bytes: n_chunk_payload_bytes as u8,
@@ -403,7 +405,7 @@ impl NativeChunk {
         let is_last_chunk = u8::from_le_bytes([wire_header.n_chunk_payload_bytes]) != 0;
         let reserved = u8::from_le_bytes([wire_header.reserved]);
         let n_payload_bytes = u8::from_le_bytes([wire_header.n_chunk_payload_bytes]);
-        let data_type_byte = u8::from_le_bytes([wire_header.chunk_data_type]);
+        let data_type_byte = u8::from_le_bytes([wire_header.payload_data_type]);
 
         let header = NativeChunkHeader {
             location_id,
@@ -416,6 +418,7 @@ impl NativeChunk {
         if payload_bytes.len() < usize::from(n_payload_bytes) {
             return Err(ParseChunkFromWireError::IncompletePayload);
         }
+        let payload_bytes = &payload_bytes[..usize::from(n_payload_bytes)];
         Ok(match data_type_byte {
             DATA_TYPE_LOG => {
                 // Assuming init is always safe when initializing an array of MaybeUninit values
@@ -431,6 +434,8 @@ impl NativeChunk {
                         source[0], source[1], source[2], source[3],
                     ])));
                 }
+                debug_assert!(core::mem::size_of_val(&payload) >= usize::from(n_payload_bytes));
+                debug_assert!(core::mem::size_of_val(&payload) >= payload_bytes.len());
                 NativeChunk::Log {
                     header,
                     contents: NativeChunkLogContents {
@@ -899,13 +904,13 @@ mod tests {
     }
 
     prop_compose! {
-        fn gen_events(max_events: usize)(vec in prop::collection::vec(gen_event(), 0..max_events)) -> Vec<LogEvent> {
+        fn gen_events(max_events: usize)(vec in proptest::collection::vec(gen_event(), 0..max_events)) -> Vec<LogEvent> {
             vec
         }
     }
 
     prop_compose! {
-        fn gen_lists_of_events(max_lists: usize, max_events: usize)(vec in prop::collection::vec(gen_events(max_events), 0..max_lists)) -> Vec<Vec<LogEvent>> {
+        fn gen_lists_of_events(max_lists: usize, max_events: usize)(vec in proptest::collection::vec(gen_events(max_events), 0..max_lists)) -> Vec<Vec<LogEvent>> {
             vec
         }
     }

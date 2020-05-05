@@ -483,7 +483,7 @@ mod test {
                 {
                     prop_assert_eq!(session_id, line.session_id.into());
                     prop_assert_eq!(segment_id, line.segment_id.into());
-                    prop_assert_eq!(segment_index, line.segment_index.into());
+                    prop_assert_eq!(segment_index, u32::from(line.segment_index));
                 }
 
                 Err(err) =>
