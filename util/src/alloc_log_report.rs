@@ -205,7 +205,7 @@ mod tests {
 
     prop_compose! {
         fn gen_log_report()
-            (tracer_id in arb_tracer_id(), segments in gen_segments(257), extension_bytes in gen_extension_bytes(200)) -> LogReport {
+            (tracer_id in arb_tracer_id(), segments in gen_segments(25), extension_bytes in gen_extension_bytes(200)) -> LogReport {
             LogReport {
                 tracer_id,
                 segments,

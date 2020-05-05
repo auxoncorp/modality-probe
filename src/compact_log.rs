@@ -319,8 +319,11 @@ pub enum LogEvent {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod log_tests {
     use super::*;
+    use crate::id::id_tests::*;
+    use proptest::prelude::*;
+    use proptest::std_facade::*;
 
     /// Compact event
     fn ce(e: u32) -> CompactLogItem {
@@ -426,5 +429,136 @@ mod tests {
             iter.next().unwrap().unwrap()
         );
         assert!(iter.next().is_none());
+    }
+
+    prop_compose! {
+        pub(crate) fn gen_events(max_events: usize)(vec in proptest::collection::vec(gen_log_event(), 0..max_events)) -> Vec<LogEvent> {
+            vec
+        }
+    }
+
+    pub(crate) fn gen_log_event() -> impl Strategy<Value = LogEvent> {
+        prop_oneof![
+            gen_raw_internal_event_id()
+                .prop_map(|id| LogEvent::Event(EventId::new_internal(id).unwrap())),
+            (gen_raw_internal_event_id(), any::<u32>()).prop_map(|(id, payload)| {
+                LogEvent::EventWithPayload(EventId::new_internal(id).unwrap(), payload)
+            }),
+            gen_raw_user_event_id().prop_map(|id| LogEvent::Event(EventId::new(id).unwrap())),
+            (gen_raw_user_event_id(), any::<u32>()).prop_map(|(id, payload)| {
+                LogEvent::EventWithPayload(EventId::new(id).unwrap(), payload)
+            }),
+        ]
+    }
+
+    prop_compose! {
+        fn gen_clock()(id in gen_tracer_id(), count in proptest::num::u32::ANY) -> LogicalClock {
+            LogicalClock { id, count }
+        }
+    }
+
+    pub(crate) fn events_to_log(events: Vec<LogEvent>) -> Vec<CompactLogItem> {
+        let mut log = Vec::with_capacity(events.len() * 2);
+        for event in events {
+            match event {
+                LogEvent::Event(e) => {
+                    log.push(CompactLogItem::event(e));
+                }
+                LogEvent::EventWithPayload(e, p) => {
+                    let (e, p) = CompactLogItem::event_with_payload(e, p);
+                    log.push(e);
+                    log.push(p);
+                }
+            }
+        }
+        log
+    }
+
+    pub(crate) fn clocks_to_log(clocks: Vec<LogicalClock>) -> Vec<CompactLogItem> {
+        let mut log = Vec::with_capacity(clocks.len() * 2);
+        for clock in clocks {
+            let (id, count) = CompactLogItem::clock(clock);
+            log.push(id);
+            log.push(count);
+        }
+        log
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub(crate) struct OwnedLogSegment {
+        pub clocks: Vec<LogicalClock>,
+        pub events: Vec<LogEvent>,
+    }
+
+    prop_compose! {
+        fn gen_segment(max_clocks: usize, max_events: usize)
+            (clocks in prop::collection::vec(gen_clock(), 1..max_clocks),
+                events in prop::collection::vec(gen_log_event(), 0..max_events)) -> OwnedLogSegment {
+            OwnedLogSegment {
+                clocks,
+                events,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn gen_segments(
+            max_length: usize,
+            max_clocks_per_segment: usize,
+            max_events_per_segment: usize)
+            (vec in prop::collection::vec(gen_segment(max_clocks_per_segment, max_events_per_segment), 0..max_length))
+                -> Vec<OwnedLogSegment> {
+            vec
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn gen_compact_log(
+            max_segments: usize,
+            max_clocks_per_segment: usize,
+            max_events_per_segment: usize)
+            (segments in gen_segments(max_segments, max_clocks_per_segment, max_events_per_segment)) -> Vec<CompactLogItem> {
+                let mut log = Vec::with_capacity(max_segments * (max_clocks_per_segment + max_events_per_segment));
+                for segment in segments {
+                    log.extend(clocks_to_log(segment.clocks));
+                    log.extend(events_to_log(segment.events));
+                }
+                log
+            }
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_log_iterable(tracer_id in gen_tracer_id(), log in gen_compact_log(25, 257, 514)) {
+            // Note the max segments, max clocks-per-segment and max events-per-segment values
+            // above are pulled completely from a hat
+            let seg_iter = LogSegmentIterator::new(tracer_id, &log);
+            let mut n:u32 = 0;
+            for seg in seg_iter {
+                for c in seg.iter_clocks() {
+                    n = n.saturating_add(c.count);
+                }
+                for e in seg.iter_events() {
+                    let _log_event = e.expect("Should be able to interpret all the things");
+                    n = n.saturating_sub(1);
+                }
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_events_in_log_round_trippable(tracer_id in gen_tracer_id(), events in gen_events(514)) {
+            let log = events_to_log(events.clone());
+            let mut seg_iter = LogSegmentIterator::new(tracer_id, &log);
+            if events.is_empty() {
+                assert!(seg_iter.next().is_none());
+            } else {
+                let seg = seg_iter.next().unwrap();
+                let found_events:Vec<LogEvent> = seg.iter_events().map(|event_result| event_result.expect("Could not iterate through events correctly")).collect();
+                assert_eq!(events, found_events);
+                assert!(seg_iter.next().is_none());
+            }
+        }
     }
 }

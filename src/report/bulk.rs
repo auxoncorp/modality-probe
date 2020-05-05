@@ -191,10 +191,44 @@ pub enum ParseBulkFromWireError {
     InvalidTracerId(u32),
 }
 
-// TODO - pick a better fingerprint value
-const BULK_FRAMING_FINGERPRINT_SOURCE: u32 = 2_718_281_828;
+const BULK_FRAMING_FINGERPRINT_SOURCE: u32 = 0x45_42_4C_4B; // EBLK
 /// Little endian representation of the chunk format's chunk message
 /// fingerprint.
 pub fn bulk_framing_fingerprint() -> [u8; 4] {
     BULK_FRAMING_FINGERPRINT_SOURCE.to_le_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compact_log::log_tests::*;
+    use crate::id::id_tests::*;
+    use proptest::prelude::*;
+    use proptest::std_facade::*;
+
+    proptest! {
+        #[test]
+        fn round_trip_bulk_report(location_id in gen_tracer_id(), log in gen_compact_log(25, 257, 514), ext_bytes in proptest::collection::vec(any::<u8>(), 0..1029)) {
+            // Note the max segments, max clocks-per-segment and max events-per-segment values
+            // above are pulled completely from a hat and just should try to be small enough to fit
+            // in our destination buffer.
+            const MEGABYTE: usize = 1024*1024;
+            let mut destination = vec![0u8; MEGABYTE];
+            let n_report_bytes = BulkReportSourceComponents { location_id, log: &log }.report_with_extension(&mut destination, ExtensionBytes(&ext_bytes)).unwrap();
+            let (found_id, found_log_bytes, found_ext_bytes) = try_bulk_from_wire_bytes(&destination[..n_report_bytes]).unwrap();
+            assert_eq!(found_id, location_id);
+            assert_eq!(found_ext_bytes.0, ext_bytes.as_slice());
+            let mut found_log = Vec::new();
+            assert_eq!(0, found_log_bytes.len() % 4);
+            for item_bytes in found_log_bytes.chunks_exact(4) {
+                found_log.push(CompactLogItem::from_raw(u32::from_le_bytes([
+                    item_bytes[0],
+                    item_bytes[1],
+                    item_bytes[2],
+                    item_bytes[3],
+                ])));
+            }
+            assert_eq!(found_log, log);
+        }
+    }
 }

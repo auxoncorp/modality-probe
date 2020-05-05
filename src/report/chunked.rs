@@ -67,8 +67,7 @@ pub struct WireChunkHeader {
     pub n_chunk_payload_bytes: u8,
 }
 
-// TODO - pick a better fingerprint value
-const CHUNK_FRAMING_FINGERPRINT_SOURCE: u32 = 3_141_592_653;
+const CHUNK_FRAMING_FINGERPRINT_SOURCE: u32 = 0x45_43_4E_4B; // ECNK
 /// Little endian representation of the chunk format's chunk message
 /// fingerprint.
 pub fn chunk_framing_fingerprint() -> [u8; 4] {
@@ -304,12 +303,8 @@ impl<'data> ChunkedReporter for DynamicHistory<'data> {
             n_chunk_payload_bytes: n_chunk_payload_bytes as u8,
         };
         let payload_destination = &mut destination[size_of::<WireChunkHeader>()..];
-
-        if super::write_log_as_little_endian_bytes(payload_destination, log_slice).is_err() {
-            return Err(ChunkedReportError::ReportError(
-                ReportError::InsufficientDestinationSize,
-            ));
-        }
+        super::write_log_as_little_endian_bytes(payload_destination, log_slice)
+            .map_err(ChunkedReportError::ReportError)?;
 
         self.chunked_report_state.n_written_chunks = current_chunk_index.saturating_add(1);
         Ok(required_bytes)
@@ -517,16 +512,18 @@ pub struct NativeChunkLogContents {
 
 impl PartialEq for NativeChunkLogContents {
     fn eq(&self, other: &Self) -> bool {
-        self.payload
-            .iter()
-            .take(usize::from(self.n_chunk_payload_items))
-            .zip(
-                other
-                    .payload
-                    .iter()
-                    .take(usize::from(other.n_chunk_payload_items)),
-            )
-            .all(|(s, o)| unsafe { s.assume_init() == o.assume_init() })
+        self.n_chunk_payload_items == other.n_chunk_payload_items
+            && self
+                .payload
+                .iter()
+                .take(usize::from(self.n_chunk_payload_items))
+                .zip(
+                    other
+                        .payload
+                        .iter()
+                        .take(usize::from(other.n_chunk_payload_items)),
+                )
+                .all(|(s, o)| unsafe { s.assume_init() == o.assume_init() })
     }
 }
 
@@ -560,16 +557,18 @@ pub struct NativeChunkExtensionContents {
 
 impl PartialEq for NativeChunkExtensionContents {
     fn eq(&self, other: &Self) -> bool {
-        self.payload
-            .iter()
-            .take(usize::from(self.n_chunk_payload_bytes))
-            .zip(
-                other
-                    .payload
-                    .iter()
-                    .take(usize::from(other.n_chunk_payload_bytes)),
-            )
-            .all(|(s, o)| unsafe { s.assume_init() == o.assume_init() })
+        self.n_chunk_payload_bytes == other.n_chunk_payload_bytes
+            && self
+                .payload
+                .iter()
+                .take(usize::from(self.n_chunk_payload_bytes))
+                .zip(
+                    other
+                        .payload
+                        .iter()
+                        .take(usize::from(other.n_chunk_payload_bytes)),
+                )
+                .all(|(s, o)| unsafe { s.assume_init() == o.assume_init() })
     }
 }
 
@@ -592,6 +591,7 @@ impl NativeChunkExtensionContents {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compact_log::log_tests::*;
     use crate::compact_log::LogEvent;
     use crate::id::*;
     use crate::*;
@@ -886,27 +886,6 @@ mod tests {
             ChunkedReportError::NoChunkedReportInProgress,
             eko.finish_chunked_report(unrelated_token).unwrap_err()
         );
-    }
-
-    fn gen_event() -> impl Strategy<Value = LogEvent> {
-        prop_oneof![
-            id_tests::gen_raw_internal_event_id()
-                .prop_map(|id| LogEvent::Event(EventId::new_internal(id).unwrap())),
-            (id_tests::gen_raw_internal_event_id(), any::<u32>()).prop_map(|(id, payload)| {
-                LogEvent::EventWithPayload(EventId::new_internal(id).unwrap(), payload)
-            }),
-            id_tests::gen_raw_user_event_id()
-                .prop_map(|id| LogEvent::Event(EventId::new(id).unwrap())),
-            (id_tests::gen_raw_user_event_id(), any::<u32>()).prop_map(|(id, payload)| {
-                LogEvent::EventWithPayload(EventId::new(id).unwrap(), payload)
-            }),
-        ]
-    }
-
-    prop_compose! {
-        fn gen_events(max_events: usize)(vec in proptest::collection::vec(gen_event(), 0..max_events)) -> Vec<LogEvent> {
-            vec
-        }
     }
 
     prop_compose! {

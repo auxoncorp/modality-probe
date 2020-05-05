@@ -357,6 +357,12 @@ pub(crate) mod id_tests {
     }
 
     prop_compose! {
+        pub(crate) fn gen_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> TracerId {
+            raw_id.try_into().unwrap()
+        }
+    }
+
+    prop_compose! {
         fn gen_raw_invalid_tracer_id()(raw_id in (TracerId::MAX_ID+1)..core::u32::MAX) -> u32 {
             raw_id
         }
