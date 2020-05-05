@@ -42,7 +42,7 @@ typedef struct ekotrace_instant {
     uint32_t event_count;
 } ekotrace_instant;
 
-typedef uint32_t chunked_report_token;
+typedef uint16_t chunked_report_token;
 
 typedef enum {
     /*
@@ -323,7 +323,7 @@ ekotrace_instant ekotrace_now(ekotrace *ekotrace);
  * until all available chunks have been written with  `ekotrace_write_next_report_chunk`
  * and `ekotrace_finish_chunked_report` called.
  */
-size_t ekotrace_start_chunked_report(ekotrace *ekotrace, chunked_report_token * out_report_token);
+size_t ekotrace_start_chunked_report(ekotrace *ekotrace, chunked_report_token *out_report_token);
 
 /*
  * Write up to 1 chunk of a report into
@@ -339,7 +339,7 @@ size_t ekotrace_start_chunked_report(ekotrace *ekotrace, chunked_report_token * 
  * populated by the `ekotrace_start_chunked_report` call
  * at the start of this chunked report.
  */
-size_t ekotrace_write_next_report_chunk(ekotrace *ekotrace, chunked_report_token * report_token, uint8_t *log_report_destination, size_t log_report_destination_bytes, size_t * out_written_bytes);
+size_t ekotrace_write_next_report_chunk(ekotrace *ekotrace, chunked_report_token *report_token, uint8_t *log_report_destination, size_t log_report_destination_bytes, size_t *out_written_bytes);
 
 /*
  * Necessary clean-up and finishing step at the end
@@ -349,7 +349,7 @@ size_t ekotrace_write_next_report_chunk(ekotrace *ekotrace, chunked_report_token
  * populated by the `ekotrace_start_chunked_report` call
  * at the start of this chunked report.
  */
-size_t ekotrace_finish_chunked_report(ekotrace *ekotrace, chunked_report_token * report_token);
+size_t ekotrace_finish_chunked_report(ekotrace *ekotrace, chunked_report_token *report_token);
 
 #ifdef __cplusplus
 } // extern "C"

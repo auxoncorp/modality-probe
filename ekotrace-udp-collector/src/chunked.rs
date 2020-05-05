@@ -15,15 +15,15 @@ impl Default for ChunkHandlingConfig {
         }
     }
 }
+type ReportGroupId = u16;
+type ReportKey = (ekotrace::TracerId, ReportGroupId);
+type ChunkIndex = u16;
+type ChunksByIndexMap =
+    BTreeMap<ChunkIndex, (ekotrace::report::chunked::NativeChunk, DateTime<Utc>)>;
 
 pub struct ChunkHandler {
     config: ChunkHandlingConfig,
-
-    #[allow(clippy::type_complexity)]
-    open_reports: HashMap<
-        (ekotrace::TracerId, u16),
-        BTreeMap<u16, (ekotrace::report::chunked::NativeChunk, DateTime<Utc>)>,
-    >,
+    open_reports: HashMap<ReportKey, ChunksByIndexMap>,
 }
 
 impl ChunkHandler {
@@ -50,7 +50,10 @@ impl ChunkHandler {
             native_chunk.header().location_id,
             native_chunk.header().chunk_group_id,
         );
-        let entry = self.open_reports.entry(key).or_insert_with(BTreeMap::new);
+        let entry = self
+            .open_reports
+            .entry(key)
+            .or_insert_with(ChunksByIndexMap::new);
         if let Some((extant_chunk, _prior_recv_time)) =
             entry.get(&native_chunk.header().chunk_index)
         {

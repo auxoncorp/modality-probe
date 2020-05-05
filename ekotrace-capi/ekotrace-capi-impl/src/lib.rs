@@ -324,6 +324,11 @@ pub unsafe fn ekotrace_now(tracer: *mut Ekotrace<'static>) -> EkotraceInstant {
     };
     tracer.now()
 }
+// ChunkedReportToken is expressed as a uint16_t in ekotrace.h ,
+// so let's be extra sure that the sizes and alignment match up
+use static_assertions::{assert_eq_align, assert_eq_size};
+assert_eq_size!(u16, ChunkedReportToken);
+assert_eq_align!(u16, ChunkedReportToken);
 
 /// Prepare to write a chunked report.
 ///
