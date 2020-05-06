@@ -959,7 +959,7 @@ mod tests {
                 let log_segments: Vec<crate::compact_log::LogSegment> = crate::compact_log::LogSegmentIterator::new(tracer_id, &gathered_log_items).collect();
                 assert_eq!(1, log_segments.len(), "expect a single log segment of clocks followed by many events. Log items looked like: {:?}", &gathered_log_items);
                 let segment = &log_segments[0];
-                let logical_clocks: Vec<crate::LogicalClock> = segment.iter_clocks().collect();
+                let logical_clocks: Vec<crate::LogicalClock> = segment.iter_clocks().map(|r| r.unwrap()).collect();
                 assert_eq!(1, logical_clocks.len());
                 assert_eq!(tracer_id, logical_clocks[0].id);
                 assert_eq!(produced_report_index, logical_clocks[0].count as usize);

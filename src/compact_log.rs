@@ -11,7 +11,6 @@
 //! the location where the log was generated.
 use super::{EventId, LogicalClock, TracerId};
 use core::convert::TryInto;
-use core::num::NonZeroU32;
 use fixed_slice_vec::FixedSliceVec;
 
 const CLOCK_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
@@ -92,7 +91,7 @@ impl CompactLogItem {
     /// Unset that top bit to get the original tracer id back out
     #[inline]
     pub(crate) fn interpret_as_logical_clock_tracer_id(self) -> u32 {
-        self.0 & 0b0111_1111_1111_1111_1111_1111_1111_1111
+        self.0 & !CLOCK_MASK
     }
 }
 impl core::fmt::Debug for CompactLogItem {
@@ -233,22 +232,38 @@ pub struct LogSegmentLogicalClockIterator<'a> {
 }
 
 impl<'a> Iterator for LogSegmentLogicalClockIterator<'a> {
-    type Item = LogicalClock;
+    type Item = Result<LogicalClock, LogicalClockInterpretationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining_clock_region.len() < 2 {
+        if self.remaining_clock_region.is_empty() {
             return None;
         }
+        if self.remaining_clock_region.len() == 1 {
+            let raw_id = self.remaining_clock_region[0].interpret_as_logical_clock_tracer_id();
+            return match TracerId::new(raw_id) {
+                Some(id) => Some(Err(LogicalClockInterpretationError::ClockMissingCount(id))),
+                None => Some(Err(LogicalClockInterpretationError::InvalidTracerId(
+                    raw_id,
+                ))),
+            };
+        }
+
         let (curr, remainder) = self.remaining_clock_region.split_at(2);
         self.remaining_clock_region = remainder;
-        Some(LogicalClock {
-            // N.B. Currently relying on the fact that these are internally-managed
-            // clocks to ensure their validity.
-            id: TracerId(unsafe {
-                NonZeroU32::new_unchecked(curr[0].interpret_as_logical_clock_tracer_id())
-            }),
+        let raw_id = curr[0].interpret_as_logical_clock_tracer_id();
+        let id = match TracerId::new(raw_id) {
+            Some(id) => id,
+            None => {
+                return Some(Err(LogicalClockInterpretationError::InvalidTracerId(
+                    raw_id,
+                )))
+            }
+        };
+
+        Some(Ok(LogicalClock {
+            id,
             count: curr[1].raw(),
-        })
+        }))
     }
 }
 
@@ -316,6 +331,162 @@ pub enum LogEvent {
     Event(EventId),
     /// An event id paired with a data payload
     EventWithPayload(EventId, u32),
+}
+
+/// An item in the log, fully materialized
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum LogItem {
+    /// A logical clock
+    Clock(LogicalClock),
+    /// An event, with or without a payload
+    LogEvent(LogEvent),
+}
+
+/// An iterator adapter that produces fully expanded `LogItem`s by interpreting an iterator over
+/// `CompactLogItem`s
+pub struct LogItemIterator<I> {
+    inner: I,
+    is_done: bool,
+}
+
+impl<I> LogItemIterator<I>
+where
+    I: Iterator<Item = CompactLogItem>,
+{
+    /// Create an iterator adapter that produces fully expanded `LogItem`s by interpreting an iterator over
+    /// `CompactLogItem`s
+    pub fn new(compact_log_item_iterator: I) -> Self {
+        LogItemIterator {
+            inner: compact_log_item_iterator,
+            is_done: false,
+        }
+    }
+}
+/// Converting from compact log to logical clocks can fail if
+/// the compact log was created wrong. Here's how.
+#[derive(Debug, PartialEq, Eq)]
+pub enum LogicalClockInterpretationError {
+    /// The id was not in the allowed ekotrace::TracerId range
+    InvalidTracerId(u32),
+    /// A logical clock id was found, but the count-bearing
+    /// log item expected next was not present. This may happen when iterating
+    /// over an incomplete or incorrectly segmented slice of compact log items.
+    ClockMissingCount(TracerId),
+}
+
+/// The sanity checks that might fail when interpreting the compact log format
+/// into a concrete stream of items (clocks and events).
+#[derive(Debug)]
+pub enum LogItemInterpretationError {
+    /// What might fail when interpreting the compact log format
+    /// into events.
+    LogEventInterpretationError(LogEventInterpretationError),
+    /// What might fail when interpreting the compact log format
+    /// into clocks.
+    LogicalClockInterpretationError(LogicalClockInterpretationError),
+}
+
+impl From<LogEventInterpretationError> for LogItemInterpretationError {
+    fn from(e: LogEventInterpretationError) -> Self {
+        LogItemInterpretationError::LogEventInterpretationError(e)
+    }
+}
+
+impl From<LogicalClockInterpretationError> for LogItemInterpretationError {
+    fn from(e: LogicalClockInterpretationError) -> Self {
+        LogItemInterpretationError::LogicalClockInterpretationError(e)
+    }
+}
+
+impl<I> Iterator for LogItemIterator<I>
+where
+    I: Iterator<Item = CompactLogItem>,
+{
+    type Item = Result<LogItem, LogItemInterpretationError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.is_done {
+            return None;
+        }
+        let compact = match self.inner.next() {
+            Some(compact) => compact,
+            None => {
+                self.is_done = true;
+                return None;
+            }
+        };
+
+        if compact.has_clock_bit_set() {
+            let raw_id = compact.interpret_as_logical_clock_tracer_id();
+            let id = match TracerId::new(raw_id) {
+                Some(id) => id,
+                None => {
+                    self.is_done = true;
+                    return Some(Err(
+                        LogItemInterpretationError::LogicalClockInterpretationError(
+                            LogicalClockInterpretationError::InvalidTracerId(raw_id),
+                        ),
+                    ));
+                }
+            };
+            match self.inner.next() {
+                Some(count) => Some(Ok(LogItem::Clock(LogicalClock {
+                    id,
+                    count: count.raw(),
+                }))),
+                None => {
+                    self.is_done = true;
+                    Some(Err(
+                        LogItemInterpretationError::LogicalClockInterpretationError(
+                            LogicalClockInterpretationError::ClockMissingCount(id),
+                        ),
+                    ))
+                }
+            }
+        } else {
+            if compact.has_event_with_payload_bit_set() {
+                let event_id = compact.raw() & !EVENT_WITH_PAYLOAD_MASK;
+                let event_id: EventId = match event_id.try_into() {
+                    Ok(id) => id,
+                    Err(_) => {
+                        self.is_done = true;
+                        return Some(Err(
+                            LogItemInterpretationError::LogEventInterpretationError(
+                                LogEventInterpretationError::InvalidEventId(event_id),
+                            ),
+                        ));
+                    }
+                };
+                match self.inner.next() {
+                    Some(payload) => Some(Ok(LogItem::LogEvent(LogEvent::EventWithPayload(
+                        event_id,
+                        payload.raw(),
+                    )))),
+                    None => {
+                        self.is_done = true;
+                        Some(Err(
+                            LogItemInterpretationError::LogEventInterpretationError(
+                                LogEventInterpretationError::EventMissingPayload(event_id),
+                            ),
+                        ))
+                    }
+                }
+            } else {
+                let event_id = compact.raw();
+                match event_id.try_into() {
+                    Ok(event_id) => Some(Ok(LogItem::LogEvent(LogEvent::Event(event_id)))),
+                    Err(_) => {
+                        self.is_done = true;
+                        Some(Err(
+                            LogItemInterpretationError::LogEventInterpretationError(
+                                LogEventInterpretationError::InvalidEventId(event_id),
+                            ),
+                        ))
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -529,20 +700,47 @@ pub(crate) mod log_tests {
 
     proptest! {
         #[test]
-        fn arbitrary_log_iterable(tracer_id in gen_tracer_id(), log in gen_compact_log(25, 257, 514)) {
+        fn arbitrary_log_segment_iterable(tracer_id in gen_tracer_id(), log in gen_compact_log(25, 257, 514)) {
             // Note the max segments, max clocks-per-segment and max events-per-segment values
             // above are pulled completely from a hat
             let seg_iter = LogSegmentIterator::new(tracer_id, &log);
-            let mut n:u32 = 0;
+            let mut n: usize = 0;
             for seg in seg_iter {
                 for c in seg.iter_clocks() {
-                    n = n.saturating_add(c.count);
+                    let _clock = c.expect("Should be able to interpret all the clocks");
+                    n = n.saturating_add(2);
                 }
                 for e in seg.iter_events() {
-                    let _log_event = e.expect("Should be able to interpret all the things");
-                    n = n.saturating_sub(1);
+                    let log_event = e.expect("Should be able to interpret all the events");
+                    n = n.saturating_add(match log_event {
+                        LogEvent::Event(_) => 1,
+                        LogEvent::EventWithPayload(_, _) => 2,
+                    });
                 }
             }
+            assert_eq!(n, log.len());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn arbitrary_log_item_iterable(log in gen_compact_log(25, 257, 514)) {
+            // Note the max segments, max clocks-per-segment and max events-per-segment values
+            // above are pulled completely from a hat
+            let log_len = log.len();
+            let iter = LogItemIterator::new(log.into_iter());
+            let mut n: usize = 0;
+            for item_result in iter {
+                let item = item_result.expect("Should be able to interpret all the items");
+                n = n.saturating_add(match item {
+                    LogItem::Clock(_) => 2,
+                    LogItem::LogEvent(e) => match e {
+                        LogEvent::Event(_) => 1,
+                        LogEvent::EventWithPayload(_, _) => 2,
+                    },
+                });
+            }
+            assert_eq!(n, log_len);
         }
     }
 

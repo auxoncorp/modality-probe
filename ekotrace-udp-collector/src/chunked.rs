@@ -124,7 +124,7 @@ impl ChunkHandler {
                 }
             }
             // N.B. - If we decide we want to log extension bytes, will need to pipe them through here
-            match LogReport::try_from_log(key.0, &log_payload_items, &[]) {
+            match LogReport::try_from_log(key.0, log_payload_items.into_iter(), &[]) {
                 Ok(report) => {
                     complete_reports.push((report, latest_receive_time.unwrap_or_else(Utc::now)));
                 }

@@ -140,12 +140,20 @@ const_assert_eq!(16, size_of::<WireBulkHeader>());
 /// Attempt to split a bulk report from its on-the-wire representation
 /// into its constituent parts, without unbounded copying or any allocation.
 ///
-/// Returns the source location id, the log payload bytes, and the extension payload bytes.
+/// Returns the source location id, the log payload, and the extension payload bytes.
 /// The log payload bytes are expected to be interepreted as little-endian `CompactLogItem`s.
 /// Payload alignment is not addressed.
-pub fn try_bulk_from_wire_bytes(
-    wire_bytes: &[u8],
-) -> Result<(TracerId, &[u8], ExtensionBytes), ParseBulkFromWireError> {
+#[inline]
+pub fn try_bulk_from_wire_bytes<'b>(
+    wire_bytes: &'b [u8],
+) -> Result<
+    (
+        TracerId,
+        impl Iterator<Item = CompactLogItem> + 'b,
+        ExtensionBytes,
+    ),
+    ParseBulkFromWireError,
+> {
     if wire_bytes.len() < size_of::<WireBulkHeader>() {
         return Err(ParseBulkFromWireError::MissingHeader);
     }
@@ -172,7 +180,15 @@ pub fn try_bulk_from_wire_bytes(
     if extension_bytes.len() < n_extension_bytes as usize {
         return Err(ParseBulkFromWireError::IncompletePayload);
     }
-    Ok((location_id, log_bytes, ExtensionBytes(extension_bytes)))
+    let log_iter = log_bytes.chunks_exact(4).map(|item_bytes| {
+        CompactLogItem::from_raw(u32::from_le_bytes([
+            item_bytes[0],
+            item_bytes[1],
+            item_bytes[2],
+            item_bytes[3],
+        ]))
+    });
+    Ok((location_id, log_iter, ExtensionBytes(extension_bytes)))
 }
 
 /// Everything that can go wrong when attempting to interpret a bulk report
@@ -215,19 +231,10 @@ mod tests {
             const MEGABYTE: usize = 1024*1024;
             let mut destination = vec![0u8; MEGABYTE];
             let n_report_bytes = BulkReportSourceComponents { location_id, log: &log }.report_with_extension(&mut destination, ExtensionBytes(&ext_bytes)).unwrap();
-            let (found_id, found_log_bytes, found_ext_bytes) = try_bulk_from_wire_bytes(&destination[..n_report_bytes]).unwrap();
+            let (found_id, found_log_items, found_ext_bytes) = try_bulk_from_wire_bytes(&destination[..n_report_bytes]).unwrap();
             assert_eq!(found_id, location_id);
             assert_eq!(found_ext_bytes.0, ext_bytes.as_slice());
-            let mut found_log = Vec::new();
-            assert_eq!(0, found_log_bytes.len() % 4);
-            for item_bytes in found_log_bytes.chunks_exact(4) {
-                found_log.push(CompactLogItem::from_raw(u32::from_le_bytes([
-                    item_bytes[0],
-                    item_bytes[1],
-                    item_bytes[2],
-                    item_bytes[3],
-                ])));
-            }
+            let found_log: Vec<CompactLogItem> = found_log_items.collect();
             assert_eq!(found_log, log);
         }
     }

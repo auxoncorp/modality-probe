@@ -1,4 +1,4 @@
-use ekotrace::compact_log::{CompactLogItem, LogEvent};
+use ekotrace::compact_log::{CompactLogItem, LogEvent, LogItem};
 use ekotrace::{BulkReporter, ExtensionBytes, ReportError};
 
 /// Literal materialization of the log_report LCM structure
@@ -10,28 +10,57 @@ pub struct LogReport {
     pub extension_bytes: Vec<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct OwnedLogSegment {
     pub clocks: Vec<ekotrace::LogicalClock>,
     pub events: Vec<LogEvent>,
 }
 
 impl LogReport {
+    #[inline]
     pub fn try_from_log(
         tracer_id: ekotrace::TracerId,
-        log: &[ekotrace::compact_log::CompactLogItem],
+        log: impl Iterator<Item = CompactLogItem>,
         extension_bytes: &[u8],
-    ) -> Result<Self, ekotrace::compact_log::LogEventInterpretationError> {
+    ) -> Result<Self, ekotrace::compact_log::LogItemInterpretationError> {
         let mut segments = Vec::new();
-        for segment in ekotrace::compact_log::LogSegmentIterator::new(tracer_id, log) {
-            let mut events = Vec::new();
-            for event_result in segment.iter_events() {
-                events.push(event_result?);
+        let mut curr_segment = None;
+        for item_result in ekotrace::compact_log::LogItemIterator::new(log) {
+            let item = item_result?;
+            match item {
+                LogItem::Clock(clock) => {
+                    // Use the source location tracer id to distinguish between contiguous segments
+                    // consisting only of clocks
+                    if clock.id == tracer_id {
+                        if let Some(prior_segment) = curr_segment.replace(OwnedLogSegment {
+                            clocks: vec![clock],
+                            events: vec![],
+                        }) {
+                            segments.push(prior_segment);
+                        }
+                    } else if let Some(segment) = curr_segment.as_mut() {
+                        segment.clocks.push(clock)
+                    } else {
+                        curr_segment = Some(OwnedLogSegment {
+                            clocks: vec![clock],
+                            events: vec![],
+                        });
+                    }
+                }
+                LogItem::LogEvent(event) => {
+                    if let Some(segment) = curr_segment.as_mut() {
+                        segment.events.push(event);
+                    } else {
+                        curr_segment = Some(OwnedLogSegment {
+                            clocks: vec![],
+                            events: vec![event],
+                        })
+                    }
+                }
             }
-            segments.push(OwnedLogSegment {
-                clocks: segment.iter_clocks().collect(),
-                events,
-            })
+        }
+        if let Some(last_segment) = curr_segment {
+            segments.push(last_segment);
         }
         Ok(LogReport {
             tracer_id,
@@ -41,21 +70,10 @@ impl LogReport {
     }
 
     pub fn try_from_bulk_bytes(bytes: &[u8]) -> Result<Self, ParseBulkReportError> {
-        let (location, log_bytes, ext_bytes) =
+        let (location, log_iter, ext_bytes) =
             ekotrace::report::bulk::try_bulk_from_wire_bytes(bytes)
                 .map_err(|e| ParseBulkReportError::ParseBulkFromWire(e))?;
-        let mut log = Vec::with_capacity(
-            log_bytes.len() / std::mem::size_of::<ekotrace::compact_log::CompactLogItem>(),
-        );
-        for item_bytes in log_bytes.chunks_exact(4) {
-            log.push(CompactLogItem::from_raw(u32::from_le_bytes([
-                item_bytes[0],
-                item_bytes[1],
-                item_bytes[2],
-                item_bytes[3],
-            ])))
-        }
-        LogReport::try_from_log(location, &log, ext_bytes.0)
+        LogReport::try_from_log(location, log_iter, ext_bytes.0)
             .map_err(|e| ParseBulkReportError::CompactLogInterpretation(e))
     }
 
@@ -91,7 +109,7 @@ impl LogReport {
 #[derive(Debug)]
 pub enum ParseBulkReportError {
     ParseBulkFromWire(ekotrace::report::bulk::ParseBulkFromWireError),
-    CompactLogInterpretation(ekotrace::compact_log::LogEventInterpretationError),
+    CompactLogInterpretation(ekotrace::compact_log::LogItemInterpretationError),
 }
 
 #[cfg(test)]
@@ -205,7 +223,21 @@ mod tests {
 
     prop_compose! {
         fn gen_log_report()
-            (tracer_id in arb_tracer_id(), segments in gen_segments(25), extension_bytes in gen_extension_bytes(200)) -> LogReport {
+            (tracer_id in arb_tracer_id(), mut segments in gen_segments(25), extension_bytes in gen_extension_bytes(200)) -> LogReport {
+            let mut fixup_count = 0;
+            for segment in segments.iter_mut() {
+                let needs_first_clock_id_fixup = if let Some(first_clock) = segment.clocks.first() {
+                    first_clock.id != tracer_id
+                } else {
+                    true
+                };
+                // Our segmentation logic depends on the first clock location of each segment
+                // matching the id of the location where the log report was generated
+                if needs_first_clock_id_fixup {
+                    fixup_count += 1;
+                    segment.clocks.insert(0, LogicalClock { id: tracer_id, count: fixup_count })
+                }
+            }
             LogReport {
                 tracer_id,
                 segments,
