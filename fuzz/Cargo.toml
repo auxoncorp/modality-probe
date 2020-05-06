@@ -1,0 +1,32 @@
+
+[package]
+name = "ekotrace-fuzz"
+version = "0.0.1"
+authors = ["Automatically generated"]
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.3"
+
+[dependencies.ekotrace]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "nativechunk_from_wire_bytes"
+path = "fuzz_targets/nativechunk_from_wire_bytes.rs"
+
+[[bin]]
+name = "try_bulk_from_wire_bytes"
+path = "fuzz_targets/try_bulk_from_wire_bytes.rs"
+
+[[bin]]
+name = "bulk_from_wire_roundtrip"
+path = "fuzz_targets/bulk_from_wire_roundtrip.rs"

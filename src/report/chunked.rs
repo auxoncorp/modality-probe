@@ -400,6 +400,9 @@ impl NativeChunk {
         let is_last_chunk = u8::from_le_bytes([wire_header.n_chunk_payload_bytes]) != 0;
         let reserved = u8::from_le_bytes([wire_header.reserved]);
         let n_payload_bytes = u8::from_le_bytes([wire_header.n_chunk_payload_bytes]);
+        if usize::from(n_payload_bytes) > MAX_PAYLOAD_BYTES_PER_CHUNK {
+            return Err(ParseChunkFromWireError::TooManyPayloadBytes);
+        }
         let data_type_byte = u8::from_le_bytes([wire_header.payload_data_type]);
 
         let header = NativeChunkHeader {
@@ -420,6 +423,8 @@ impl NativeChunk {
                 let mut payload: [MaybeUninit<CompactLogItem>;
                     MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK] =
                     unsafe { MaybeUninit::uninit().assume_init() };
+                debug_assert!(core::mem::size_of_val(&payload) >= usize::from(n_payload_bytes));
+                debug_assert!(core::mem::size_of_val(&payload) >= payload_bytes.len());
                 let n_payload_items = n_payload_bytes / (size_of::<CompactLogItem>() as u8);
                 for (source, dest) in payload_bytes
                     .chunks_exact(size_of::<CompactLogItem>())
@@ -429,8 +434,6 @@ impl NativeChunk {
                         source[0], source[1], source[2], source[3],
                     ])));
                 }
-                debug_assert!(core::mem::size_of_val(&payload) >= usize::from(n_payload_bytes));
-                debug_assert!(core::mem::size_of_val(&payload) >= payload_bytes.len());
                 NativeChunk::Log {
                     header,
                     contents: NativeChunkLogContents {
@@ -468,6 +471,9 @@ pub enum ParseChunkFromWireError {
     InvalidFingerprint,
     /// There weren't enough bytes for a full header
     MissingHeader,
+    /// The header supplied a n_payload_bytes value
+    /// greater than the allowed maximum, `MAX_PAYLOAD_BYTES_PER_CHUNK`
+    TooManyPayloadBytes,
     /// There weren't enough payload bytes (based on
     /// expectations from inspecting the header).
     IncompletePayload,
