@@ -1,4 +1,5 @@
 use chrono::prelude::*;
+use ekotrace::{EventId, TracerId};
 
 macro_rules! newtype {
    ($(#[$meta:meta])* pub struct $name:ident(pub $t:ty);) => {
@@ -39,34 +40,6 @@ newtype! {
     pub struct SegmentId(pub u32);
 }
 
-/// A log event
-///
-/// This is the event id as used in the events.csv file, used in
-/// the tracing library on each client, and transmitted in the
-/// wire protocol.
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
-pub struct EventId(u32);
-
-// TODO(pittma): Should this whole model be collapsed into a single
-// library that both ekotrace and the udp collector can share?
-impl EventId {
-    pub fn new(id: u32) -> Self {
-        EventId(id & !super::EVENT_WITH_PAYLOAD_MASK)
-    }
-
-    pub fn get_raw(self) -> u32 {
-        self.0
-    }
-}
-
-newtype! {
-    /// The id of a tracer
-    ///
-    /// This is the tracer id as represented in the wire protocol.
-    #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone, PartialOrd, Ord)]
-    pub struct TracerId(pub u32);
-}
-
 /// Map an event id to its name and description
 #[derive(Debug, Eq, PartialEq)]
 pub struct EventMapping {
@@ -102,13 +75,6 @@ impl From<(TracerId, u32)> for LogEntryData {
         LogEntryData::LogicalClock(id, count)
     }
 }
-
-// Can't make this assumption anymore.
-// impl From<(u32, u32)> for LogEntryData {
-//     fn from((id, count): (u32, u32)) -> LogEntryData {
-//         LogEntryData::LogicalClock(id.into(), count)
-//     }
-// }
 
 /// A single entry in the log
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -176,13 +142,23 @@ pub mod test {
     pub fn arb_segment_index() -> impl Strategy<Value = u32> {
         any::<u32>()
     }
-
-    pub fn arb_event_id() -> impl Strategy<Value = EventId> {
-        proptest::bits::u32::masked(crate::EVENT_WITH_PAYLOAD_MASK).prop_map(EventId::new)
+    prop_compose! {
+        pub(crate) fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
+            raw_id
+        }
     }
 
-    pub fn arb_tracer_id() -> impl Strategy<Value = TracerId> {
-        proptest::bits::u32::masked(0x7fffffff).prop_map_into()
+    prop_compose! {
+        pub(crate) fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
+            raw_id
+        }
+    }
+
+    fn arb_event_id() -> impl Strategy<Value = EventId> {
+        prop_oneof![
+            gen_raw_internal_event_id().prop_map(|id| EventId::new_internal(id).unwrap()),
+            gen_raw_user_event_id().prop_map(|id| EventId::new(id).unwrap()),
+        ]
     }
 
     pub fn arb_event_mapping() -> impl Strategy<Value = EventMapping> {
@@ -193,6 +169,12 @@ pub mod test {
                 description,
             }
         })
+    }
+
+    prop_compose! {
+        pub(crate) fn arb_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> TracerId {
+            TracerId::new(raw_id).unwrap()
+        }
     }
 
     pub fn arb_tracer_mapping() -> impl Strategy<Value = TracerMapping> {

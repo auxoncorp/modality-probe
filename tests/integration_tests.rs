@@ -1,5 +1,5 @@
 use ekotrace::*;
-use std::convert::TryInto;
+use std::convert::{TryFrom, TryInto};
 use util::alloc_log_report::*;
 
 struct Buffer {
@@ -93,8 +93,11 @@ fn invalid_neighbor_id_in_fixed_size_merge_produces_error() -> Result<(), Ekotra
     let mut storage_foo = [0u8; 1024];
     let tracer_foo = Ekotrace::initialize_at(&mut storage_foo, tracer_id_foo)?;
 
-    let mut clocks = [LogicalClock { id: 0, count: 0 }; 256];
-    clocks[0].id = 200;
+    let mut clocks = [LogicalClock {
+        id: TracerId::new(TracerId::MAX_ID).unwrap(),
+        count: 0,
+    }; 256];
+    clocks[0].id = 200.try_into().unwrap();
     clocks[0].count = 200;
     let bad_snapshot = CausalSnapshot {
         tracer_id: 0, // An invalid value technically permissable in the C representation of this struct
@@ -112,9 +115,9 @@ fn happy_path_backend_service() -> Result<(), EkotraceError> {
     let mut tracer = Ekotrace::new_with_storage(&mut storage_foo, tracer_id_foo)?;
     let mut backend = [0u8; 1024];
     let bytes_written = tracer.report(&mut backend)?;
-    let log_report =
-        LogReport::from_lcm(&backend[..bytes_written]).expect("Could not read from lcm");
-    assert_eq!(123, log_report.tracer_id);
+    let log_report = LogReport::try_from_bulk_bytes(&backend[..bytes_written])
+        .expect("Could not read from bulk report format bytes");
+    assert_eq!(TracerId::try_from(123).unwrap(), log_report.tracer_id);
     assert_eq!(1, log_report.segments.len());
     let segment = log_report.segments.first().expect("Should have 1 segment");
     assert!(segment.events.is_empty());
@@ -127,7 +130,7 @@ fn happy_path_backend_service() -> Result<(), EkotraceError> {
         .clocks
         .first()
         .expect("Should have 1 clock bucket for own self");
-    assert_eq!(123, clock.tracer_id, "clock tracer ids should match");
+    assert_eq!(123, clock.id.get_raw(), "clock tracer ids should match");
 
     // Expect no increments; this happens after the data is serialized.
     assert_eq!(0, clock.count, "expect no clock increments");
@@ -179,7 +182,13 @@ fn try_record_event_raw_tracer_ids() -> Result<(), EkotraceError> {
     let mut storage = [0u8; 512];
     let tracer = Ekotrace::try_initialize_at(&mut storage, 1)?;
     assert!(tracer.try_record_event(0).is_err());
-    assert!(tracer.try_record_event(EventId::MAX_USER_ID + 1).is_err());
+    assert!(tracer.try_record_event(EventId::MAX_USER_ID).is_ok());
+    // Allowed to record internal events
+    assert!(tracer.try_record_event(EventId::MAX_INTERNAL_ID).is_ok());
+    // Still can't exceed the valid range
+    assert!(tracer
+        .try_record_event(EventId::MAX_INTERNAL_ID + 1)
+        .is_err());
     assert!(tracer.try_record_event(1).is_ok());
     Ok(())
 }

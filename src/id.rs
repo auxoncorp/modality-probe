@@ -11,7 +11,9 @@ use core::num::NonZeroU32;
 /// TracerId::MAX_ID.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-pub struct TracerId(NonZeroU32);
+pub struct TracerId(
+    /* Never make this inner field truly public */ pub(crate) NonZeroU32,
+);
 
 impl TracerId {
     /// The largest permissible backing id value
@@ -54,17 +56,6 @@ impl From<TracerId> for u32 {
     }
 }
 
-impl TryFrom<u32> for TracerId {
-    type Error = InvalidTracerId;
-    #[inline]
-    fn try_from(raw_id: u32) -> Result<Self, Self::Error> {
-        match TracerId::new(raw_id) {
-            Some(id) => Ok(id),
-            None => Err(InvalidTracerId),
-        }
-    }
-}
-
 macro_rules! infallible_sizing_try_from_impl {
     ($prim_ty:ty, $target_ty:ty, $err_ty:ty, $err_constructor:expr) => {
         impl TryFrom<$prim_ty> for $target_ty {
@@ -99,8 +90,49 @@ macro_rules! fallible_sizing_try_from_impl {
     };
 }
 
+macro_rules! infallible_sizing_try_from_impl_with_internal {
+    ($prim_ty:ty, $target_ty:ty, $err_ty:ty, $err_constructor:expr) => {
+        impl TryFrom<$prim_ty> for $target_ty {
+            type Error = $err_ty;
+            #[inline]
+            fn try_from(raw_id: $prim_ty) -> Result<Self, Self::Error> {
+                match <$target_ty>::new(raw_id.into()) {
+                    Some(id) => Ok(id),
+                    None => match <$target_ty>::new_internal(raw_id.into()) {
+                        Some(id) => Ok(id),
+                        None => Err($err_constructor),
+                    },
+                }
+            }
+        }
+    };
+}
+
+macro_rules! fallible_sizing_try_from_impl_with_internal {
+    ($prim_ty:ty, $target_ty:ty, $err_ty:ty, $err_constructor:expr) => {
+        impl TryFrom<$prim_ty> for $target_ty {
+            type Error = $err_ty;
+            #[inline]
+            fn try_from(raw_id: $prim_ty) -> Result<Self, Self::Error> {
+                let intermediate_id: u32 = match raw_id.try_into() {
+                    Ok(i) => i,
+                    Err(_) => return Err($err_constructor),
+                };
+                match <$target_ty>::new(intermediate_id) {
+                    Some(id) => Ok(id),
+                    None => match <$target_ty>::new_internal(intermediate_id) {
+                        Some(id) => Ok(id),
+                        None => Err($err_constructor),
+                    },
+                }
+            }
+        }
+    };
+}
+
 infallible_sizing_try_from_impl!(u8, TracerId, InvalidTracerId, InvalidTracerId);
 infallible_sizing_try_from_impl!(u16, TracerId, InvalidTracerId, InvalidTracerId);
+infallible_sizing_try_from_impl!(u32, TracerId, InvalidTracerId, InvalidTracerId);
 fallible_sizing_try_from_impl!(u64, TracerId, InvalidTracerId, InvalidTracerId);
 fallible_sizing_try_from_impl!(u128, TracerId, InvalidTracerId, InvalidTracerId);
 fallible_sizing_try_from_impl!(usize, TracerId, InvalidTracerId, InvalidTracerId);
@@ -111,17 +143,18 @@ fallible_sizing_try_from_impl!(i64, TracerId, InvalidTracerId, InvalidTracerId);
 fallible_sizing_try_from_impl!(i128, TracerId, InvalidTracerId, InvalidTracerId);
 fallible_sizing_try_from_impl!(isize, TracerId, InvalidTracerId, InvalidTracerId);
 
-infallible_sizing_try_from_impl!(u8, EventId, InvalidEventId, InvalidEventId);
-infallible_sizing_try_from_impl!(u16, EventId, InvalidEventId, InvalidEventId);
-fallible_sizing_try_from_impl!(u64, EventId, InvalidEventId, InvalidEventId);
-fallible_sizing_try_from_impl!(u128, EventId, InvalidEventId, InvalidEventId);
-fallible_sizing_try_from_impl!(usize, EventId, InvalidEventId, InvalidEventId);
-fallible_sizing_try_from_impl!(i8, EventId, InvalidEventId, InvalidEventId);
-fallible_sizing_try_from_impl!(i16, EventId, InvalidEventId, InvalidEventId);
-fallible_sizing_try_from_impl!(i32, EventId, InvalidEventId, InvalidEventId);
-fallible_sizing_try_from_impl!(i64, EventId, InvalidEventId, InvalidEventId);
-fallible_sizing_try_from_impl!(i128, EventId, InvalidEventId, InvalidEventId);
-fallible_sizing_try_from_impl!(isize, EventId, InvalidEventId, InvalidEventId);
+infallible_sizing_try_from_impl_with_internal!(u8, EventId, InvalidEventId, InvalidEventId);
+infallible_sizing_try_from_impl_with_internal!(u16, EventId, InvalidEventId, InvalidEventId);
+infallible_sizing_try_from_impl_with_internal!(u32, EventId, InvalidEventId, InvalidEventId);
+fallible_sizing_try_from_impl_with_internal!(u64, EventId, InvalidEventId, InvalidEventId);
+fallible_sizing_try_from_impl_with_internal!(u128, EventId, InvalidEventId, InvalidEventId);
+fallible_sizing_try_from_impl_with_internal!(usize, EventId, InvalidEventId, InvalidEventId);
+fallible_sizing_try_from_impl_with_internal!(i8, EventId, InvalidEventId, InvalidEventId);
+fallible_sizing_try_from_impl_with_internal!(i16, EventId, InvalidEventId, InvalidEventId);
+fallible_sizing_try_from_impl_with_internal!(i32, EventId, InvalidEventId, InvalidEventId);
+fallible_sizing_try_from_impl_with_internal!(i64, EventId, InvalidEventId, InvalidEventId);
+fallible_sizing_try_from_impl_with_internal!(i128, EventId, InvalidEventId, InvalidEventId);
+fallible_sizing_try_from_impl_with_internal!(isize, EventId, InvalidEventId, InvalidEventId);
 
 /// Uniquely identify an event or kind of event.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -207,17 +240,6 @@ impl EventId {
     #[inline]
     pub fn is_internal(self) -> bool {
         self.get_raw() > Self::MAX_USER_ID && self.get_raw() <= Self::MAX_INTERNAL_ID
-    }
-}
-
-impl TryFrom<u32> for EventId {
-    type Error = InvalidEventId;
-    #[inline]
-    fn try_from(raw_id: u32) -> Result<Self, Self::Error> {
-        match EventId::new(raw_id) {
-            Some(id) => Ok(id),
-            None => Err(InvalidEventId),
-        }
     }
 }
 
@@ -307,7 +329,7 @@ pub mod prop {
 pub use prop::*;
 
 #[cfg(test)]
-mod id_tests {
+pub(crate) mod id_tests {
     use super::*;
     use proptest::prelude::*;
 
@@ -318,9 +340,25 @@ mod id_tests {
         assert!(EventId::new_internal(0).is_none());
     }
 
+    #[test]
+    fn boundary_values() {
+        assert!(TracerId::new(TracerId::MAX_ID).is_some());
+        assert!(EventId::new(EventId::MAX_USER_ID).is_some());
+        assert!(EventId::new_internal(EventId::MAX_INTERNAL_ID).is_some());
+
+        assert!(EventId::new_internal(EventId::MAX_USER_ID).is_none());
+        assert!(EventId::new(EventId::MAX_INTERNAL_ID).is_none());
+    }
+
     prop_compose! {
-        fn gen_raw_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> u32 {
+        pub(crate) fn gen_raw_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> u32 {
             raw_id
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn gen_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> TracerId {
+            raw_id.try_into().unwrap()
         }
     }
 
@@ -344,13 +382,13 @@ mod id_tests {
     }
 
     prop_compose! {
-        fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
+        pub(crate) fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
             raw_id
         }
     }
 
     prop_compose! {
-        fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
+        pub(crate) fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
             raw_id
         }
     }

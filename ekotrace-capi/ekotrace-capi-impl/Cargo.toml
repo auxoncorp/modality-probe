@@ -16,6 +16,7 @@ name = "ekotrace_capi_impl"
 crate-type = ["lib"]
 
 [dependencies]
+static_assertions = "1.1.0"
 ekotrace = { path = "../../" }
 
 [build-dependencies]

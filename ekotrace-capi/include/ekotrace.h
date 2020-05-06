@@ -42,6 +42,8 @@ typedef struct ekotrace_instant {
     uint32_t event_count;
 } ekotrace_instant;
 
+typedef uint16_t chunked_report_token;
+
 typedef enum {
     /*
      * Everything is okay
@@ -95,6 +97,16 @@ typedef enum {
      * The tracer encountered a problem dealing with extension metadata
      */
     EKOTRACE_RESULT_EXTENSION_ERROR = 10,
+    /*
+     * The tracer attempted to mutate internal state while
+     * a report lock was active.
+     */
+    EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR = 11,
+    /*
+     * The tracer attempted to do a chunked report operation when no
+     * chunked report has been started.
+     */
+    EKOTRACE_RESULT_NO_CHUNKED_REPORT_IN_PROGRESS = 12,
 } ekotrace_result;
 
 typedef struct causal_snapshot {
@@ -297,6 +309,47 @@ size_t ekotrace_merge_fixed_size_snapshot(ekotrace *ekotrace, causal_snapshot *s
  * set to the invalid location id `0`.
  */
 ekotrace_instant ekotrace_now(ekotrace *ekotrace);
+
+/*
+ * Prepare to write a chunked report.
+ *
+ * Populates the out-parameter `out_report_token` with
+ * a value that will be used to produce the
+ * chunks for the report in calls to
+ * `ekotrace_write_next_report_chunk` and `ekotrace_finish_chunked_report`
+ *
+ * Once this method has been called, mutating operations on
+ * the Ekotrace instance will return `EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR`
+ * until all available chunks have been written with  `ekotrace_write_next_report_chunk`
+ * and `ekotrace_finish_chunked_report` called.
+ */
+size_t ekotrace_start_chunked_report(ekotrace *ekotrace, chunked_report_token *out_report_token);
+
+/*
+ * Write up to 1 chunk of a report into
+ * the provided destination buffer.
+ *
+ * Populates the out-parameter `out_written_bytes` with
+ * the number of report bytes written into the destination.
+ *
+ * If the `out_written_bytes` == 0, then no chunk was
+ * written and there are no chunks left in the report.
+ *
+ * The provided `chunked_report_token` should match the value
+ * populated by the `ekotrace_start_chunked_report` call
+ * at the start of this chunked report.
+ */
+size_t ekotrace_write_next_report_chunk(ekotrace *ekotrace, chunked_report_token *report_token, uint8_t *log_report_destination, size_t log_report_destination_bytes, size_t *out_written_bytes);
+
+/*
+ * Necessary clean-up and finishing step at the end
+ * of iterating through a chunked report.
+ *
+ * The provided ChunkedReportToken should match the value
+ * populated by the `ekotrace_start_chunked_report` call
+ * at the start of this chunked report.
+ */
+size_t ekotrace_finish_chunked_report(ekotrace *ekotrace, chunked_report_token *report_token);
 
 #ifdef __cplusplus
 } // extern "C"

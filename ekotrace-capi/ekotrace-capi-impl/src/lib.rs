@@ -1,4 +1,6 @@
 #![no_std]
+use ekotrace::report::chunked::ChunkedReportError;
+pub use ekotrace::report::chunked::ChunkedReportToken;
 use ekotrace::*;
 pub use ekotrace::{CausalSnapshot, Ekotrace, EkotraceInstant};
 
@@ -33,6 +35,12 @@ pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING: EkotraceResult = 8;
 pub const EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS: EkotraceResult = 9;
 /// The tracer encountered a problem dealing with extension metadata
 pub const EKOTRACE_RESULT_EXTENSION_ERROR: EkotraceResult = 10;
+/// The tracer attempted to mutate internal state while
+/// a report lock was active.
+pub const EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR: EkotraceResult = 11;
+/// The tracer attempted to do a chunked report operation when no
+/// chunked report has been started.
+pub const EKOTRACE_RESULT_NO_CHUNKED_REPORT_IN_PROGRESS: EkotraceResult = 12;
 
 /// # Safety
 ///
@@ -122,6 +130,8 @@ pub unsafe fn ekotrace_record_event_with_payload(
     }
 }
 
+/// Write a bulk report to the supplied byte destination.
+///
 /// # Safety
 ///
 /// The Ekotrace instance pointer must be non-null and point
@@ -151,10 +161,20 @@ pub unsafe fn ekotrace_report(
         }
         Err(ReportError::Encoding) => return EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
         Err(ReportError::Extension) => return EKOTRACE_RESULT_EXTENSION_ERROR,
+        Err(ReportError::ReportLockConflict) => return EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR,
     };
 
     *out_written_bytes = written_bytes;
     EKOTRACE_RESULT_OK
+}
+
+fn report_error_to_ekotrace_result(report_error: ReportError) -> EkotraceResult {
+    match report_error {
+        ReportError::InsufficientDestinationSize => EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES,
+        ReportError::Encoding => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
+        ReportError::Extension => EKOTRACE_RESULT_EXTENSION_ERROR,
+        ReportError::ReportLockConflict => EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR,
+    }
 }
 
 /// # Safety
@@ -181,11 +201,18 @@ pub unsafe fn ekotrace_distribute_snapshot(
             *out_written_bytes = written_bytes;
             EKOTRACE_RESULT_OK
         }
-        Err(DistributeError::InsufficientDestinationSize) => {
+        Err(e) => distribute_error_to_ekotrace_result(e),
+    }
+}
+
+fn distribute_error_to_ekotrace_result(distribute_error: DistributeError) -> EkotraceResult {
+    match distribute_error {
+        DistributeError::InsufficientDestinationSize => {
             EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
         }
-        Err(DistributeError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
-        Err(DistributeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
+        DistributeError::Encoding => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
+        DistributeError::Extension => EKOTRACE_RESULT_EXTENSION_ERROR,
+        DistributeError::ReportLockConflict => EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
 
@@ -208,11 +235,7 @@ pub unsafe fn ekotrace_distribute_fixed_size_snapshot(
             *destination_snapshot = snapshot;
             EKOTRACE_RESULT_OK
         }
-        Err(DistributeError::InsufficientDestinationSize) => {
-            EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES
-        }
-        Err(DistributeError::Encoding) => EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR,
-        Err(DistributeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
+        Err(e) => distribute_error_to_ekotrace_result(e),
     }
 }
 
@@ -236,14 +259,17 @@ pub unsafe fn ekotrace_merge_snapshot(
         history_source_bytes,
     )) {
         Ok(_) => EKOTRACE_RESULT_OK,
-        Err(MergeError::ExceededAvailableClocks) => EKOTRACE_RESULT_EXCEEDED_AVAILABLE_CLOCKS,
-        Err(MergeError::ExternalHistoryEncoding) => {
-            EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING
-        }
-        Err(MergeError::ExternalHistorySemantics) => {
-            EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS
-        }
-        Err(MergeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
+        Err(e) => merge_error_to_ekotrace_result(e),
+    }
+}
+
+fn merge_error_to_ekotrace_result(merge_error: MergeError) -> EkotraceResult {
+    match merge_error {
+        MergeError::ExceededAvailableClocks => EKOTRACE_RESULT_EXCEEDED_AVAILABLE_CLOCKS,
+        MergeError::ExternalHistoryEncoding => EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING,
+        MergeError::ExternalHistorySemantics => EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS,
+        MergeError::Extension => EKOTRACE_RESULT_EXTENSION_ERROR,
+        MergeError::ReportLockConflict => EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
 
@@ -263,14 +289,7 @@ pub unsafe fn ekotrace_merge_fixed_size_snapshot(
     };
     match tracer.merge_fixed_size_snapshot(&*snapshot) {
         Ok(_) => EKOTRACE_RESULT_OK,
-        Err(MergeError::ExceededAvailableClocks) => EKOTRACE_RESULT_EXCEEDED_AVAILABLE_CLOCKS,
-        Err(MergeError::ExternalHistoryEncoding) => {
-            EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING
-        }
-        Err(MergeError::ExternalHistorySemantics) => {
-            EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS
-        }
-        Err(MergeError::Extension) => EKOTRACE_RESULT_EXTENSION_ERROR,
+        Err(e) => merge_error_to_ekotrace_result(e),
     }
 }
 
@@ -286,18 +305,154 @@ pub unsafe fn ekotrace_merge_fixed_size_snapshot(
 /// The Ekotrace instance pointer must be non-null and point
 /// to an initialized instance operating in a single-threaded
 /// fashion.
+#[allow(invalid_value)]
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn ekotrace_now(tracer: *mut Ekotrace<'static>) -> EkotraceInstant {
     let tracer = match tracer.as_mut() {
         Some(t) => t,
         None => {
             return EkotraceInstant {
-                clock: LogicalClock { id: 0, count: 0 },
+                clock: LogicalClock {
+                    // This is intentionally generating an invalid value,
+                    // per the documentation above
+                    id: core::mem::transmute(0u32),
+                    count: 0,
+                },
                 event_count: 0,
-            }
+            };
         }
     };
     tracer.now()
+}
+// ChunkedReportToken is expressed as a uint16_t in ekotrace.h ,
+// so let's be extra sure that the sizes and alignment match up
+use static_assertions::{assert_eq_align, assert_eq_size};
+assert_eq_size!(u16, ChunkedReportToken);
+assert_eq_align!(u16, ChunkedReportToken);
+
+/// Prepare to write a chunked report.
+///
+/// Populates the out-parameter `out_report_token` with
+/// a value that will be used to produce the
+/// chunks for the report in calls to
+/// `ekotrace_write_next_report_chunk` and `ekotrace_finish_chunked_report`
+///
+/// Once this method has been called, mutating operations on
+/// the Ekotrace instance will return `EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR`
+/// until all available chunks have been written with  `ekotrace_write_next_report_chunk`
+/// and `ekotrace_finish_chunked_report` called.
+///
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+///
+/// If the function returns any result besides EKOTRACE_RESULT_OK,
+/// there has been an error, and the out-pointer for the chunked report token
+/// will not be populated.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn ekotrace_start_chunked_report(
+    tracer: *mut Ekotrace<'static>,
+    out_report_token: *mut ChunkedReportToken,
+) -> EkotraceResult {
+    let tracer = match tracer.as_mut() {
+        Some(t) => t,
+        None => return EKOTRACE_RESULT_NULL_POINTER,
+    };
+    match tracer.start_chunked_report() {
+        Ok(token) => {
+            *out_report_token = token;
+            EKOTRACE_RESULT_OK
+        }
+        Err(e) => chunked_report_error_to_ekotrace_result(e),
+    }
+}
+
+fn chunked_report_error_to_ekotrace_result(cre: ChunkedReportError) -> EkotraceResult {
+    match cre {
+        ChunkedReportError::ReportError(re) => report_error_to_ekotrace_result(re),
+        ChunkedReportError::NoChunkedReportInProgress => {
+            EKOTRACE_RESULT_NO_CHUNKED_REPORT_IN_PROGRESS
+        }
+    }
+}
+/// Write up to 1 chunk of a report into
+/// the provided destination buffer.
+///
+/// Populates the out-parameter `out_written_bytes` with
+/// the number of report bytes written into the destination.
+///
+/// If the `out_written_bytes` == 0, then no chunk was
+/// written and there are no chunks left in the report.
+///
+/// The provided ChunkedReportToken should match the value
+/// populated by the `ekotrace_start_chunked_report` call
+/// at the start of this chunked report.
+///
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+///
+/// The destination buffer pointer must be non-null
+/// and should have an associated size == 256 bytes.
+///
+/// If the function returns any result besides EKOTRACE_RESULT_OK,
+/// there has been an error and the contents of the report destination
+/// are not certain to be initialized or a valid chunk.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn ekotrace_write_next_report_chunk(
+    tracer: *mut Ekotrace<'static>,
+    report_token: *const ChunkedReportToken,
+    log_report_destination: *mut u8,
+    log_report_destination_size_bytes: usize,
+    out_written_bytes: *mut usize,
+) -> EkotraceResult {
+    let tracer = match tracer.as_mut() {
+        Some(t) => t,
+        None => return EKOTRACE_RESULT_NULL_POINTER,
+    };
+    match tracer.write_next_report_chunk(
+        &*report_token,
+        core::slice::from_raw_parts_mut(log_report_destination, log_report_destination_size_bytes),
+    ) {
+        Ok(written_bytes) => {
+            *out_written_bytes = written_bytes;
+            EKOTRACE_RESULT_OK
+        }
+        Err(e) => chunked_report_error_to_ekotrace_result(e),
+    }
+}
+/// Necessary clean-up and finishing step at the end
+/// of iterating through a chunked report.
+///
+/// The provided ChunkedReportToken should match the value
+/// populated by the `ekotrace_start_chunked_report` call
+/// at the start of this chunked report.
+///
+/// # Safety
+///
+/// The Ekotrace instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+///
+/// If the function returns any result besides EKOTRACE_RESULT_OK,
+/// there has been an error.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn ekotrace_finish_chunked_report(
+    tracer: *mut Ekotrace<'static>,
+    report_token: *const ChunkedReportToken,
+) -> EkotraceResult {
+    let tracer = match tracer.as_mut() {
+        Some(t) => t,
+        None => return EKOTRACE_RESULT_NULL_POINTER,
+    };
+    match tracer.finish_chunked_report(core::ptr::read(report_token)) {
+        Ok(_) => EKOTRACE_RESULT_OK,
+        Err(e) => chunked_report_error_to_ekotrace_result(e),
+    }
 }
 
 #[cfg(test)]

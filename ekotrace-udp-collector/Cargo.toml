@@ -6,7 +6,6 @@ edition = "2018"
 license = "Apache-2.0"
 repository = "https://github.com/auxoncorp/ekotrace"
 readme = "README.md"
-build = "build.rs"
 
 [lib]
 name = "ekotrace_udp_collector"
@@ -25,9 +24,10 @@ cli = ["structopt"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
+ekotrace = { path = ".." }
+rust-lcm-codec = "0.2"
 static_assertions = "1.1.0"
 structopt = { version = "0.3", optional = true }
-rust-lcm-codec = "0.2"
 util = { path = "../util" }
 
 [build-dependencies]

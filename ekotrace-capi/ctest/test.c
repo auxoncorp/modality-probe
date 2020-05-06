@@ -8,6 +8,7 @@
 
 static size_t DEFAULT_TRACER_SIZE = 7000;
 static size_t DEFAULT_LOG_STORAGE = 4096;
+static size_t MAX_REPORT_CHUNK_SIZE = 256;
 static uint32_t DEFAULT_TRACER_ID = 314;
 static uint32_t EVENT_A = 100;
 
@@ -280,6 +281,57 @@ bool test_now() {
     return passed;
 }
 
+bool test_chunked_reporting() {
+    bool passed = true;
+    uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
+    ekotrace * t = EKOTRACE_NULL_TRACER_INITIALIZER;
+    ekotrace_result result = ekotrace_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &t);
+    if (result != EKOTRACE_RESULT_OK) {
+        passed = false;
+    }
+
+    uint8_t * log_storage = (uint8_t*)malloc(MAX_REPORT_CHUNK_SIZE);
+    chunked_report_token report_token;
+    result = ekotrace_start_chunked_report(t, &report_token);
+    if (result != EKOTRACE_RESULT_OK) {
+        passed = false;
+    }
+
+    size_t bytes_written;
+    result = ekotrace_write_next_report_chunk(t, &report_token, log_storage, MAX_REPORT_CHUNK_SIZE, &bytes_written);
+    if (bytes_written == 0) {
+        passed = false;
+    }
+    bool all_zeros = true;
+    unsigned int i;
+    for (i = 0; i < DEFAULT_LOG_STORAGE; i++) {
+        if (log_storage[i] != 0) {
+            all_zeros = false;
+            break;
+        }
+    }
+    if (all_zeros) {
+        passed = false;
+    }
+
+    result = ekotrace_write_next_report_chunk(t, &report_token, log_storage, MAX_REPORT_CHUNK_SIZE, &bytes_written);
+    if (result != EKOTRACE_RESULT_OK) {
+        passed = false;
+    }
+    /* Expect the earlier chunk to suffice, so this should be empty */
+    if (bytes_written != 0) {
+        passed = false;
+    }
+    result = ekotrace_finish_chunked_report(t, &report_token);
+    if (result != EKOTRACE_RESULT_OK) {
+        passed = false;
+    }
+
+    free(destination);
+    free(log_storage);
+    return passed;
+}
+
 void run_test(bool (test)(), const char *name, bool *passed) {
     if (!test()) {
         *passed = false;
@@ -296,6 +348,7 @@ int main() {
     run_test(test_event_recording, "test_event_recording", &passed);
     run_test(test_merge, "test_merge", &passed);
     run_test(test_now, "test_now", &passed);
+    run_test(test_chunked_reporting, "test_chunked_reporting", &passed);
     if (!passed) {
         fprintf(stderr, "FAILED c test suite\n");
         exit(1);
