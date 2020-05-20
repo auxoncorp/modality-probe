@@ -314,7 +314,7 @@ pub mod prop {
 
         fn new_tree(&self, runner: &mut TestRunner) -> NewTree<Self> {
             Ok(EventIdBinarySearch(BinarySearch::new(
-                runner.rng().next_u32(),
+                runner.rng().next_u32().saturating_add(1),
             )))
         }
     }
