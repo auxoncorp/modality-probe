@@ -11,6 +11,10 @@ use core::num::NonZeroU32;
 /// TracerId::MAX_ID.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
+#[cfg_attr(
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
 pub struct TracerId(
     /* Never make this inner field truly public */ pub(crate) NonZeroU32,
 );
