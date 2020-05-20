@@ -327,6 +327,57 @@ pub mod prop {
             AnyEventId
         }
     }
+
+    /// A proptest value tree for tracer ids. It builds off of u32's
+    /// binary search.
+    pub struct TracerIdBinarySearch(BinarySearch);
+
+    impl TracerIdBinarySearch {
+        fn or_max(x: u32) -> TracerId {
+            let x1: u32 = x.checked_add(1).unwrap_or_else(|| u32::MAX);
+            TracerId(unsafe { NonZeroU32::new_unchecked(x1) })
+        }
+    }
+
+    impl ValueTree for TracerIdBinarySearch {
+        type Value = TracerId;
+
+        fn current(&self) -> TracerId {
+            TracerIdBinarySearch::or_max(self.0.current())
+        }
+
+        fn simplify(&mut self) -> bool {
+            self.0.simplify()
+        }
+
+        fn complicate(&mut self) -> bool {
+            self.0.complicate()
+        }
+    }
+
+    #[derive(Debug)]
+    /// A proptest strategy to be used for any valid user event id.
+    pub struct AnyTracerId;
+
+    impl Strategy for AnyTracerId {
+        type Tree = TracerIdBinarySearch;
+        type Value = TracerId;
+
+        fn new_tree(&self, runner: &mut TestRunner) -> NewTree<Self> {
+            Ok(TracerIdBinarySearch(BinarySearch::new(
+                runner.rng().next_u32().saturating_add(1),
+            )))
+        }
+    }
+
+    impl Arbitrary for TracerId {
+        type Parameters = ();
+        type Strategy = AnyTracerId;
+
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            AnyTracerId
+        }
+    }
 }
 
 #[cfg(feature = "std")]
