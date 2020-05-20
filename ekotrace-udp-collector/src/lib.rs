@@ -258,10 +258,7 @@ fn add_owned_report_to_entries(
                 segment_id: next_segment_id.into(),
                 segment_index,
                 tracer_id,
-                data: LogEntryData::LogicalClock(
-                    (clock_bucket.id).into(),
-                    clock_bucket.count as u32,
-                ),
+                data: LogEntryData::LogicalClock(clock_bucket.id, clock_bucket.count as u32),
                 receive_time,
             });
 
