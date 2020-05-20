@@ -58,3 +58,27 @@ impl fmt::Display for Error {
         }
     }
 }
+
+pub(crate) fn trimmed_string(s: &str) -> String {
+    s.trim()
+        .to_string()
+        .replace("\n", "")
+        .replace("\t", "")
+        .replace(" ", "")
+}
+
+pub(crate) fn trimmed_string_w_space(s: &str) -> String {
+    s.trim().to_string().replace("\n", "").replace("\t", "")
+}
+
+pub(crate) fn remove_double_quotes(s: &str) -> String {
+    s.replace("\"", "").trim().to_string()
+}
+
+pub(crate) fn tags_or_desc_valid(s: &str) -> bool {
+    s.chars().filter(|&c| c == '"').count() == 2
+}
+
+pub(crate) fn event_name_valid(s: &str) -> bool {
+    s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}

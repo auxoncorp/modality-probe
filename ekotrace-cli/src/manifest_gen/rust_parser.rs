@@ -1,6 +1,9 @@
 use crate::manifest_gen::{
     event_metadata::EventMetadata,
-    parser::{self, Parser, Span},
+    parser::{
+        self, event_name_valid, remove_double_quotes, tags_or_desc_valid, trimmed_string,
+        trimmed_string_w_space, Parser, Span,
+    },
     source_location::SourceLocation,
     tracer_metadata::TracerMetadata,
     type_hint::TypeHint,
@@ -9,7 +12,7 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take, take_till1, take_until},
     character::complete::{char, line_ending, multispace0},
-    combinator::{map, opt, peek, rest},
+    combinator::{iterator, opt, peek, rest},
     error::ParseError,
     sequence::{delimited, preceded},
 };
@@ -25,6 +28,7 @@ pub enum Error {
     Syntax(SourceLocation),
     MissingSemicolon(SourceLocation),
     UnrecognizedTypeHint(SourceLocation),
+    EmptyTags(SourceLocation),
 }
 
 impl Error {
@@ -33,6 +37,7 @@ impl Error {
             Error::Syntax(l) => l,
             Error::MissingSemicolon(l) => l,
             Error::UnrecognizedTypeHint(l) => l,
+            Error::EmptyTags(l) => l,
         }
     }
 }
@@ -51,66 +56,46 @@ impl Parser for RustParser {
 
 impl RustParser {
     fn parse_event_md(&self, input: &str) -> Result<Vec<EventMetadata>, Error> {
-        let mut md = vec![];
-        let mut input = Span::new(input);
-        while !input.fragment().is_empty() {
-            match parse_record_event_call_exp(input) {
-                Ok((rem, metadata)) => {
-                    md.push(metadata);
-                    input = rem;
-                }
-                Err(e) => match e {
-                    nom::Err::Incomplete(_) => {
-                        break;
-                    }
-                    nom::Err::Error(int_err) => {
-                        let res: nom::IResult<Span, _> = take(1usize)(int_err.into_inner());
-                        if let Ok((rem, _)) = res {
-                            input = rem;
-                        } else {
-                            break;
-                        }
-                    }
-                    nom::Err::Failure(e) => match e.kind {
-                        InternalErrorKind::Nom(_, _) => break,
-                        InternalErrorKind::Error(_, err) => return Err(err),
-                    },
-                },
-            }
-        }
-        Ok(md)
+        parse_input(input, parse_record_event_call_exp)
     }
 
     fn parse_tracer_md(&self, input: &str) -> Result<Vec<TracerMetadata>, Error> {
-        let mut md = vec![];
-        let mut input = Span::new(input);
-        while !input.fragment().is_empty() {
-            match parse_init_call_exp(input) {
-                Ok((rem, metadata)) => {
-                    md.push(metadata);
-                    input = rem;
+        parse_input(input, parse_init_call_exp)
+    }
+}
+
+fn parse_input<T>(
+    input: &str,
+    parse_fn: fn(Span) -> ParserResult<Span, T>,
+) -> Result<Vec<T>, Error> {
+    let mut md = vec![];
+    let mut input = Span::new(input);
+    while !input.fragment().is_empty() {
+        match parse_fn(input) {
+            Ok((rem, metadata)) => {
+                md.push(metadata);
+                input = rem;
+            }
+            Err(e) => match e {
+                nom::Err::Incomplete(_) => {
+                    break;
                 }
-                Err(e) => match e {
-                    nom::Err::Incomplete(_) => {
+                nom::Err::Error(int_err) => {
+                    let res: nom::IResult<Span, _> = take(1usize)(int_err.into_inner());
+                    if let Ok((rem, _)) = res {
+                        input = rem;
+                    } else {
                         break;
                     }
-                    nom::Err::Error(int_err) => {
-                        let res: nom::IResult<Span, _> = take(1usize)(int_err.into_inner());
-                        if let Ok((rem, _)) = res {
-                            input = rem;
-                        } else {
-                            break;
-                        }
-                    }
-                    nom::Err::Failure(e) => match e.kind {
-                        InternalErrorKind::Nom(_, _) => break,
-                        InternalErrorKind::Error(_, err) => return Err(err),
-                    },
+                }
+                nom::Err::Failure(e) => match e.kind {
+                    InternalErrorKind::Nom(_, _) => break,
+                    InternalErrorKind::Error(_, err) => return Err(err),
                 },
-            }
+            },
         }
-        Ok(md)
     }
+    Ok(md)
 }
 
 fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
@@ -143,32 +128,37 @@ fn event_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, _) = multispace0(input)?;
     let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
     let (args, ekotrace_instance) = variable_call_exp_arg(args)?;
-    let mut expect_desc = false;
-    let (args, name) = match peek(variable_call_exp_arg)(args) {
-        Ok(_) => {
-            expect_desc = true;
-            variable_call_exp_arg(args)?
-        }
-        Err(_) => rest_string(args)?,
+    let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
+    let (args, name) = if expect_tags_or_desc {
+        variable_call_exp_arg(args)?
+    } else {
+        rest_string(args)?
     };
     let name =
         reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+    if !event_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
-    let (_args, description) = if expect_desc {
-        map(rest_literal, |desc: String| {
-            Some(
-                desc.replace("\n", "")
-                    .replace("\t", "")
-                    .replace("\"", "")
-                    .trim()
-                    .to_string(),
-            )
-        })(args)?
-    } else {
-        (args, None)
-    };
+    let mut tags_and_desc: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| tags_and_desc.push(s));
+    let (_args, _) = iter.finish()?;
+    if tags_and_desc.len() > 2 {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let tags = tags_pos
+        .map(|index| tags_and_desc.remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+    }
+    let description = tags_and_desc.pop();
     Ok((
         input,
         EventMetadata {
@@ -176,6 +166,7 @@ fn event_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
             ekotrace_instance,
             payload: None,
             description,
+            tags,
             location: pos.into(),
         },
     ))
@@ -190,44 +181,41 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let split: Vec<&str> = args
+    let mut arg_vec: Vec<&str> = args
         .fragment()
         .split(',')
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .collect();
-    if split.len() != 2 && split.len() != 3 {
-        return Err(make_failure(input, Error::Syntax(pos.into())));
+    match arg_vec.len() {
+        2..=4 => (), // Tracer and event name required, maybe tags and description
+        _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
     }
-    // Use convert_error to preserve the original pos lost after the split
-    let arg0 = Span::new(split[0]);
+    let arg0 = Span::new(arg_vec.remove(0));
     let (_, ekotrace_instance) =
         rest_string(arg0).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    let arg1 = Span::new(split[1]);
+    let arg1 = Span::new(arg_vec.remove(0));
     let (_, name) = alt((reduced_event_id_exp_alt_a, reduced_event_id_exp_alt_b))(arg1)
         .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let name =
         reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+    if !event_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
-    let description = if split.len() == 3 {
-        let arg2 = Span::new(split[2]);
-        let (arg2, _) =
-            comments_and_spacing(arg2).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-        let (_, desc) = delimited(char('"'), is_not("\""), char('"'))(arg2)
-            .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-        Some(
-            desc.fragment()
-                .replace("\n", "")
-                .replace("\t", "")
-                .replace("\"", "")
-                .trim()
-                .to_string(),
-        )
-    } else {
-        None
-    };
+    let mut tags_and_desc: Vec<String> = arg_vec.iter().map(|s| (*s).to_string()).collect();
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let tags = tags_pos
+        .map(|index| tags_and_desc.swap_remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+    }
+    let description = tags_and_desc.pop();
     Ok((
         input,
         EventMetadata {
@@ -235,6 +223,7 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
             ekotrace_instance,
             payload: None,
             description,
+            tags,
             location: pos.into(),
         },
     ))
@@ -254,31 +243,32 @@ fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetad
     let (args, name) = variable_call_exp_arg(args)?;
     let name =
         reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+    if !event_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
-    let mut expect_arg4 = false;
-    let (args, payload) = match peek(variable_call_exp_arg_literal)(args) {
-        Ok(_) => {
-            expect_arg4 = true;
-            variable_call_exp_arg_literal(args)?
+    let mut arg_vec: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| arg_vec.push(s));
+    let (_args, _) = iter.finish()?;
+    match arg_vec.len() {
+        1..=3 => (), // At least a payload, maybe tags and description
+        _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
+    }
+    let payload = arg_vec.remove(0).trim().to_string();
+    let mut tags_and_desc = arg_vec;
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let tags = tags_pos
+        .map(|index| tags_and_desc.remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
-        Err(_) => rest_literal(args)?,
-    };
-    let (_args, description) = if expect_arg4 {
-        map(rest_literal, |desc: String| {
-            Some(
-                desc.replace("\n", "")
-                    .replace("\t", "")
-                    .replace("\"", "")
-                    .trim()
-                    .to_string(),
-            )
-        })(args)?
-    } else {
-        (args, None)
-    };
-
+    }
+    let description = tags_and_desc.pop();
     Ok((
         input,
         EventMetadata {
@@ -286,6 +276,7 @@ fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetad
             ekotrace_instance,
             payload: Some((type_hint, payload).into()),
             description,
+            tags,
             location: pos.into(),
         },
     ))
@@ -305,48 +296,44 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let split: Vec<&str> = args
+    let mut arg_vec: Vec<&str> = args
         .fragment()
         .split(',')
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .collect();
-    if split.len() != 3 && split.len() != 4 {
-        return Err(make_failure(input, Error::Syntax(pos.into())));
+    match arg_vec.len() {
+        3..=5 => (), // Tracer, event name and payload required, maybe tags and description
+        _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
     }
-    // Use convert_error to preserve the original pos lost after the split
-    let arg = Span::new(split[0]);
+    let arg = Span::new(arg_vec.remove(0));
     let (_, ekotrace_instance) =
         rest_string(arg).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    let arg = Span::new(split[1]);
+    let arg = Span::new(arg_vec.remove(0));
     let (_, name) = alt((reduced_event_id_exp_alt_a, reduced_event_id_exp_alt_b))(arg)
         .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let name =
         reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+    if !event_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
-    let arg = Span::new(split[2]);
+    let arg = Span::new(arg_vec.remove(0));
     let (_, payload) =
         rest_literal(arg).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    let description = if split.len() == 4 {
-        let arg = Span::new(split[3]);
-        let (arg, _) =
-            comments_and_spacing(arg).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-        let (_, desc) = delimited(char('"'), is_not("\""), char('"'))(arg)
-            .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-        Some(
-            desc.fragment()
-                .replace("\n", "")
-                .replace("\t", "")
-                .replace("\"", "")
-                .trim()
-                .to_string(),
-        )
-    } else {
-        None
-    };
-
+    let mut tags_and_desc: Vec<String> = arg_vec.iter().map(|s| (*s).to_string()).collect();
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let tags = tags_pos
+        .map(|index| tags_and_desc.swap_remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+    }
+    let description = tags_and_desc.pop();
     Ok((
         input,
         EventMetadata {
@@ -354,6 +341,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
             ekotrace_instance,
             payload: Some((type_hint, payload).into()),
             description,
+            tags,
             location: pos.into(),
         },
     ))
@@ -396,6 +384,21 @@ fn variable_call_exp_arg(input: Span) -> ParserResult<Span, String> {
     Ok((input, trimmed_string(arg.fragment())))
 }
 
+fn multi_variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
+    if input.fragment().is_empty() {
+        return Err(nom::Err::Error(
+            (input, nom::error::ErrorKind::ParseTo).into(),
+        ));
+    }
+    let expect_another = peek(variable_call_exp_arg_literal)(input).is_ok();
+    let (input, arg) = if expect_another {
+        variable_call_exp_arg_literal(input)?
+    } else {
+        rest_literal(input)?
+    };
+    Ok((input, arg))
+}
+
 fn variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
     let (input, _) = comments_and_spacing(input)?;
     let (input, arg) = take_until(",")(input)?;
@@ -421,6 +424,7 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
         TracerMetadata {
             name,
             location: pos.into(),
+            tags: None,
         },
     ))
 }
@@ -484,12 +488,21 @@ fn rest_literal(input: Span) -> ParserResult<Span, String> {
     Ok((input, (*rst.fragment()).to_string()))
 }
 
-fn trimmed_string(s: &str) -> String {
-    s.trim()
-        .to_string()
-        .replace("\n", "")
-        .replace("\t", "")
-        .replace(" ", "")
+fn truncate_and_trim(s: &str) -> Result<String, ()> {
+    let arg = Span::new(s);
+    let (arg, _) = comments_and_spacing(arg).map_err(|_| ())?;
+    let tail_index = arg.fragment().rfind('"').ok_or(())?;
+    if tail_index == 0 {
+        return Err(());
+    }
+    let mut s = (*arg.fragment()).to_string();
+    s.truncate(tail_index + 1);
+    s = trimmed_string_w_space(&s);
+    if !tags_or_desc_valid(&s) {
+        return Err(());
+    }
+    s = remove_double_quotes(&s);
+    Ok(s)
 }
 
 fn reduce_namespace(s: &str) -> Result<String, ()> {
@@ -524,6 +537,10 @@ impl fmt::Display for Error {
             Error::UnrecognizedTypeHint(_) => write!(
                 f,
                 "Ekotrace record event with payload call-site has an unrecognized payload type hint",
+            ),
+            Error::EmptyTags(_) => write!(
+                f,
+                "Enountered an empty tags statement while parsing an Ekotrace record event call-site",
             ),
         }
     }
@@ -680,7 +697,8 @@ mod tests {
         tracer,
         EventId::try_from(EVENT_J).unwrap(),
         -2_i8,
-        "desc"
+        "tags=thing1;thing2;my::namespace;tag with spaces", //docs
+        "desc" //docs
     );
 "#;
 
@@ -694,22 +712,27 @@ mod tests {
                 TracerMetadata {
                     name: "LOCATION_ID_A".to_string(),
                     location: (68, 3, 18).into(),
+                    tags: None,
                 },
                 TracerMetadata {
                     name: "LOCATION_ID_B".to_string(),
                     location: (199, 6, 24).into(),
+                    tags: None,
                 },
                 TracerMetadata {
                     name: "LOCATION_ID_C".to_string(),
                     location: (296, 9, 15).into(),
+                    tags: None,
                 },
                 TracerMetadata {
                     name: "LOCATION_ID_D".to_string(),
                     location: (422, 13, 24).into(),
+                    tags: None,
                 },
                 TracerMetadata {
                     name: "LOCATION_ID_E".to_string(),
                     location: (617, 19, 18).into(),
+                    tags: None,
                 },
             ])
         );
@@ -727,6 +750,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: Some("my text".to_string()),
+                    tags: None,
                     location: (24, 3, 5).into(),
                 },
                 EventMetadata {
@@ -734,6 +758,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: Some("my text".to_string()),
+                    tags: None,
                     location: (103, 5, 5).into(),
                 },
                 EventMetadata {
@@ -741,6 +766,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: None,
+                    tags: None,
                     location: (258, 12, 5).into(),
                 },
                 EventMetadata {
@@ -748,6 +774,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: Some("my text".to_string()),
+                    tags: None,
                     location: (326, 14, 5).into(),
                 },
                 EventMetadata {
@@ -755,6 +782,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: None,
+                    tags: None,
                     location: (460, 20, 5).into(),
                 },
                 EventMetadata {
@@ -762,6 +790,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: None,
+                    tags: None,
                     location: (502, 21, 5).into(),
                 },
                 EventMetadata {
@@ -769,6 +798,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: None,
+                    tags: None,
                     location: (556, 23, 5).into(),
                 },
                 EventMetadata {
@@ -776,6 +806,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: None,
+                    tags: None,
                     location: (626, 25, 5).into(),
                 },
                 EventMetadata {
@@ -783,6 +814,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: Some("docs".to_string()),
+                    tags: None,
                     location: (676, 26, 5).into(),
                 },
                 EventMetadata {
@@ -790,6 +822,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: Some((TypeHint::U32, "1_u32").into()),
                     description: None,
+                    tags: None,
                     location: (748, 28, 5).into(),
                 },
                 EventMetadata {
@@ -797,6 +830,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: Some((TypeHint::F32, "1.234_f32").into()),
                     description: Some("desc".to_string()),
+                    tags: None,
                     location: (929, 35, 5).into(),
                 },
                 EventMetadata {
@@ -804,6 +838,7 @@ mod tests {
                     ekotrace_instance: "tracer".to_string(),
                     payload: Some((TypeHint::I8, "-2_i8").into()),
                     description: Some("desc".to_string()),
+                    tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
                     location: (1039, 38, 5).into(),
                 },
             ])
@@ -935,6 +970,7 @@ record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "d
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: Some("desc".to_string()),
+                    tags: None,
                     location: (1, 2, 1).into(),
                 },
                 EventMetadata {
@@ -942,6 +978,7 @@ record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "d
                     ekotrace_instance: "tracer".to_string(),
                     payload: None,
                     description: Some("my text".to_string()),
+                    tags: None,
                     location: (57, 4, 1).into(),
                 },
                 EventMetadata {
@@ -949,6 +986,7 @@ record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "d
                     ekotrace_instance: "tracer".to_string(),
                     payload: Some((TypeHint::U32, "1_u32").into()),
                     description: None,
+                    tags: None,
                     location: (144, 6, 1).into(),
                 },
                 EventMetadata {
@@ -956,9 +994,30 @@ record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "d
                     ekotrace_instance: "tracer".to_string(),
                     payload: Some((TypeHint::I8, "1_i8").into()),
                     description: Some("desc".to_string()),
+                    tags: None,
                     location: (229, 8, 1).into(),
                 },
             ])
         );
+    }
+
+    #[test]
+    fn empty_event_tags_errors() {
+        let parser = RustParser::default();
+        let input = r#"try_record!(tracer, events::EVENT_A, "desc", "tags=").unwrap();"#;
+        let tokens = parser.parse_event_md(input);
+        assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
+        let input = r#"
+        record!(tracer, EventId::try_from(events::more_events::EVENT_B).unwrap(), "tags=", "my text");"#;
+        let tokens = parser.parse_event_md(input);
+        assert_eq!(tokens, Err(Error::EmptyTags((9, 2, 9).into())));
+        let input = r#"
+        try_record_w_u32!(tracer, events::EVENT_C, 1_u32, "tags=").expect("failed here");"#;
+        let tokens = parser.parse_event_md(input);
+        assert_eq!(tokens, Err(Error::EmptyTags((9, 2, 9).into())));
+        let input = r#"
+        record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "tags=", "desc");"#;
+        let tokens = parser.parse_event_md(input);
+        assert_eq!(tokens, Err(Error::EmptyTags((9, 2, 9).into())));
     }
 }

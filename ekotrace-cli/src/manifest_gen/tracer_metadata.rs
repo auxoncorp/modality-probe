@@ -5,6 +5,7 @@ use crate::manifest_gen::source_location::SourceLocation;
 pub struct TracerMetadata {
     pub name: String,
     pub location: SourceLocation,
+    pub tags: Option<String>,
 }
 
 impl TracerMetadata {

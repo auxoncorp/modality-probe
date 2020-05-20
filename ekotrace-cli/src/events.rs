@@ -14,6 +14,7 @@ pub struct Event {
     pub id: EventId,
     pub name: String,
     pub description: String,
+    pub tags: String,
     pub type_hint: String,
     pub file: String,
     pub function: String,

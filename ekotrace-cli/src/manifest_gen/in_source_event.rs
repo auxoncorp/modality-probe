@@ -27,6 +27,11 @@ impl InSourceEvent {
                 .description
                 .as_ref()
                 .map_or(String::new(), |s| s.clone()),
+            tags: self
+                .metadata
+                .tags
+                .as_ref()
+                .map_or(String::new(), |s| s.clone()),
             type_hint: self
                 .metadata
                 .payload
@@ -88,6 +93,7 @@ mod tests {
                 ekotrace_instance: "ekt".to_string(),
                 payload: Some((TypeHint::U8, "mydata").into()),
                 description: None,
+                tags: None,
                 location: (1, 2, 3).into(),
             },
         };
@@ -96,6 +102,7 @@ mod tests {
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::from("stuff not in the src"),
+            tags: String::new(),
             type_hint: String::from("u8"),
             file: "main.c".to_string(),
             function: String::new(),
