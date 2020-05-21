@@ -356,7 +356,7 @@ pub mod prop {
     }
 
     #[derive(Debug)]
-    /// A proptest strategy to be used for any valid user event id.
+    /// A proptest strategy to be used for any valid tracer id.
     pub struct AnyTracerId;
 
     impl Strategy for AnyTracerId {
