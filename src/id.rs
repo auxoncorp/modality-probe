@@ -11,6 +11,10 @@ use core::num::NonZeroU32;
 /// TracerId::MAX_ID.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
+#[cfg_attr(
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
 pub struct TracerId(
     /* Never make this inner field truly public */ pub(crate) NonZeroU32,
 );
@@ -310,7 +314,7 @@ pub mod prop {
 
         fn new_tree(&self, runner: &mut TestRunner) -> NewTree<Self> {
             Ok(EventIdBinarySearch(BinarySearch::new(
-                runner.rng().next_u32(),
+                runner.rng().next_u32().saturating_add(1),
             )))
         }
     }
@@ -321,6 +325,57 @@ pub mod prop {
 
         fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
             AnyEventId
+        }
+    }
+
+    /// A proptest value tree for tracer ids. It builds off of u32's
+    /// binary search.
+    pub struct TracerIdBinarySearch(BinarySearch);
+
+    impl TracerIdBinarySearch {
+        fn or_max(x: u32) -> TracerId {
+            let x1: u32 = x.checked_add(1).unwrap_or_else(|| core::u32::MAX);
+            TracerId(unsafe { NonZeroU32::new_unchecked(x1) })
+        }
+    }
+
+    impl ValueTree for TracerIdBinarySearch {
+        type Value = TracerId;
+
+        fn current(&self) -> TracerId {
+            TracerIdBinarySearch::or_max(self.0.current())
+        }
+
+        fn simplify(&mut self) -> bool {
+            self.0.simplify()
+        }
+
+        fn complicate(&mut self) -> bool {
+            self.0.complicate()
+        }
+    }
+
+    #[derive(Debug)]
+    /// A proptest strategy to be used for any valid tracer id.
+    pub struct AnyTracerId;
+
+    impl Strategy for AnyTracerId {
+        type Tree = TracerIdBinarySearch;
+        type Value = TracerId;
+
+        fn new_tree(&self, runner: &mut TestRunner) -> NewTree<Self> {
+            Ok(TracerIdBinarySearch(BinarySearch::new(
+                runner.rng().next_u32().saturating_add(1),
+            )))
+        }
+    }
+
+    impl Arbitrary for TracerId {
+        type Parameters = ();
+        type Strategy = AnyTracerId;
+
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            AnyTracerId
         }
     }
 }
