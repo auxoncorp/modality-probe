@@ -135,7 +135,7 @@ typedef struct causal_snapshot {
  * Expands to call `ekotrace_record_event(ekt, event)`.
  *
  * The trailing variadic macro arguments accept (in any order):
- * - A string for declaring tags: "tags=<tag>[,<tag>]"
+ * - A string for declaring tags: "tags=<tag>[;<tag>]"
  * - A string for the event description
  *
  */
@@ -150,7 +150,7 @@ typedef struct causal_snapshot {
  * Expands to call `ekotrace_record_event_with_payload_<type>(ekt, event)`.
  *
  * The trailing variadic macro arguments accept (in any order):
- * - A string for declaring tags: "tags=<tag>[,<tag>]"
+ * - A string for declaring tags: "tags=<tag>[;<tag>]"
  * - A string for the event description
  *
  */

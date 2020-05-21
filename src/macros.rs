@@ -4,7 +4,7 @@
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export]
 macro_rules! record {
     ($tracer:expr, $event:expr) => {
@@ -24,7 +24,7 @@ macro_rules! record {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export]
 macro_rules! try_record {
     ($tracer:expr, $event:expr) => {
@@ -44,7 +44,7 @@ macro_rules! try_record {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i8 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -64,7 +64,7 @@ macro_rules! record_w_i8 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u8 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -84,7 +84,7 @@ macro_rules! record_w_u8 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i16 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -104,7 +104,7 @@ macro_rules! record_w_i16 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u16 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -124,7 +124,7 @@ macro_rules! record_w_u16 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i32 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -144,7 +144,7 @@ macro_rules! record_w_i32 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u32 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -164,7 +164,7 @@ macro_rules! record_w_u32 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_bool {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -184,7 +184,7 @@ macro_rules! record_w_bool {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_f32 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -204,7 +204,7 @@ macro_rules! record_w_f32 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i8 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -224,7 +224,7 @@ macro_rules! try_record_w_i8 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u8 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -244,7 +244,7 @@ macro_rules! try_record_w_u8 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i16 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -264,7 +264,7 @@ macro_rules! try_record_w_i16 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u16 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -284,7 +284,7 @@ macro_rules! try_record_w_u16 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i32 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -304,7 +304,7 @@ macro_rules! try_record_w_i32 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u32 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -324,7 +324,7 @@ macro_rules! try_record_w_u32 {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_bool {
     ($tracer:expr, $event:expr, $payload:expr) => {{
@@ -344,7 +344,7 @@ macro_rules! try_record_w_bool {
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
 ///
-/// The format for the tags string is: `"tags=<tag>[,<tag>]"`
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_f32 {
     ($tracer:expr, $event:expr, $payload:expr) => {{
