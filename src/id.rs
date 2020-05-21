@@ -334,7 +334,7 @@ pub mod prop {
 
     impl TracerIdBinarySearch {
         fn or_max(x: u32) -> TracerId {
-            let x1: u32 = x.checked_add(1).unwrap_or_else(|| u32::MAX);
+            let x1: u32 = x.checked_add(1).unwrap_or_else(|| core::u32::MAX);
             TracerId(unsafe { NonZeroU32::new_unchecked(x1) })
         }
     }
