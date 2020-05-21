@@ -1,8 +1,8 @@
 use crate::manifest_gen::{
     event_metadata::EventMetadata,
     parser::{
-        self, event_name_valid, remove_double_quotes, tags_or_desc_valid, trimmed_string,
-        trimmed_string_w_space, Parser, Span,
+        self, event_name_valid, remove_double_quotes, tags_or_desc_valid, tracer_name_valid,
+        trimmed_string, trimmed_string_w_space, Parser, Span,
     },
     source_location::SourceLocation,
     tracer_metadata::TracerMetadata,
@@ -271,31 +271,57 @@ fn variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
 fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
     let (input, _) = comments_and_spacing(input)?;
     let (input, pos) = position(input)?;
-    let (input, _) = tag("ekotrace_initialize")(input)?;
+    let (input, _) = tag("EKOTRACE_INITIALIZE")(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
-    let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
-    let (_args, name) = init_call_exp_tracer_arg(args)?;
+    let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)
+        .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (input, _) =
+        tag(";")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (args, _storage) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (args, _storage_size) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (args, name) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    if !tracer_name_valid(&name) {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
+    let (args, _ekotrace_instance) = if expect_tags_or_desc {
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
+    } else {
+        rest_string(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
+    };
+    let mut tags_and_desc: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| tags_and_desc.push(s));
+    let (_args, _) = iter.finish()?;
+    if tags_and_desc.len() > 2 {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let tags = tags_pos
+        .map(|index| tags_and_desc.remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+    }
+    let description = tags_and_desc.pop();
     Ok((
         input,
         TracerMetadata {
             name,
             location: pos.into(),
-            tags: None,
+            tags,
+            description,
         },
     ))
-}
-
-fn init_call_exp_tracer_arg(input: Span) -> ParserResult<Span, String> {
-    let (input, _) = comments_and_spacing(input)?;
-    let (input, _arg0) = take_until(",")(input)?;
-    let (input, _) = tag(",")(input)?;
-    let (input, _) = comments_and_spacing(input)?;
-    let (input, _arg1) = take_until(",")(input)?;
-    let (input, _) = tag(",")(input)?;
-    let (input, _) = comments_and_spacing(input)?;
-    let (input, name) = take_until(",")(input)?;
-    Ok((input, trimmed_string(name.fragment())))
 }
 
 fn comments_and_spacing(input: Span) -> ParserResult<Span, ()> {
@@ -476,35 +502,45 @@ mod tests {
 
     const MIXED_TRACER_ID_INPUT: &'static str = r#"
     /* C/C++ style */
-    ekotrace_result result = ekotrace_initialize(
+    ekotrace_result result = EKOTRACE_INITIALIZE(
         destination,
         DEFAULT_TRACER_SIZE,
         DEFAULT_TRACER_ID,
         &t);
 
     // One line
-    ekotrace_initialize(dest,TRACER_SIZE,MY_TRACER_ID,&t);
+    EKOTRACE_INITIALIZE(dest,TRACER_SIZE,MY_TRACER_ID,&t);
 
-    const size_t err = ekotrace_initialize(     dest,  TRACER_SIZE,
+    const size_t err = EKOTRACE_INITIALIZE(     dest,  TRACER_SIZE,
     LOCATION_ID_FOO,      &t);
 
     const size_t err =
-        ekotrace_initialize(
+        EKOTRACE_INITIALIZE(
         // stuff
         dest, // more stuff
         TRACER_SIZE, /* comment */
     LOCATION_ID_BAR,   /* things */   &t);
 
-    ekotrace_initialize(
-        dest, /* more docs */ TRACER_SIZE , /* docs */ MY_OTHER_TRACER_ID, /* docs */ &t);
+    EKOTRACE_INITIALIZE(
+        dest, /* more docs */ TRACER_SIZE , /* docs */ MY_OTHER_TRACER_ID, /* docs */ &t, "desc");
 
     /* things in comments
      * are
      * ignored
      *
-     * ekotrace_initialize(dest,TRACER_SIZE,ANOTHER_ID,&t);
+     * EKOTRACE_INITIALIZE(dest,TRACER_SIZE,ANOTHER_ID,&t);
      *
      */
+    size_t err = EKOTRACE_INITIALIZE(
+            &g_agent_storage[0],
+            STORAGE_SIZE,
+            LOCATION_ID_FOO,
+            &g_agent,
+            "tags=my-tags;more tags",
+            "Description");
+    assert(err == EKOTRACE_RESULT_OK);
+
+    EKOTRACE_INITIALIZE(storage, size, ID_BAR, t, "tags=my tag");
 "#;
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
@@ -571,26 +607,43 @@ mod tests {
                     name: "DEFAULT_TRACER_ID".to_string(),
                     location: (52, 3, 30).into(),
                     tags: None,
+                    description: None,
                 },
                 TracerMetadata {
                     name: "MY_TRACER_ID".to_string(),
                     location: (184, 10, 5).into(),
                     tags: None,
+                    description: None,
                 },
                 TracerMetadata {
                     name: "LOCATION_ID_FOO".to_string(),
                     location: (263, 12, 24).into(),
                     tags: None,
+                    description: None,
                 },
                 TracerMetadata {
                     name: "LOCATION_ID_BAR".to_string(),
                     location: (371, 16, 9).into(),
                     tags: None,
+                    description: None,
                 },
                 TracerMetadata {
                     name: "MY_OTHER_TRACER_ID".to_string(),
                     location: (520, 22, 5).into(),
                     tags: None,
+                    description: Some("desc".to_string()),
+                },
+                TracerMetadata {
+                    name: "LOCATION_ID_FOO".to_string(),
+                    location: (792, 32, 18).into(),
+                    tags: Some("my-tags;more tags".to_string()),
+                    description: Some("Description".to_string()),
+                },
+                TracerMetadata {
+                    name: "ID_BAR".to_string(),
+                    location: (1033, 41, 5).into(),
+                    tags: Some("my tag".to_string()),
+                    description: None,
                 },
             ])
         );
@@ -709,6 +762,9 @@ assert(err == EKOTRACE_RESULT_OK);
         assert_eq!(tokens, Err(Error::MissingSemicolon((19, 1, 20).into())));
         let input = "EKOTRACE_RECORD_W_I16(ekt, E0, data)";
         let tokens = parser.parse_event_md(input);
+        assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
+        let input = "EKOTRACE_INITIALIZE(storage, size, ID_BAR, t)";
+        let tokens = parser.parse_tracer_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
     }
 

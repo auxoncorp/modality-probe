@@ -22,8 +22,16 @@ impl InSourceTracer {
         Tracer {
             id,
             name: self.canonical_name(),
-            description: String::new(),
-            tags: String::new(),
+            description: self
+                .metadata
+                .description
+                .as_ref()
+                .map_or(String::new(), |s| s.clone()),
+            tags: self
+                .metadata
+                .tags
+                .as_ref()
+                .map_or(String::new(), |s| s.clone()),
             file: self.file.path.clone(),
             function: String::new(),
             line: self.metadata.location.line.to_string(),
@@ -76,6 +84,7 @@ mod tests {
                 name: "LOCATION_A".to_string(),
                 location: (1, 4, 3).into(),
                 tags: None,
+                description: None,
             },
         };
         let in_mf_tracer = Tracer {

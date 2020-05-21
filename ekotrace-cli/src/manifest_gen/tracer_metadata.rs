@@ -6,6 +6,7 @@ pub struct TracerMetadata {
     pub name: String,
     pub location: SourceLocation,
     pub tags: Option<String>,
+    pub description: Option<String>,
 }
 
 impl TracerMetadata {

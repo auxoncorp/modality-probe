@@ -82,3 +82,7 @@ pub(crate) fn tags_or_desc_valid(s: &str) -> bool {
 pub(crate) fn event_name_valid(s: &str) -> bool {
     s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
+
+pub(crate) fn tracer_name_valid(s: &str) -> bool {
+    s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
