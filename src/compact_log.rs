@@ -443,46 +443,44 @@ where
                     ))
                 }
             }
-        } else {
-            if compact.has_event_with_payload_bit_set() {
-                let event_id = compact.raw() & !EVENT_WITH_PAYLOAD_MASK;
-                let event_id: EventId = match event_id.try_into() {
-                    Ok(id) => id,
-                    Err(_) => {
-                        self.is_done = true;
-                        return Some(Err(
-                            LogItemInterpretationError::LogEventInterpretationError(
-                                LogEventInterpretationError::InvalidEventId(event_id),
-                            ),
-                        ));
-                    }
-                };
-                match self.inner.next() {
-                    Some(payload) => Some(Ok(LogItem::LogEvent(LogEvent::EventWithPayload(
-                        event_id,
-                        payload.raw(),
-                    )))),
-                    None => {
-                        self.is_done = true;
-                        Some(Err(
-                            LogItemInterpretationError::LogEventInterpretationError(
-                                LogEventInterpretationError::EventMissingPayload(event_id),
-                            ),
-                        ))
-                    }
+        } else if compact.has_event_with_payload_bit_set() {
+            let event_id = compact.raw() & !EVENT_WITH_PAYLOAD_MASK;
+            let event_id: EventId = match event_id.try_into() {
+                Ok(id) => id,
+                Err(_) => {
+                    self.is_done = true;
+                    return Some(Err(
+                        LogItemInterpretationError::LogEventInterpretationError(
+                            LogEventInterpretationError::InvalidEventId(event_id),
+                        ),
+                    ));
                 }
-            } else {
-                let event_id = compact.raw();
-                match event_id.try_into() {
-                    Ok(event_id) => Some(Ok(LogItem::LogEvent(LogEvent::Event(event_id)))),
-                    Err(_) => {
-                        self.is_done = true;
-                        Some(Err(
-                            LogItemInterpretationError::LogEventInterpretationError(
-                                LogEventInterpretationError::InvalidEventId(event_id),
-                            ),
-                        ))
-                    }
+            };
+            match self.inner.next() {
+                Some(payload) => Some(Ok(LogItem::LogEvent(LogEvent::EventWithPayload(
+                    event_id,
+                    payload.raw(),
+                )))),
+                None => {
+                    self.is_done = true;
+                    Some(Err(
+                        LogItemInterpretationError::LogEventInterpretationError(
+                            LogEventInterpretationError::EventMissingPayload(event_id),
+                        ),
+                    ))
+                }
+            }
+        } else {
+            let event_id = compact.raw();
+            match event_id.try_into() {
+                Ok(event_id) => Some(Ok(LogItem::LogEvent(LogEvent::Event(event_id)))),
+                Err(_) => {
+                    self.is_done = true;
+                    Some(Err(
+                        LogItemInterpretationError::LogEventInterpretationError(
+                            LogEventInterpretationError::InvalidEventId(event_id),
+                        ),
+                    ))
                 }
             }
         }

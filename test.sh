@@ -4,6 +4,7 @@ set -ex
 
 (
     cd examples/
+    rm -f events.csv tracers.csv
     mkdir -p tracing_ids/
     cargo run -p ekotrace-cli -- manifest-gen --events-csv-file events.csv --tracers-csv-file tracers.csv ./
     cargo run -p ekotrace-cli -- header-gen --lang Rust events.csv tracers.csv > tracing_ids/mod.rs

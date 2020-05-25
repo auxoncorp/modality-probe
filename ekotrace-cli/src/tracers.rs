@@ -14,6 +14,7 @@ pub struct Tracer {
     pub id: TracerId,
     pub name: String,
     pub description: String,
+    pub tags: String,
     pub file: String,
     pub function: String,
     pub line: String,

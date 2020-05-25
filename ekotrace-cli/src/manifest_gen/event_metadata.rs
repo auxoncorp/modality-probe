@@ -16,6 +16,7 @@ pub struct EventMetadata {
     pub ekotrace_instance: String,
     pub payload: Option<Payload>,
     pub description: Option<String>,
+    pub tags: Option<String>,
     pub location: SourceLocation,
 }
 

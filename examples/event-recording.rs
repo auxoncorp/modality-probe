@@ -26,8 +26,13 @@ fn main() {
 
     let mut loop_counter = 0;
     loop {
-        try_record!(tracer, TOP_OF_THE_LOOP, "At the top of the loop")
-            .expect("Could not record event");
+        try_record!(
+            tracer,
+            TOP_OF_THE_LOOP,
+            "At the top of the loop",
+            "tags=example;my-tag"
+        )
+        .expect("Could not record event");
 
         if loop_counter % 2 == 0 {
             try_record!(tracer, LOOP_COUNTER_EVENT, "Loop counter event happened")
@@ -48,6 +53,7 @@ fn main() {
                 tracer,
                 REPORT_CREATED,
                 n_report_bytes as u32,
+                "tags=another tag",
                 "Report created"
             )
             .expect("could not record event with metadata");

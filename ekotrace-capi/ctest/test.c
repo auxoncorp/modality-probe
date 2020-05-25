@@ -78,6 +78,16 @@ bool test_event_recording() {
         fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
+    result = EKOTRACE_RECORD(t, EVENT_A, (int8_t) 1, "tags=my-tag", "description");
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
+        passed = false;
+    }
+    result = EKOTRACE_RECORD(t, EVENT_A, (int8_t) 1, "tags=my-tag");
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at record event with payload: %d\n", result);
+        passed = false;
+    }
     result = EKOTRACE_RECORD_W_I8(t, EVENT_A, (int8_t) 1);
     if (result != EKOTRACE_RESULT_OK) {
         fprintf(stderr, "failed at record event with payload: %d\n", result);
@@ -88,12 +98,12 @@ bool test_event_recording() {
         fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
-    result = EKOTRACE_RECORD_W_I16(t, EVENT_A, (int16_t) 1);
+    result = EKOTRACE_RECORD_W_I16(t, EVENT_A, (int16_t) 1, "tags=my tag");
     if (result != EKOTRACE_RESULT_OK) {
         fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
-    result = EKOTRACE_RECORD_W_U16(t, EVENT_A, (uint16_t) 1);
+    result = EKOTRACE_RECORD_W_U16(t, EVENT_A, (uint16_t) 1, "tags=a-tag", "desc");
     if (result != EKOTRACE_RESULT_OK) {
         fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;

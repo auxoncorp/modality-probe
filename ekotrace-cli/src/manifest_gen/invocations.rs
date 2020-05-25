@@ -529,6 +529,7 @@ mod tests {
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
+                tags: None,
             },
         };
         let loc_1 = InSourceTracer {
@@ -539,6 +540,7 @@ mod tests {
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
+                tags: None,
             },
         };
         let invcs = Invocations {
@@ -561,6 +563,7 @@ mod tests {
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
+                tags: None,
             },
         };
         let loc_1 = InSourceTracer {
@@ -571,6 +574,7 @@ mod tests {
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 2, 1).into(),
+                tags: None,
             },
         };
         let invcs = Invocations {
@@ -593,6 +597,7 @@ mod tests {
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 2, 3).into(),
+                tags: None,
             },
         };
         let loc_1 = InSourceTracer {
@@ -603,6 +608,7 @@ mod tests {
             metadata: TracerMetadata {
                 name: "location_b".to_string(),
                 location: (4, 5, 6).into(),
+                tags: None,
             },
         };
         let invcs = Invocations {
@@ -625,12 +631,14 @@ mod tests {
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 4, 3).into(),
+                tags: None,
             },
         };
         let in_mf_tracer = Tracer {
             id: TracerId(1),
             name: "location_a".to_string(),
             description: String::new(),
+            tags: String::new(),
             file: "main.c".to_string(),
             function: String::new(),
             line: "2".to_string(),
@@ -650,6 +658,7 @@ mod tests {
                 id: TracerId(1),
                 name: "location_a".to_string(),
                 description: String::new(),
+                tags: String::new(),
                 file: "file.c".to_string(),
                 function: String::new(),
                 line: "4".to_string(),
@@ -669,6 +678,7 @@ mod tests {
                 ekotrace_instance: "ekt".to_string(),
                 payload: None,
                 description: None,
+                tags: None,
                 location: (1, 2, 3).into(),
             },
         };
@@ -694,6 +704,7 @@ mod tests {
                 ekotrace_instance: "ekt".to_string(),
                 payload: None,
                 description: None,
+                tags: None,
                 location: (1, 2, 3).into(),
             },
         };
@@ -707,6 +718,7 @@ mod tests {
                 ekotrace_instance: "ekt".to_string(),
                 payload: None,
                 description: None,
+                tags: None,
                 location: (1, 3, 3).into(),
             },
         };
@@ -732,6 +744,7 @@ mod tests {
                 ekotrace_instance: "ekt".to_string(),
                 payload: None,
                 description: None,
+                tags: None,
                 location: (1, 2, 3).into(),
             },
         };
@@ -739,6 +752,7 @@ mod tests {
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
+            tags: String::new(),
             type_hint: String::new(),
             file: "file.c".to_string(),
             function: String::new(),
@@ -759,6 +773,7 @@ mod tests {
                 id: EventId(1),
                 name: "event_a".to_string(),
                 description: String::new(),
+                tags: String::new(),
                 type_hint: String::new(),
                 file: "main.c".to_string(),
                 function: String::new(),
@@ -779,6 +794,7 @@ mod tests {
                 ekotrace_instance: "ekt".to_string(),
                 payload: None,
                 description: None,
+                tags: None,
                 location: (1, 8, 3).into(),
             },
         };
@@ -786,6 +802,7 @@ mod tests {
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
+            tags: String::new(),
             type_hint: String::new(),
             file: "main.c".to_string(),
             function: String::new(),
@@ -806,6 +823,7 @@ mod tests {
                 id: EventId(1),
                 name: "event_a".to_string(),
                 description: String::new(),
+                tags: String::new(),
                 type_hint: String::new(),
                 file: "main.c".to_string(),
                 function: String::new(),
@@ -826,6 +844,7 @@ mod tests {
                 ekotrace_instance: "ekt".to_string(),
                 payload: Some((TypeHint::U8, "mydata").into()),
                 description: None,
+                tags: None,
                 location: (1, 2, 3).into(),
             },
         };
@@ -833,6 +852,7 @@ mod tests {
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
+            tags: String::new(),
             type_hint: String::new(),
             file: "main.c".to_string(),
             function: String::new(),
@@ -853,6 +873,7 @@ mod tests {
                 id: EventId(1),
                 name: "event_a".to_string(),
                 description: String::new(),
+                tags: String::new(),
                 type_hint: "u8".to_string(),
                 file: "main.c".to_string(),
                 function: String::new(),

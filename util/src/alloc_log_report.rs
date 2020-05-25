@@ -72,9 +72,9 @@ impl LogReport {
     pub fn try_from_bulk_bytes(bytes: &[u8]) -> Result<Self, ParseBulkReportError> {
         let (location, log_iter, ext_bytes) =
             ekotrace::report::bulk::try_bulk_from_wire_bytes(bytes)
-                .map_err(|e| ParseBulkReportError::ParseBulkFromWire(e))?;
+                .map_err(ParseBulkReportError::ParseBulkFromWire)?;
         LogReport::try_from_log(location, log_iter, ext_bytes.0)
-            .map_err(|e| ParseBulkReportError::CompactLogInterpretation(e))
+            .map_err(ParseBulkReportError::CompactLogInterpretation)
     }
 
     pub fn write_bulk_bytes(&self, destination: &mut [u8]) -> Result<usize, ReportError> {

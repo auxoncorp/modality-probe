@@ -1,5 +1,4 @@
 use crate::{events::Event, lang::Lang, tracers::Tracer};
-use csv;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io;

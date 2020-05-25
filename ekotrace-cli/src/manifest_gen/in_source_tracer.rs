@@ -23,6 +23,7 @@ impl InSourceTracer {
             id,
             name: self.canonical_name(),
             description: String::new(),
+            tags: String::new(),
             file: self.file.path.clone(),
             function: String::new(),
             line: self.metadata.location.line.to_string(),
@@ -74,12 +75,14 @@ mod tests {
             metadata: TracerMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 4, 3).into(),
+                tags: None,
             },
         };
         let in_mf_tracer = Tracer {
             id: TracerId(1),
             name: "location_a".to_string(),
             description: String::from("not in src"),
+            tags: String::new(),
             file: "main.c".to_string(),
             function: String::new(),
             line: "4".to_string(),
