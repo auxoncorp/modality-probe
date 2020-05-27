@@ -4,4 +4,8 @@ set -ex
 
 cargo clean --manifest-path ../Cargo.toml -p ekotrace-capi
 cargo build --manifest-path ../Cargo.toml
+
 gcc -DDEBUG -o test test.c -ansi -Wall -Wextra -Werror -Wconversion -Wsign-conversion -I../include -L../target/debug -lekotrace_capi
+
+# This test shouldn't be linked to libekotrace_capi
+gcc -DDEBUG -o noop_test noop.c -ansi -Wall -Wextra -Werror -Wconversion -Wsign-conversion -I../include
