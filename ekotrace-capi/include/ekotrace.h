@@ -9,6 +9,15 @@
 extern "C" {
 #endif
 
+/*
+ * Ekotrace macros are enabled by default.
+ *
+ * They can be made into no-op's by defining EKOTRACE_MACROS_ENABLED=0.
+ */
+#ifndef EKOTRACE_MACROS_ENABLED
+#define EKOTRACE_MACROS_ENABLED 1
+#endif
+
 #define EKOTRACE_NULL_TRACER_INITIALIZER (NULL)
 
 /*
@@ -136,11 +145,11 @@ typedef struct causal_snapshot {
  *
  * The trailing variadic macro arguments accept (in any order):
  * - A string for declaring tags: "tags=<tag>[;<tag>]"
- * - A string for the event description
+ * - A string for the tracer description
  *
  */
 #define EKOTRACE_INITIALIZE(dest, dest_size, id, ekt, ...) \
-        ekotrace_initialize(dest, dest_size, id, ekt)
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_initialize(dest, dest_size, id, ekt) : EKOTRACE_RESULT_OK)
 
 /*
  * Ekotrace event recording macro.
@@ -155,7 +164,7 @@ typedef struct causal_snapshot {
  *
  */
 #define EKOTRACE_RECORD(ekt, event, ...) \
-        ekotrace_record_event(ekt, event)
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event(ekt, event) : EKOTRACE_RESULT_OK)
 
 /*
  * Ekotrace event recording with payload macro.
@@ -170,45 +179,45 @@ typedef struct causal_snapshot {
  *
  */
 #define EKOTRACE_RECORD_W_I8(ekt, event, payload, ...) \
-    ekotrace_record_event_with_payload_i8(\
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_i8(\
             ekt, \
             event, \
-            payload)
+            payload) : EKOTRACE_RESULT_OK)
 #define EKOTRACE_RECORD_W_U8(ekt, event, payload, ...) \
-    ekotrace_record_event_with_payload_u8(\
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_u8(\
             ekt, \
             event, \
-            payload)
+            payload) : EKOTRACE_RESULT_OK)
 #define EKOTRACE_RECORD_W_I16(ekt, event, payload, ...) \
-    ekotrace_record_event_with_payload_i16(\
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_i16(\
             ekt, \
             event, \
-            payload)
+            payload) : EKOTRACE_RESULT_OK)
 #define EKOTRACE_RECORD_W_U16(ekt, event, payload, ...) \
-    ekotrace_record_event_with_payload_u16(\
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_u16(\
             ekt, \
             event, \
-            payload)
+            payload) : EKOTRACE_RESULT_OK)
 #define EKOTRACE_RECORD_W_I32(ekt, event, payload, ...) \
-    ekotrace_record_event_with_payload_i32(\
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_i32(\
             ekt, \
             event, \
-            payload)
+            payload) : EKOTRACE_RESULT_OK)
 #define EKOTRACE_RECORD_W_U32(ekt, event, payload, ...) \
-    ekotrace_record_event_with_payload_u32(\
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_u32(\
             ekt, \
             event, \
-            payload)
+            payload) : EKOTRACE_RESULT_OK)
 #define EKOTRACE_RECORD_W_BOOL(ekt, event, payload, ...) \
-    ekotrace_record_event_with_payload_bool(\
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_bool(\
             ekt, \
             event, \
-            payload)
+            payload) : EKOTRACE_RESULT_OK)
 #define EKOTRACE_RECORD_W_F32(ekt, event, payload, ...) \
-    ekotrace_record_event_with_payload_f32(\
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_f32(\
             ekt, \
             event, \
-            payload)
+            payload) : EKOTRACE_RESULT_OK)
 
 /*
  * Create a ekotrace instance. ekotrace_id must be non-zero

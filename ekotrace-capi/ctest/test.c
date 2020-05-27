@@ -12,7 +12,7 @@ static size_t MAX_REPORT_CHUNK_SIZE = 256;
 static uint32_t DEFAULT_TRACER_ID = 314;
 static uint32_t EVENT_A = 100;
 
-bool test_backend_piping() {
+bool test_backend_piping(void) {
     bool passed = true;
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     ekotrace * t = EKOTRACE_NULL_TRACER_INITIALIZER;
@@ -46,11 +46,17 @@ bool test_backend_piping() {
     return passed;
 }
 
-bool test_event_recording() {
+bool test_event_recording(void) {
     bool passed = true;
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     ekotrace * t;
-    ekotrace_result result = ekotrace_initialize(destination, DEFAULT_TRACER_SIZE, DEFAULT_TRACER_ID, &t);
+    ekotrace_result result = EKOTRACE_INITIALIZE(
+            destination,
+            DEFAULT_TRACER_SIZE,
+            DEFAULT_TRACER_ID,
+            &t,
+            "tags=tag 1; tag 2",
+            "desc");
     if (result != EKOTRACE_RESULT_OK) {
         fprintf(stderr, "failed at initialization: %d\n", result);
         passed = false;
@@ -142,7 +148,7 @@ bool test_event_recording() {
     return passed;
 }
 
-bool test_merge() {
+bool test_merge(void) {
     bool passed = true;
     uint8_t * destination_a = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     ekotrace * ekotrace_a;
@@ -192,7 +198,8 @@ bool test_merge() {
     free(ekotrace_b);
     return passed;
 }
-bool test_now() {
+
+bool test_now(void) {
     bool passed = true;
     uint8_t * destination_a = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     ekotrace * ekotrace_a;
@@ -291,7 +298,7 @@ bool test_now() {
     return passed;
 }
 
-bool test_chunked_reporting() {
+bool test_chunked_reporting(void) {
     bool passed = true;
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_TRACER_SIZE);
     ekotrace * t = EKOTRACE_NULL_TRACER_INITIALIZER;
@@ -342,7 +349,7 @@ bool test_chunked_reporting() {
     return passed;
 }
 
-void run_test(bool (test)(), const char *name, bool *passed) {
+void run_test(bool (test)(void), const char *name, bool *passed) {
     if (!test()) {
         *passed = false;
         fprintf(stderr, "FAILED: %s\n", name);
@@ -351,7 +358,7 @@ void run_test(bool (test)(), const char *name, bool *passed) {
     }
 }
 
-int main() {
+int main(void) {
     bool passed = true;
 
     run_test(test_backend_piping, "test_backend_piping", &passed);
