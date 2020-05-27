@@ -1,0 +1,95 @@
+name: Build and Test
+
+on: [pull_request]
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      - name: Install nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: rustfmt, clippy
+
+      - name: Fetch dependencies
+        uses: actions-rs/cargo@v1
+        with:
+          command: fetch
+
+      - name: Run cargo check
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+
+      - name: Test
+        run: ./test.sh
+
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+      - name: Run cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --all -- -D warnings
+
+      - name: Run cargo fmt (capi)
+        run: |
+          cd ekotrace-capi
+          cargo fmt -- --check
+
+      - name: Run cargo clippy (capi)
+        run: |
+          cd ekotrace-capi
+          cargo clippy --all
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      - name: Install nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: rustfmt, clippy
+
+      - name: Fetch dependencies
+        uses: actions-rs/cargo@v1
+        with:
+          command: fetch
+
+      # Windows MSVC doesn't like the no-std ekotrace-capi cdylib build
+      - name: Test
+        shell: bash
+        run: ./test.sh windows

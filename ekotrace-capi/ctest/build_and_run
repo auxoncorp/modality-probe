@@ -3,7 +3,10 @@
 set -ex
 
 ./build
-LD_LIBRARY_PATH=../target/debug ./test
 
-# This test shouldn't be linked to libekotrace_capi
-./noop_test
+./test_static
+
+LD_LIBRARY_PATH=../target/debug ./test_dyn
+
+# This test shouldn't be linked to libekotrace
+./test_noop

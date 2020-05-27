@@ -1,2 +1,4 @@
 test
-noop_test
+test_static
+test_dyn
+test_noop
