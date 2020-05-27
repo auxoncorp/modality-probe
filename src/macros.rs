@@ -1,4 +1,64 @@
 /// Convenience macro that calls
+/// [Ekotrace::initialize_at](struct.Ekotrace.html#method.initialize_at).
+///
+/// The optional description and tags string arguments are only used
+/// by the CLI and compile away.
+///
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
+#[macro_export]
+macro_rules! initialize_at {
+    ($storage:expr, $tracer_id:expr) => {
+        Ekotrace::initialize_at($storage, $tracer_id)
+    };
+    ($storage:expr, $tracer_id:expr, $desc_or_tags:tt) => {
+        Ekotrace::initialize_at($storage, $tracer_id)
+    };
+    ($storage:expr, $tracer_id:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
+        Ekotrace::initialize_at($storage, $tracer_id)
+    };
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::try_initialize_at](struct.Ekotrace.html#method.try_initialize_at).
+///
+/// The optional description and tags string arguments are only used
+/// by the CLI and compile away.
+///
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
+#[macro_export]
+macro_rules! try_initialize_at {
+    ($storage:expr, $tracer_id:expr) => {
+        Ekotrace::try_initialize_at($storage, $tracer_id)
+    };
+    ($storage:expr, $tracer_id:expr, $desc_or_tags:tt) => {
+        Ekotrace::try_initialize_at($storage, $tracer_id)
+    };
+    ($storage:expr, $tracer_id:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
+        Ekotrace::try_initialize_at($storage, $tracer_id)
+    };
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::new_with_storage](struct.Ekotrace.html#method.new_with_storage).
+///
+/// The optional description and tags string arguments are only used
+/// by the CLI and compile away.
+///
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
+#[macro_export]
+macro_rules! new_with_storage {
+    ($storage:expr, $tracer_id:expr) => {
+        Ekotrace::new_with_storage($storage, $tracer_id)
+    };
+    ($storage:expr, $tracer_id:expr, $desc_or_tags:tt) => {
+        Ekotrace::new_with_storage($storage, $tracer_id)
+    };
+    ($storage:expr, $tracer_id:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
+        Ekotrace::new_with_storage($storage, $tracer_id)
+    };
+}
+
+/// Convenience macro that calls
 /// [Ekotrace::record_event](struct.Ekotrace.html#method.record_event).
 ///
 /// The optional description and tags string arguments are only used
@@ -431,7 +491,7 @@ mod tests {
     use crate::{Ekotrace, EventId, Tracer, TracerId};
 
     #[test]
-    fn macro_use() {
+    fn event_macro_use() {
         let tracer_id = TracerId::new(1).unwrap();
         let mut storage = [0_u8; 1024];
         let tracer = Ekotrace::initialize_at(&mut storage, tracer_id).unwrap();
@@ -496,5 +556,20 @@ mod tests {
         try_record_w_u32!(tracer, EVENT_D, 0, "tags=some-tag", "desc").unwrap();
         try_record_w_bool!(tracer, EVENT_D, false, "tags=some-tag", "desc").unwrap();
         try_record_w_f32!(tracer, EVENT_D, 0.0, "tags=some-tag", "desc").unwrap();
+    }
+
+    #[test]
+    fn tracer_macro_use() {
+        let tracer_id = TracerId::new(1).unwrap();
+        let mut storage = [0_u8; 1024];
+        let _tracer = initialize_at!(&mut storage, tracer_id).unwrap();
+        let _tracer = initialize_at!(&mut storage, tracer_id, "desc").unwrap();
+        let _tracer = initialize_at!(&mut storage, tracer_id, "desc", "tags=some-tag").unwrap();
+        let _tracer = try_initialize_at!(&mut storage, 1).unwrap();
+        let _tracer = try_initialize_at!(&mut storage, 1, "tags=some-tag").unwrap();
+        let _tracer = try_initialize_at!(&mut storage, 1, "tags=some-tag", "desc").unwrap();
+        let _tracer = new_with_storage!(&mut storage, tracer_id).unwrap();
+        let _tracer = new_with_storage!(&mut storage, tracer_id, "desc").unwrap();
+        let _tracer = new_with_storage!(&mut storage, tracer_id, "tags=some-tag", "desc").unwrap();
     }
 }

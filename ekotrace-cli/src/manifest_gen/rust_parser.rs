@@ -1,8 +1,8 @@
 use crate::manifest_gen::{
     event_metadata::EventMetadata,
     parser::{
-        self, event_name_valid, remove_double_quotes, tags_or_desc_valid, trimmed_string,
-        trimmed_string_w_space, Parser, Span,
+        self, event_name_valid, remove_double_quotes, tags_or_desc_valid, tracer_name_valid,
+        trimmed_string, trimmed_string_w_space, Parser, Span,
     },
     source_location::SourceLocation,
     tracer_metadata::TracerMetadata,
@@ -411,33 +411,56 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
     let (input, _) = imports(input)?;
     let (input, pos) = position(input)?;
     let (input, _) = alt((
-        tag("Ekotrace::try_initialize_at"),
-        tag("Ekotrace::initialize_at"),
-        tag("Ekotrace::new_with_storage"),
+        tag("try_initialize_at!"),
+        tag("initialize_at!"),
+        tag("new_with_storage!"),
     ))(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
-    let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
-    let (_args, name) = init_call_exp_tracer_arg(args)?;
+    let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)
+        .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (args, _storage) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
+    let (args, full_name) = if expect_tags_or_desc {
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
+    } else {
+        rest_string(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
+    };
+    let name =
+        reduce_namespace(&full_name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    if !tracer_name_valid(&name) {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut tags_and_desc: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| tags_and_desc.push(s));
+    let (_args, _) = iter.finish()?;
+    if tags_and_desc.len() > 2 {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let tags = tags_pos
+        .map(|index| tags_and_desc.remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+    }
+    let description = tags_and_desc.pop();
     Ok((
         input,
         TracerMetadata {
             name,
             location: pos.into(),
-            tags: None,
+            tags,
+            description,
         },
     ))
-}
-
-fn init_call_exp_tracer_arg(input: Span) -> ParserResult<Span, String> {
-    let (input, _) = comments_and_spacing(input)?;
-    let (input, _arg0) = take_until(",")(input)?;
-    let (input, _) = tag(",")(input)?;
-    let (input, pos) = position(input)?;
-    let (input, name) = rest_string(input)?;
-    let name =
-        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
-    Ok((input, name))
 }
 
 fn comments_and_spacing(input: Span) -> ParserResult<Span, ()> {
@@ -637,23 +660,30 @@ mod tests {
 
     const MIXED_TRACER_ID_INPUT: &'static str = r#"
     /// Docs Ekotrace::try_initialize_at(a, b, c)
-    let tracer = Ekotrace::try_initialize_at(&mut storage, LOCATION_ID_A)
+    let tracer = try_initialize_at!(&mut storage, LOCATION_ID_A)
         .expect("Could not initialize Ekotrace");
 
-    let ekotrace_foo = Ekotrace::try_initialize_at(&mut storage_bytes, LOCATION_ID_B)?;
+    let ekotrace_foo = try_initialize_at!(&mut storage_bytes, LOCATION_ID_B, "desc")?;
 
     // A comment
-    let bar = Ekotrace::initialize_at(
+    let bar = ekotrace::initialize_at!(
         &mut storage_bytes, // docs
         my_ids::LOCATION_ID_C)?; // docs
 
-    let ekotrace_foo = Ekotrace::try_initialize_at(&mut storage_bytes,
-    my::nested::mod::LOCATION_ID_D)?; // docs
+    let ekotrace_foo = try_initialize_at!(&mut storage_bytes,
+    my::nested::mod::LOCATION_ID_D, "tags=my tag;more-tags")?; // docs
 
     /* More comments
-     * on more lines Ekotrace::new_with_storage(a, b)
+     * on more lines ekotrace::new_with_storage!(a, b)
      */
-    let tracer = Ekotrace::new_with_storage(storage, LOCATION_ID_E).unwrap();
+    let tracer = ekotrace::new_with_storage!(storage, LOCATION_ID_E).unwrap();
+
+    let bar = ekotrace::initialize_at!(
+        &mut storage_bytes, /* comments */
+        my_ids::LOCATION_ID_F, // comments
+        " desc ", /* Order of tags and docs doesn't matter */
+        "tags=thing1;thing2;my::namespace;tag with spaces")?; //docs
+
 "#;
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
@@ -713,26 +743,37 @@ mod tests {
                     name: "LOCATION_ID_A".to_string(),
                     location: (68, 3, 18).into(),
                     tags: None,
+                    description: None,
                 },
                 TracerMetadata {
                     name: "LOCATION_ID_B".to_string(),
-                    location: (199, 6, 24).into(),
+                    location: (190, 6, 24).into(),
                     tags: None,
+                    description: Some("desc".to_string()),
                 },
                 TracerMetadata {
                     name: "LOCATION_ID_C".to_string(),
-                    location: (296, 9, 15).into(),
+                    location: (296, 9, 25).into(),
                     tags: None,
+                    description: None,
                 },
                 TracerMetadata {
                     name: "LOCATION_ID_D".to_string(),
-                    location: (422, 13, 24).into(),
-                    tags: None,
+                    location: (413, 13, 24).into(),
+                    tags: Some("my tag;more-tags".to_string()),
+                    description: None,
                 },
                 TracerMetadata {
                     name: "LOCATION_ID_E".to_string(),
-                    location: (617, 19, 18).into(),
+                    location: (635, 19, 28).into(),
                     tags: None,
+                    description: None,
+                },
+                TracerMetadata {
+                    name: "LOCATION_ID_F".to_string(),
+                    location: (712, 21, 25).into(),
+                    tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
+                    description: Some("desc".to_string()),
                 },
             ])
         );
@@ -848,9 +889,9 @@ mod tests {
     #[test]
     fn tracer_id_namespace_error() {
         let parser = RustParser::default();
-        let input = "Ekotrace::try_initialize_at(&mut storage_bytes,my::nested::mod::)";
+        let input = "ekotrace::try_initialize_at!(&mut storage_bytes,my::nested::mod::)";
         let tokens = parser.parse_tracer_md(input);
-        assert_eq!(tokens, Err(Error::Syntax((47, 1, 48).into())));
+        assert_eq!(tokens, Err(Error::Syntax((10, 1, 11).into())));
     }
 
     #[test]

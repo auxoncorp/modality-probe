@@ -229,6 +229,20 @@ impl Invocations {
                         t.file = src_tracer.file.path.clone();
                         t.line = src_tracer.metadata.location.line.to_string();
                     }
+
+                    let src_desc = src_tracer
+                        .metadata
+                        .description
+                        .as_ref()
+                        .map_or("", |d| d.as_str());
+                    if !t.description.as_str().eq(src_desc) {
+                        t.description = String::from(src_desc);
+                    }
+
+                    let src_tags = src_tracer.metadata.tags.as_ref().map_or("", |d| d.as_str());
+                    if !t.tags.as_str().eq(src_tags) {
+                        t.tags = String::from(src_tags);
+                    }
                 });
         });
 
@@ -358,6 +372,11 @@ impl Invocations {
                         .map_or("", |d| d.as_str());
                     if !e.description.as_str().eq(src_desc) {
                         e.description = String::from(src_desc);
+                    }
+
+                    let src_tags = src_event.metadata.tags.as_ref().map_or("", |d| d.as_str());
+                    if !e.tags.as_str().eq(src_tags) {
+                        e.tags = String::from(src_tags);
                     }
                 });
         }
@@ -530,6 +549,7 @@ mod tests {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
                 tags: None,
+                description: None,
             },
         };
         let loc_1 = InSourceTracer {
@@ -541,6 +561,7 @@ mod tests {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
                 tags: None,
+                description: None,
             },
         };
         let invcs = Invocations {
@@ -564,6 +585,7 @@ mod tests {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
                 tags: None,
+                description: None,
             },
         };
         let loc_1 = InSourceTracer {
@@ -575,6 +597,7 @@ mod tests {
                 name: "LOCATION_A".to_string(),
                 location: (1, 2, 1).into(),
                 tags: None,
+                description: None,
             },
         };
         let invcs = Invocations {
@@ -598,6 +621,7 @@ mod tests {
                 name: "LOCATION_A".to_string(),
                 location: (1, 2, 3).into(),
                 tags: None,
+                description: None,
             },
         };
         let loc_1 = InSourceTracer {
@@ -609,6 +633,7 @@ mod tests {
                 name: "location_b".to_string(),
                 location: (4, 5, 6).into(),
                 tags: None,
+                description: None,
             },
         };
         let invcs = Invocations {
@@ -632,6 +657,7 @@ mod tests {
                 name: "LOCATION_A".to_string(),
                 location: (1, 4, 3).into(),
                 tags: None,
+                description: None,
             },
         };
         let in_mf_tracer = Tracer {
@@ -659,6 +685,52 @@ mod tests {
                 name: "location_a".to_string(),
                 description: String::new(),
                 tags: String::new(),
+                file: "file.c".to_string(),
+                function: String::new(),
+                line: "4".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn tracer_merge_tags_desc_change() {
+        let in_src_tracer = InSourceTracer {
+            file: FilePath {
+                full_path: "file.c".to_string(),
+                path: "file.c".to_string(),
+            },
+            metadata: TracerMetadata {
+                name: "LOCATION_A".to_string(),
+                location: (1, 4, 3).into(),
+                tags: Some("my-tag".to_string()),
+                description: Some("desc".to_string()),
+            },
+        };
+        let in_mf_tracer = Tracer {
+            id: TracerId(1),
+            name: "location_a".to_string(),
+            description: String::new(),
+            tags: String::new(),
+            file: "main.c".to_string(),
+            function: String::new(),
+            line: "4".to_string(),
+        };
+        let invcs = Invocations {
+            tracers: vec![in_src_tracer],
+            events: Vec::new(),
+        };
+        let mut mf_tracers = Tracers {
+            path: PathBuf::new(),
+            tracers: vec![in_mf_tracer.clone()],
+        };
+        invcs.merge_tracers_into(None, &mut mf_tracers);
+        assert_eq!(
+            mf_tracers.tracers,
+            vec![Tracer {
+                id: TracerId(1),
+                name: "location_a".to_string(),
+                description: "desc".to_string(),
+                tags: "my-tag".to_string(),
                 file: "file.c".to_string(),
                 function: String::new(),
                 line: "4".to_string(),
@@ -875,6 +947,56 @@ mod tests {
                 description: String::new(),
                 tags: String::new(),
                 type_hint: "u8".to_string(),
+                file: "main.c".to_string(),
+                function: String::new(),
+                line: "2".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn event_merge_tags_desc_change() {
+        let in_src_event = InSourceEvent {
+            file: FilePath {
+                full_path: "main.c".to_string(),
+                path: "main.c".to_string(),
+            },
+            metadata: EventMetadata {
+                name: "EVENT_A".to_string(),
+                ekotrace_instance: "ekt".to_string(),
+                payload: None,
+                description: Some("desc".to_string()),
+                tags: Some("my-tag".to_string()),
+                location: (1, 2, 3).into(),
+            },
+        };
+        let in_mf_event = Event {
+            id: EventId(1),
+            name: "event_a".to_string(),
+            description: String::new(),
+            tags: String::new(),
+            type_hint: String::new(),
+            file: "main.c".to_string(),
+            function: String::new(),
+            line: "2".to_string(),
+        };
+        let invcs = Invocations {
+            tracers: Vec::new(),
+            events: vec![in_src_event.clone()],
+        };
+        let mut mf_events = Events {
+            path: PathBuf::new(),
+            events: vec![in_mf_event.clone()],
+        };
+        invcs.merge_events_into(None, &mut mf_events);
+        assert_eq!(
+            mf_events.events,
+            vec![Event {
+                id: EventId(1),
+                name: "event_a".to_string(),
+                description: "desc".to_string(),
+                tags: "my-tag".to_string(),
+                type_hint: String::new(),
                 file: "main.c".to_string(),
                 function: String::new(),
                 line: "2".to_string(),

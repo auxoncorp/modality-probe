@@ -12,7 +12,7 @@
 mod tracing_ids;
 
 use crate::tracing_ids::*;
-use ekotrace::{try_record, try_record_w_u32, BulkReporter, Ekotrace};
+use ekotrace::{try_initialize_at, try_record, try_record_w_u32, BulkReporter, Ekotrace};
 use std::net::UdpSocket;
 use std::{thread, time};
 
@@ -21,8 +21,13 @@ fn main() {
     let remote = "127.0.0.1:2718";
 
     let mut storage = [0u8; 1024];
-    let tracer = Ekotrace::try_initialize_at(&mut storage, LOCATION_ID_FOO)
-        .expect("Could not initialize Ekotrace");
+    let tracer = try_initialize_at!(
+        &mut storage,
+        LOCATION_ID_FOO,
+        "tags=example",
+        "Example location"
+    )
+    .expect("Could not initialize Ekotrace");
 
     let mut loop_counter = 0;
     loop {

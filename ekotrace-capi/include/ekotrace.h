@@ -128,6 +128,21 @@ typedef struct causal_snapshot {
 } causal_snapshot;
 
 /*
+ * Ekotrace instance initializer macro.
+ *
+ * Used to expose tracer information to the CLI tooling.
+ *
+ * Expands to call `ekotrace_initialize(dest, dest_size, id, ekt)`.
+ *
+ * The trailing variadic macro arguments accept (in any order):
+ * - A string for declaring tags: "tags=<tag>[;<tag>]"
+ * - A string for the event description
+ *
+ */
+#define EKOTRACE_INITIALIZE(dest, dest_size, id, ekt, ...) \
+        ekotrace_initialize(dest, dest_size, id, ekt)
+
+/*
  * Ekotrace event recording macro.
  *
  * Used to expose event recording information to the CLI tooling.
