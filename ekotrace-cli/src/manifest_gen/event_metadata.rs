@@ -13,7 +13,7 @@ pub struct Payload(pub TypeHint, pub String);
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 pub struct EventMetadata {
     pub name: String,
-    pub ekotrace_instance: String,
+    pub agent_instance: String,
     pub payload: Option<Payload>,
     pub description: Option<String>,
     pub tags: Option<String>,

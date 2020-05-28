@@ -41,19 +41,53 @@ pub enum EventCheckError {
     NameNotUpperCase(InSourceEvent),
 }
 
-pub struct Invocations {
+pub struct Invocations<'cfg> {
+    pub log_prefix: &'cfg str,
+    pub log_module: &'cfg str,
     pub tracers: Vec<InSourceTracer>,
     pub events: Vec<InSourceEvent>,
 }
 
-impl Invocations {
-    pub fn from_path<P: AsRef<Path>>(
-        lang: Option<Lang>,
-        no_tracers: bool,
-        no_events: bool,
-        p: P,
-        file_extensions: &Option<Vec<String>>,
-    ) -> Result<Self, CreationError> {
+impl<'cfg> Default for Invocations<'cfg> {
+    fn default() -> Self {
+        let config = Config::default();
+        Invocations {
+            log_prefix: config.log_prefix,
+            log_module: config.log_module,
+            tracers: Default::default(),
+            events: Default::default(),
+        }
+    }
+}
+
+pub struct Config<'cfg> {
+    pub log_prefix: &'cfg str,
+    pub log_module: &'cfg str,
+    pub lang: Option<Lang>,
+    pub no_tracers: bool,
+    pub no_events: bool,
+    pub c_parser: CParser<'cfg>,
+    pub rust_parser: RustParser<'cfg>,
+    pub file_extensions: Option<Vec<String>>,
+}
+
+impl<'cfg> Default for Config<'cfg> {
+    fn default() -> Self {
+        Config {
+            log_prefix: "ekotrace",
+            log_module: "manifest-gen",
+            lang: None,
+            no_tracers: false,
+            no_events: false,
+            c_parser: CParser::default(),
+            rust_parser: RustParser::default(),
+            file_extensions: None,
+        }
+    }
+}
+
+impl<'cfg> Invocations<'cfg> {
+    pub fn from_path<P: AsRef<Path>>(config: Config<'cfg>, p: P) -> Result<Self, CreationError> {
         let mut tracers = Vec::new();
         let mut events = Vec::new();
         let mut buffer = String::new();
@@ -63,7 +97,7 @@ impl Invocations {
             .filter_map(Result::ok)
             .filter(|e| !e.file_type().is_dir())
         {
-            let should_consider = file_extensions.as_ref().map_or(true, |exts| {
+            let should_consider = config.file_extensions.as_ref().map_or(true, |exts| {
                 exts.iter()
                     .any(|ext| Some(OsStr::new(ext)) == entry.path().extension())
             });
@@ -92,41 +126,46 @@ impl Invocations {
                         .map_err(|e| CreationError::Io(entry.path().to_path_buf(), e))?;
                     let file_path = FilePath::from_path_file(&search_path, &file)?;
 
-                    let parser: Box<dyn Parser> = match lang {
-                        Some(Lang::C) => Box::new(CParser::default()),
-                        Some(Lang::Rust) => Box::new(RustParser::default()),
+                    let parser: Box<dyn Parser> = match config.lang {
+                        Some(Lang::C) => Box::new(config.c_parser),
+                        Some(Lang::Rust) => Box::new(config.rust_parser),
                         None => match entry.path().extension() {
                             Some(os_str) => match os_str.to_str() {
-                                Some("rs") => Box::new(RustParser::default()),
-                                Some("c") => Box::new(CParser::default()),
+                                Some("rs") => Box::new(config.rust_parser),
+                                Some("c") => Box::new(config.c_parser),
                                 Some(ext) => {
                                     warn!(
-                                        "manifest-gen",
-                                        "Guessing C parser based on file extension '{}'", ext
+                                        config.log_prefix,
+                                        config.log_module,
+                                        "Guessing C parser based on file extension '{}'",
+                                        ext
                                     );
-                                    Box::new(CParser::default())
+                                    Box::new(config.c_parser)
                                 }
                                 None => {
                                     warn!(
-                                        "manifest-gen",
+                                        config.log_prefix,
+                                        config.log_module,
                                         "Guessing C parser based on file extension '{}'",
                                         os_str.to_string_lossy()
                                     );
-                                    Box::new(CParser::default())
+                                    Box::new(config.c_parser)
                                 }
                             },
                             None => {
-                                warn!("manifest-gen",
+                                warn!(
+                                    config.log_prefix,
+                                    config.log_module,
                                     "No file extension available, defaulting to using the C parser\n\
                                     {:?}",
                                     entry.path()
                                 );
-                                Box::new(CParser::default())
+                                Box::new(config.c_parser)
                             }
                         },
                     };
 
-                    if !no_tracers {
+                    if !config.no_tracers {
                         let tracer_metadata = parser
                             .parse_tracers(&buffer)
                             .map_err(|e| CreationError::Parser(file_path.path.clone(), e))?;
@@ -140,7 +179,7 @@ impl Invocations {
                         tracers.append(&mut tracers_in_file);
                     }
 
-                    if !no_events {
+                    if !config.no_events {
                         let event_metadata = parser
                             .parse_events(&buffer)
                             .map_err(|e| CreationError::Parser(file_path.path.clone(), e))?;
@@ -156,7 +195,12 @@ impl Invocations {
                 }
             }
         }
-        Ok(Invocations { tracers, events })
+        Ok(Invocations {
+            log_prefix: config.log_prefix,
+            log_module: config.log_module,
+            tracers,
+            events,
+        })
     }
 
     pub fn check_tracers(&self) -> Result<(), TracerCheckError> {
@@ -212,7 +256,8 @@ impl Invocations {
                 .for_each(|t| {
                     if !src_tracer.eq(t) {
                         warn!(
-                            "manifest-gen",
+                            self.log_prefix,
+                            self.log_module,
                             "Tracer {}, ID {} may have moved\n\
                             Prior location from {}: {}:{}\n\
                             New location in source code: {}:{}:{}",
@@ -284,7 +329,8 @@ impl Invocations {
                 .is_none();
             if missing_tracer {
                 warn!(
-                    "manifest-gen",
+                    self.log_prefix,
+                    self.log_module,
                     "Tracer {}, ID {} in manifest no longer exists in source",
                     mf_tracer.name,
                     mf_tracer.id.0
@@ -315,7 +361,8 @@ impl Invocations {
                         .eq(e.line.as_str());
                     if !file_eq || !line_eq {
                         warn!(
-                            "manifest-gen",
+                            self.log_prefix,
+                            self.log_module,
                             "Event {}, ID {} may have moved\n\
                             Prior location from {}: {}:{}\n\
                             New location in source code: {}:{}:{}",
@@ -340,7 +387,8 @@ impl Invocations {
                             .map_or("", |p| p.0.as_str()),
                     ) {
                         warn!(
-                            "manifest-gen",
+                            self.log_prefix,
+                            self.log_module,
                             "Event {}, ID {} has changed its payload type\n\
                             {}:{}:{}\n\
                             Prior payload type from {}: {}\n\
@@ -414,7 +462,8 @@ impl Invocations {
                 .is_none();
             if missing_event {
                 warn!(
-                    "manifest-gen",
+                    self.log_prefix,
+                    self.log_module,
                     "Event {}, ID {} in manifest no longer exists in source",
                     mf_event.name,
                     mf_event.id.0
@@ -567,6 +616,7 @@ mod tests {
         let invcs = Invocations {
             tracers: vec![loc_0.clone(), loc_1.clone()],
             events: Vec::new(),
+            ..Default::default()
         };
         assert_eq!(
             invcs.check_tracers(),
@@ -603,6 +653,7 @@ mod tests {
         let invcs = Invocations {
             tracers: vec![loc_0.clone(), loc_1.clone()],
             events: Vec::new(),
+            ..Default::default()
         };
         assert_eq!(
             invcs.check_tracers(),
@@ -639,6 +690,7 @@ mod tests {
         let invcs = Invocations {
             tracers: vec![loc_0, loc_1.clone()],
             events: Vec::new(),
+            ..Default::default()
         };
         assert_eq!(
             invcs.check_tracers(),
@@ -672,6 +724,7 @@ mod tests {
         let invcs = Invocations {
             tracers: vec![in_src_tracer],
             events: Vec::new(),
+            ..Default::default()
         };
         let mut mf_tracers = Tracers {
             path: PathBuf::new(),
@@ -718,6 +771,7 @@ mod tests {
         let invcs = Invocations {
             tracers: vec![in_src_tracer],
             events: Vec::new(),
+            ..Default::default()
         };
         let mut mf_tracers = Tracers {
             path: PathBuf::new(),
@@ -747,7 +801,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "event_a".to_string(),
-                ekotrace_instance: "ekt".to_string(),
+                agent_instance: "ekt".to_string(),
                 payload: None,
                 description: None,
                 tags: None,
@@ -757,6 +811,7 @@ mod tests {
         let invcs = Invocations {
             tracers: Vec::new(),
             events: vec![in_src_event.clone()],
+            ..Default::default()
         };
         assert_eq!(
             invcs.check_events(),
@@ -773,7 +828,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                ekotrace_instance: "ekt".to_string(),
+                agent_instance: "ekt".to_string(),
                 payload: None,
                 description: None,
                 tags: None,
@@ -787,7 +842,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                ekotrace_instance: "ekt".to_string(),
+                agent_instance: "ekt".to_string(),
                 payload: None,
                 description: None,
                 tags: None,
@@ -797,6 +852,7 @@ mod tests {
         let invcs = Invocations {
             tracers: Vec::new(),
             events: vec![e0.clone(), e1.clone()],
+            ..Default::default()
         };
         assert_eq!(
             invcs.check_events(),
@@ -813,7 +869,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                ekotrace_instance: "ekt".to_string(),
+                agent_instance: "ekt".to_string(),
                 payload: None,
                 description: None,
                 tags: None,
@@ -833,6 +889,7 @@ mod tests {
         let invcs = Invocations {
             tracers: Vec::new(),
             events: vec![in_src_event.clone()],
+            ..Default::default()
         };
         let mut mf_events = Events {
             path: PathBuf::new(),
@@ -863,7 +920,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                ekotrace_instance: "ekt".to_string(),
+                agent_instance: "ekt".to_string(),
                 payload: None,
                 description: None,
                 tags: None,
@@ -883,6 +940,7 @@ mod tests {
         let invcs = Invocations {
             tracers: Vec::new(),
             events: vec![in_src_event.clone()],
+            ..Default::default()
         };
         let mut mf_events = Events {
             path: PathBuf::new(),
@@ -913,7 +971,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                ekotrace_instance: "ekt".to_string(),
+                agent_instance: "ekt".to_string(),
                 payload: Some((TypeHint::U8, "mydata").into()),
                 description: None,
                 tags: None,
@@ -933,6 +991,7 @@ mod tests {
         let invcs = Invocations {
             tracers: Vec::new(),
             events: vec![in_src_event.clone()],
+            ..Default::default()
         };
         let mut mf_events = Events {
             path: PathBuf::new(),
@@ -963,7 +1022,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                ekotrace_instance: "ekt".to_string(),
+                agent_instance: "ekt".to_string(),
                 payload: None,
                 description: Some("desc".to_string()),
                 tags: Some("my-tag".to_string()),
@@ -983,6 +1042,7 @@ mod tests {
         let invcs = Invocations {
             tracers: Vec::new(),
             events: vec![in_src_event.clone()],
+            ..Default::default()
         };
         let mut mf_events = Events {
             path: PathBuf::new(),

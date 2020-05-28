@@ -90,7 +90,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                ekotrace_instance: "ekt".to_string(),
+                agent_instance: "ekt".to_string(),
                 payload: Some((TypeHint::U8, "mydata").into()),
                 description: None,
                 tags: None,
