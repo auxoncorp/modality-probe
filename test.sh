@@ -19,6 +19,13 @@ cargo test --workspace
     cargo test
 )
 
+# Windows MSVC doesn't like the no-std ekotrace-capi cdylib build
+if [ $# -ne 0 ]; then
+    if [ "$1" = "windows" ]; then
+        exit 0
+    fi
+fi
+
 (
     cd ekotrace-capi/ctest
     ./build_and_run

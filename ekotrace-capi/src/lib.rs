@@ -1,5 +1,6 @@
 #![no_std]
 #![feature(lang_items, core_intrinsics)]
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 pub use ekotrace_capi_impl::{
     CausalSnapshot, ChunkedReportToken, Ekotrace, EkotraceInstant, EkotraceResult,
 };
