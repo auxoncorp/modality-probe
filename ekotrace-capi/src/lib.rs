@@ -229,15 +229,11 @@ pub fn ekotrace_default_panic_abort(_info: &core::panic::PanicInfo) -> ! {
     // to pull in libc_print for operating systems that support it.
     // A separate alternative would be to provide a hook for
     // setting a panic-handler implementation at runtime.
-    unsafe {
-        core::intrinsics::abort();
-    }
+    core::intrinsics::abort();
 }
 
 #[cfg(not(test))]
 #[lang = "eh_personality"]
 pub extern "C" fn eh_personality() {
-    unsafe {
-        core::intrinsics::abort();
-    }
+    core::intrinsics::abort();
 }
