@@ -2,23 +2,23 @@ use std::{fmt::Display, process::exit};
 
 #[macro_export]
 macro_rules! warn {
-    ($tag:expr, $msg:expr) => {{
-        eprintln!("ekotrace {}: warning: {}", $tag, $msg);
+    ($prefix:expr, $tag:expr, $msg:expr) => {{
+        eprintln!("{} {}: warning: {}", $prefix, $tag, $msg);
     }};
-     ($tag:expr, $fmt:expr, $($arg:tt)+) => ({
-        eprint!("ekotrace {}: warning: ", $tag);
+     ($prefix:expr, $tag:expr, $fmt:expr, $($arg:tt)+) => ({
+        eprint!("{} {}: warning: ", $prefix, $tag);
         eprintln!($fmt, $($arg)*);
     });
 }
 
 #[macro_export]
 macro_rules! exit_error {
-    ($tag:expr, $msg:expr) => {{
-        eprintln!("ekotrace {}: error: {}", $tag, $msg);
+    ($prefix:expr, $tag:expr, $msg:expr) => {{
+        eprintln!("{} {}: error: {}", $prefix, $tag, $msg);
         std::process::exit(1);
     }};
-     ($tag:expr, $fmt:expr, $($arg:tt)+) => ({
-        eprint!("ekotrace {}: error: ", $tag);
+     ($prefix:expr, $tag:expr, $fmt:expr, $($arg:tt)+) => ({
+        eprint!("{} {}: error: ", $prefix, $tag);
         eprintln!($fmt, $($arg)*);
         std::process::exit(1);
     });

@@ -26,10 +26,25 @@ pub trait Parser {
     fn parse_tracers(&self, input: &str) -> Result<Vec<TracerMetadata>, Error>;
 }
 
-pub type Span<'a> = LocatedSpan<&'a str>;
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct ParserConfig<'a> {
+    pub prefix: &'a str,
+}
+
+pub type Span<'a> = LocatedSpan<&'a str, Option<&'a ParserConfig<'a>>>;
 
 impl<'a> From<Span<'a>> for SourceLocation {
     fn from(span: Span<'a>) -> SourceLocation {
+        SourceLocation {
+            offset: span.location_offset(),
+            line: span.location_line() as usize,
+            column: span.get_column(),
+        }
+    }
+}
+
+impl<'a> From<LocatedSpan<&'a str>> for SourceLocation {
+    fn from(span: LocatedSpan<&'a str>) -> SourceLocation {
         SourceLocation {
             offset: span.location_offset(),
             line: span.location_line() as usize,

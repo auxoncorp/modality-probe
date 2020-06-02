@@ -1,18 +1,18 @@
 use crate::{error::GracefulExit, events::Events, exit_error, lang::Lang, tracers::Tracers};
-use invocations::Invocations;
+use invocations::{Config, Invocations};
 use std::path::PathBuf;
 
-mod c_parser;
-mod event_metadata;
-mod file_path;
-mod in_source_event;
-mod in_source_tracer;
-mod invocations;
-mod parser;
-mod rust_parser;
-mod source_location;
-mod tracer_metadata;
-mod type_hint;
+pub mod c_parser;
+pub mod event_metadata;
+pub mod file_path;
+pub mod in_source_event;
+pub mod in_source_tracer;
+pub mod invocations;
+pub mod parser;
+pub mod rust_parser;
+pub mod source_location;
+pub mod tracer_metadata;
+pub mod type_hint;
 
 #[derive(Debug)]
 pub struct Opt {
@@ -31,6 +31,7 @@ impl Opt {
     pub fn validate(&self) {
         if !self.source_path.exists() {
             exit_error!(
+                "ekotrace",
                 "manifest-gen",
                 "The source path '{}' does not exist",
                 self.source_path.display()
@@ -53,14 +54,16 @@ pub fn run(opt: Opt) {
     manifest_events.validate_unique_ids();
     manifest_events.validate_unique_names();
 
-    let invocations = Invocations::from_path(
-        opt.lang,
-        opt.no_tracers,
-        opt.no_events,
-        opt.source_path,
-        &opt.file_extensions,
-    )
-    .unwrap_or_exit("manifest-gen");
+    let config = Config {
+        lang: opt.lang,
+        no_tracers: opt.no_tracers,
+        no_events: opt.no_events,
+        file_extensions: opt.file_extensions,
+        ..Default::default()
+    };
+
+    let invocations =
+        Invocations::from_path(config, opt.source_path).unwrap_or_exit("manifest-gen");
 
     invocations.check_tracers().unwrap_or_exit("manifest-gen");
     invocations.check_events().unwrap_or_exit("manifest-gen");
