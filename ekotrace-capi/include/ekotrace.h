@@ -324,13 +324,13 @@ size_t ekotrace_distribute_fixed_size_snapshot(ekotrace *ekotrace, causal_snapsh
  * Consume an opaque causal history snapshot blob provided
  * by some other Ekotrace instance via ekotrace_distribute_snapshot.
  */
-size_t ekotrace_merge_snapshot(ekotrace *ekotrace, uint8_t *history_source, size_t history_source_bytes);
+size_t ekotrace_merge_snapshot(ekotrace *ekotrace, const uint8_t *history_source, size_t history_source_bytes);
 
 /*
  * Consume a fixed-size causal history summary structure provided
  * by some other Ekotrace.
  */
-size_t ekotrace_merge_fixed_size_snapshot(ekotrace *ekotrace, causal_snapshot *snapshot);
+size_t ekotrace_merge_fixed_size_snapshot(ekotrace *ekotrace, const causal_snapshot *snapshot);
 
 /*
  * Capture the ekotrace instance's moment in causal time
@@ -371,7 +371,7 @@ size_t ekotrace_start_chunked_report(ekotrace *ekotrace, chunked_report_token *o
  * populated by the `ekotrace_start_chunked_report` call
  * at the start of this chunked report.
  */
-size_t ekotrace_write_next_report_chunk(ekotrace *ekotrace, chunked_report_token *report_token, uint8_t *log_report_destination, size_t log_report_destination_bytes, size_t *out_written_bytes);
+size_t ekotrace_write_next_report_chunk(ekotrace *ekotrace, const chunked_report_token *report_token, uint8_t *log_report_destination, size_t log_report_destination_bytes, size_t *out_written_bytes);
 
 /*
  * Necessary clean-up and finishing step at the end
@@ -381,7 +381,7 @@ size_t ekotrace_write_next_report_chunk(ekotrace *ekotrace, chunked_report_token
  * populated by the `ekotrace_start_chunked_report` call
  * at the start of this chunked report.
  */
-size_t ekotrace_finish_chunked_report(ekotrace *ekotrace, chunked_report_token *report_token);
+size_t ekotrace_finish_chunked_report(ekotrace *ekotrace, const chunked_report_token *report_token);
 
 #ifdef __cplusplus
 } // extern "C"
