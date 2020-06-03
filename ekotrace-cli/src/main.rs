@@ -1,6 +1,14 @@
-use ekotrace_cli::{analysis, header_gen, lang::Lang, manifest_gen};
 use std::path::PathBuf;
+
 use structopt::StructOpt;
+
+use ekotrace_cli::{
+    analysis,
+    export::{self, Export},
+    header_gen,
+    lang::Lang,
+    manifest_gen,
+};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "ekotrace", about = "Ekotrace command line interface")]
@@ -13,6 +21,9 @@ enum Opt {
 
     /// Analyze 'Ekotrace' event logs
     Analysis(Analysis),
+
+    /// Export a collected event log in a well-known graph format.
+    Export(Export),
 }
 
 #[derive(Debug, StructOpt)]
@@ -191,5 +202,6 @@ fn main() {
         Opt::ManifestGen(opt) => manifest_gen::run(opt.into()),
         Opt::HeaderGen(opt) => header_gen::run(opt.into(), internal_events),
         Opt::Analysis(opt) => analysis::run(opt.into()),
+        Opt::Export(exp) => export::run(exp),
     }
 }

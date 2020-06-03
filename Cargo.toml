@@ -20,6 +20,7 @@ std = ["serde", "proptest", "schemars"]
 [workspace]
 members = [
   "ekotrace-cli",
+  "ekotrace-graph",
   "ekotrace-udp-collector",
   "util",
   "race-buffer",
