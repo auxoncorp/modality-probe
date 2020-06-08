@@ -12,7 +12,9 @@
 mod tracing_ids;
 
 use crate::tracing_ids::*;
-use ekotrace::{try_initialize_at, try_record, try_record_w_u32, BulkReporter, Ekotrace};
+use ekotrace::{
+    try_expect, try_initialize_at, try_record, try_record_w_u32, BulkReporter, Ekotrace,
+};
 use std::net::UdpSocket;
 use std::{thread, time};
 
@@ -36,6 +38,15 @@ fn main() {
             TOP_OF_THE_LOOP,
             "At the top of the loop",
             "tags=example;my-tag"
+        )
+        .expect("Could not record event");
+
+        try_expect!(
+            tracer,
+            MOD10_CONDITION_EVENT,
+            loop_counter % 10 == 0,
+            "Loop counter % 10 event",
+            "tags=example"
         )
         .expect("Could not record event");
 

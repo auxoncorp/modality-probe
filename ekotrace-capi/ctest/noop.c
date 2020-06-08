@@ -82,5 +82,8 @@ int main(void) {
     err = EKOTRACE_RECORD_W_F32(g_tracer, EVENT_A, 0.0f);
     assert(err == EKOTRACE_RESULT_OK);
 
+    err = EKOTRACE_EXPECT(g_tracer, EVENT_A, 1 == 0);
+    assert(err == EKOTRACE_RESULT_OK);
+
     return 0;
 }

@@ -116,24 +116,156 @@ fn parse_input<T>(
 fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, _) = comments_and_spacing(input)?;
     let (input, _) = imports(input)?;
-    let (input, found_try) = peek(opt(tag("try_record")))(input)?;
-    let (input, metadata) = match found_try {
-        None => {
-            let (input, found_with_payload) = peek(opt(tag("record_w_")))(input)?;
-            match found_with_payload {
-                None => event_call_exp(input)?,
-                Some(_) => event_with_payload_call_exp(input)?,
-            }
-        }
-        Some(_) => {
+    let (input, found_try) = peek(opt(alt((
+        tag("try_record"),
+        tag("try_record_w_"),
+        tag("try_expect"),
+    ))))(input)?;
+    if found_try.is_some() {
+        let (input, found_expect) = peek(opt(tag("try_expect")))(input)?;
+        if found_expect.is_some() {
+            let (input, metadata) = expect_try_call_exp(input)?;
+            Ok((input, metadata))
+        } else {
             let (input, found_with_payload) = peek(opt(tag("try_record_w_")))(input)?;
-            match found_with_payload {
+            let (input, metadata) = match found_with_payload {
                 None => event_try_call_exp(input)?,
                 Some(_) => event_try_with_payload_call_exp(input)?,
-            }
+            };
+            Ok((input, metadata))
         }
-    };
-    Ok((input, metadata))
+    } else {
+        let (input, found_expect) = peek(opt(tag("expect")))(input)?;
+        if found_expect.is_some() {
+            let (input, metadata) = expect_call_exp(input)?;
+            Ok((input, metadata))
+        } else {
+            let (input, found_with_payload) = peek(opt(tag("record_w_")))(input)?;
+            let (input, metadata) = match found_with_payload {
+                None => event_call_exp(input)?,
+                Some(_) => event_with_payload_call_exp(input)?,
+            };
+            Ok((input, metadata))
+        }
+    }
+}
+
+fn expect_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let (input, pos) = position(input)?;
+    let (input, _) = tag("try_expect!")(input)?;
+    let (input, _) = opt(line_ending)(input)?;
+    let (input, _) = multispace0(input)?;
+    let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
+    let (args, agent_instance) = variable_call_exp_arg(args)?;
+    let (args, name) = variable_call_exp_arg(args)?;
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    if !event_name_valid(&name) {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut arg_vec: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| arg_vec.push(s));
+    let (_args, _) = iter.finish()?;
+    match arg_vec.len() {
+        1..=3 => (), // At least an expression, maybe tags and description
+        _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
+    }
+    let expr = arg_vec.remove(0).trim().to_string();
+    let mut tags_and_desc = arg_vec;
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let mut tags = tags_pos
+        .map(|index| tags_and_desc.remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &mut tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+        if !t.contains("expectation") {
+            t.insert_str(0, "expectation;");
+        }
+    } else {
+        tags = Some(String::from("expectation"));
+    }
+    let description = tags_and_desc.pop();
+    Ok((
+        input,
+        EventMetadata {
+            name,
+            agent_instance,
+            payload: Some((TypeHint::U32, expr).into()),
+            description,
+            tags,
+            location: pos.into(),
+        },
+    ))
+}
+
+fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let (input, pos) = position(input)?;
+    let (input, _) = tag("expect!(")(input)?;
+    let (input, _) = opt(line_ending)(input)?;
+    let (input, _) = multispace0(input)?;
+    let (input, args) = take_until(");")(input)
+        .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (input, _) =
+        tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let mut arg_vec: Vec<&str> = args
+        .fragment()
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect();
+    match arg_vec.len() {
+        3..=5 => (), // Tracer, event name and expression required, maybe tags and description
+        _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
+    }
+    let arg = Span::new_extra(arg_vec.remove(0), input.extra);
+    let (_, agent_instance) =
+        rest_string(arg).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let arg = Span::new_extra(arg_vec.remove(0), input.extra);
+    let (_, name) = alt((reduced_event_id_exp_alt_a, reduced_event_id_exp_alt_b))(arg)
+        .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    if !event_name_valid(&name) {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let arg = Span::new_extra(arg_vec.remove(0), input.extra);
+    let (_, expr) = rest_literal(arg).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let mut tags_and_desc: Vec<String> = arg_vec.iter().map(|s| (*s).to_string()).collect();
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let mut tags = tags_pos
+        .map(|index| tags_and_desc.swap_remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &mut tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+        if !t.contains("expectation") {
+            t.insert_str(0, "expectation;");
+        }
+    } else {
+        tags = Some(String::from("expectation"));
+    }
+    let description = tags_and_desc.pop();
+    Ok((
+        input,
+        EventMetadata {
+            name,
+            agent_instance,
+            payload: Some((TypeHint::U32, expr).into()),
+            description,
+            tags,
+            location: pos.into(),
+        },
+    ))
 }
 
 fn event_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
@@ -744,6 +876,19 @@ mod tests {
         "tags=thing1;thing2;my::namespace;tag with spaces", //docs
         "desc" //docs
     );
+
+    expect!(
+        tracer,
+        EventId::try_from(EVENT_K).unwrap(),
+        14 == (10 + 4),
+        "tags=severity.1;another tag",
+        "Some description",
+    );
+
+    try_expect!(tracer, EVENT_K, foo != bar, "tags=expectation;severity.2;network").unwrap();
+
+    /* Special "expectation" tag is inserted"
+    ekotrace::expect!(tracer, EVENT_K.try_into()?, foo != bar);
 "#;
 
     #[test]
@@ -895,6 +1040,30 @@ mod tests {
                     description: Some("desc".to_string()),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
                     location: (1039, 38, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_K".to_string(),
+                    agent_instance: "tracer".to_string(),
+                    payload: Some((TypeHint::U32, "14 == (10 + 4)").into()),
+                    description: Some("Some description".to_string()),
+                    tags: Some("expectation;severity.1;another tag".to_string()),
+                    location: (1230, 46, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_K".to_string(),
+                    agent_instance: "tracer".to_string(),
+                    payload: Some((TypeHint::U32, "foo != bar").into()),
+                    description: None,
+                    tags: Some("expectation;severity.2;network".to_string()),
+                    location: (1403, 54, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_K".to_string(),
+                    agent_instance: "tracer".to_string(),
+                    payload: Some((TypeHint::U32, "foo != bar").into()),
+                    description: None,
+                    tags: Some("expectation".to_string()),
+                    location: (1554, 57, 15).into(),
                 },
             ])
         );
