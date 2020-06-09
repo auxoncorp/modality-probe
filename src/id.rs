@@ -203,6 +203,7 @@ impl EventId {
         EventId::EVENT_PRODUCED_EXTERNAL_REPORT,
         EventId::EVENT_LOG_OVERFLOWED,
         EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
+        EventId::EVENT_NUM_CLOCKS_OVERFLOWED,
     ];
 
     /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
