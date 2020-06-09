@@ -718,7 +718,6 @@ mod tests {
             description: String::new(),
             tags: String::new(),
             file: "main.c".to_string(),
-            function: String::new(),
             line: "2".to_string(),
         };
         let invcs = Invocations {
@@ -739,7 +738,6 @@ mod tests {
                 description: String::new(),
                 tags: String::new(),
                 file: "file.c".to_string(),
-                function: String::new(),
                 line: "4".to_string(),
             }]
         );
@@ -765,7 +763,6 @@ mod tests {
             description: String::new(),
             tags: String::new(),
             file: "main.c".to_string(),
-            function: String::new(),
             line: "4".to_string(),
         };
         let invcs = Invocations {
@@ -786,7 +783,6 @@ mod tests {
                 description: "desc".to_string(),
                 tags: "my-tag".to_string(),
                 file: "file.c".to_string(),
-                function: String::new(),
                 line: "4".to_string(),
             }]
         );
@@ -883,7 +879,6 @@ mod tests {
             tags: String::new(),
             type_hint: String::new(),
             file: "file.c".to_string(),
-            function: String::new(),
             line: "2".to_string(),
         };
         let invcs = Invocations {
@@ -905,7 +900,6 @@ mod tests {
                 tags: String::new(),
                 type_hint: String::new(),
                 file: "main.c".to_string(),
-                function: String::new(),
                 line: "2".to_string(),
             }]
         );
@@ -934,7 +928,6 @@ mod tests {
             tags: String::new(),
             type_hint: String::new(),
             file: "main.c".to_string(),
-            function: String::new(),
             line: "2".to_string(),
         };
         let invcs = Invocations {
@@ -956,7 +949,6 @@ mod tests {
                 tags: String::new(),
                 type_hint: String::new(),
                 file: "main.c".to_string(),
-                function: String::new(),
                 line: "8".to_string(),
             }]
         );
@@ -985,7 +977,6 @@ mod tests {
             tags: String::new(),
             type_hint: String::new(),
             file: "main.c".to_string(),
-            function: String::new(),
             line: "2".to_string(),
         };
         let invcs = Invocations {
@@ -1007,7 +998,6 @@ mod tests {
                 tags: String::new(),
                 type_hint: "u8".to_string(),
                 file: "main.c".to_string(),
-                function: String::new(),
                 line: "2".to_string(),
             }]
         );
@@ -1036,7 +1026,6 @@ mod tests {
             tags: String::new(),
             type_hint: String::new(),
             file: "main.c".to_string(),
-            function: String::new(),
             line: "2".to_string(),
         };
         let invcs = Invocations {
@@ -1058,7 +1047,6 @@ mod tests {
                 tags: "my-tag".to_string(),
                 type_hint: String::new(),
                 file: "main.c".to_string(),
-                function: String::new(),
                 line: "2".to_string(),
             }]
         );

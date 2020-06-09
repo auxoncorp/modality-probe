@@ -17,7 +17,6 @@ pub struct Event {
     pub tags: String,
     pub type_hint: String,
     pub file: String,
-    pub function: String,
     pub line: String,
 }
 

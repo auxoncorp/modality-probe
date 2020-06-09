@@ -33,7 +33,6 @@ impl InSourceTracer {
                 .as_ref()
                 .map_or(String::new(), |s| s.clone()),
             file: self.file.path.clone(),
-            function: String::new(),
             line: self.metadata.location.line.to_string(),
         }
     }
@@ -93,7 +92,6 @@ mod tests {
             description: String::from("not in src"),
             tags: String::new(),
             file: "main.c".to_string(),
-            function: String::new(),
             line: "4".to_string(),
         };
         assert!(in_src_tracer.eq(&in_mf_tracer));
