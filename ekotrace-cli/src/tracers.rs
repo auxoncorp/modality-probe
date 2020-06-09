@@ -16,7 +16,6 @@ pub struct Tracer {
     pub description: String,
     pub tags: String,
     pub file: String,
-    pub function: String,
     pub line: String,
 }
 
