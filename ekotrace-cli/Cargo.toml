@@ -28,6 +28,9 @@ petgraph = "0.5.0"
 sha2 = "0.8"
 nom_locate = "2.0"
 
+[dependencies.ekotrace]
+path = "../"
+
 [dependencies.util]
 path = "../util"
 

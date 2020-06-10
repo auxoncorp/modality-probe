@@ -7,7 +7,7 @@ use crate::manifest_gen::{
     rust_parser::RustParser,
 };
 use crate::{
-    events::{EventId, Events},
+    events::{Event, EventId, Events},
     lang::Lang,
     tracers::{TracerId, Tracers},
     warn,
@@ -44,6 +44,7 @@ pub enum EventCheckError {
 pub struct Invocations<'cfg> {
     pub log_prefix: &'cfg str,
     pub log_module: &'cfg str,
+    pub internal_events: Vec<Event>,
     pub tracers: Vec<InSourceTracer>,
     pub events: Vec<InSourceEvent>,
 }
@@ -54,6 +55,7 @@ impl<'cfg> Default for Invocations<'cfg> {
         Invocations {
             log_prefix: config.log_prefix,
             log_module: config.log_module,
+            internal_events: config.internal_events,
             tracers: Default::default(),
             events: Default::default(),
         }
@@ -69,6 +71,7 @@ pub struct Config<'cfg> {
     pub c_parser: CParser<'cfg>,
     pub rust_parser: RustParser<'cfg>,
     pub file_extensions: Option<Vec<String>>,
+    pub internal_events: Vec<Event>,
 }
 
 impl<'cfg> Default for Config<'cfg> {
@@ -82,6 +85,7 @@ impl<'cfg> Default for Config<'cfg> {
             c_parser: CParser::default(),
             rust_parser: RustParser::default(),
             file_extensions: None,
+            internal_events: Events::internal_events(),
         }
     }
 }
@@ -198,6 +202,7 @@ impl<'cfg> Invocations<'cfg> {
         Ok(Invocations {
             log_prefix: config.log_prefix,
             log_module: config.log_module,
+            internal_events: config.internal_events,
             tracers,
             events,
         })
@@ -429,6 +434,20 @@ impl<'cfg> Invocations<'cfg> {
                 });
         }
 
+        self.internal_events
+            .iter()
+            .rev()
+            .for_each(|internal_event| {
+                if mf_events
+                    .events
+                    .iter()
+                    .find(|e| internal_event.eq(e))
+                    .is_none()
+                {
+                    mf_events.events.insert(0, internal_event.clone());
+                }
+            });
+
         let event_id_offset = event_id_offset.unwrap_or(0);
         let mut next_available_event_id: u32 = match mf_events.next_available_event_id() {
             id if event_id_offset > id => event_id_offset,
@@ -449,27 +468,32 @@ impl<'cfg> Invocations<'cfg> {
             }
         });
 
-        mf_events.events.iter().for_each(|mf_event| {
-            let missing_event = self
-                .events
-                .iter()
-                .find(|e| {
-                    mf_event
-                        .name
-                        .as_str()
-                        .eq_ignore_ascii_case(&e.canonical_name())
-                })
-                .is_none();
-            if missing_event {
-                warn!(
-                    self.log_prefix,
-                    self.log_module,
-                    "Event {}, ID {} in manifest no longer exists in source",
-                    mf_event.name,
-                    mf_event.id.0
-                );
-            }
-        });
+        let internal_events: Vec<u32> = self.internal_events.iter().map(|e| e.id.0).collect();
+        mf_events
+            .events
+            .iter()
+            .filter(|mf_event| !internal_events.contains(&mf_event.id.0))
+            .for_each(|mf_event| {
+                let missing_event = self
+                    .events
+                    .iter()
+                    .find(|e| {
+                        mf_event
+                            .name
+                            .as_str()
+                            .eq_ignore_ascii_case(&e.canonical_name())
+                    })
+                    .is_none();
+                if missing_event {
+                    warn!(
+                        self.log_prefix,
+                        self.log_module,
+                        "Event {}, ID {} in manifest no longer exists in source",
+                        mf_event.name,
+                        mf_event.id.0
+                    );
+                }
+            });
     }
 }
 
@@ -891,18 +915,17 @@ mod tests {
             events: vec![in_mf_event.clone()],
         };
         invcs.merge_events_into(None, &mut mf_events);
-        assert_eq!(
-            mf_events.events,
-            vec![Event {
-                id: EventId(1),
-                name: "event_a".to_string(),
-                description: String::new(),
-                tags: String::new(),
-                type_hint: String::new(),
-                file: "main.c".to_string(),
-                line: "2".to_string(),
-            }]
-        );
+        let mut expected = Events::internal_events();
+        expected.push(Event {
+            id: EventId(1),
+            name: "event_a".to_string(),
+            description: String::new(),
+            tags: String::new(),
+            type_hint: String::new(),
+            file: "main.c".to_string(),
+            line: "2".to_string(),
+        });
+        assert_eq!(mf_events.events, expected);
     }
 
     #[test]
@@ -940,18 +963,17 @@ mod tests {
             events: vec![in_mf_event.clone()],
         };
         invcs.merge_events_into(None, &mut mf_events);
-        assert_eq!(
-            mf_events.events,
-            vec![Event {
-                id: EventId(1),
-                name: "event_a".to_string(),
-                description: String::new(),
-                tags: String::new(),
-                type_hint: String::new(),
-                file: "main.c".to_string(),
-                line: "8".to_string(),
-            }]
-        );
+        let mut expected = Events::internal_events();
+        expected.push(Event {
+            id: EventId(1),
+            name: "event_a".to_string(),
+            description: String::new(),
+            tags: String::new(),
+            type_hint: String::new(),
+            file: "main.c".to_string(),
+            line: "8".to_string(),
+        });
+        assert_eq!(mf_events.events, expected);
     }
 
     #[test]
@@ -989,18 +1011,17 @@ mod tests {
             events: vec![in_mf_event.clone()],
         };
         invcs.merge_events_into(None, &mut mf_events);
-        assert_eq!(
-            mf_events.events,
-            vec![Event {
-                id: EventId(1),
-                name: "event_a".to_string(),
-                description: String::new(),
-                tags: String::new(),
-                type_hint: "u8".to_string(),
-                file: "main.c".to_string(),
-                line: "2".to_string(),
-            }]
-        );
+        let mut expected = Events::internal_events();
+        expected.push(Event {
+            id: EventId(1),
+            name: "event_a".to_string(),
+            description: String::new(),
+            tags: String::new(),
+            type_hint: "u8".to_string(),
+            file: "main.c".to_string(),
+            line: "2".to_string(),
+        });
+        assert_eq!(mf_events.events, expected);
     }
 
     #[test]
@@ -1038,17 +1059,16 @@ mod tests {
             events: vec![in_mf_event.clone()],
         };
         invcs.merge_events_into(None, &mut mf_events);
-        assert_eq!(
-            mf_events.events,
-            vec![Event {
-                id: EventId(1),
-                name: "event_a".to_string(),
-                description: "desc".to_string(),
-                tags: "my-tag".to_string(),
-                type_hint: String::new(),
-                file: "main.c".to_string(),
-                line: "2".to_string(),
-            }]
-        );
+        let mut expected = Events::internal_events();
+        expected.push(Event {
+            id: EventId(1),
+            name: "event_a".to_string(),
+            description: "desc".to_string(),
+            tags: "my-tag".to_string(),
+            type_hint: String::new(),
+            file: "main.c".to_string(),
+            line: "2".to_string(),
+        });
+        assert_eq!(mf_events.events, expected);
     }
 }
