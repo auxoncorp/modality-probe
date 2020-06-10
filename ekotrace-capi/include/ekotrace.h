@@ -220,6 +220,24 @@ typedef struct causal_snapshot {
             payload) : EKOTRACE_RESULT_OK)
 
 /*
+ * Ekotrace expectation expression event recording macro.
+ *
+ * Used to expose expectation event recording information to the CLI tooling.
+ *
+ * Expands to call `ekotrace_record_event_with_payload_u32(ekt, event, expression_outcome)`.
+ *
+ * The trailing variadic macro arguments accept (in any order):
+ * - A string for declaring tags: "tags=<tag>[;<tag>]"
+ * - A string for the event description
+ *
+ */
+#define EKOTRACE_EXPECT(ekt, event, expr, ...) \
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_u32(\
+            ekt, \
+            event, \
+            (expr)) : EKOTRACE_RESULT_OK)
+
+/*
  * Create a ekotrace instance. ekotrace_id must be non-zero
  */
 size_t ekotrace_initialize(uint8_t *destination, size_t destination_size_bytes, uint32_t ekotrace_id, ekotrace * * out);

@@ -338,8 +338,9 @@ assert_eq_align!(u16, ChunkedReportToken);
 /// `ekotrace_write_next_report_chunk` and `ekotrace_finish_chunked_report`
 ///
 /// Once this method has been called, mutating operations on
-/// the Ekotrace instance will return `EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR`
-/// until all available chunks have been written with  `ekotrace_write_next_report_chunk`
+/// the Ekotrace instance will return
+/// `EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR` until all available chunks have
+/// been written with  `ekotrace_write_next_report_chunk`
 /// and `ekotrace_finish_chunked_report` called.
 ///
 /// # Safety
@@ -520,7 +521,8 @@ mod tests {
         assert_eq!(1, snap_b_neighborhood.clocks_len);
         assert!(snap_b < snap_b_neighborhood);
 
-        // Share that snapshot with another component in the system, pretend it lives on some other thread.
+        // Share that snapshot with another component in the system, pretend it lives on
+        // some other thread.
         let remote_tracer_id = tracer_id + 1;
 
         let mut remote_storage = [0u8; 1024];
@@ -537,7 +539,8 @@ mod tests {
         assert_eq!(EKOTRACE_RESULT_OK, result);
         let remote_tracer = unsafe { remote_tracer.assume_init() };
         let remote_snap_pre_merge = stack_snapshot(remote_tracer);
-        // Since we haven't manually combined history information yet, the remote's history is disjoint
+        // Since we haven't manually combined history information yet, the remote's
+        // history is disjoint
         assert_eq!(
             None,
             remote_snap_pre_merge.partial_cmp(&snap_b_neighborhood)

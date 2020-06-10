@@ -418,6 +418,46 @@ macro_rules! try_record_w_f32 {
     }};
 }
 
+/// Convenience macro that calls
+/// [Ekotrace::record_event_with_payload](struct.Ekotrace.html#method.record_event_with_payload).
+///
+/// The optional description and tags string arguments are only used
+/// by the CLI and compile away.
+///
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
+#[macro_export(local_inner_macros)]
+macro_rules! expect {
+    ($tracer:expr, $event:expr, $expression:expr) => {{
+        __record_with!($tracer, $event, $expression)
+    }};
+    ($tracer:expr, $event:expr, $expression:expr, $desc_or_tags:tt) => {{
+        __record_with!($tracer, $event, $expression)
+    }};
+    ($tracer:expr, $event:expr, $expression:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+        __record_with!($tracer, $event, $expression)
+    }};
+}
+
+/// Convenience macro that calls
+/// [Ekotrace::try_record_event_with_payload](struct.Ekotrace.html#method.try_record_event_with_payload).
+///
+/// The optional description and tags string arguments are only used
+/// by the CLI and compile away.
+///
+/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
+#[macro_export(local_inner_macros)]
+macro_rules! try_expect {
+    ($tracer:expr, $event:expr, $expression:expr) => {{
+        __try_record_with!($tracer, $event, $expression)
+    }};
+    ($tracer:expr, $event:expr, $expression:expr, $desc_or_tags:tt) => {{
+        __try_record_with!($tracer, $event, $expression)
+    }};
+    ($tracer:expr, $event:expr, $expression:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+        __try_record_with!($tracer, $event, $expression)
+    }};
+}
+
 #[doc(hidden)]
 #[macro_export(local_inner_macros)]
 macro_rules! __record_with {
@@ -556,6 +596,22 @@ mod tests {
         try_record_w_u32!(tracer, EVENT_D, 0, "tags=some-tag", "desc").unwrap();
         try_record_w_bool!(tracer, EVENT_D, false, "tags=some-tag", "desc").unwrap();
         try_record_w_f32!(tracer, EVENT_D, 0.0, "tags=some-tag", "desc").unwrap();
+
+        expect!(tracer, EventId::new(EVENT_D).unwrap(), 1 == 0);
+        expect!(tracer, EventId::new(EVENT_D).unwrap(), 1_i8 == 0_i8, "desc");
+        expect!(
+            tracer,
+            EventId::new(EVENT_D).unwrap(),
+            "s1" != "s2",
+            "tags=severity.1",
+            "desc"
+        );
+
+        try_expect!(tracer, EVENT_D, true == true).unwrap();
+        try_expect!(tracer, EVENT_D, 1 == (2 - 1), "desc").unwrap();
+        let a = 1;
+        let b = 2;
+        try_expect!(tracer, EVENT_D, a != b, "desc", "tags=my expectation").unwrap();
     }
 
     #[test]
