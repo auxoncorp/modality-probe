@@ -23,67 +23,67 @@ int main(void) {
             &g_tracer,
             "tags=my-tags;more tags",
             "Description");
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
 
     err = EKOTRACE_RECORD(
             g_tracer,
             EVENT_A,
             "tags=network;file-system;other-tags",
             "Description");
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD(
             g_tracer,
             EVENT_A,
             "tags=network;file-system;other-tags");
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD(
             g_tracer,
             EVENT_A,
             "Description");
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD(g_tracer, EVENT_A);
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
 
     const uint8_t my_data = 12;
     err = EKOTRACE_RECORD_W_U8(g_tracer, EVENT_A, my_data);
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD_W_U8(
             g_tracer,
             EVENT_A,
             my_data,
             "Description");
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD_W_U8(
             g_tracer,
             EVENT_A,
             my_data,
             "tags=thing1;thing2");
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD_W_U8(
             g_tracer,
             EVENT_A,
             my_data,
             "tags=thing1;thing2",
             "Description");
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
 
     err = EKOTRACE_RECORD_W_I8(g_tracer, EVENT_A, 0);
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD_W_I16(g_tracer, EVENT_A, 0);
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD_W_U16(g_tracer, EVENT_A, 0);
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD_W_I32(g_tracer, EVENT_A, 0);
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD_W_U32(g_tracer, EVENT_A, 0);
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD_W_BOOL(g_tracer, EVENT_A, false);
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
     err = EKOTRACE_RECORD_W_F32(g_tracer, EVENT_A, 0.0f);
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
 
     err = EKOTRACE_EXPECT(g_tracer, EVENT_A, 1 == 0);
-    assert(err == EKOTRACE_RESULT_OK);
+    assert(err == EKOTRACE_ERROR_OK);
 
     return 0;
 }

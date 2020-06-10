@@ -2,7 +2,7 @@
 #![feature(lang_items, core_intrinsics)]
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 pub use ekotrace_capi_impl::{
-    CausalSnapshot, ChunkedReportToken, Ekotrace, EkotraceInstant, EkotraceResult,
+    CausalSnapshot, ChunkedReportToken, Ekotrace, EkotraceError, EkotraceInstant,
 };
 
 #[no_mangle]
@@ -11,7 +11,7 @@ pub extern "C" fn ekotrace_initialize(
     destination_size_bytes: usize,
     tracer_id: u32,
     out: *mut *mut Ekotrace<'static>,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_initialize(destination, destination_size_bytes, tracer_id, out)
     }
@@ -21,7 +21,7 @@ pub extern "C" fn ekotrace_initialize(
 pub extern "C" fn ekotrace_record_event(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe { ekotrace_capi_impl::ekotrace_record_event(tracer, event_id) }
 }
 
@@ -30,7 +30,7 @@ pub extern "C" fn ekotrace_record_event_with_payload(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
     payload: u32,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe { ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload) }
 }
 
@@ -39,7 +39,7 @@ pub extern "C" fn ekotrace_record_event_with_payload_i8(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
     payload: i8,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload as _)
     }
@@ -50,7 +50,7 @@ pub extern "C" fn ekotrace_record_event_with_payload_u8(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
     payload: u8,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, u32::from(payload))
     }
@@ -61,7 +61,7 @@ pub extern "C" fn ekotrace_record_event_with_payload_i16(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
     payload: i16,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload as _)
     }
@@ -72,7 +72,7 @@ pub extern "C" fn ekotrace_record_event_with_payload_u16(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
     payload: u16,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, u32::from(payload))
     }
@@ -83,7 +83,7 @@ pub extern "C" fn ekotrace_record_event_with_payload_i32(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
     payload: i32,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload as _)
     }
@@ -94,7 +94,7 @@ pub extern "C" fn ekotrace_record_event_with_payload_u32(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
     payload: u32,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe { ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload) }
 }
 
@@ -103,7 +103,7 @@ pub extern "C" fn ekotrace_record_event_with_payload_bool(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
     payload: bool,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, u32::from(payload))
     }
@@ -114,7 +114,7 @@ pub extern "C" fn ekotrace_record_event_with_payload_f32(
     tracer: *mut Ekotrace<'static>,
     event_id: u32,
     payload: f32,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_record_event_with_payload(tracer, event_id, payload.to_bits())
     }
@@ -126,7 +126,7 @@ pub extern "C" fn ekotrace_report(
     log_report_destination: *mut u8,
     log_report_destination_size_bytes: usize,
     out_written_bytes: *mut usize,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_report(
             tracer,
@@ -143,7 +143,7 @@ pub extern "C" fn ekotrace_distribute_snapshot(
     history_destination: *mut u8,
     history_destination_bytes: usize,
     out_written_bytes: *mut usize,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_distribute_snapshot(
             tracer,
@@ -158,7 +158,7 @@ pub extern "C" fn ekotrace_distribute_snapshot(
 pub extern "C" fn ekotrace_distribute_fixed_size_snapshot(
     tracer: *mut Ekotrace<'static>,
     destination_snapshot: *mut CausalSnapshot,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_distribute_fixed_size_snapshot(tracer, destination_snapshot)
     }
@@ -169,7 +169,7 @@ pub extern "C" fn ekotrace_merge_snapshot(
     tracer: *mut Ekotrace<'static>,
     history_source: *const u8,
     history_source_bytes: usize,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_merge_snapshot(tracer, history_source, history_source_bytes)
     }
@@ -179,7 +179,7 @@ pub extern "C" fn ekotrace_merge_snapshot(
 pub extern "C" fn ekotrace_merge_fixed_size_snapshot(
     tracer: *mut Ekotrace<'static>,
     snapshot: *const CausalSnapshot,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe { ekotrace_capi_impl::ekotrace_merge_fixed_size_snapshot(tracer, snapshot) }
 }
 #[no_mangle]
@@ -191,7 +191,7 @@ pub extern "C" fn ekotrace_now(tracer: *mut Ekotrace<'static>) -> EkotraceInstan
 pub extern "C" fn ekotrace_start_chunked_report(
     tracer: *mut Ekotrace<'static>,
     out_report_token: *mut ChunkedReportToken,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe { ekotrace_capi_impl::ekotrace_start_chunked_report(tracer, out_report_token) }
 }
 
@@ -202,7 +202,7 @@ pub extern "C" fn ekotrace_write_next_report_chunk(
     log_report_destination: *mut u8,
     log_report_destination_size_bytes: usize,
     out_written_bytes: *mut usize,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe {
         ekotrace_capi_impl::ekotrace_write_next_report_chunk(
             tracer,
@@ -218,7 +218,7 @@ pub extern "C" fn ekotrace_write_next_report_chunk(
 pub extern "C" fn ekotrace_finish_chunked_report(
     tracer: *mut Ekotrace<'static>,
     report_token: *const ChunkedReportToken,
-) -> EkotraceResult {
+) -> EkotraceError {
     unsafe { ekotrace_capi_impl::ekotrace_finish_chunked_report(tracer, report_token) }
 }
 
