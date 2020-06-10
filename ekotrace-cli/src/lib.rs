@@ -1,6 +1,5 @@
 mod error;
 
-pub mod analysis;
 pub mod events;
 pub mod export;
 pub mod header_gen;
