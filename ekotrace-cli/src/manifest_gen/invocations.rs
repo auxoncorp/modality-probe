@@ -7,7 +7,7 @@ use crate::manifest_gen::{
     rust_parser::RustParser,
 };
 use crate::{
-    events::{EventId, Events},
+    events::{Event, EventId, Events},
     lang::Lang,
     tracers::{TracerId, Tracers},
     warn,
@@ -44,6 +44,7 @@ pub enum EventCheckError {
 pub struct Invocations<'cfg> {
     pub log_prefix: &'cfg str,
     pub log_module: &'cfg str,
+    pub internal_events: Vec<Event>,
     pub tracers: Vec<InSourceTracer>,
     pub events: Vec<InSourceEvent>,
 }
@@ -54,6 +55,7 @@ impl<'cfg> Default for Invocations<'cfg> {
         Invocations {
             log_prefix: config.log_prefix,
             log_module: config.log_module,
+            internal_events: config.internal_events,
             tracers: Default::default(),
             events: Default::default(),
         }
@@ -69,6 +71,7 @@ pub struct Config<'cfg> {
     pub c_parser: CParser<'cfg>,
     pub rust_parser: RustParser<'cfg>,
     pub file_extensions: Option<Vec<String>>,
+    pub internal_events: Vec<Event>,
 }
 
 impl<'cfg> Default for Config<'cfg> {
@@ -82,6 +85,7 @@ impl<'cfg> Default for Config<'cfg> {
             c_parser: CParser::default(),
             rust_parser: RustParser::default(),
             file_extensions: None,
+            internal_events: Events::internal_events(),
         }
     }
 }
@@ -198,6 +202,7 @@ impl<'cfg> Invocations<'cfg> {
         Ok(Invocations {
             log_prefix: config.log_prefix,
             log_module: config.log_module,
+            internal_events: config.internal_events,
             tracers,
             events,
         })
@@ -429,7 +434,7 @@ impl<'cfg> Invocations<'cfg> {
                 });
         }
 
-        Events::internal_events()
+        self.internal_events
             .iter()
             .rev()
             .for_each(|internal_event| {
@@ -463,10 +468,7 @@ impl<'cfg> Invocations<'cfg> {
             }
         });
 
-        let internal_events: Vec<u32> = ekotrace::EventId::INTERNAL_EVENTS
-            .iter()
-            .map(|id| id.get_raw())
-            .collect();
+        let internal_events: Vec<u32> = self.internal_events.iter().map(|e| e.id.0).collect();
         mf_events
             .events
             .iter()
