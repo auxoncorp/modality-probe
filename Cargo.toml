@@ -21,6 +21,7 @@ std = ["serde", "proptest", "schemars"]
 members = [
   "ekotrace-cli",
   "ekotrace-udp-collector",
+  "ekotrace-debug-collector",
   "util",
 ]
 

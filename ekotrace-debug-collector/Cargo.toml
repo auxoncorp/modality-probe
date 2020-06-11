@@ -2,12 +2,13 @@
 name = "ekotrace-debug-collector"
 version = "0.1.0"
 authors = ["Nicholas Springer <nicholas.m.springer@gmail.com>"]
-edition = "2020"
+edition = "2018"
 
 [dependencies]
 probe-rs = "0.6.2"
 goblin = "0.2.3"
 chrono = { version = "0.4", features = ["serde"] }
+structopt = "0.3"
 
 ekotrace = { path = ".." }
 util = { path = "../util" }
