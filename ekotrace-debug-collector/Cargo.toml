@@ -1,0 +1,22 @@
+[package]
+name = "ekotrace-debug-collector"
+version = "0.1.0"
+authors = ["Nicholas Springer <nicholas.m.springer@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+probe-rs = "0.6.2"
+goblin = "0.2.3"
+ekotrace = { git = "https://github.com/auxoncorp/ekotrace.git" }
+util = { path = "/home/nicholas/auxon/ekotrace/util" }
+ekotrace-udp-collector = { path = "/home/nicholas/auxon/ekotrace/ekotrace-udp-collector" }
+chrono = { version = "0.4", features = ["serde"] }
+
+[dependencies.race-buffer]
+path = "/home/nicholas/auxon/nick-demo/race-buffer"
+
+
+[patch."https://github.com/auxoncorp/ekotrace.git"]
+ekotrace = { path = "/home/nicholas/auxon/ekotrace"}
