@@ -147,7 +147,7 @@ fn file_sha256(path: &Path) -> String {
     format!("{:x}", sha256.result())
 }
 
-pub fn run(opt: Opt) {
+pub fn run(opt: Opt, internal_events: Vec<u32>) {
     opt.validate();
 
     let tracers_csv_hash = file_sha256(&opt.tracers_csv_file);
@@ -199,10 +199,6 @@ pub fn run(opt: Opt) {
     println!(" * Events (csv sha256sum {})", events_csv_hash);
     println!(" */");
 
-    let internal_events: Vec<u32> = ekotrace::EventId::INTERNAL_EVENTS
-        .iter()
-        .map(|id| id.get_raw())
-        .collect();
     for maybe_event in events_reader.deserialize() {
         let e: Event = maybe_event.expect("Can't deserialize event");
         if internal_events.contains(&e.id.0) {

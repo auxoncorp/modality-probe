@@ -177,9 +177,14 @@ impl From<Analysis> for analysis::Opt {
 fn main() {
     let opt = Opt::from_args();
 
+    let internal_events: Vec<u32> = ekotrace::EventId::INTERNAL_EVENTS
+        .iter()
+        .map(|id| id.get_raw())
+        .collect();
+
     match opt {
         Opt::ManifestGen(opt) => manifest_gen::run(opt.into()),
-        Opt::HeaderGen(opt) => header_gen::run(opt.into()),
+        Opt::HeaderGen(opt) => header_gen::run(opt.into(), internal_events),
         Opt::Analysis(opt) => analysis::run(opt.into()),
     }
 }
