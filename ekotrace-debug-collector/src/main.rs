@@ -1,207 +1,131 @@
-use std::env;
+use structopt::StructOpt;
 use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
-use std::str;
-
-use probe_rs::Probe;
-
-use ekotrace::compact_log::CompactLogItem;
-use ekotrace::{EventId, LogicalClock, TracerId};
-use ekotrace_udp_collector::add_log_report_to_entries;
-use goblin::elf::Elf;
-use util::{alloc_log_report::LogReport, model::LogEntry, model::SegmentId, model::SessionId};
-
-use chrono::{DateTime, Utc};
-use race_buffer::RaceBufferReader;
+use std::net::SocketAddrV4;
+use std::path::PathBuf;
 use std::time::Duration;
-use std::time::SystemTime;
+use std::fmt;
 
-struct offsets {
-    tracer_id: u64,
-    event_count: u64,
-    clocks_addr: u64,
-    clocks_len: u64,
-    log_addr: u64,
-    log_len: u64,
+use parse_duration::parse;
+
+use goblin::elf::Elf;
+use goblin::container::Endian;
+
+use ekotrace_debug_collector::Config;
+#[derive(Debug)]
+struct OptionsError {
+    details: String
 }
 
-const offsets_16: offsets = offsets {
-    tracer_id: 0x0,
-    event_count: 0x4,
-    clocks_addr: 0xE,
-    clocks_len: 0x12,
-    log_addr: 0x14,
-    log_len: 0x18,
-};
+impl OptionsError {
+    fn new(msg: &str) -> Self {
+        OptionsError{details: msg.to_string()}
+    }
+}
 
-const offsets_32: offsets = offsets {
-    tracer_id: 0x0,
-    event_count: 0x4,
-    clocks_addr: 0x10,
-    clocks_len: 0x18,
-    log_addr: 0x1c,
-    log_len: 0x24,
-};
+impl fmt::Display for OptionsError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,"{}",self.details)
+    }
+}
 
-const offsets_64: offsets = offsets {
-    tracer_id: 0x0,
-    event_count: 0x4,
-    clocks_addr: 0x14,
-    clocks_len: 0x24,
-    log_addr: 0x2c,
-    log_len: 0x3c,
-};
+impl Error for OptionsError {
+    fn description(&self) -> &str {
+        &self.details
+    }
+}
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    let sym_path = &(args[1]);
-    let log_label = &(args[2]);
-    let _out_path = &(args[3]);
+#[derive(Debug, Default)]
+#[derive(StructOpt)]
+#[
+    structopt(
+        name = "ekotrace-debug-collector",
+        about = "Periodically collects logs from microcontrollers over debug interfaces; outputs them to a file."
+    )
+]
+pub struct CLIOptions {
+    #[structopt(short = "s", long = "session-id", default_value = "0")]
+    session_id: u32,
 
-    let mut elf_buf = Vec::new();
-    let mut elf_file = open_elf(sym_path, &mut elf_buf).unwrap();
-    let (log_addr_64, _) = parse_symbol_info(&mut elf_file, log_label).unwrap();
-    let tracer_pointer_addr = log_addr_64 as u32;
+    #[structopt(short = "l", long = "little-endian")]
+    little_endian: bool,
+    #[structopt(short = "b", long = "big-endian")]
+    big_endian: bool,
 
-    let probes = Probe::list_all();
-    let probe = probes[0].open().expect("Probe open cannot fail");
-    // Attach to a chip.
-    let session = probe.attach("stm32").expect("Probe attach cannot fail");
-    // Select a core.
-    let core = session
-        .attach_to_core(0)
-        .expect("Attach to core cannot fail");
-    //core.halt().unwrap();
-
-    let buf_addr =  core.read_word_32(tracer_pointer_addr).unwrap();
-    let storage_addr = core.read_word_32(buf_addr + 4).unwrap();
-    let storage_size = core.read_word_32(buf_addr + 8).unwrap() as usize;
-    let mut rbuf = Vec::new();
-    let mut reader = RaceBufferReader::new(
-        storage_size,
-        || unsafe { core.read_word_32(buf_addr).unwrap() as usize},
-        |i| unsafe { core.read_word_32(storage_addr + 4 * (i as u32)).unwrap() },
-        |_| false,
-        0,
-    );
+    #[structopt(short = "e", long = "elf", parse(from_os_str))]
+    elf_path: Option<PathBuf>,
     
-    for _ in 0..100 {
-        reader.read(&mut rbuf);
-        std::thread::sleep(Duration::from_millis(80));
-    }
-    for v in &rbuf {
-        println!("val: {}", v);
-    }
-    assert!(is_correct_order(&rbuf[..]));
-    /*
-    // Read in log
-    let tracer_addr = core.read_word_32(tracer_pointer_addr).unwrap();
-    let hist_addr = core.read_word_32(tracer_addr).unwrap();
-    let tracer_id_raw = core.read_word_32(hist_addr).unwrap();
-    let tracer_id = TracerId::new(tracer_id_raw).unwrap();
-    let _event_count = core.read_word_32(hist_addr + 0x4).unwrap();
+    #[structopt(short = "a", long = "attach")]
+    attach_target: Option<String>,
 
-    let clocks_addr = core.read_word_32(hist_addr + 0x10).unwrap();
-    let clocks_len = core.read_word_32(hist_addr + 0x18).unwrap();
+    #[structopt(short = "g", long = "gdb-server")]
+    gdb_addr: Option<SocketAddrV4>,
 
-    let log_addr = core.read_word_32(hist_addr + 0x1c).unwrap();
-    let log_len = core.read_word_32(hist_addr + 0x24).unwrap();
+    #[structopt(short = "i", long = "interval")]
+    interval: String,
 
-    let mut clocks = Vec::new();
-    for i in 0..clocks_len {
-        let clock_id_raw = core.read_word_32(clocks_addr + 8 * i).unwrap();
-        let clock_count = core.read_word_32(clocks_addr + 8 * i + 4).unwrap();
-        let clock_id = TracerId::new(clock_id_raw).unwrap();
-        clocks.push(LogicalClock {
-            id: clock_id,
-            count: clock_count,
-        });
-    }
+    #[structopt(short = "o", long = "output-file", parse(from_os_str))]
+    output_path: PathBuf,
 
-    let mut log = Vec::new();
-    for i in 0..log_len {
-        let log_item_raw = core.read_word_32(log_addr + 4 * i).unwrap();
-        log.push(CompactLogItem::from_raw(log_item_raw));
-    }
+    tracer_syms: Vec<String>
+}
 
-    // print()
-    println!("Clocks");
-    for c in clocks.iter() {
-        print!("{}, {}; ", c.id.get_raw(), c.count);
-    }
-    println!("");
-    println!("Log:");
-    let mut next_clock_count = false;
-    for l in log.iter() {
-        if next_clock_count {
-            print!("Count: {}], ", l.raw());
-            next_clock_count = false;
-        } else {
-            if l.has_clock_bit_set() {
-                print!("[ID: {} ", l.interpret_as_logical_clock_tracer_id());
-                next_clock_count = true;
+fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn Error>> {
+    let tracer_addrs = Vec::new();
+    let symbols = Vec::new();
+    // Separate given tracer addresses and tracer symbols
+    tracer_addrs.extend(
+        options.tracer_syms.iter()
+            .filter(|s| s.starts_with("0x"))
+            .map(|s| u32::from_str_radix(s.trim_start_matches("0x"), 16))
+    );
+    symbols.extend(
+        options.tracer_syms.iter()
+            .filter(|s| !s.starts_with("0x"))
+    );
+    let mut elf_endianness = None;
+    if let Some(elf_path) = options.elf_path.as_ref() {
+        let mut elf_buf = Vec::new();
+        let mut elf_file = open_elf(&elf_path, &mut elf_buf)?;
+        for sym in symbols {
+            if let Some((sym_val, _sym_size)) = parse_symbol_info(elf_file, sym){
+                tracer_addrs.push(sym_val);
             } else {
-                print!("{}, ", l.raw());
+                return Err(Box::new(OptionsError::new(format!(
+                    "Could not find symbol value of \"{}\" in given ELF", sym))));
             }
         }
-    }
-    println!("");
-
-    // finished report logging
-    // increment local clock
-    clocks[0].count = clocks[0].count.saturating_add(1);
-    core.write_word_32(clocks_addr + 4, clocks[0].count);
-    // log clocks
-    let mut new_log = Vec::new();
-    for c in clocks.iter() {
-        let (id, count) = CompactLogItem::clock(*c);
-        new_log.push(id.raw());
-        new_log.push(count.raw());
-    }
-    // log report created event
-    new_log.push(EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw());
-    let num_entries = new_log.len();
-    // pad 0s to overwrite
-    for i in 0..(log.len() - num_entries) {
-        new_log.push(0);
-    }
-    core.write_word_32(hist_addr + 0x24, num_entries as u32).unwrap();
-    core.write_32(log_addr, &new_log[..]).unwrap();
-    core.run().unwrap();
-
-    // write to csv
-    let report = LogReport::try_from_log(tracer_id, log.into_iter(), &[]).unwrap();
-    let mut entries: Vec<LogEntry> = Vec::new();
-    add_log_report_to_entries(&report, SessionId::from(0), SegmentId::from(0),
-        Utc::now(), &mut entries);
-    let mut out = File::create("out").unwrap();
-    util::write_csv_log_entries(&mut out, &entries, true).unwrap();*/
-}
-
-fn is_correct_order(rbuf: &[u32]) -> bool {
-    for i in 0..rbuf.len() {
-        if rbuf[i] != i as u32 + 1 && rbuf[i] != 0 {
-            return false;
+        elf_endianness = Some(elf_file.as_ref().header.endianness());
+    } else {
+        if !symbols.is_empty() {
+            return Err(Box::new(OptionsError::new(
+                "Must specify memory locations of tracers or an ELF file to recover symbol values")));
         }
     }
-    return true;
+    
+    if (options.attach_target == None && options.gdb_addr == None) ||
+        (options.attach_target != None && options.gdb_addr != None) {
+        return Err(Box::new(OptionsError::new(
+            "Must specify exactly one of attach target and gdb server address")));
+    }
+
+    let interval = parse(options.interval)?;
+    
+    Ok(ekotrace_debug_collector::Config {
+        session_id: options.session_id.into(),
+        big_endian: use_big_endian(&options, elf_endianness)?,
+        attach_target: options.attach_target,
+        gdb_addr: options.gdb_addr,
+        interval: interval,
+        output_path: options.output_path,
+        tracer_addrs: tracer_addrs
+    })
 }
 
-fn parse_symbol_info(elf_file: &mut Elf, log_label: &str) -> Option<(u64, u64)> {
-    let log_sym = elf_file.syms.iter().find(|sym| -> bool {
-        let name_opt = elf_file.strtab.get(sym.st_name);
-        if let Some(name_res) = name_opt {
-            if let Ok(name) = name_res {
-                return name == log_label;
-            }
-        }
-        return false;
-    })?;
-    Some((log_sym.st_value, log_sym.st_size))
-}
 
-fn open_elf<'a>(path: &str, elf_buf: &'a mut Vec<u8>) -> Result<Box<Elf<'a>>, Box<dyn Error>> {
+
+fn open_elf<'a>(path: &PathBuf, elf_buf: &'a mut Vec<u8>) -> Result<Box<Elf<'a>>, Box<dyn Error>> {
     let mut file = File::open(path)?;
     file.read_to_end(elf_buf)?;
     match Elf::parse(elf_buf) {
@@ -209,3 +133,63 @@ fn open_elf<'a>(path: &str, elf_buf: &'a mut Vec<u8>) -> Result<Box<Elf<'a>>, Bo
         Err(err) => Err(Box::new(err)),
     }
 }
+
+fn parse_symbol_info(elf_file: &mut Elf, symbol_name: &str) -> Option<(u32, u32)> {
+    let log_sym = elf_file.syms.iter().find(|sym| -> bool {
+        let name_opt = elf_file.strtab.get(sym.st_name);
+        if let Some(name_res) = name_opt {
+            if let Ok(name) = name_res {
+                return name == symbol_name;
+            }
+        }
+        return false;
+    })?;
+    Some((log_sym.st_value as u32, log_sym.st_size as u32))
+}
+
+fn use_big_endian(o: &CLIOptions, elf_endianness_opt: Option<goblin::error::Result<Endian>>)
+    -> Result<bool, OptionsError> 
+{
+    if o.little_endian && o.big_endian {
+        Err(OptionsError::new("Both little-endian and big-endian were specified"))
+    } else if !o.little_endian && !o.big_endian {
+        if let Some(elf_endianness) = elf_endianness_opt {
+            match elf_endianness {
+                Ok(Endian::Little) => Ok(false),
+                Ok(Endian::Big) => Ok(true),
+                Err(_) => {
+                    println!("Warning: Endianness could not be parsed from ELF, using little endian");
+                    Ok(false)
+                }
+            }
+        } else {
+            println!("Warning: Endianness not specified, using little endian");
+            Ok(false)
+        }
+    } else if o.little_endian {
+        if let Some(elf_endianness) = elf_endianness_opt {
+            if let Ok(endianness) = elf_endianness {
+                if endianness == Endian::Big {
+                    println!("Warning: Little endian specified, but ELF is big endian");
+                }
+            }
+        }
+        Ok(false)
+    } else {
+        if let Some(elf_endianness) = elf_endianness_opt {
+            if let Ok(endianness) = elf_endianness {
+                if endianness == Endian::Little {
+                    println!("Warning: Big endian specified, but ELF is little endian");
+                }
+            }
+        }
+        Ok(false)
+    }
+}
+
+fn main() {
+    let opts = CLIOptions::from_args();
+    
+    println!("Running debug collector with configuration: {:#?}", opts);
+}
+
