@@ -9,6 +9,7 @@ probe-rs = "0.6.2"
 goblin = "0.2.3"
 chrono = { version = "0.4", features = ["serde"] }
 structopt = "0.3"
+parse_duration = "2.1.0"
 
 ekotrace = { path = ".." }
 util = { path = "../util" }
