@@ -153,7 +153,7 @@ pub fn segments<'a, G, E>(
     log: impl Iterator<Item = Result<ReportEvent, E>>,
 ) -> Result<(), Error>
 where
-    G: GraphBuilder<'a, Node = GraphSegment<'a>>,
+    G: GraphWithWeightsBuilder<'a, Node = GraphSegment<'a>, Weight = usize>,
     E: std::error::Error,
 {
     let mut self_vertex = GraphSegment::default();
@@ -178,7 +178,8 @@ where
                     .lc_clock
                     .ok_or_else(|| Error::InconsistentData("missing logical clock"))?,
             };
-            graph.add_node(node);
+            let weight = graph.upsert_node(node, 0);
+            *weight += 1;
             if event.tracer_id
                 == event
                     .lc_tracer_id
@@ -192,16 +193,19 @@ where
                 c.sort();
                 self_vertex = node;
                 if let Some(prev_clock) = c.iter().filter(|clk| **clk < this_clock).last() {
-                    graph.add_edge(
+                    let weight = graph.upsert_edge(
                         GraphSegment {
                             name: node.name,
                             clock: *prev_clock,
                         },
                         self_vertex,
+                        0,
                     );
+                    *weight += 1;
                 }
             } else {
-                graph.add_edge(node, self_vertex);
+                let weight = graph.upsert_edge(node, self_vertex, 0);
+                *weight += 1;
             }
         }
     }
@@ -313,7 +317,8 @@ where
                     .get(&event.tracer_id)
                     .ok_or_else(|| Error::InconsistentData("unknown tracer_id"))?
                     .name;
-                graph.add_node(self_vertex, 0);
+                let weight = graph.upsert_node(self_vertex, 0);
+                *weight += 1;
             } else {
                 let weight = graph.upsert_edge(
                     &cfg.tracers

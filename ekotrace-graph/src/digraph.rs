@@ -24,7 +24,7 @@ where
         H: Fn(&N, &N, &W) -> String,
     {
         let mut out = String::new();
-        writeln!(&mut out, "digraph {{");
+        writeln!(&mut out, "digraph G {{");
         for (n, w) in self.nodes.iter() {
             writeln!(out, "    {} [{}]", node_id_fmt(n, w), node_attr_fmt(n, w));
         }

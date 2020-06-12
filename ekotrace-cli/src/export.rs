@@ -70,11 +70,11 @@ pub fn run(exp: Export) {
                     let event = events_by_name.get(*n).unwrap();
                     let event_id = events.iter().filter(|(_, v)| v.name == *n).map(|(k, _)| k).next().unwrap();
                     format!(
-                        "label = \"{}\" description = \"{}\" file = \"{}\" line = \"{}\" tags = \"{}\" occurrence = \"{}\" raw_event_id = \"{}\"",
+                        "label = \"{}\" description = \"{}\" file = \"{}\" line = {} tags = \"{}\" weight = {} raw_event_id = {}",
                         event.name,
                         event.description,
                         event.file,
-                        event.line,
+                        event.line.unwrap(),
                         event.tags,
                         w,
                         event_id
@@ -82,7 +82,7 @@ pub fn run(exp: Export) {
                 },
                 |_from, _to, weight| {
                     format!(
-                        "occurrence = \"{}\"",
+                        "weight = {}",
                         weight
                     )
                 },
@@ -95,15 +95,15 @@ pub fn run(exp: Export) {
                 "{}",
                 graph.to_dot(
                     |n, _| n.to_string(),
-                    |n, _| {
+                    |n, w| {
                         let tracer = tracers_by_name.get(*n).unwrap();
                         let tracer_id = tracers.iter().filter(|(_, v)| v.name == *n).map(|(k, _)| k).next().unwrap();
                         format!(
-                            "label = \"{}\" description = \"{}\" file = \"{}\" line = \"{}\" raw_location_id = \"{}\"",
-                            n, tracer.description, tracer.file, tracer.line, tracer_id
+                            "label = \"{}\" description = \"{}\" file = \"{}\" line = {} raw_tracer_id = {} weight = {}",
+                            n, tracer.description, tracer.file, tracer.line, tracer_id, w
                         )
                     },
-                    |_from, _to, weight| format!("occurrence = \"{}\"", weight)
+                    |_from, _to, weight| format!("weight = {}", weight)
                 )
             );
         }
@@ -117,17 +117,17 @@ pub fn run(exp: Export) {
                     |n, _| {
                         let event = events_by_name.get(n.name()).unwrap();
                         let event_id = events.iter().filter(|(_, v)| v.name == n.name()).map(|(k, _)| k).next().unwrap();
-                        let tracer_id = tracers.iter().filter(|(_, v)| v.name == n.name()).map(|(k, _)| k).next().unwrap();
+                        let tracer_id = tracers.iter().filter(|(_, v)| v.name == n.location()).map(|(k, _)| k).next().expect(&format!("{}", n.name()));
                         if let Some(th) = &event.type_hint {
                             match n.parsed_payload(th) {
                                 Some(p) => format!(
-                                    "label = \"{}\" payload = \"{}\" type_hint = \"{}\" description = \"{}\" file = \"{}\" line = \"{}\" location = \"{}\" tags = \"{}\" clock = \"{}\" clock_offset = \"{}\" raw_event_id = \"{}\" raw_location_id = \"{}\"",
+                                    "label = \"{}\" payload = {} type_hint = \"{}\" description = \"{}\" file = \"{}\" line = {} tracer = \"{}\" tags = \"{}\" tracer_epoch = {} epoch_offset = {} raw_event_id = {} raw_tracer_id = {}",
                                     event.name,
                                     p,
                                     th,
                                     event.description,
                                     event.file,
-                                    event.line,
+                                    event.line.unwrap(),
                                     n.location(),
                                     event.tags,
                                     n.clock(),
@@ -136,11 +136,11 @@ pub fn run(exp: Export) {
                                     tracer_id
                                 ),
                                 None => format!(
-                                    "label = \"{}\" description = \"{}\" file = \"{}\" line = \"{}\" location = \"{}\" tags = \"{}\" clock = \"{}\" clock_offset = \"{}\", raw_event_id = \"{}\" raw_location_id = \"{}\"",
+                                    "label = \"{}\" description = \"{}\" file = \"{}\" line = {} tracer = \"{}\" tags = \"{}\" tracer_epoch = {} epoch_offset = {}, raw_event_id = {} raw_tracer_id = {}",
                                     event.name,
                                     event.description,
                                     event.file,
-                                    event.line,
+                                    event.line.unwrap(),
                                     n.location(),
                                     event.tags,
                                     n.clock(),
@@ -151,11 +151,11 @@ pub fn run(exp: Export) {
                             }
                         } else {
                             format!(
-                                    "label = \"{}\" description = \"{}\" file = \"{}\" line = \"{}\" location = \"{}\" tags = \"{}\" clock = \"{}\" clock_offset = \"{}\", raw_event_id = \"{}\" raw_location_id = \"{}\"",
+                                    "label = \"{}\" description = \"{}\" file = \"{}\" line = {} tracer = \"{}\" tags = \"{}\" tracer_epoch = {} epoch_offset = {}, raw_event_id = {} raw_tracer_id = {}",
                                     event.name,
                                     event.description,
                                     event.file,
-                                    event.line,
+                                    event.line.unwrap(),
                                     n.location(),
                                     event.tags,
                                     n.clock(),
@@ -176,15 +176,15 @@ pub fn run(exp: Export) {
                 "{}",
                 graph.to_dot(
                     |n, _| format!("{}_{}", n.name, n.clock),
-                    |n, _| {
+                    |n, w| {
                         let tracer = tracers_by_name.get(n.name).unwrap();
                         let tracer_id = tracers.iter().filter(|(_, v)| v.name == n.name).map(|(k, _)| k).next().unwrap();
                         format!(
-                            "label = \"{}\" description = \"{}\" file = \"{}\" line = \"{}\" clock = \"{}\" raw_location_id = \"{}\"",
-                            tracer.name, tracer.description, tracer.file, tracer.line, n.clock, tracer_id,
+                            "label = \"{}\" description = \"{}\" file = \"{}\" line = {} tracer_epoch = {} raw_tracer_id = {} weight = {}",
+                            tracer.name, tracer.description, tracer.file, tracer.line, n.clock, tracer_id, w
                         )
                     },
-                    |_from, _to, _weight| String::new(),
+                    |_from, _to, weight| format!("weight = {}", weight),
                 )
             );
         }

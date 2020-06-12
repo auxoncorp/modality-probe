@@ -19,7 +19,7 @@ pub struct EventMeta {
     pub tags: String,
     pub description: String,
     pub file: String,
-    pub line: u32,
+    pub line: Option<u32>,
 }
 
 impl EventMeta {
