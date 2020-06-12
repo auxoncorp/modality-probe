@@ -2,4 +2,6 @@
 *.pdf
 *.dvi
 *.tex
-model/states/*
+*.check
+model/metadir
+model/tla2tools.jar
