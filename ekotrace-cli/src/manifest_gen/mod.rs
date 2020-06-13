@@ -14,7 +14,7 @@ pub mod source_location;
 pub mod tracer_metadata;
 pub mod type_hint;
 
-#[derive(Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Opt {
     pub lang: Option<Lang>,
     pub event_id_offset: Option<u32>,
@@ -25,6 +25,22 @@ pub struct Opt {
     pub no_events: bool,
     pub no_tracers: bool,
     pub source_path: PathBuf,
+}
+
+impl Default for Opt {
+    fn default() -> Self {
+        Opt {
+            lang: None,
+            event_id_offset: None,
+            tracer_id_offset: None,
+            file_extensions: None,
+            events_csv_file: PathBuf::from("events.csv"),
+            tracers_csv_file: PathBuf::from("tracers.csv"),
+            no_events: false,
+            no_tracers: false,
+            source_path: PathBuf::from("."),
+        }
+    }
 }
 
 impl Opt {
