@@ -1,3 +1,7 @@
+//! This module contains the node types that are used by the graph
+//! builders.
+
+/// The type used by event-based builders.
 #[derive(PartialEq, Eq, Clone, Copy, Hash)]
 pub enum GraphEvent<'a> {
     Event {
@@ -16,6 +20,7 @@ pub enum GraphEvent<'a> {
 }
 
 impl<'a> GraphEvent<'a> {
+    /// Get the event's name.
     pub fn name(&self) -> &'a str {
         match self {
             GraphEvent::Event { name, .. } => name,
@@ -23,6 +28,7 @@ impl<'a> GraphEvent<'a> {
         }
     }
 
+    /// Get the event's location.
     pub fn location(&self) -> &'a str {
         match self {
             GraphEvent::Event { location, .. } => location,
@@ -30,6 +36,7 @@ impl<'a> GraphEvent<'a> {
         }
     }
 
+    /// Get the event's clock value.
     pub fn clock(&self) -> u32 {
         match self {
             GraphEvent::Event { clock, .. } => *clock,
@@ -37,6 +44,7 @@ impl<'a> GraphEvent<'a> {
         }
     }
 
+    /// Get the event's clock offset, also knows as "segment index".
     pub fn clock_offset(&self) -> u32 {
         match self {
             GraphEvent::Event { clock_offset, .. } => *clock_offset,
@@ -44,6 +52,11 @@ impl<'a> GraphEvent<'a> {
         }
     }
 
+    /// Use the type hint from this event and stringify the payload
+    /// through the type hint.
+    ///
+    /// This is to provide a way to get at the payload information
+    /// when generating the textual form of a graph.
     pub fn parsed_payload(&self, type_hint: &str) -> Option<String> {
         match self {
             GraphEvent::Event { .. } => None,
@@ -62,14 +75,9 @@ impl<'a> GraphEvent<'a> {
     }
 }
 
-#[derive(PartialEq, Eq, Clone, Copy, Hash)]
+/// The node type used for segment based graphs.
+#[derive(PartialEq, Eq, Clone, Copy, Hash, Default)]
 pub struct GraphSegment<'a> {
     pub name: &'a str,
     pub clock: u32,
-}
-
-impl<'a> Default for GraphSegment<'a> {
-    fn default() -> Self {
-        GraphSegment { name: "", clock: 0 }
-    }
 }

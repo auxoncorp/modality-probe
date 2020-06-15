@@ -1,3 +1,6 @@
+//! `ekotrace-graph` is a library that builds different types of node
+//! and edge lists from a columnar, unordered collection of log
+//! reports like the one that ekotrace-udp-collector creates.
 use std::{collections::HashMap, hash::Hash};
 
 use err_derive::Error;
@@ -11,30 +14,53 @@ use crate::{
     meta::{EventMeta, ReportEvent, TracerMeta},
 };
 
+/// Errors returned by the graph building operations or the exporters.
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error(display = "writing dot failed: {}", _0)]
+    /// Encountered an error when using the writer when exporting a
+    /// graph in a textual format.
+    #[error(display = "Formatting graph failed: {}", _0)]
     Io(String),
+    /// The graph builders iterate over a `Result` to leave room for
+    /// deserialization; if a builder encounters a `Err`, this error
+    /// is returned with that error's `display` implementaion inside.
     #[error(display = "An item in the log iterator was an error variant: {}", _0)]
     ItemError(String),
-    #[error(display = "Encountered an inconsistency in the data: {}", _0)]
+    /// Encountered an unexpected inconsistency in the graph data.
+    #[error(display = "Encountered an inconsistency in the graph data: {}", _0)]
     InconsistentData(&'static str),
 }
 
+/// The methods needed for building a basic graph. The builders that
+/// _don't_ need weights use these, leaving it agnostic to the graph
+/// type being used.
 pub trait GraphBuilder<'a> {
     type Node: Eq + Hash + Clone + Copy;
 
+    /// Add a node to the graph.
     fn add_node(&mut self, node: Self::Node);
+    /// Add an edge to the graph, `from -> to`.
     fn add_edge(&mut self, from: Self::Node, to: Self::Node);
 }
 
+/// The methods needed for building a weighted graph. Like the
+/// unweighted graph builders, this allows the builders to be agnostic
+/// to the graph implementation.
 pub trait GraphWithWeightsBuilder<'a> {
     type Node: Eq + Hash + Clone + Copy;
     type Weight: Clone + Copy;
 
+    /// Add a weighted node to the graph.
     fn add_node(&mut self, node: Self::Node, weight: Self::Weight);
+    /// Get a mutable reference to a node's weight if it exists. If it
+    /// does not, insert it with the given weight, and then return a
+    /// mutable reference.
     fn upsert_node(&mut self, node: Self::Node, weight: Self::Weight) -> &mut Self::Weight;
+    /// Add a weighted edge to the graph.
     fn add_edge(&mut self, from: Self::Node, to: Self::Node, weight: Self::Weight);
+    /// Get a mutable reference to a edge's weight if it exists. If it
+    /// does not, insert it with the given weight, and then return a
+    /// mutable reference.
     fn upsert_edge(
         &mut self,
         from: Self::Node,
@@ -43,11 +69,17 @@ pub trait GraphWithWeightsBuilder<'a> {
     ) -> &mut Self::Weight;
 }
 
+/// The metadata mapping event and tracer ids to their names and
+/// descriptions, &c.
 pub struct Cfg {
     pub tracers: HashMap<u32, TracerMeta>,
     pub events: HashMap<u32, EventMeta>,
 }
 
+/// `complete` builds a complete causal graph from the given data. The
+/// cross-tracer relationship remains to be segment based, but arrows
+/// are also drawn bewteen intra-segment events. This builder does not
+/// require weights.
 pub fn complete<'a, G, E>(
     cfg: &'a Cfg,
     graph: &mut G,
@@ -57,6 +89,7 @@ where
     G: GraphBuilder<'a, Node = GraphEvent<'a>>,
     E: std::error::Error,
 {
+    // State needed for the fold.
     let mut prev_event = None;
     let mut last_seg_id = 0;
     let mut last_ev_by_loc_clk: HashMap<(u32, u32), GraphEvent> = HashMap::new();
@@ -65,9 +98,13 @@ where
     let mut clock_set = Vec::new();
     let mut missing_segs = Vec::new();
 
+    // Fold over the data set, for each segment collect the clocks and
+    // add an edge from those neighbors. If we've not yet seen the
+    // segment that that neighbor's clock points to, save it for
+    // later. Once we've reached the end of the report, go back and
+    // fill in the holes.
     for res in log {
         let event: ReportEvent = res.map_err(|e| Error::ItemError(format!("{}", e)))?;
-
         if event.lc_tracer_id.is_none() && event.lc_clock.is_none() {
             if let Some(meta_ev) = cfg.events.get(
                 &event
@@ -147,6 +184,8 @@ where
     Ok(())
 }
 
+/// `segments` builds a graph without events, it instead includes only
+/// segments identified by their ids and their tracer locations.
 pub fn segments<'a, G, E>(
     cfg: &'a Cfg,
     graph: &mut G,
@@ -159,6 +198,8 @@ where
     let mut self_vertex = GraphSegment::default();
     let mut self_clocks = HashMap::new();
 
+    // Accrue clocks for each segment and the draw edges for those
+    // clocks. Otherwise, move along.
     for res in log {
         let event: ReportEvent = res.map_err(|e| Error::ItemError(format!("{}", e)))?;
 
@@ -212,6 +253,9 @@ where
     Ok(())
 }
 
+/// `overlay` provides a state-like graph, separating events by id,
+/// and building a graph whose edges point to events that at some
+/// point came after the source event.
 pub fn overlay<'a, G, E>(
     cfg: &'a Cfg,
     graph: &mut G,
@@ -292,6 +336,8 @@ where
     Ok(())
 }
 
+/// `topo` isolates tracers by id and draws edges showing which
+/// instrumented components in a system are interacting.
 pub fn topo<'a, G, E>(
     cfg: &'a Cfg,
     graph: &mut G,

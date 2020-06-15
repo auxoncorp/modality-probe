@@ -1,5 +1,7 @@
+//! The ser/de types for events, and event and tracer metadata.
 use serde::Deserialize;
 
+/// A row in the columnar report collection.
 #[derive(Deserialize)]
 pub struct ReportEvent {
     pub segment_id: u32,
@@ -11,6 +13,7 @@ pub struct ReportEvent {
     pub lc_clock: Option<u32>,
 }
 
+/// A row in the events.csv for a component.
 #[derive(Debug, Clone, Deserialize)]
 pub struct EventMeta {
     pub id: u32,
@@ -28,6 +31,7 @@ impl EventMeta {
     }
 }
 
+/// A row in tracers.csv for a component.
 #[derive(Debug, Clone, Deserialize)]
 pub struct TracerMeta {
     pub id: u32,

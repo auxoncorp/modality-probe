@@ -1,4 +1,7 @@
+//! A simple directed graph type that compliles node and edge lists.
 use std::{collections::HashMap, fmt::Write, hash::Hash};
+
+use crate::Error;
 
 pub struct Digraph<N, W> {
     nodes: HashMap<N, W>,
@@ -10,6 +13,7 @@ where
     N: Eq + Hash + Clone + Copy,
     W: Eq + Clone + Copy,
 {
+    /// Construct an empty graph.
     pub fn new() -> Self {
         Digraph {
             nodes: HashMap::new(),
@@ -17,28 +21,42 @@ where
         }
     }
 
-    pub fn to_dot<F, G, H>(&self, node_id_fmt: F, node_attr_fmt: G, edge_fmt: H) -> String
+    /// Output the graph as dot, use the given functions to format
+    /// node ids, node attributes, and edge attributes.
+    pub fn to_dot<F, G, H>(
+        &self,
+        node_id_fmt: F,
+        node_attr_fmt: G,
+        edge_fmt: H,
+    ) -> Result<String, Error>
     where
-        F: Fn(&N, &W) -> String,
-        G: Fn(&N, &W) -> String,
-        H: Fn(&N, &N, &W) -> String,
+        F: Fn(&N, &W) -> Result<String, String>,
+        G: Fn(&N, &W) -> Result<String, String>,
+        H: Fn(&N, &N, &W) -> Result<String, String>,
     {
         let mut out = String::new();
-        writeln!(&mut out, "digraph G {{");
+        writeln!(&mut out, "digraph G {{").map_err(|e| Error::Io(e.to_string()))?;
         for (n, w) in self.nodes.iter() {
-            writeln!(out, "    {} [{}]", node_id_fmt(n, w), node_attr_fmt(n, w));
+            writeln!(
+                out,
+                "    {} [{}]",
+                node_id_fmt(n, w).map_err(Error::Io)?,
+                node_attr_fmt(n, w).map_err(Error::Io)?
+            )
+            .map_err(|e| Error::Io(e.to_string()))?;
         }
         for ((from, to), weight) in self.edges.iter() {
             writeln!(
                 out,
                 "    {} -> {} [{}]",
-                node_id_fmt(from, weight),
-                node_id_fmt(to, weight),
-                edge_fmt(from, to, weight)
-            );
+                node_id_fmt(from, weight).map_err(Error::Io)?,
+                node_id_fmt(to, weight).map_err(Error::Io)?,
+                edge_fmt(from, to, weight).map_err(Error::Io)?
+            )
+            .map_err(|e| Error::Io(e.to_string()))?;
         }
-        writeln!(out, "}}");
-        out
+        writeln!(out, "}}").map_err(|e| crate::Error::Io(e.to_string()))?;
+        Ok(out)
     }
 }
 

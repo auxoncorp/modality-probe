@@ -122,6 +122,10 @@ fn main() {
     match opt {
         Opt::ManifestGen(opt) => manifest_gen::run(opt.into()),
         Opt::HeaderGen(opt) => header_gen::run(opt.into(), internal_events),
-        Opt::Export(exp) => export::run(exp),
+        Opt::Export(exp) => {
+            if let Err(e) = export::run(exp) {
+                println!("Error: {}", e);
+            }
+        }
     }
 }
