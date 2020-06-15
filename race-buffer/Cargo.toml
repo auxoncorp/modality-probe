@@ -11,4 +11,5 @@ crossbeam = {version = "0.7.3", optional = true}
 rand = {version = "0.7.3", optional = true}
 
 [features]
-default = ["crossbeam", "rand"]
+default = []
+std = ["crossbeam", "rand"]

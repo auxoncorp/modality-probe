@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "default"), no_std)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 #[inline]
 /// Returns the corresponding index in backing storage of given cursor index
@@ -79,7 +79,7 @@ where
     }
 }
 
-#[cfg(feature = "default")]
+#[cfg(feature = "std")]
 /// Struct used to read from a RaceBuffer asynchronously
 pub struct RaceBufferReader<T, F, G, H>
 where
@@ -96,7 +96,7 @@ where
     nil_val: T, // Entry value reserved to represent NIL
 }
 
-#[cfg(feature = "default")]
+#[cfg(feature = "std")]
 impl<T, F, G, H> RaceBufferReader<T, F, G, H>
 where
     T: core::marker::Copy + core::cmp::PartialEq,
@@ -207,6 +207,7 @@ where
     }
 }
 
+#[cfg(feature = "std")]
 #[cfg(test)]
 pub mod tests {
     use super::*;
@@ -293,8 +294,8 @@ pub mod tests {
     }
 
     #[test]
-    // Perform many reads and writes concurrently
-    // and check if read buffer is in order and consistent
+    // Perform many reads and writes concurrently,
+    // check if read buffer is in order and consistent
     fn test_basic() {
         const NUM_WRITES: u32 = 160;
         const STORAGE_CAP: usize = 16;
@@ -349,7 +350,7 @@ pub mod tests {
 
     #[test]
     // Perform many reads and writes concurrently with random timeouts,
-    // and check if read buffer is in order and consistent
+    // check if read buffer is in order and consistent
     fn test_random() {
         const NUM_WRITES: u32 = 100_000;
         const STORAGE_CAP: usize = 4;
