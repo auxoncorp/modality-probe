@@ -1,11 +1,13 @@
-use structopt::StructOpt;
 use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 use std::net::SocketAddrV4;
 use std::path::PathBuf;
 use std::fmt;
+use std::time::Duration;
+use std::str::FromStr;
 
+use structopt::StructOpt;
 use parse_duration::parse;
 
 use goblin::elf::Elf;
@@ -113,7 +115,7 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
     
     Ok(ekotrace_debug_collector::Config {
         session_id: options.session_id.into(),
-        big_endian: use_big_endian(&options, elf_endianness)?,
+        big_endian: should_use_big_endian(&options, elf_endianness)?,
         attach_target: options.attach_target,
         gdb_addr: options.gdb_addr,
         interval: interval,
@@ -144,7 +146,7 @@ fn parse_symbol_info(elf_file: &Elf, symbol_name: &str) -> Option<(u32, u32)> {
     Some((log_sym.st_value as u32, log_sym.st_size as u32))
 }
 
-fn use_big_endian(o: &CLIOptions, elf_endianness_opt: Option<goblin::error::Result<Endian>>)
+fn should_use_big_endian(o: &CLIOptions, elf_endianness_opt: Option<goblin::error::Result<Endian>>)
     -> Result<bool, OptionsError> 
 {
     if o.little_endian && o.big_endian {
@@ -180,6 +182,335 @@ fn use_big_endian(o: &CLIOptions, elf_endianness_opt: Option<goblin::error::Resu
                 }
             }
         }
-        Ok(false)
+        Ok(true)
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options_from_str(input: &str) -> CLIOptions {
+        CLIOptions::from_iter(input.split(" "))
+    }
+
+    #[test]
+    fn test_basic() {
+        assert_eq!(
+            config_from_options(options_from_str(
+                "ekotrace-debug-collector \
+                --session-id 0 \
+                --little-endian \
+                --attach stm32 \
+                --interval 1s \
+                --output-file ./out \
+                0x100"
+            )).unwrap(),
+            Config {
+                session_id: 0.into(),
+                big_endian: false,
+                attach_target: Some("stm32".to_string()),
+                gdb_addr: None,
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                tracer_addrs: vec![0x100]
+            }
+        )
+    }
+
+    #[test]
+    fn specify_gdb_server() {
+        assert_eq!(
+            config_from_options(options_from_str(
+                "ekotrace-debug-collector \
+                --session-id 0 \
+                --little-endian \
+                --gdb-server 127.0.0.1:3000 \
+                --interval 1s \
+                --output-file ./out \
+                0x100"
+            )).unwrap(),
+            Config {
+                session_id: 0.into(),
+                big_endian: false,
+                attach_target: None,
+                gdb_addr: Some(SocketAddrV4::from_str("127.0.0.1:3000").unwrap()),
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                tracer_addrs: vec![0x100]
+            }
+        )
+    }
+
+    #[test]
+    fn error_on_multiple_targets() {
+        if let Ok(_) = config_from_options(options_from_str(
+            "ekotrace-debug-collector \
+            --session-id 0 \
+            --little-endian \
+            --attach stm32 \
+            --gdb-server 127.0.0.1:3000 \
+            --interval 1s \
+            --output-file ./out \
+            0x100"
+        ))
+        {
+            panic!("No error when both gdb server and attach target specified")
+        }
+    }
+
+    #[test]
+    fn error_on_no_target() {
+        if let Ok(_) = config_from_options(options_from_str(
+            "ekotrace-debug-collector \
+            --session-id 0 \
+            --little-endian \
+            --interval 1s \
+            --output-file ./out \
+            0x100"
+        ))
+        {
+            panic!("No error when neither gdb server or attach target specified")
+        }
+    }
+
+    #[test]
+    fn error_elf_dne() {
+        if let Ok(_) = config_from_options(options_from_str(
+            "ekotrace-debug-collector \
+            --session-id 0 \
+            --little-endian \
+            --attach stm32 \
+            --elf ./nonexistent
+            --interval 1s \
+            --output-file ./out \
+            0x100"
+        )) 
+        {
+            panic!("No error when non-existent")
+        }
+    }
+
+    #[test]
+    fn error_elf_invalid() {
+        if let Ok(_) = config_from_options(options_from_str(
+            "ekotrace-debug-collector \
+            --session-id 0 \
+            --little-endian \
+            --attach stm32 \
+            --elf ./Cargo.toml
+            --interval 1s \
+            --output-file ./out \
+            0x100"
+        )) 
+        {
+            panic!("No error when invalid elf specified")
+        }
+    }
+
+    #[test]
+    fn symbol_parsing_le() {
+        assert_eq!(
+            config_from_options(options_from_str(
+                "ekotrace-debug-collector \
+                --session-id 0 \
+                --little-endian \
+                --attach stm32 \
+                --interval 1s \
+                --output-file ./out \
+                --elf ./tests/example-le \
+                v1 v2 v3"
+            )).unwrap(),
+            Config {
+                session_id: 0.into(),
+                big_endian: false,
+                attach_target: Some("stm32".to_string()),
+                gdb_addr: None,
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                tracer_addrs: vec![0x3c010, 0x3c014, 0x3c018]
+            }
+        )
+    }
+
+    #[test]
+    fn symbol_parsing_be() {
+        assert_eq!(
+            config_from_options(options_from_str(
+                "ekotrace-debug-collector \
+                --session-id 0 \
+                --big-endian \
+                --attach stm32 \
+                --interval 1s \
+                --output-file ./out \
+                --elf ./tests/example-be \
+                v1 v2 v3"
+            )).unwrap(),
+            Config {
+                session_id: 0.into(),
+                big_endian: true,
+                attach_target: Some("stm32".to_string()),
+                gdb_addr: None,
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                tracer_addrs: vec![0x90018, 0x9001c, 0x90020]
+            }
+        )
+    }
+
+    #[test]
+    fn sym_addr_mix() {
+        assert_eq!(
+            config_from_options(options_from_str(
+                "ekotrace-debug-collector \
+                --session-id 0 \
+                --little-endian \
+                --attach stm32 \
+                --interval 1s \
+                --output-file ./out \
+                --elf ./tests/example-le \
+                0x1 v1 v2 0x10 v3 0x100"
+            )).unwrap(),
+            Config {
+                session_id: 0.into(),
+                big_endian: false,
+                attach_target: Some("stm32".to_string()),
+                gdb_addr: None,
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                tracer_addrs: vec![0x1, 0x10, 0x100, 0x3c010, 0x3c014, 0x3c018]
+            }
+        )
+    }
+
+    #[test]
+    fn error_specify_both_endianness() {
+        if let Ok(_) = config_from_options(options_from_str(
+            "ekotrace-debug-collector \
+            --session-id 0 \
+            --little-endian \
+            --big-endian \
+            --attach stm32 \
+            --interval 1s \
+            --output-file ./out \
+            0x100"
+        )) 
+        {
+            panic!("No error when specified both big and little endian")
+        }
+    }
+
+    #[test]
+    fn specify_neither_endianness() {
+        assert_eq!(
+            config_from_options(options_from_str(
+                "ekotrace-debug-collector \
+                --session-id 0 \
+                --attach stm32 \
+                --interval 1s \
+                --output-file ./out \
+                0x1"
+            )).unwrap(),
+            Config {
+                session_id: 0.into(),
+                big_endian: false,
+                attach_target: Some("stm32".to_string()),
+                gdb_addr: None,
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                tracer_addrs: vec![0x1]
+            }
+        )
+    }
+
+    #[test]
+    fn imply_endianness() {
+        assert_eq!(
+            config_from_options(options_from_str(
+                "ekotrace-debug-collector \
+                --session-id 0 \
+                --attach stm32 \
+                --interval 1s \
+                --output-file ./out \
+                --elf ./tests/example-le \
+                0x1"
+            )).unwrap(),
+            Config {
+                session_id: 0.into(),
+                big_endian: false,
+                attach_target: Some("stm32".to_string()),
+                gdb_addr: None,
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                tracer_addrs: vec![0x1]
+            }
+        );
+        assert_eq!(
+            config_from_options(options_from_str(
+                "ekotrace-debug-collector \
+                --session-id 0 \
+                --attach stm32 \
+                --interval 1s \
+                --output-file ./out \
+                --elf ./tests/example-be \
+                0x1"
+            )).unwrap(),
+            Config {
+                session_id: 0.into(),
+                big_endian: true,
+                attach_target: Some("stm32".to_string()),
+                gdb_addr: None,
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                tracer_addrs: vec![0x1]
+            }
+        )
+    }
+
+    #[test]
+    fn use_specified_endianness() {
+        assert_eq!(
+            config_from_options(options_from_str(
+                "ekotrace-debug-collector \
+                --session-id 0 \
+                --attach stm32 \
+                --interval 1s \
+                --output-file ./out \
+                --big-endian \
+                --elf ./tests/example-le \
+                0x1"
+            )).unwrap(),
+            Config {
+                session_id: 0.into(),
+                big_endian: true,
+                attach_target: Some("stm32".to_string()),
+                gdb_addr: None,
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                tracer_addrs: vec![0x1]
+            }
+        );
+        assert_eq!(
+            config_from_options(options_from_str(
+                "ekotrace-debug-collector \
+                --session-id 0 \
+                --attach stm32 \
+                --interval 1s \
+                --output-file ./out \
+                --little-endian \
+                --elf ./tests/example-be \
+                0x1"
+            )).unwrap(),
+            Config {
+                session_id: 0.into(),
+                big_endian: false,
+                attach_target: Some("stm32".to_string()),
+                gdb_addr: None,
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                tracer_addrs: vec![0x1]
+            }
+        )
+    }
+
 }
