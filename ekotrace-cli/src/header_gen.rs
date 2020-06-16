@@ -160,7 +160,11 @@ fn file_sha256(path: &Path) -> String {
     format!("{:x}", sha256.result())
 }
 
-pub fn generate_output<W: io::Write>(opt: Opt, mut w: W) -> Result<(), Box<dyn std::error::Error>> {
+pub fn generate_output<W: io::Write>(
+    opt: Opt,
+    mut w: W,
+    internal_events: Vec<u32>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let tracers_csv_hash = file_sha256(&opt.tracers_csv_file);
     let events_csv_hash = file_sha256(&opt.events_csv_file);
 
@@ -212,10 +216,6 @@ pub fn generate_output<W: io::Write>(opt: Opt, mut w: W) -> Result<(), Box<dyn s
     writeln!(w, " * Events (csv sha256sum {})", events_csv_hash)?;
     writeln!(w, " */")?;
 
-    let internal_events: Vec<u32> = ekotrace::EventId::INTERNAL_EVENTS
-        .iter()
-        .map(|id| id.get_raw())
-        .collect();
     for maybe_event in events_reader.deserialize() {
         let e: Event = maybe_event.expect("Can't deserialize event");
         if internal_events.contains(&e.id.0) {
@@ -244,7 +244,7 @@ pub fn generate_output<W: io::Write>(opt: Opt, mut w: W) -> Result<(), Box<dyn s
     Ok(())
 }
 
-pub fn run(opt: Opt) {
+pub fn run(opt: Opt, internal_events: Vec<u32>) {
     opt.validate();
 
     let io_out: Box<dyn io::Write> = if let Some(p) = &opt.output_path {
@@ -253,5 +253,5 @@ pub fn run(opt: Opt) {
         Box::new(io::stdout())
     };
 
-    generate_output(opt, io_out).expect("Can't generate output");
+    generate_output(opt, io_out, internal_events).expect("Can't generate output");
 }

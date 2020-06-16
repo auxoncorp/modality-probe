@@ -110,11 +110,7 @@ impl Events {
         events_writer.flush().expect("Can't flush events writer");
     }
 
-    pub fn next_available_event_id(&self) -> u32 {
-        let internal_events: Vec<u32> = ekotrace::EventId::INTERNAL_EVENTS
-            .iter()
-            .map(|id| id.get_raw())
-            .collect();
+    pub fn next_available_event_id(&self, internal_events: &[u32]) -> u32 {
         // Event IDs start at 1
         1 + self
             .events
@@ -174,10 +170,14 @@ mod tests {
 
     #[test]
     fn next_available_id_skips_internal_ids() {
+        let internal_events: Vec<u32> = ekotrace::EventId::INTERNAL_EVENTS
+            .iter()
+            .map(|id| id.get_raw())
+            .collect();
         let e = Events {
             path: PathBuf::from("."),
             events: Events::internal_events(),
         };
-        assert_eq!(e.next_available_event_id(), 1);
+        assert_eq!(e.next_available_event_id(&internal_events), 1);
     }
 }

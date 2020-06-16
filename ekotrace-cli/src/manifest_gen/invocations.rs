@@ -448,11 +448,13 @@ impl<'cfg> Invocations<'cfg> {
                 }
             });
 
+        let internal_events: Vec<u32> = self.internal_events.iter().map(|e| e.id.0).collect();
         let event_id_offset = event_id_offset.unwrap_or(0);
-        let mut next_available_event_id: u32 = match mf_events.next_available_event_id() {
-            id if event_id_offset > id => event_id_offset,
-            id => id,
-        };
+        let mut next_available_event_id: u32 =
+            match mf_events.next_available_event_id(&internal_events) {
+                id if event_id_offset > id => event_id_offset,
+                id => id,
+            };
 
         self.events.iter().for_each(|src_event| {
             if mf_events.events.iter().find(|e| src_event.eq(e)).is_none() {
@@ -468,7 +470,6 @@ impl<'cfg> Invocations<'cfg> {
             }
         });
 
-        let internal_events: Vec<u32> = self.internal_events.iter().map(|e| e.id.0).collect();
         mf_events
             .events
             .iter()
