@@ -211,6 +211,8 @@ fn should_use_big_endian(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
+    use std::time::Duration;
 
     fn options_from_str(input: &str) -> CLIOptions {
         CLIOptions::from_iter(input.split(" "))
