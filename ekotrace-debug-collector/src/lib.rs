@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use util::model::SessionId;
 
+/// Configuration for running collector
 #[derive(Debug, PartialEq)]
 pub struct Config {
     pub session_id: SessionId,
@@ -12,5 +13,5 @@ pub struct Config {
     pub gdb_addr: Option<SocketAddrV4>,
     pub interval: Duration,
     pub output_path: PathBuf,
-    pub tracer_addrs: Vec<u32>
+    pub tracer_addrs: Vec<u32>,
 }
