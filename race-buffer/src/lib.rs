@@ -207,6 +207,7 @@ where
         }
     }
 
+    #[inline]
     /// Store given number of nil entries in given read buffer
     fn store_nil(&mut self, num: usize, rbuf: &mut Vec<E>) {
         for _ in 0..num {
