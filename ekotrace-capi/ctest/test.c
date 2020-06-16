@@ -134,6 +134,11 @@ bool test_event_recording(void) {
         fprintf(stderr, "failed at record event with payload: %d\n", result);
         passed = false;
     }
+    result = EKOTRACE_EXPECT(t, EVENT_A, 1 == 0, "my docs", "tags=severity.10");
+    if (result != EKOTRACE_RESULT_OK) {
+        fprintf(stderr, "failed at expect: %d\n", result);
+        passed = false;
+    }
     causal_snapshot snap_b;
     result = ekotrace_distribute_fixed_size_snapshot(t, &snap_b);
     if (result != EKOTRACE_RESULT_OK) {

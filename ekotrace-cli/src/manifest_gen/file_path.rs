@@ -94,35 +94,55 @@ mod tests {
             FilePath::from_path_file("/path/proj/", "/path/proj/src/main.c"),
             Ok(FilePath {
                 full_path: "/path/proj/src/main.c".to_string(),
-                path: "proj/src/main.c".to_string(),
+                path: if cfg!(target_os = "windows") {
+                    "proj\\src\\main.c".to_string()
+                } else {
+                    "proj/src/main.c".to_string()
+                }
             })
         );
         assert_eq!(
             FilePath::from_path_file("/path/to/my/proj/", "/path/to/my/proj/src/main.c"),
             Ok(FilePath {
                 full_path: "/path/to/my/proj/src/main.c".to_string(),
-                path: "proj/src/main.c".to_string(),
+                path: if cfg!(target_os = "windows") {
+                    "proj\\src\\main.c".to_string()
+                } else {
+                    "proj/src/main.c".to_string()
+                }
             })
         );
         assert_eq!(
             FilePath::from_path_file("proj/", "proj/src/main.c"),
             Ok(FilePath {
                 full_path: "proj/src/main.c".to_string(),
-                path: "proj/src/main.c".to_string(),
+                path: if cfg!(target_os = "windows") {
+                    "proj\\src\\main.c".to_string()
+                } else {
+                    "proj/src/main.c".to_string()
+                }
             })
         );
         assert_eq!(
             FilePath::from_path_file("./proj/", "./proj/src/main.c"),
             Ok(FilePath {
                 full_path: "./proj/src/main.c".to_string(),
-                path: "proj/src/main.c".to_string(),
+                path: if cfg!(target_os = "windows") {
+                    "proj\\src\\main.c".to_string()
+                } else {
+                    "proj/src/main.c".to_string()
+                }
             })
         );
         assert_eq!(
             FilePath::from_path_file("/", "/proj/src/main.c"),
             Ok(FilePath {
                 full_path: "/proj/src/main.c".to_string(),
-                path: "proj/src/main.c".to_string(),
+                path: if cfg!(target_os = "windows") {
+                    "proj\\src\\main.c".to_string()
+                } else {
+                    "proj/src/main.c".to_string()
+                }
             })
         );
     }

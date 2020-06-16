@@ -38,7 +38,6 @@ impl InSourceEvent {
                 .as_ref()
                 .map_or(String::new(), |p| p.0.to_string()),
             file: self.file.path.clone(),
-            function: String::new(),
             line: self.metadata.location.line.to_string(),
         }
     }
@@ -90,7 +89,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                ekotrace_instance: "ekt".to_string(),
+                agent_instance: "ekt".to_string(),
                 payload: Some((TypeHint::U8, "mydata").into()),
                 description: None,
                 tags: None,
@@ -105,7 +104,6 @@ mod tests {
             tags: String::new(),
             type_hint: String::from("u8"),
             file: "main.c".to_string(),
-            function: String::new(),
             line: "2".to_string(),
         };
         assert!(in_src_event.eq(&in_mf_event));

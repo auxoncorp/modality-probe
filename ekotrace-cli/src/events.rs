@@ -17,7 +17,6 @@ pub struct Event {
     pub tags: String,
     pub type_hint: String,
     pub file: String,
-    pub function: String,
     pub line: String,
 }
 
@@ -28,6 +27,54 @@ pub struct Events {
 }
 
 impl Events {
+    /// The events reserved for internal use
+    pub fn internal_events() -> Vec<Event> {
+        vec![
+            Event {
+                id: EventId(ekotrace::EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw()),
+                name: "INTERNAL_EVENT_PRODUCED_EXTERNAL_REPORT".to_string(),
+                description: "The tracer produced a log report for transmission to \
+                    the backend for external analysis"
+                    .to_string(),
+                tags: "internal".to_string(),
+                type_hint: String::new(),
+                file: String::new(),
+                line: String::new(),
+            },
+            Event {
+                id: EventId(ekotrace::EventId::EVENT_LOG_OVERFLOWED.get_raw()),
+                name: "INTERNAL_EVENT_LOG_OVERFLOWED".to_string(),
+                description: "There was not sufficient room in memory to store all desired events or clock data"
+                    .to_string(),
+                tags: "internal".to_string(),
+                type_hint: String::new(),
+                file: String::new(),
+                line: String::new(),
+            },
+            Event {
+                id: EventId(ekotrace::EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED.get_raw()),
+                name: "INTERNAL_EVENT_LOGICAL_CLOCK_OVERFLOWED".to_string(),
+                description: "A logical clock's count reached the maximum trackable value"
+                    .to_string(),
+                tags: "internal".to_string(),
+                type_hint: String::new(),
+                file: String::new(),
+                line: String::new(),
+            },
+            Event {
+                id: EventId(ekotrace::EventId::EVENT_NUM_CLOCKS_OVERFLOWED.get_raw()),
+                name: "INTERNAL_EVENT_NUM_CLOCKS_OVERFLOWED".to_string(),
+                description: "The tracer did not have enough memory reserved to store enough logical \
+                    clocks to track all of the unique neighbors that attempt to communicate with it"
+                    .to_string(),
+                tags: "internal".to_string(),
+                type_hint: String::new(),
+                file: String::new(),
+                line: String::new(),
+            },
+        ]
+    }
+
     pub fn from_csv(events_csv_file: &PathBuf) -> Self {
         let events: Vec<Event> = if events_csv_file.exists() {
             let mut events_reader = csv::Reader::from_reader(
@@ -64,11 +111,16 @@ impl Events {
     }
 
     pub fn next_available_event_id(&self) -> u32 {
+        let internal_events: Vec<u32> = ekotrace::EventId::INTERNAL_EVENTS
+            .iter()
+            .map(|id| id.get_raw())
+            .collect();
         // Event IDs start at 1
         1 + self
             .events
             .iter()
             .map(|event| event.id.0)
+            .map(|id| if internal_events.contains(&id) { 0 } else { id })
             .max()
             .unwrap_or(0)
     }
@@ -101,4 +153,31 @@ where
 {
     let mut uniq = HashSet::new();
     iter.into_iter().all(move |x| uniq.insert(x))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn internal_events() {
+        let internal_events = Events::internal_events();
+        assert_eq!(
+            internal_events.len(),
+            ekotrace::EventId::INTERNAL_EVENTS.len()
+        );
+        ekotrace::EventId::INTERNAL_EVENTS
+            .iter()
+            .zip(internal_events.iter())
+            .for_each(|(a, b)| assert_eq!(a.get_raw(), b.id.0));
+    }
+
+    #[test]
+    fn next_available_id_skips_internal_ids() {
+        let e = Events {
+            path: PathBuf::from("."),
+            events: Events::internal_events(),
+        };
+        assert_eq!(e.next_available_event_id(), 1);
+    }
 }

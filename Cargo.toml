@@ -23,6 +23,7 @@ members = [
   "ekotrace-udp-collector",
   "ekotrace-debug-collector",
   "util",
+  "race-buffer",
 ]
 
 [dependencies]

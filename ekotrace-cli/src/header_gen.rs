@@ -32,12 +32,20 @@ impl ConstGenerator for Tracer {
     fn doc_comment(&self, lang: Lang) -> String {
         match lang {
             Lang::C => format!(
-                "/*\n * Name: {}\n * Description: {}\n * Location: {}:{}\n */",
-                self.name, self.description, self.file, self.line
+                "/*\n * Name: {}\n * Description:{}\n * Tags:{}\n * Location: {}:{}\n */",
+                self.name,
+                pad_nonempty(&self.description),
+                pad_nonempty(&self.tags),
+                self.file,
+                self.line
             ),
             Lang::Rust => format!(
-                "/// Name: {}\n/// Description: {}\n/// Location: {}:{}",
-                self.name, self.description, self.file, self.line
+                "/// Name: {}\n/// Description:{}\n/// Tags:{}\n/// Location: {}:{}",
+                self.name,
+                pad_nonempty(&self.description),
+                pad_nonempty(&self.tags),
+                self.file,
+                self.line
             ),
         }
     }
@@ -55,14 +63,32 @@ impl ConstGenerator for Event {
     fn doc_comment(&self, lang: Lang) -> String {
         match lang {
             Lang::C => format!(
-                "/*\n * Name: {}\n * Description: {}\n * Payload type: {}\n * Location: {}:{}\n */",
-                self.name, self.description, self.type_hint, self.file, self.line
+                "/*\n * Name: {}\n * Description:{}\n * Tags:{}\n * Payload type:{}\n * Location: {}:{}\n */",
+                self.name,
+                pad_nonempty(&self.description),
+                pad_nonempty(&self.tags),
+                pad_nonempty(&self.type_hint),
+                self.file,
+                self.line
             ),
             Lang::Rust => format!(
-                "/// Name: {}\n/// Description: {}\n/// Payload type: {}\n/// Location: {}:{}",
-                self.name, self.description, self.type_hint, self.file, self.line
+                "/// Name: {}\n/// Description:{}\n/// Tags:{}\n/// Payload type:{}\n/// Location: {}:{}",
+                self.name,
+                pad_nonempty(&self.description),
+                pad_nonempty(&self.tags),
+                pad_nonempty(&self.type_hint),
+                self.file,
+                self.line
             ),
         }
+    }
+}
+
+fn pad_nonempty(s: &str) -> String {
+    if !s.is_empty() {
+        format!(" {}", s)
+    } else {
+        s.to_string()
     }
 }
 
@@ -90,8 +116,7 @@ impl FromStr for Lang {
         let s = s.to_lowercase();
         match s.trim() {
             "c" => Ok(Lang::C),
-            "rust" => Ok(Lang::Rust),
-            "rs" => Ok(Lang::Rust),
+            "rust" | "rs" => Ok(Lang::Rust),
             _ => Err(UnsupportedLang(s)),
         }
     }
@@ -174,8 +199,15 @@ pub fn run(opt: Opt) {
     println!(" * Events (csv sha256sum {})", events_csv_hash);
     println!(" */");
 
+    let internal_events: Vec<u32> = ekotrace::EventId::INTERNAL_EVENTS
+        .iter()
+        .map(|id| id.get_raw())
+        .collect();
     for maybe_event in events_reader.deserialize() {
         let e: Event = maybe_event.expect("Can't deserialize event");
+        if internal_events.contains(&e.id.0) {
+            continue;
+        }
 
         println!();
         println!("{}", e.doc_comment(opt.lang));

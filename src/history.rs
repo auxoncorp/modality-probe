@@ -5,7 +5,6 @@ use super::{
 use crate::compact_log::{CompactLogItem, CompactLogVec};
 use crate::report::chunked::ChunkedReportState;
 use core::cmp::{max, Ordering, PartialEq};
-use core::convert::TryInto;
 use core::fmt::{Error as FmtError, Formatter};
 use core::mem::{align_of, size_of};
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
@@ -539,20 +538,12 @@ impl<'a> DynamicHistory<'a> {
             if external_clock.count == 0 {
                 continue;
             }
-            let id: TracerId = match external_clock.id.try_into() {
-                Ok(id) => id,
-                // Can't add this clock to the state if we don't have a valid id for it
-                Err(_) => {
-                    outcome = Err(MergeError::ExternalHistorySemantics);
-                    break;
-                }
-            };
             for internal_clock in self.clocks.as_mut_slice() {
                 // N.B This depends on the local clock already having been created, above,
                 // when we received a history from the clock's source tracer_id.
                 // During early tracing, may cause us to drop data from an indirect neighbor that
                 // is also a direct neighbor (but has not yet sent us a message).
-                if internal_clock.id == id {
+                if internal_clock.id == external_clock.id {
                     internal_clock.count = max(internal_clock.count, external_clock.count);
                     break;
                 }

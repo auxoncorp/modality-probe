@@ -2,7 +2,7 @@ use crate::manifest_gen::{
     event_metadata::EventMetadata,
     parser::{
         self, event_name_valid, remove_double_quotes, tags_or_desc_valid, tracer_name_valid,
-        trimmed_string, trimmed_string_w_space, Parser, Span,
+        trimmed_string, trimmed_string_w_space, Parser, ParserConfig, Span,
     },
     source_location::SourceLocation,
     tracer_metadata::TracerMetadata,
@@ -20,8 +20,18 @@ use nom_locate::position;
 use std::fmt;
 use std::str::FromStr;
 
-#[derive(Default)]
-pub struct CParser {}
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct CParser<'a> {
+    pub config: ParserConfig<'a>,
+}
+
+impl<'a> Default for CParser<'a> {
+    fn default() -> Self {
+        CParser {
+            config: ParserConfig { prefix: "EKOTRACE" },
+        }
+    }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Error {
@@ -46,7 +56,7 @@ impl Error {
     }
 }
 
-impl Parser for CParser {
+impl<'a> Parser for CParser<'a> {
     fn parse_events(&self, input: &str) -> Result<Vec<EventMetadata>, parser::Error> {
         let md = self.parse_event_md(input)?;
         Ok(md)
@@ -58,22 +68,27 @@ impl Parser for CParser {
     }
 }
 
-impl CParser {
-    fn parse_event_md(&self, input: &str) -> Result<Vec<EventMetadata>, Error> {
-        parse_input(input, parse_record_event_call_exp)
+impl<'a> CParser<'a> {
+    pub fn new(config: ParserConfig<'a>) -> Self {
+        CParser { config }
     }
 
-    fn parse_tracer_md(&self, input: &str) -> Result<Vec<TracerMetadata>, Error> {
-        parse_input(input, parse_init_call_exp)
+    pub fn parse_event_md(&self, input: &str) -> Result<Vec<EventMetadata>, Error> {
+        parse_input(&self.config, input, parse_record_event_call_exp)
+    }
+
+    pub fn parse_tracer_md(&self, input: &str) -> Result<Vec<TracerMetadata>, Error> {
+        parse_input(&self.config, input, parse_init_call_exp)
     }
 }
 
 fn parse_input<T>(
+    config: &ParserConfig,
     input: &str,
     parse_fn: fn(Span) -> ParserResult<Span, T>,
 ) -> Result<Vec<T>, Error> {
     let mut md = vec![];
-    let mut input = Span::new(input);
+    let mut input = Span::new_extra(input, Some(config));
     while !input.fragment().is_empty() {
         match parse_fn(input) {
             Ok((rem, metadata)) => {
@@ -103,24 +118,94 @@ fn parse_input<T>(
 }
 
 fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let prefix = input.extra.as_ref().unwrap().prefix;
     let (input, _) = comments_and_spacing(input)?;
-    let (input, found_with_payload) = peek(opt(tag("EKOTRACE_RECORD_W_")))(input)?;
-    let (input, metadata) = match found_with_payload {
-        None => event_call_exp(input)?,
-        Some(_) => event_with_payload_call_exp(input)?,
-    };
-    Ok((input, metadata))
+    let tag_string = format!("{}_EXPECT", prefix);
+    let (input, found_expect) = peek(opt(tag(tag_string.as_str())))(input)?;
+    if found_expect.is_some() {
+        let (input, metadata) = expect_call_exp(input)?;
+        Ok((input, metadata))
+    } else {
+        let tag_string = format!("{}_RECORD_W_", prefix);
+        let (input, found_with_payload) = peek(opt(tag(tag_string.as_str())))(input)?;
+        let (input, metadata) = match found_with_payload {
+            None => event_call_exp(input)?,
+            Some(_) => event_with_payload_call_exp(input)?,
+        };
+        Ok((input, metadata))
+    }
+}
+
+fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let prefix = input.extra.as_ref().unwrap().prefix;
+    let tag_string = format!("{}_EXPECT", prefix);
+    let (input, _) = comments_and_spacing(input)?;
+    let (input, pos) = position(input)?;
+    let (input, _) = tag(tag_string.as_str())(input)?;
+    let (input, _) = opt(line_ending)(input)?;
+    let (input, _) = multispace0(input)?;
+    let (input, _) = tag("(")(input)?;
+    let (input, args) = take_until(");")(input)
+        .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (input, _) =
+        tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (args, agent_instance) = variable_call_exp_arg(args)?;
+    let (args, name) = variable_call_exp_arg(args)?;
+    if !event_name_valid(&name) {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut arg_vec: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| arg_vec.push(s));
+    let (_args, _) = iter.finish()?;
+    match arg_vec.len() {
+        1..=3 => (), // At least an expression, maybe tags and description
+        _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
+    }
+    let expr = arg_vec.remove(0).trim().to_string();
+    let mut tags_and_desc = arg_vec;
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let mut tags = tags_pos
+        .map(|index| tags_and_desc.swap_remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &mut tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+        if !t.contains("expectation") {
+            t.insert_str(0, "expectation;");
+        }
+    } else {
+        tags = Some(String::from("expectation"));
+    }
+    let description = tags_and_desc.pop();
+    Ok((
+        input,
+        EventMetadata {
+            name,
+            agent_instance,
+            payload: Some((TypeHint::U32, expr).into()),
+            description,
+            tags,
+            location: pos.into(),
+        },
+    ))
 }
 
 fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let prefix = input.extra.as_ref().unwrap().prefix;
+    let tag_string = format!("{}_RECORD", prefix);
     let (input, pos) = position(input)?;
-    let (input, _) = tag("EKOTRACE_RECORD")(input)?;
+    let (input, _) = tag(tag_string.as_str())(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
     let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
     let (input, _) =
         tag(";")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let (args, ekotrace_instance) = variable_call_exp_arg(args)?;
+    let (args, agent_instance) = variable_call_exp_arg(args)?;
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
     let (args, name) = if expect_tags_or_desc {
         variable_call_exp_arg(args)?
@@ -154,7 +239,7 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         input,
         EventMetadata {
             name,
-            ekotrace_instance,
+            agent_instance,
             payload: None,
             description,
             tags,
@@ -164,8 +249,10 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
 }
 
 fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let prefix = input.extra.as_ref().unwrap().prefix;
+    let tag_string = format!("{}_RECORD_W_", prefix);
     let (input, pos) = position(input)?;
-    let (input, _) = tag("EKOTRACE_RECORD_W_")(input)?;
+    let (input, _) = tag(tag_string.as_str())(input)?;
     let (input, type_hint) = take_until("(")(input)?;
     if &type_hint.fragment().to_uppercase().as_str() != type_hint.fragment() {
         return Err(make_failure(
@@ -182,7 +269,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let (args, ekotrace_instance) = variable_call_exp_arg(args)?;
+    let (args, agent_instance) = variable_call_exp_arg(args)?;
     let (args, name) = variable_call_exp_arg(args)?;
     if !event_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
@@ -230,7 +317,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         input,
         EventMetadata {
             name,
-            ekotrace_instance,
+            agent_instance,
             payload: Some((type_hint, payload).into()),
             description,
             tags,
@@ -269,9 +356,11 @@ fn variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
 }
 
 fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
+    let prefix = input.extra.as_ref().unwrap().prefix;
+    let tag_string = format!("{}_INITIALIZE", prefix);
     let (input, _) = comments_and_spacing(input)?;
     let (input, pos) = position(input)?;
-    let (input, _) = tag("EKOTRACE_INITIALIZE")(input)?;
+    let (input, _) = tag(tag_string.as_str())(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
     let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)
@@ -288,7 +377,7 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
-    let (args, _ekotrace_instance) = if expect_tags_or_desc {
+    let (args, _agent_instance) = if expect_tags_or_desc {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
     } else {
         rest_string(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
@@ -368,7 +457,7 @@ fn rest_literal(input: Span) -> ParserResult<Span, String> {
 }
 
 fn truncate_and_trim(s: &str) -> Result<String, ()> {
-    let arg = Span::new(s);
+    let arg = Span::new_extra(s, None);
     let (arg, _) = comments_and_spacing(arg).map_err(|_| ())?;
     let tail_index = arg.fragment().rfind('"').ok_or(())?;
     if tail_index == 0 {
@@ -389,27 +478,27 @@ impl fmt::Display for Error {
         match self {
             Error::MissingSemicolon(_) => write!(
                 f,
-                "Ekotrace record event call-site is missing a semicolon",
+                "Record event call-site is missing a semicolon",
             ),
             Error::UnrecognizedTypeHint(_) => write!(
                 f,
-                "Ekotrace record event with payload call-site has an unrecognized payload type hint",
+                "Record event with payload call-site has an unrecognized payload type hint",
             ),
             Error::TypeHintNameNotUpperCase(_) => write!(
                 f,
-                "Ekotrace record event with payload call-site has a payload type hint that needs to be upper case",
+                "Record event with payload call-site has a payload type hint that needs to be upper case",
             ),
             Error::PayloadArgumentSpansManyLines(_) => write!(
                 f,
-                "Ekotrace record event with payload call-site has a payload argument that spans many lines",
+                "Record event with payload call-site has a payload argument that spans many lines",
             ),
             Error::Syntax(_) => write!(
                 f,
-                "Enountered a syntax error while parsing an Ekotrace record event call-site",
+                "Enountered a syntax error while parsing a record event call-site",
             ),
             Error::EmptyTags(_) => write!(
                 f,
-                "Enountered an empty tags statement while parsing an Ekotrace record event call-site",
+                "Enountered an empty tags statement while parsing a record event call-site",
             ),
         }
     }
@@ -594,6 +683,19 @@ mod tests {
     " docs ", /* Order of tags and docs doesn't matter */
     "tags=thing1;thing2;my::namespace;tag with spaces" //docs
     );
+
+    err = EKOTRACE_EXPECT(
+            tracer,
+            EVENT_H,
+            1 == 0, /* Arbitrary expression, evaluates to 0 (failure) or 1 (success) */
+            "tags=severity.1;another tag",
+            "Some description");
+    assert(err == EKOTRACE_RESULT_OK);
+
+    EKOTRACE_EXPECT(ekt, EVENT_I, *foo != (1 + bar), "tags=expectation;severity.2;network");
+
+    /* Special "expectation" tag is inserted"
+    EKOTRACE_EXPECT(ekt, EVENT_J, 0 == 0);
 "#;
 
     #[test]
@@ -658,7 +760,7 @@ mod tests {
             Ok(vec![
                 EventMetadata {
                     name: "EVENT_READ1".to_string(),
-                    ekotrace_instance: "g_ekotrace".to_string(),
+                    agent_instance: "g_ekotrace".to_string(),
                     payload: None,
                     description: None,
                     tags: None,
@@ -666,7 +768,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_READ2".to_string(),
-                    ekotrace_instance: "g_ekotrace".to_string(),
+                    agent_instance: "g_ekotrace".to_string(),
                     payload: None,
                     description: Some("my docs".to_string()),
                     tags: None,
@@ -674,7 +776,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_WRITE1".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
+                    agent_instance: "ekt".to_string(),
                     payload: None,
                     description: None,
                     tags: Some("network".to_string()),
@@ -682,7 +784,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_WRITE2".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
+                    agent_instance: "ekt".to_string(),
                     payload: None,
                     description: Some("docs".to_string()),
                     tags: Some("network;file-system".to_string()),
@@ -690,7 +792,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_A".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
+                    agent_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
                     description: None,
                     tags: None,
@@ -698,7 +800,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_B".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
+                    agent_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
                     description: Some("desc text here".to_string()),
                     tags: None,
@@ -706,7 +808,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_C".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
+                    agent_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: None,
                     tags: None,
@@ -714,7 +816,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_D".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
+                    agent_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: Some("docs".to_string()),
                     tags: None,
@@ -722,7 +824,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_E".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
+                    agent_instance: "ekt".to_string(),
                     payload: Some((TypeHint::I8, "(int8_t) *((uint8_t*) &mydata)").into()),
                     description: None,
                     tags: None,
@@ -730,7 +832,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_F".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
+                    agent_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: None,
                     tags: Some("my tag".to_string()),
@@ -738,11 +840,35 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_G".to_string(),
-                    ekotrace_instance: "ekt".to_string(),
+                    agent_instance: "ekt".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: Some("docs".to_string()),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
                     location: (1303, 45, 24).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_H".to_string(),
+                    agent_instance: "tracer".to_string(),
+                    payload: Some((TypeHint::U32, "1 == 0").into()),
+                    description: Some("Some description".to_string()),
+                    tags: Some("expectation;severity.1;another tag".to_string()),
+                    location: (1533, 53, 11).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_I".to_string(),
+                    agent_instance: "ekt".to_string(),
+                    payload: Some((TypeHint::U32, "*foo != (1 + bar)").into()),
+                    description: None,
+                    tags: Some("expectation;severity.2;network".to_string()),
+                    location: (1799, 61, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_J".to_string(),
+                    agent_instance: "ekt".to_string(),
+                    payload: Some((TypeHint::U32, "0 == 0").into()),
+                    description: None,
+                    tags: Some("expectation".to_string()),
+                    location: (1939, 64, 5).into(),
                 },
             ])
         );
