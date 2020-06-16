@@ -13,21 +13,22 @@ ASSUME Assumption == BufCapacity \in (Nat \ 0..2) (* Buffer capacity is at least
 VARIABLES 
   wpc, (* Writer's program counter *)
   buf, (* Backing storage *)
-  wcurs, (* Write cursor index *)
+  wcurs, (* Write cursor - Equal to number of entries already written *)
 
   writes, (* Number of entries written (used to limit state space) *)
 
   rpc, (* Reader's program counter *)
   rbuf, (* Buffer of entries already read *)
   bufSnap, (* Intermediate buffer used to store a snapshot of entries being read *)
-  rcurs, (* Read cursor index. Equal to number of entries already snapped or missed *)
+  rcurs, (* Read cursor - Equal to number of entries already read*)
   wcursSnap (* Value of wcurs observed at beginning of read *)
 
 -----------------------------------------------------------------------------
 
 (* Writer helpers *)
 
-(* Construct an entry structure *)
+(* Construct an entry structure - Index field is only used to check *)
+(* ordering in the read buffer of non-nil entries. *)
 Entry(i, t) == [index |-> i, type |-> t]
 
 (* Get index in backing storage based on entry index *)
@@ -37,7 +38,7 @@ BufIndex(i) == i % BufCapacity
 Read(i) == buf[BufIndex(i)]
 
 (* Write a single entry of given type at given index *)
-Write(i, t) == buf' = [j \in {BufIndex(i)} |-> Entry(i,t)] @@ buf
+Write(i, t) == buf' = (BufIndex(i) :> Entry(i,t)) @@ buf
 
 (* Write the appropriately typed non-nil entry at the given index *)
 WriteEntry(i) == 
@@ -153,7 +154,9 @@ MinIndex(f) == IF Size(f) = 0 THEN 0 ELSE CHOOSE i \in DOMAIN f: \A j \in DOMAIN
 (* Return number of entries past rc overwritten based on given wc *)
 Overlap(wc, rc) == IF wc < (rc + BufCapacity) THEN 0 ELSE wc - (rc + BufCapacity)
 
-(* If the last entry of read buffer is a prefix entry, replace it with a nil entry *)
+(* If the last entry of read buffer is a prefix entry, replace it with a nil entry. *)
+(* This is used whenever a nil entry is appended to the read buffer to prevent *)
+(* prefixes with missing suffixes from occurring. *)
 ReplacePrefixNil(rb) == 
   IF Size(rb) > 0
   THEN IF rb[NextIndex(rb)-1].type = "PREFIX"
@@ -161,7 +164,7 @@ ReplacePrefixNil(rb) ==
        ELSE rb
   ELSE rb
 
-(* Remove overlap from snapshot *)
+(* Remove the entries from the snapshot that may have been overwritten based on the write cursor *)
 RemoveOverlap(snap) == 
   [i \in (MinIndex(snap)+Overlap(wcurs, rcurs-Size(bufSnap)))..(NextIndex(snap)-1)
    |-> snap[i]]
@@ -228,7 +231,8 @@ SnapEntry ==
   /\ UNCHANGED rbuf
 
 (* Process entries in snapshot buffer, appending entries that have not been overwritten
-   to read buffer *)
+   to read buffer. If the write cursor has lapped the read cursor, than all entries in the 
+   snapshot buffer have been overwritten. *)
 ProcessSnap == 
   /\ rpc = "processSnap"
   /\ rpc' = "snapWCurs"
