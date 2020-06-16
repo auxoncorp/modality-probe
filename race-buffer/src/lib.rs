@@ -152,12 +152,11 @@ where
 
         // Calculate number of entries in snapshot buffer that may have been overwritten
         let post_wcurs = self.snapper.snap_wcurs();
-        let overlap =
-            if post_wcurs > self.storage_cap + first_read {
-                (post_wcurs - self.storage_cap) - first_read
-            } else {
-                0
-            };
+        let overlap = if post_wcurs > self.storage_cap + first_read {
+            (post_wcurs - self.storage_cap) - first_read
+        } else {
+            0
+        };
         if overlap >= buf_snapshot.len() {
             // All entries may have been overwritten, return
             self.store_nil(buf_snapshot.len(), rbuf);
@@ -301,15 +300,11 @@ pub mod tests {
 
     impl Snapper<OrderedEntry> for RawPtrSnapper<'_> {
         fn snap_wcurs(&self) -> usize {
-            unsafe {
-                self.0.as_ref().unwrap().read_wcurs()
-            }
+            unsafe { self.0.as_ref().unwrap().read_wcurs() }
         }
 
         fn snap_storage(&self, index: usize) -> OrderedEntry {
-            unsafe {
-                self.0.as_ref().unwrap().read_storage(index)
-            }
+            unsafe { self.0.as_ref().unwrap().read_storage(index) }
         }
     }
 
