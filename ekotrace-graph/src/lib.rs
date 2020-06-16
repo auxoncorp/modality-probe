@@ -91,7 +91,7 @@ where
 {
     // State needed for the fold.
     let mut prev_event = None;
-    let mut last_seg_id = 0;
+    let mut last_seg_id = None;
     let mut last_ev_by_loc_clk: HashMap<(u32, u32), GraphEvent> = HashMap::new();
     let mut current_loc_clock = None;
     let mut first_event = true;
@@ -135,10 +135,6 @@ where
                     return Err(Error::InconsistentData("no clock found for event"));
                 };
                 graph.add_node(node);
-                if let Some(pe) = prev_event {
-                    graph.add_edge(pe, node);
-                }
-
                 if first_event {
                     for (loc, clk) in clock_set.iter() {
                         match last_ev_by_loc_clk.get(&(*loc, *clk)) {
@@ -150,7 +146,10 @@ where
                     }
                     first_event = false;
                     clock_set.clear();
+                } else if let Some(pe) = prev_event {
+                    graph.add_edge(pe, node);
                 }
+
                 prev_event = Some(node);
             }
         } else {
@@ -160,14 +159,14 @@ where
             let clock = event
                 .lc_clock
                 .ok_or_else(|| Error::InconsistentData("missing logical clock"))?;
-            if event.segment_id != last_seg_id && event.tracer_id == tracer {
+            if Some(event.segment_id) != last_seg_id && event.tracer_id == tracer {
                 if let Some((loc, clock)) = current_loc_clock {
                     if let Some(prev) = prev_event {
                         last_ev_by_loc_clk.insert((loc, clock), prev);
                     }
                 }
                 current_loc_clock = Some((tracer, clock));
-                last_seg_id = event.segment_id;
+                last_seg_id = Some(event.segment_id);
                 first_event = true;
             } else {
                 clock_set.push((tracer, clock));
@@ -229,7 +228,7 @@ where
                 let this_clock = event
                     .lc_clock
                     .ok_or_else(|| Error::InconsistentData("missing logical clock"))?;
-                let c = self_clocks.entry(tracer_name).or_insert(Vec::new());
+                let c = self_clocks.entry(tracer_name).or_insert_with(Vec::new);
                 c.push(this_clock);
                 c.sort();
                 self_vertex = node;
@@ -266,7 +265,7 @@ where
     E: std::error::Error,
 {
     let mut prev_event = None;
-    let mut last_seg_id = 0;
+    let mut last_seg_id = None;
     let mut last_ev_by_loc_clk: HashMap<(u32, u32), &str> = HashMap::new();
     let mut current_loc_clock = None;
     let mut first_event = true;
@@ -284,10 +283,6 @@ where
             ) {
                 let weight = graph.upsert_node(&meta_ev.name, 0);
                 *weight += 1;
-                if let Some(pe) = prev_event {
-                    let weight = graph.upsert_edge(pe, &meta_ev.name, 0);
-                    *weight += 1;
-                }
 
                 if first_event {
                     for (loc, clk) in clock_set.iter() {
@@ -301,6 +296,9 @@ where
                     }
                     first_event = false;
                     clock_set.clear();
+                } else if let Some(pe) = prev_event {
+                    let weight = graph.upsert_edge(pe, &meta_ev.name, 0);
+                    *weight += 1;
                 }
                 prev_event = Some(&meta_ev.name);
             }
@@ -311,14 +309,14 @@ where
             let clock = event
                 .lc_clock
                 .ok_or_else(|| Error::InconsistentData("missing logical clock"))?;
-            if event.segment_id != last_seg_id && event.tracer_id == tracer {
+            if Some(event.segment_id) != last_seg_id && event.tracer_id == tracer {
                 if let Some((loc, clock)) = current_loc_clock {
                     if let Some(prev) = prev_event {
                         last_ev_by_loc_clk.insert((loc, clock), prev);
                     }
                 }
                 current_loc_clock = Some((tracer, clock));
-                last_seg_id = event.segment_id;
+                last_seg_id = Some(event.segment_id);
                 first_event = true;
             } else {
                 clock_set.push((tracer, clock));
@@ -384,4 +382,384 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{digraph::Digraph, graph_event::*, meta::*};
+
+    use super::{Cfg, Error};
+
+    //   1
+    //  / \   |
+    // 2   3  |
+    //  \ /   V
+    //   4
+    fn diamond() -> (Cfg, Vec<ReportEvent>) {
+        (
+            Cfg {
+                tracers: vec![
+                    (
+                        1,
+                        TracerMeta {
+                            id: 1,
+                            name: "one".to_string(),
+                            description: "one".to_string(),
+                            file: String::new(),
+                            function: String::new(),
+                            line: 0,
+                        },
+                    ),
+                    (
+                        2,
+                        TracerMeta {
+                            id: 2,
+                            name: "two".to_string(),
+                            description: "two".to_string(),
+                            file: String::new(),
+                            function: String::new(),
+                            line: 0,
+                        },
+                    ),
+                    (
+                        3,
+                        TracerMeta {
+                            id: 3,
+                            name: "three".to_string(),
+                            description: "three".to_string(),
+                            file: String::new(),
+                            function: String::new(),
+                            line: 0,
+                        },
+                    ),
+                    (
+                        4,
+                        TracerMeta {
+                            id: 4,
+                            name: "four".to_string(),
+                            description: "four".to_string(),
+                            file: String::new(),
+                            function: String::new(),
+                            line: 0,
+                        },
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+                events: vec![
+                    (
+                        1,
+                        EventMeta {
+                            id: 1,
+                            name: "one".to_string(),
+                            type_hint: None,
+                            tags: String::new(),
+                            description: String::new(),
+                            file: String::new(),
+                            line: None,
+                        },
+                    ),
+                    (
+                        2,
+                        EventMeta {
+                            id: 2,
+                            name: "two".to_string(),
+                            type_hint: None,
+                            tags: String::new(),
+                            description: String::new(),
+                            file: String::new(),
+                            line: None,
+                        },
+                    ),
+                    (
+                        3,
+                        EventMeta {
+                            id: 3,
+                            name: "three".to_string(),
+                            type_hint: None,
+                            tags: String::new(),
+                            description: String::new(),
+                            file: String::new(),
+                            line: None,
+                        },
+                    ),
+                    (
+                        4,
+                        EventMeta {
+                            id: 4,
+                            name: "four".to_string(),
+                            type_hint: None,
+                            tags: String::new(),
+                            description: String::new(),
+                            file: String::new(),
+                            line: None,
+                        },
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            },
+            vec![
+                // 1
+                ReportEvent {
+                    segment_id: 0,
+                    segment_index: 0,
+                    tracer_id: 1,
+                    event_id: None,
+                    event_payload: None,
+                    lc_tracer_id: Some(1),
+                    lc_clock: Some(1),
+                },
+                ReportEvent {
+                    segment_id: 0,
+                    segment_index: 2,
+                    tracer_id: 1,
+                    event_id: Some(1),
+                    event_payload: None,
+                    lc_tracer_id: None,
+                    lc_clock: None,
+                },
+                // 2
+                ReportEvent {
+                    segment_id: 1,
+                    segment_index: 0,
+                    tracer_id: 2,
+                    event_id: None,
+                    event_payload: None,
+                    lc_tracer_id: Some(2),
+                    lc_clock: Some(1),
+                },
+                ReportEvent {
+                    segment_id: 1,
+                    segment_index: 1,
+                    tracer_id: 2,
+                    event_id: None,
+                    event_payload: None,
+                    lc_tracer_id: Some(1),
+                    lc_clock: Some(1),
+                },
+                ReportEvent {
+                    segment_id: 1,
+                    segment_index: 2,
+                    tracer_id: 2,
+                    event_id: Some(2),
+                    event_payload: None,
+                    lc_tracer_id: None,
+                    lc_clock: None,
+                },
+                // 3
+                ReportEvent {
+                    segment_id: 2,
+                    segment_index: 0,
+                    tracer_id: 3,
+                    event_id: None,
+                    event_payload: None,
+                    lc_tracer_id: Some(3),
+                    lc_clock: Some(1),
+                },
+                ReportEvent {
+                    segment_id: 2,
+                    segment_index: 1,
+                    tracer_id: 3,
+                    event_id: None,
+                    event_payload: None,
+                    lc_tracer_id: Some(1),
+                    lc_clock: Some(1),
+                },
+                ReportEvent {
+                    segment_id: 2,
+                    segment_index: 2,
+                    tracer_id: 3,
+                    event_id: Some(3),
+                    event_payload: None,
+                    lc_tracer_id: None,
+                    lc_clock: None,
+                },
+                // 4
+                ReportEvent {
+                    segment_id: 3,
+                    segment_index: 0,
+                    tracer_id: 4,
+                    event_id: None,
+                    event_payload: None,
+                    lc_tracer_id: Some(4),
+                    lc_clock: Some(1),
+                },
+                ReportEvent {
+                    segment_id: 3,
+                    segment_index: 1,
+                    tracer_id: 4,
+                    event_id: None,
+                    event_payload: None,
+                    lc_tracer_id: Some(2),
+                    lc_clock: Some(1),
+                },
+                ReportEvent {
+                    segment_id: 3,
+                    segment_index: 2,
+                    tracer_id: 4,
+                    event_id: None,
+                    event_payload: None,
+                    lc_tracer_id: Some(3),
+                    lc_clock: Some(1),
+                },
+                ReportEvent {
+                    segment_id: 3,
+                    segment_index: 3,
+                    tracer_id: 4,
+                    event_id: Some(4),
+                    event_payload: None,
+                    lc_tracer_id: None,
+                    lc_clock: None,
+                },
+            ],
+        )
+    }
+
+    #[test]
+    fn complete() {
+        use super::GraphBuilder;
+        let (cfg, events) = diamond();
+        let mut graph = Digraph::new();
+        super::complete(
+            &cfg,
+            &mut graph,
+            events.clone().into_iter().map(Ok::<_, Error>),
+        )
+        .unwrap();
+
+        let mut expected = Digraph::new();
+        let one = GraphEvent::Event {
+            name: "one",
+            location: "one",
+            clock: 1,
+            clock_offset: 2,
+        };
+        let two = GraphEvent::Event {
+            name: "two",
+            location: "two",
+            clock: 1,
+            clock_offset: 2,
+        };
+        let three = GraphEvent::Event {
+            name: "three",
+            location: "three",
+            clock: 1,
+            clock_offset: 2,
+        };
+        let four = GraphEvent::Event {
+            name: "four",
+            location: "four",
+            clock: 1,
+            clock_offset: 3,
+        };
+        expected.add_node(one);
+        expected.add_node(two);
+        expected.add_node(three);
+        expected.add_node(four);
+
+        expected.add_edge(one, two);
+        expected.add_edge(one, three);
+        expected.add_edge(two, four);
+        expected.add_edge(three, four);
+
+        assert_eq!(graph, expected, "\n{:#?}\n{:#?}", graph, expected);
+    }
+
+    #[test]
+    fn segments() {
+        use super::GraphWithWeightsBuilder;
+        let (cfg, events) = diamond();
+        let mut graph = Digraph::new();
+        super::segments(&cfg, &mut graph, events.into_iter().map(Ok::<_, Error>)).unwrap();
+
+        let mut expected = Digraph::new();
+        let one = GraphSegment {
+            name: "one",
+            clock: 1,
+        };
+        let two = GraphSegment {
+            name: "two",
+            clock: 1,
+        };
+        let three = GraphSegment {
+            name: "three",
+            clock: 1,
+        };
+        let four = GraphSegment {
+            name: "four",
+            clock: 1,
+        };
+        expected.add_node(one, 3);
+        expected.add_node(two, 2);
+        expected.add_node(three, 2);
+        expected.add_node(four, 1);
+
+        expected.add_edge(one, two, 1);
+        expected.add_edge(one, three, 1);
+        expected.add_edge(two, four, 1);
+        expected.add_edge(three, four, 1);
+
+        assert_eq!(graph, expected, "\n{:#?}\n{:#?}", graph, expected);
+    }
+
+    #[test]
+    fn overlay() {
+        use super::GraphWithWeightsBuilder;
+        let (cfg, events) = diamond();
+        let mut graph = Digraph::new();
+        super::overlay(
+            &cfg,
+            &mut graph,
+            events.clone().into_iter().map(Ok::<_, Error>),
+        )
+        .unwrap();
+
+        let mut expected = Digraph::new();
+        let one = "one";
+        let two = "two";
+        let three = "three";
+        let four = "four";
+        expected.add_node(one, 1);
+        expected.add_node(two, 1);
+        expected.add_node(three, 1);
+        expected.add_node(four, 1);
+
+        expected.add_edge(one, two, 1);
+        expected.add_edge(one, three, 1);
+        expected.add_edge(two, four, 1);
+        expected.add_edge(three, four, 1);
+
+        assert_eq!(graph, expected, "\n{:#?}\n{:#?}", graph, expected);
+    }
+
+    #[test]
+    fn topo() {
+        use super::GraphWithWeightsBuilder;
+        let (cfg, events) = diamond();
+        let mut graph = Digraph::new();
+        super::topo(
+            &cfg,
+            &mut graph,
+            events.clone().into_iter().map(Ok::<_, Error>),
+        )
+        .unwrap();
+
+        let mut expected = Digraph::new();
+        let one = "one";
+        let two = "two";
+        let three = "three";
+        let four = "four";
+        expected.add_node(one, 1);
+        expected.add_node(two, 1);
+        expected.add_node(three, 1);
+        expected.add_node(four, 1);
+
+        expected.add_edge(one, two, 1);
+        expected.add_edge(one, three, 1);
+        expected.add_edge(two, four, 1);
+        expected.add_edge(three, four, 1);
+
+        assert_eq!(graph, expected, "\n{:#?}\n{:#?}", graph, expected);
+    }
 }

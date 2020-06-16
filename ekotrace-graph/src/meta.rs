@@ -2,7 +2,7 @@
 use serde::Deserialize;
 
 /// A row in the columnar report collection.
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ReportEvent {
     pub segment_id: u32,
     pub segment_index: u32,
@@ -27,7 +27,7 @@ pub struct EventMeta {
 
 impl EventMeta {
     pub fn tags_iter(&self) -> impl Iterator<Item = &str> {
-        self.tags.split(";")
+        self.tags.split(';')
     }
 }
 

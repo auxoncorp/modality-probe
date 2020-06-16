@@ -2,7 +2,7 @@
 //! builders.
 
 /// The type used by event-based builders.
-#[derive(PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum GraphEvent<'a> {
     Event {
         name: &'a str,
@@ -76,7 +76,7 @@ impl<'a> GraphEvent<'a> {
 }
 
 /// The node type used for segment based graphs.
-#[derive(PartialEq, Eq, Clone, Copy, Hash, Default)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Default)]
 pub struct GraphSegment<'a> {
     pub name: &'a str,
     pub clock: u32,

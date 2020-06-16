@@ -94,10 +94,7 @@ pub fn run(exp: Export) -> Result<(), String> {
         )
     })?;
 
-    let cfg = Cfg {
-        tracers: tracers.clone(),
-        events: events.clone(),
-    };
+    let cfg = Cfg { tracers, events };
 
     match (exp.graph_type, exp.segments_only) {
         (GraphType::Cyclic, false) => {

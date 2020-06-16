@@ -3,7 +3,12 @@ use std::{collections::HashMap, fmt::Write, hash::Hash};
 
 use crate::Error;
 
-pub struct Digraph<N, W> {
+#[derive(Debug, PartialEq, Eq, Default)]
+pub struct Digraph<N, W>
+where
+    N: Eq + Hash + Clone + Copy,
+    W: Eq + Clone + Copy,
+{
     nodes: HashMap<N, W>,
     edges: HashMap<(N, N), W>,
 }
