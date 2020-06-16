@@ -153,7 +153,7 @@ fn parse_symbol_info(elf_file: &Elf, symbol_name: &str) -> Option<(u32, u32)> {
                 return name == symbol_name;
             }
         }
-        return false;
+        false
     })?;
     Some((log_sym.st_value as u32, log_sym.st_size as u32))
 }
