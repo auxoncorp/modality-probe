@@ -4,8 +4,6 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::net::SocketAddrV4;
 use std::path::PathBuf;
-use std::str::FromStr;
-use std::time::Duration;
 
 use parse_duration::parse;
 use structopt::StructOpt;
@@ -108,13 +106,12 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
             }
         }
         elf_endianness = Some(elf_file.as_ref().header.endianness());
-    } else {
-        if !symbols.is_empty() {
-            return Err(Box::new(OptionsError::new(
-                "Must specify memory locations of tracers or an ELF file to recover symbol values",
-            )));
-        }
+    } else if !symbols.is_empty() {
+        return Err(Box::new(OptionsError::new(
+            "Must specify memory locations of tracers or an ELF file to recover symbol values",
+        )));
     }
+
     // Check that one of attach target and gdb server specified
     if (options.attach_target == None && options.gdb_addr == None)
         || (options.attach_target != None && options.gdb_addr != None)
@@ -131,9 +128,9 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
         big_endian: should_use_big_endian(&options, elf_endianness)?,
         attach_target: options.attach_target,
         gdb_addr: options.gdb_addr,
-        interval: interval,
+        interval,
         output_path: options.output_path,
-        tracer_addrs: tracer_addrs,
+        tracer_addrs,
     })
 }
 
