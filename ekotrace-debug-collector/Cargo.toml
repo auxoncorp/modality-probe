@@ -14,7 +14,5 @@ parse_duration = "2.1.0"
 ekotrace = { path = ".." }
 util = { path = "../util" }
 ekotrace-udp-collector = { path = "../ekotrace-udp-collector" }
-
-[dependencies.race-buffer]
-path = "/home/nicholas/auxon/nick-demo/race-buffer"
+race-buffer = { path = "../race-buffer" }
 
