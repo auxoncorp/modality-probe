@@ -92,12 +92,25 @@ fn pad_nonempty(s: &str) -> String {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Opt {
     pub events_csv_file: PathBuf,
     pub tracers_csv_file: PathBuf,
     pub lang: Lang,
     pub include_guard_prefix: String,
+    pub output_path: Option<PathBuf>,
+}
+
+impl Default for Opt {
+    fn default() -> Self {
+        Opt {
+            events_csv_file: PathBuf::from("events.csv"),
+            tracers_csv_file: PathBuf::from("tracers.csv"),
+            lang: Lang::Rust,
+            include_guard_prefix: String::from("EKOTRACE"),
+            output_path: None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -147,9 +160,7 @@ fn file_sha256(path: &Path) -> String {
     format!("{:x}", sha256.result())
 }
 
-pub fn run(opt: Opt) {
-    opt.validate();
-
+pub fn generate_output<W: io::Write>(opt: Opt, mut w: W) -> Result<(), Box<dyn std::error::Error>> {
     let tracers_csv_hash = file_sha256(&opt.tracers_csv_file);
     let events_csv_hash = file_sha256(&opt.events_csv_file);
 
@@ -161,43 +172,45 @@ pub fn run(opt: Opt) {
         File::open(&opt.events_csv_file).expect("Can't open events csv file"),
     );
 
-    println!("/*");
-    println!(" * GENERATED CODE, DO NOT EDIT");
-    println!(" */");
-    println!();
+    writeln!(w, "/*")?;
+    writeln!(w, " * GENERATED CODE, DO NOT EDIT")?;
+    writeln!(w, " */")?;
+    writeln!(w)?;
 
     if opt.lang == Lang::C {
-        println!(
+        writeln!(
+            w,
             "#ifndef {}_GENERATED_IDENTIFIERS_H",
             opt.include_guard_prefix
-        );
-        println!(
+        )?;
+        writeln!(
+            w,
             "#define {}_GENERATED_IDENTIFIERS_H",
             opt.include_guard_prefix
-        );
-        println!();
-        println!("#ifdef __cplusplus");
-        println!("extern \"C\" {{");
-        println!("#endif");
-        println!();
+        )?;
+        writeln!(w)?;
+        writeln!(w, "#ifdef __cplusplus")?;
+        writeln!(w, "extern \"C\" {{")?;
+        writeln!(w, "#endif")?;
+        writeln!(w)?;
     }
 
-    println!("/*");
-    println!(" * Tracers (csv sha256sum {})", tracers_csv_hash);
-    println!(" */");
+    writeln!(w, "/*")?;
+    writeln!(w, " * Tracers (csv sha256sum {})", tracers_csv_hash)?;
+    writeln!(w, " */")?;
 
     for maybe_tracer in tracers_reader.deserialize() {
         let t: Tracer = maybe_tracer.expect("Can't deserialize tracer");
 
-        println!();
-        println!("{}", t.doc_comment(opt.lang));
-        println!("{}", t.generate_const_definition(opt.lang));
+        writeln!(w)?;
+        writeln!(w, "{}", t.doc_comment(opt.lang))?;
+        writeln!(w, "{}", t.generate_const_definition(opt.lang))?;
     }
 
-    println!();
-    println!("/*");
-    println!(" * Events (csv sha256sum {})", events_csv_hash);
-    println!(" */");
+    writeln!(w)?;
+    writeln!(w, "/*")?;
+    writeln!(w, " * Events (csv sha256sum {})", events_csv_hash)?;
+    writeln!(w, " */")?;
 
     let internal_events: Vec<u32> = ekotrace::EventId::INTERNAL_EVENTS
         .iter()
@@ -209,21 +222,36 @@ pub fn run(opt: Opt) {
             continue;
         }
 
-        println!();
-        println!("{}", e.doc_comment(opt.lang));
-        println!("{}", e.generate_const_definition(opt.lang));
+        writeln!(w)?;
+        writeln!(w, "{}", e.doc_comment(opt.lang))?;
+        writeln!(w, "{}", e.generate_const_definition(opt.lang))?;
     }
 
     if opt.lang == Lang::C {
-        println!();
-        println!("#ifdef __cplusplus");
-        println!("}} /* extern \"C\" */");
-        println!("#endif");
-        println!();
-        println!(
+        writeln!(w)?;
+        writeln!(w, "#ifdef __cplusplus")?;
+        writeln!(w, "}} /* extern \"C\" */")?;
+        writeln!(w, "#endif")?;
+        writeln!(w)?;
+        writeln!(
+            w,
             "#endif /* {}_GENERATED_IDENTIFIERS_H */",
             opt.include_guard_prefix
-        );
-        println!();
+        )?;
+        writeln!(w)?;
     }
+
+    Ok(())
+}
+
+pub fn run(opt: Opt) {
+    opt.validate();
+
+    let io_out: Box<dyn io::Write> = if let Some(p) = &opt.output_path {
+        Box::new(File::create(p).unwrap())
+    } else {
+        Box::new(io::stdout())
+    };
+
+    generate_output(opt, io_out).expect("Can't generate output");
 }
