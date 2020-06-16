@@ -57,66 +57,66 @@ typedef enum {
     /*
      * Everything is okay
      */
-    EKOTRACE_RESULT_OK = 0,
+    EKOTRACE_ERROR_OK = 0,
     /*
      * A null pointer was provided to the function
      */
-    EKOTRACE_RESULT_NULL_POINTER = 1,
+    EKOTRACE_ERROR_NULL_POINTER = 1,
     /*
      * An event id outside of the allowed range was provided.
      */
-    EKOTRACE_RESULT_INVALID_EVENT_ID = 2,
+    EKOTRACE_ERROR_INVALID_EVENT_ID = 2,
     /*
      * A ekotrace id outside of the allowed range was provided.
      */
-    EKOTRACE_RESULT_INVALID_TRACER_ID = 3,
+    EKOTRACE_ERROR_INVALID_TRACER_ID = 3,
     /*
      * The size available for output bytes was insufficient
      * to store a valid representation.
      */
-    EKOTRACE_RESULT_INSUFFICIENT_DESTINATION_BYTES = 4,
+    EKOTRACE_ERROR_INSUFFICIENT_DESTINATION_BYTES = 4,
     /*
      * Bumped into a pointer size limitation
      */
-    EKOTRACE_RESULT_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE = 5,
+    EKOTRACE_ERROR_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE = 5,
     /*
      * An unexpected error in internal data encoding occurred.
      */
-    EKOTRACE_RESULT_INTERNAL_ENCODING_ERROR = 6,
+    EKOTRACE_ERROR_INTERNAL_ENCODING_ERROR = 6,
     /*
      * The local ekotrace does not have enough space to track all
      * of direct neighbors attempting to communicate with it.
      * Detected during merging.
      */
-    EKOTRACE_RESULT_EXCEEDED_AVAILABLE_CLOCKS = 7,
+    EKOTRACE_ERROR_EXCEEDED_AVAILABLE_CLOCKS = 7,
 
     /*
      * The external history we attempted to merge was encoded
      * in an invalid fashion.
      * Detected during merging.
      */
-    EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_ENCODING = 8,
+    EKOTRACE_ERROR_INVALID_EXTERNAL_HISTORY_ENCODING = 8,
     /*
      * The provided external history violated a semantic rule of the protocol,
      * such as by having a ekotrace_id out of the allowed value range.
      * Detected during merging.
      */
-    EKOTRACE_RESULT_INVALID_EXTERNAL_HISTORY_SEMANTICS = 9,
+    EKOTRACE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS = 9,
     /*
      * The tracer encountered a problem dealing with extension metadata
      */
-    EKOTRACE_RESULT_EXTENSION_ERROR = 10,
+    EKOTRACE_ERROR_EXTENSION_ERROR = 10,
     /*
      * The tracer attempted to mutate internal state while
      * a report lock was active.
      */
-    EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR = 11,
+    EKOTRACE_ERROR_REPORT_LOCK_CONFLICT_ERROR = 11,
     /*
      * The tracer attempted to do a chunked report operation when no
      * chunked report has been started.
      */
-    EKOTRACE_RESULT_NO_CHUNKED_REPORT_IN_PROGRESS = 12,
-} ekotrace_result;
+    EKOTRACE_ERROR_NO_CHUNKED_REPORT_IN_PROGRESS = 12,
+} ekotrace_error;
 
 typedef struct causal_snapshot {
     /*
@@ -149,7 +149,7 @@ typedef struct causal_snapshot {
  *
  */
 #define EKOTRACE_INITIALIZE(dest, dest_size, id, ekt, ...) \
-    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_initialize(dest, dest_size, id, ekt) : EKOTRACE_RESULT_OK)
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_initialize(dest, dest_size, id, ekt) : EKOTRACE_ERROR_OK)
 
 /*
  * Ekotrace event recording macro.
@@ -164,7 +164,7 @@ typedef struct causal_snapshot {
  *
  */
 #define EKOTRACE_RECORD(ekt, event, ...) \
-    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event(ekt, event) : EKOTRACE_RESULT_OK)
+    ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event(ekt, event) : EKOTRACE_ERROR_OK)
 
 /*
  * Ekotrace event recording with payload macro.
@@ -182,42 +182,42 @@ typedef struct causal_snapshot {
     ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_i8(\
             ekt, \
             event, \
-            payload) : EKOTRACE_RESULT_OK)
+            payload) : EKOTRACE_ERROR_OK)
 #define EKOTRACE_RECORD_W_U8(ekt, event, payload, ...) \
     ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_u8(\
             ekt, \
             event, \
-            payload) : EKOTRACE_RESULT_OK)
+            payload) : EKOTRACE_ERROR_OK)
 #define EKOTRACE_RECORD_W_I16(ekt, event, payload, ...) \
     ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_i16(\
             ekt, \
             event, \
-            payload) : EKOTRACE_RESULT_OK)
+            payload) : EKOTRACE_ERROR_OK)
 #define EKOTRACE_RECORD_W_U16(ekt, event, payload, ...) \
     ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_u16(\
             ekt, \
             event, \
-            payload) : EKOTRACE_RESULT_OK)
+            payload) : EKOTRACE_ERROR_OK)
 #define EKOTRACE_RECORD_W_I32(ekt, event, payload, ...) \
     ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_i32(\
             ekt, \
             event, \
-            payload) : EKOTRACE_RESULT_OK)
+            payload) : EKOTRACE_ERROR_OK)
 #define EKOTRACE_RECORD_W_U32(ekt, event, payload, ...) \
     ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_u32(\
             ekt, \
             event, \
-            payload) : EKOTRACE_RESULT_OK)
+            payload) : EKOTRACE_ERROR_OK)
 #define EKOTRACE_RECORD_W_BOOL(ekt, event, payload, ...) \
     ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_bool(\
             ekt, \
             event, \
-            payload) : EKOTRACE_RESULT_OK)
+            payload) : EKOTRACE_ERROR_OK)
 #define EKOTRACE_RECORD_W_F32(ekt, event, payload, ...) \
     ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_f32(\
             ekt, \
             event, \
-            payload) : EKOTRACE_RESULT_OK)
+            payload) : EKOTRACE_ERROR_OK)
 
 /*
  * Ekotrace expectation expression event recording macro.
@@ -235,7 +235,7 @@ typedef struct causal_snapshot {
     ((EKOTRACE_MACROS_ENABLED) ? ekotrace_record_event_with_payload_u32(\
             ekt, \
             event, \
-            (expr)) : EKOTRACE_RESULT_OK)
+            (expr)) : EKOTRACE_ERROR_OK)
 
 /*
  * Create a ekotrace instance. ekotrace_id must be non-zero
@@ -369,7 +369,7 @@ ekotrace_instant ekotrace_now(ekotrace *ekotrace);
  * `ekotrace_write_next_report_chunk` and `ekotrace_finish_chunked_report`
  *
  * Once this method has been called, mutating operations on
- * the Ekotrace instance will return `EKOTRACE_RESULT_REPORT_LOCK_CONFLICT_ERROR`
+ * the Ekotrace instance will return `EKOTRACE_ERROR_REPORT_LOCK_CONFLICT_ERROR`
  * until all available chunks have been written with  `ekotrace_write_next_report_chunk`
  * and `ekotrace_finish_chunked_report` called.
  */

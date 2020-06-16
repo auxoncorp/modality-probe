@@ -119,11 +119,11 @@ int main() {
     uint8_t * storage = (uint8_t*)malloc(512);
     ekotrace * t;
     ekotrace_result result = ekotrace_initialize(storage, 512, SERVER, &t);
-    if (result != EKOTRACE_RESULT_OK) {
+    if (result != EKOTRACE_ERROR_OK) {
         return 1;
     }
     result = ekotrace_record_event(t, PURCHASE);
-    if (result != EKOTRACE_RESULT_OK) {
+    if (result != EKOTRACE_ERROR_OK) {
         return 1;
     }
     return 0;
