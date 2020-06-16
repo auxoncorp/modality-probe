@@ -70,6 +70,10 @@ pub struct HeaderGen {
     /// C header include guard prefix
     #[structopt(long, default_value = "EKOTRACE")]
     include_guard_prefix: String,
+
+    /// Write output to file (instead of stdout)
+    #[structopt(short = "o", long, parse(from_os_str))]
+    output_path: Option<PathBuf>,
 }
 
 #[derive(Debug, StructOpt)]
@@ -137,6 +141,7 @@ impl From<HeaderGen> for header_gen::Opt {
             tracers_csv_file: opt.tracers_csv_file,
             lang: opt.lang,
             include_guard_prefix: opt.include_guard_prefix,
+            output_path: opt.output_path,
         }
     }
 }
