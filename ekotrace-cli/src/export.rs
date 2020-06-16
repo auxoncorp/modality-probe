@@ -14,7 +14,7 @@ pub struct Export {
     /// Generate the graph showing only the causal relationships,
     /// eliding the events inbetween.
     #[structopt(long)]
-    segments_only: bool,
+    interactions_only: bool,
     /// The path the tracers.csv for a component.
     #[structopt(long)]
     tracers: PathBuf,
@@ -96,7 +96,7 @@ pub fn run(exp: Export) -> Result<(), String> {
 
     let cfg = Cfg { tracers, events };
 
-    match (exp.graph_type, exp.segments_only) {
+    match (exp.graph_type, exp.interactions_only) {
         (GraphType::Cyclic, false) => {
             let mut graph = Digraph::new();
             ekotrace_graph::overlay(&cfg, &mut graph, lrdr.deserialize())
