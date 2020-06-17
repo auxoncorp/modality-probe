@@ -8,8 +8,9 @@
 //!
 //! Contiguous logical clock segments are distinguished by
 //! the use of a "local" id value that represents the id of
-//! the location where the log was generated.
-use super::{EventId, LogicalClock, TracerId};
+//! the probe where the log was generated.
+
+use super::{EventId, LogicalClock, ProbeId};
 use core::convert::TryInto;
 use fixed_slice_vec::FixedSliceVec;
 
@@ -23,7 +24,7 @@ pub(crate) type CompactLogVec<'a> = FixedSliceVec<'a, CompactLogItem>;
 ///   plain event id.
 ///
 /// * If the first bit is set AND the second bit is not set, treat the
-///   rest of the value as a TracerId for a LogicalClockBucket and the
+///   rest of the value as a ProbeId for a LogicalClockBucket and the
 ///   next item in the stream as a count for that bucket.
 ///
 /// * If the first bit is not set AND the second bit is set, this is
@@ -88,9 +89,9 @@ impl CompactLogItem {
         CompactLogItem(value)
     }
 
-    /// Unset that top bit to get the original tracer id back out
+    /// Unset that top bit to get the original probe id back out
     #[inline]
-    pub(crate) fn interpret_as_logical_clock_tracer_id(self) -> u32 {
+    pub(crate) fn interpret_as_logical_clock_probe_id(self) -> u32 {
         self.0 & !CLOCK_MASK
     }
 }
@@ -103,17 +104,17 @@ impl core::fmt::Debug for CompactLogItem {
 
 pub(crate) fn split_next_segment(
     items: &'_ [CompactLogItem],
-    local_tracer_id: TracerId,
+    local_probe_id: ProbeId,
 ) -> SplitSegment<'_> {
     // Split off the clock segments
     let mut num_clock_items = 0;
     for item in items.iter().step_by(2) {
         if item.has_clock_bit_set() {
             if num_clock_items > 0 {
-                // Use the local tracer id as a marker to identify when
+                // Use the local probe id as a marker to identify when
                 // there are two adjacent segments that have no intervening
                 // events (i.e. the segments consist solely of clocks).
-                if item.interpret_as_logical_clock_tracer_id() == local_tracer_id.get_raw() {
+                if item.interpret_as_logical_clock_probe_id() == local_probe_id.get_raw() {
                     let (clock_region, rest) = items.split_at(num_clock_items);
                     return SplitSegment {
                         clock_region,
@@ -168,18 +169,18 @@ pub(crate) struct SplitSegment<'a> {
 
 /// Iterator over log segments
 pub struct LogSegmentIterator<'a> {
-    /// The tracer/location id used to distinguish between
+    /// The probe id used to distinguish between
     /// contiguous segments blocks of logical clocks
-    local_tracer_id: TracerId,
+    local_probe_id: ProbeId,
     rest: &'a [CompactLogItem],
 }
 
 impl<'a> LogSegmentIterator<'a> {
     /// Create a per-segment iterator over a compact log slice.
-    /// `source_tracer_id` should be the TracerId of the location where this log was generated
-    pub fn new(source_tracer_id: TracerId, log: &'a [CompactLogItem]) -> LogSegmentIterator<'a> {
+    /// `source_probe_id` should be the ProbeId of the probe where this log was generated
+    pub fn new(source_probe_id: ProbeId, log: &'a [CompactLogItem]) -> LogSegmentIterator<'a> {
         LogSegmentIterator {
-            local_tracer_id: source_tracer_id,
+            local_probe_id: source_probe_id,
             rest: log,
         }
     }
@@ -192,7 +193,7 @@ impl<'a> Iterator for LogSegmentIterator<'a> {
         if self.rest.is_empty() {
             return None;
         }
-        let split_segment = split_next_segment(self.rest, self.local_tracer_id);
+        let split_segment = split_next_segment(self.rest, self.local_probe_id);
         self.rest = split_segment.rest;
         if split_segment.clock_region.is_empty() && split_segment.event_region.is_empty() {
             return None;
@@ -239,25 +240,19 @@ impl<'a> Iterator for LogSegmentLogicalClockIterator<'a> {
             return None;
         }
         if self.remaining_clock_region.len() == 1 {
-            let raw_id = self.remaining_clock_region[0].interpret_as_logical_clock_tracer_id();
-            return match TracerId::new(raw_id) {
+            let raw_id = self.remaining_clock_region[0].interpret_as_logical_clock_probe_id();
+            return match ProbeId::new(raw_id) {
                 Some(id) => Some(Err(LogicalClockInterpretationError::ClockMissingCount(id))),
-                None => Some(Err(LogicalClockInterpretationError::InvalidTracerId(
-                    raw_id,
-                ))),
+                None => Some(Err(LogicalClockInterpretationError::InvalidProbeId(raw_id))),
             };
         }
 
         let (curr, remainder) = self.remaining_clock_region.split_at(2);
         self.remaining_clock_region = remainder;
-        let raw_id = curr[0].interpret_as_logical_clock_tracer_id();
-        let id = match TracerId::new(raw_id) {
+        let raw_id = curr[0].interpret_as_logical_clock_probe_id();
+        let id = match ProbeId::new(raw_id) {
             Some(id) => id,
-            None => {
-                return Some(Err(LogicalClockInterpretationError::InvalidTracerId(
-                    raw_id,
-                )))
-            }
+            None => return Some(Err(LogicalClockInterpretationError::InvalidProbeId(raw_id))),
         };
 
         Some(Ok(LogicalClock {
@@ -366,12 +361,12 @@ where
 /// the compact log was created wrong. Here's how.
 #[derive(Debug, PartialEq, Eq)]
 pub enum LogicalClockInterpretationError {
-    /// The id was not in the allowed modality_probe::TracerId range
-    InvalidTracerId(u32),
+    /// The id was not in the allowed modality_probe::ProbeId range
+    InvalidProbeId(u32),
     /// A logical clock id was found, but the count-bearing
     /// log item expected next was not present. This may happen when iterating
     /// over an incomplete or incorrectly segmented slice of compact log items.
-    ClockMissingCount(TracerId),
+    ClockMissingCount(ProbeId),
 }
 
 /// The sanity checks that might fail when interpreting the compact log format
@@ -417,14 +412,14 @@ where
         };
 
         if compact.has_clock_bit_set() {
-            let raw_id = compact.interpret_as_logical_clock_tracer_id();
-            let id = match TracerId::new(raw_id) {
+            let raw_id = compact.interpret_as_logical_clock_probe_id();
+            let id = match ProbeId::new(raw_id) {
                 Some(id) => id,
                 None => {
                     self.is_done = true;
                     return Some(Err(
                         LogItemInterpretationError::LogicalClockInterpretationError(
-                            LogicalClockInterpretationError::InvalidTracerId(raw_id),
+                            LogicalClockInterpretationError::InvalidProbeId(raw_id),
                         ),
                     ));
                 }
@@ -512,57 +507,57 @@ pub(crate) mod log_tests {
         })
     }
 
-    fn count_segments(log_items: &[CompactLogItem], tracer_id: TracerId) -> usize {
-        LogSegmentIterator::new(tracer_id, log_items).count()
+    fn count_segments(log_items: &[CompactLogItem], probe_id: ProbeId) -> usize {
+        LogSegmentIterator::new(probe_id, log_items).count()
     }
 
     #[test]
     fn happy_path_segment_counting() {
-        let tracer_id = TracerId::new(314).unwrap();
-        assert_eq!(0, count_segments(&[], tracer_id));
-        assert_eq!(1, count_segments(&[ce(1)], tracer_id));
-        assert_eq!(1, count_segments(&[ce(1), ce(1)], tracer_id));
-        assert_eq!(1, count_segments(&[ce(1), ce(2), ce(1)], tracer_id));
+        let probe_id = ProbeId::new(314).unwrap();
+        assert_eq!(0, count_segments(&[], probe_id));
+        assert_eq!(1, count_segments(&[ce(1)], probe_id));
+        assert_eq!(1, count_segments(&[ce(1), ce(1)], probe_id));
+        assert_eq!(1, count_segments(&[ce(1), ce(2), ce(1)], probe_id));
 
         let (a, b) = cb(1, 1);
         let (c, d) = cb(2, 1);
-        assert_eq!(1, count_segments(&[a, b, ce(1)], tracer_id));
-        assert_eq!(2, count_segments(&[ce(1), a, b], tracer_id));
-        assert_eq!(2, count_segments(&[ce(1), a, b, ce(1)], tracer_id));
-        assert_eq!(2, count_segments(&[a, b, ce(1), c, d], tracer_id));
+        assert_eq!(1, count_segments(&[a, b, ce(1)], probe_id));
+        assert_eq!(2, count_segments(&[ce(1), a, b], probe_id));
+        assert_eq!(2, count_segments(&[ce(1), a, b, ce(1)], probe_id));
+        assert_eq!(2, count_segments(&[a, b, ce(1), c, d], probe_id));
         assert_eq!(
             2,
-            count_segments(&[a, b, ce(1), c, d, ce(1), ce(2),], tracer_id)
+            count_segments(&[a, b, ce(1), c, d, ce(1), ce(2),], probe_id)
         );
         let (e, f) = cb(3, 1);
         assert_eq!(
             2,
-            count_segments(&[a, b, ce(1), c, d, e, f, ce(1), ce(2),], tracer_id)
+            count_segments(&[a, b, ce(1), c, d, e, f, ce(1), ce(2),], probe_id)
         );
         assert_eq!(
             3,
-            count_segments(&[a, b, ce(1), c, d, ce(1), ce(2), e, f,], tracer_id)
+            count_segments(&[a, b, ce(1), c, d, ce(1), ce(2), e, f,], probe_id)
         );
     }
 
     #[test]
-    fn segment_counting_distinguishes_adjacent_clock_segments_by_local_tracer_id() {
-        let local_tracer_id = TracerId::new(314).unwrap();
+    fn segment_counting_distinguishes_adjacent_clock_segments_by_local_probe_id() {
+        let local_probe_id = ProbeId::new(314).unwrap();
         let (a, b) = cb(314, 1);
-        assert_eq!(1, count_segments(&[a, b], local_tracer_id));
+        assert_eq!(1, count_segments(&[a, b], local_probe_id));
         let (c, d) = cb(314, 2);
-        assert_eq!(2, count_segments(&[a, b, c, d], local_tracer_id));
+        assert_eq!(2, count_segments(&[a, b, c, d], local_probe_id));
         let (e, f) = cb(99, 2);
-        assert_eq!(2, count_segments(&[a, b, c, d, e, f], local_tracer_id));
-        assert_eq!(2, count_segments(&[a, b, e, f, c, d], local_tracer_id));
+        assert_eq!(2, count_segments(&[a, b, c, d, e, f], local_probe_id));
+        assert_eq!(2, count_segments(&[a, b, e, f, c, d], local_probe_id));
     }
 
     #[test]
     fn segmentation_distinguishes_events_with_payloads_from_clocks() {
-        let local_tracer_id = TracerId::new(314).unwrap();
+        let local_probe_id = ProbeId::new(314).unwrap();
         let (a, b) = cb(314, 1);
         let (c, d) = cep(99, core::u32::MAX);
-        assert_eq!(1, count_segments(&[a, b, c, d], local_tracer_id));
+        assert_eq!(1, count_segments(&[a, b, c, d], local_probe_id));
     }
 
     #[test]
@@ -621,7 +616,7 @@ pub(crate) mod log_tests {
     }
 
     prop_compose! {
-        fn gen_clock()(id in gen_tracer_id(), count in proptest::num::u32::ANY) -> LogicalClock {
+        fn gen_clock()(id in gen_probe_id(), count in proptest::num::u32::ANY) -> LogicalClock {
             LogicalClock { id, count }
         }
     }
@@ -698,10 +693,10 @@ pub(crate) mod log_tests {
 
     proptest! {
         #[test]
-        fn arbitrary_log_segment_iterable(tracer_id in gen_tracer_id(), log in gen_compact_log(25, 257, 514)) {
+        fn arbitrary_log_segment_iterable(probe_id in gen_probe_id(), log in gen_compact_log(25, 257, 514)) {
             // Note the max segments, max clocks-per-segment and max events-per-segment values
             // above are pulled completely from a hat
-            let seg_iter = LogSegmentIterator::new(tracer_id, &log);
+            let seg_iter = LogSegmentIterator::new(probe_id, &log);
             let mut n: usize = 0;
             for seg in seg_iter {
                 for c in seg.iter_clocks() {
@@ -744,9 +739,9 @@ pub(crate) mod log_tests {
 
     proptest! {
         #[test]
-        fn arbitrary_events_in_log_round_trippable(tracer_id in gen_tracer_id(), events in gen_events(514)) {
+        fn arbitrary_events_in_log_round_trippable(probe_id in gen_probe_id(), events in gen_events(514)) {
             let log = events_to_log(events.clone());
-            let mut seg_iter = LogSegmentIterator::new(tracer_id, &log);
+            let mut seg_iter = LogSegmentIterator::new(probe_id, &log);
             if events.is_empty() {
                 assert!(seg_iter.next().is_none());
             } else {

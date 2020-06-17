@@ -189,7 +189,7 @@ fn add_log_report_to_entries(
     log_entries_buffer: &mut Vec<LogEntry>,
 ) -> u32 {
     let mut next_segment_id = initial_segment_id.0;
-    let tracer_id = log_report.tracer_id;
+    let probe_id = log_report.probe_id;
     for segment in &log_report.segments {
         let mut segment_index = 0;
 
@@ -198,7 +198,7 @@ fn add_log_report_to_entries(
                 session_id,
                 segment_id: next_segment_id.into(),
                 segment_index,
-                tracer_id,
+                probe_id,
                 data: LogEntryData::LogicalClock(clock_bucket.id, clock_bucket.count),
                 receive_time,
             });
@@ -213,7 +213,7 @@ fn add_log_report_to_entries(
                         session_id,
                         segment_id: next_segment_id.into(),
                         segment_index,
-                        tracer_id,
+                        probe_id,
                         data: LogEntryData::Event(*ev),
                         receive_time,
                     });
@@ -223,7 +223,7 @@ fn add_log_report_to_entries(
                         session_id,
                         segment_id: next_segment_id.into(),
                         segment_index,
-                        tracer_id,
+                        probe_id,
                         data: LogEntryData::EventWithPayload(*ev, *payload),
                         receive_time,
                     });
@@ -248,7 +248,7 @@ fn add_owned_report_to_entries(
     log_entries_buffer: &mut Vec<LogEntry>,
 ) -> u32 {
     let mut next_segment_id = initial_segment_id.0;
-    let tracer_id = report.tracer_id;
+    let probe_id = report.probe_id;
     for segment in report.segments {
         let mut segment_index = 0;
 
@@ -257,7 +257,7 @@ fn add_owned_report_to_entries(
                 session_id,
                 segment_id: next_segment_id.into(),
                 segment_index,
-                tracer_id,
+                probe_id,
                 data: LogEntryData::LogicalClock(clock_bucket.id, clock_bucket.count as u32),
                 receive_time,
             });
@@ -272,7 +272,7 @@ fn add_owned_report_to_entries(
                         session_id,
                         segment_id: next_segment_id.into(),
                         segment_index,
-                        tracer_id,
+                        probe_id,
                         data: LogEntryData::Event(*ev),
                         receive_time,
                     });
@@ -282,7 +282,7 @@ fn add_owned_report_to_entries(
                         session_id,
                         segment_id: next_segment_id.into(),
                         segment_index,
-                        tracer_id,
+                        probe_id,
                         data: LogEntryData::EventWithPayload(*ev, *payload),
                         receive_time,
                     });
@@ -317,9 +317,9 @@ mod tests {
 
     use super::*;
 
-    fn dummy_report(raw_main_tracer_id: u32) -> LogReport {
+    fn dummy_report(raw_main_probe_id: u32) -> LogReport {
         LogReport {
-            tracer_id: raw_main_tracer_id.try_into().unwrap(),
+            probe_id: raw_main_probe_id.try_into().unwrap(),
             segments: vec![
                 OwnedLogSegment {
                     clocks: vec![
@@ -350,21 +350,21 @@ mod tests {
     }
 
     fn report_and_matching_entries(
-        raw_main_tracer_id: u32,
+        raw_main_probe_id: u32,
         session_id: SessionId,
         start_segment_id: util::model::SegmentId,
         receive_time: DateTime<Utc>,
     ) -> (LogReport, Vec<LogEntry>) {
-        let main_tracer_id = raw_main_tracer_id.try_into().unwrap();
+        let main_probe_id = raw_main_probe_id.try_into().unwrap();
 
         (
-            dummy_report(raw_main_tracer_id),
+            dummy_report(raw_main_probe_id),
             vec![
                 LogEntry {
                     session_id,
                     segment_id: start_segment_id,
                     segment_index: 0,
-                    tracer_id: main_tracer_id,
+                    probe_id: main_probe_id,
                     data: LogEntryData::LogicalClock(31.try_into().unwrap(), 14),
                     receive_time,
                 },
@@ -372,7 +372,7 @@ mod tests {
                     session_id,
                     segment_id: start_segment_id,
                     segment_index: 1,
-                    tracer_id: main_tracer_id,
+                    probe_id: main_probe_id,
                     data: LogEntryData::LogicalClock(15.try_into().unwrap(), 9),
                     receive_time,
                 },
@@ -380,7 +380,7 @@ mod tests {
                     session_id,
                     segment_id: start_segment_id,
                     segment_index: 2,
-                    tracer_id: main_tracer_id,
+                    probe_id: main_probe_id,
                     data: LogEntryData::Event(2653.try_into().unwrap()),
                     receive_time,
                 },
@@ -388,7 +388,7 @@ mod tests {
                     session_id,
                     segment_id: (start_segment_id.0 + 1).into(),
                     segment_index: 0,
-                    tracer_id: main_tracer_id,
+                    probe_id: main_probe_id,
                     data: LogEntryData::LogicalClock(271.try_into().unwrap(), 1),
                     receive_time,
                 },
@@ -396,7 +396,7 @@ mod tests {
                     session_id,
                     segment_id: (start_segment_id.0 + 1).into(),
                     segment_index: 1,
-                    tracer_id: main_tracer_id,
+                    probe_id: main_probe_id,
                     data: LogEntryData::Event(793.try_into().unwrap()),
                     receive_time,
                 },
@@ -404,7 +404,7 @@ mod tests {
                     session_id,
                     segment_id: (start_segment_id.0 + 1).into(),
                     segment_index: 2,
-                    tracer_id: main_tracer_id,
+                    probe_id: main_probe_id,
                     data: LogEntryData::Event(2384.try_into().unwrap()),
                     receive_time,
                 },
@@ -414,12 +414,12 @@ mod tests {
 
     #[test]
     fn log_report_to_entries() {
-        let raw_main_tracer_id = 31;
+        let raw_main_probe_id = 31;
         let session_id = 81.into();
         let initial_segment_id = 3.into();
         let receive_time = Utc::now();
         let (report, expected_entries) = report_and_matching_entries(
-            raw_main_tracer_id,
+            raw_main_probe_id,
             session_id,
             initial_segment_id,
             receive_time,
@@ -565,11 +565,11 @@ mod tests {
 
         for e in found_log_entries.iter() {
             assert_eq!(session_id, e.session_id);
-            assert_eq!(log_report.tracer_id, e.tracer_id);
+            assert_eq!(log_report.probe_id, e.probe_id);
         }
         h.join().expect("Couldn't join server handler thread");
     }
-    const TRACER_STORAGE_BYTES_SIZE: usize = 256;
+    const PROBE_STORAGE_BYTES_SIZE: usize = 256;
     const IN_SYSTEM_SNAPSHOT_BYTES_SIZE: usize = 256;
     const LOG_REPORT_BYTES_SIZE: usize = 512;
 
@@ -626,9 +626,9 @@ mod tests {
             thread::yield_now();
             assert_eq!(Ok(ServerState::Started), server_state_receiver.recv());
             let mut net = proc_graph::Network::new();
-            let tracer_a_id = modality_probe::TracerId::new(131).unwrap();
-            let tracer_b_id = modality_probe::TracerId::new(141).unwrap();
-            let tracer_c_id = modality_probe::TracerId::new(159).unwrap();
+            let probe_a_id = modality_probe::ProbeId::new(131).unwrap();
+            let probe_b_id = modality_probe::ProbeId::new(141).unwrap();
+            let probe_c_id = modality_probe::ProbeId::new(159).unwrap();
             let event_foo = LogEvent::Event(modality_probe::EventId::new(7).unwrap());
             let event_bar = LogEvent::Event(modality_probe::EventId::new(23).unwrap());
             let event_baz = LogEvent::Event(modality_probe::EventId::new(29).unwrap());
@@ -640,7 +640,7 @@ mod tests {
                 vec!["b"],
                 make_message_broadcaster_proc(
                     "a",
-                    tracer_a_id,
+                    probe_a_id,
                     NUM_MESSAGES_FROM_A,
                     server_addr,
                     Some(event_foo),
@@ -652,7 +652,7 @@ mod tests {
                 vec!["c"],
                 make_message_relay_proc(
                     "b",
-                    tracer_b_id,
+                    probe_b_id,
                     NUM_MESSAGES_FROM_A,
                     None,
                     Some(event_bar),
@@ -663,7 +663,7 @@ mod tests {
                 "c",
                 vec![],
                 make_message_sink_proc(
-                    tracer_c_id,
+                    probe_c_id,
                     NUM_MESSAGES_FROM_A,
                     SendLogReportEveryFewMessages {
                         n_messages: 3,
@@ -691,27 +691,27 @@ mod tests {
                 .expect("Could not read output file as csv log entries");
 
             assert!(found_log_entries.len() > 0);
-            let expected_direct_tracer_ids: HashSet<_> =
-                [tracer_a_id, tracer_c_id].iter().copied().collect();
+            let expected_direct_probe_ids: HashSet<_> =
+                [probe_a_id, probe_c_id].iter().copied().collect();
             let built_in_event_ids: HashSet<_> =
                 modality_probe::EventId::INTERNAL_EVENTS.iter().collect();
             for e in found_log_entries {
                 assert_eq!(session_id, e.session_id);
-                assert!(expected_direct_tracer_ids.contains(&e.tracer_id));
+                assert!(expected_direct_probe_ids.contains(&e.probe_id));
                 match e.data {
                     LogEntryData::Event(event) => {
                         // Event bar is logged only on b, and thus lost
                         if event.get_raw() == event_bar.get_raw_id() {
                             panic!("How the heck did bar get ove there?");
                         }
-                        if e.tracer_id.get_raw() == tracer_a_id.get_raw() {
-                            // Process A should only be writing about event foo or the tracer internal events
+                        if e.probe_id.get_raw() == probe_a_id.get_raw() {
+                            // Process A should only be writing about event foo or the probe internal events
                             assert!(
                                 event.get_raw() == event_foo.get_raw_id()
                                     || built_in_event_ids.contains(&event)
                             );
-                        } else if e.tracer_id.get_raw() == tracer_c_id.get_raw() {
-                            // Process C should only be writing about event baz or the tracer internals events
+                        } else if e.probe_id.get_raw() == probe_c_id.get_raw() {
+                            // Process C should only be writing about event baz or the probe internals events
                             assert!(
                                 event.get_raw() == event_baz.get_raw_id()
                                     || built_in_event_ids.contains(&event),
@@ -722,12 +722,12 @@ mod tests {
                     }
                     LogEntryData::EventWithPayload(_, _) => (),
                     LogEntryData::LogicalClock(tid, _count) => {
-                        if e.tracer_id == tracer_a_id {
+                        if e.probe_id == probe_a_id {
                             // Process A should only know about itself, since it doesn't receive history from anyone else
-                            assert_eq!(tid, tracer_a_id);
-                        } else if e.tracer_id == tracer_c_id {
+                            assert_eq!(tid, probe_a_id);
+                        } else if e.probe_id == probe_c_id {
                             // Process C should have clocks for itself and its direct precursor, B
-                            assert!(tid == tracer_c_id || tid == tracer_b_id);
+                            assert!(tid == probe_c_id || tid == probe_b_id);
                         }
                     }
                 }
@@ -773,8 +773,8 @@ mod tests {
             thread::yield_now();
             assert_eq!(Ok(ServerState::Started), server_state_receiver.recv());
             let mut net = proc_graph::Network::new();
-            let tracer_a_id = modality_probe::TracerId::new(31).unwrap();
-            let tracer_b_id = modality_probe::TracerId::new(41).unwrap();
+            let probe_a_id = modality_probe::ProbeId::new(31).unwrap();
+            let probe_b_id = modality_probe::ProbeId::new(41).unwrap();
             let event_foo = LogEvent::Event(modality_probe::EventId::new(7).unwrap());
             let event_bar = LogEvent::Event(modality_probe::EventId::new(23).unwrap());
             const NUM_MESSAGES_FROM_A: usize = 11;
@@ -785,7 +785,7 @@ mod tests {
                 vec!["b"],
                 make_message_broadcaster_proc(
                     "a",
-                    tracer_a_id,
+                    probe_a_id,
                     NUM_MESSAGES_FROM_A,
                     server_addr,
                     Some(event_foo),
@@ -796,7 +796,7 @@ mod tests {
                 "b",
                 vec![],
                 make_message_sink_proc(
-                    tracer_b_id,
+                    probe_b_id,
                     NUM_MESSAGES_FROM_A,
                     SendLogReportEveryFewMessages {
                         n_messages: 3,
@@ -824,25 +824,24 @@ mod tests {
                 .expect("Could not read output file as csv log entries");
 
             assert!(found_log_entries.len() > 0);
-            let expected_tracer_ids: HashSet<_> =
-                [tracer_a_id, tracer_b_id].iter().copied().collect();
+            let expected_probe_ids: HashSet<_> = [probe_a_id, probe_b_id].iter().copied().collect();
             let built_in_event_ids: HashSet<_> = modality_probe::EventId::INTERNAL_EVENTS
                 .iter()
                 .map(|id| id.get_raw())
                 .collect();
             for e in found_log_entries {
                 assert_eq!(session_id, e.session_id);
-                assert!(expected_tracer_ids.contains(&e.tracer_id));
+                assert!(expected_probe_ids.contains(&e.probe_id));
                 match e.data {
                     LogEntryData::Event(event) => {
-                        if e.tracer_id == tracer_a_id {
-                            // Process A should only be writing about event foo or the tracer internal events
+                        if e.probe_id == probe_a_id {
+                            // Process A should only be writing about event foo or the probe internal events
                             assert!(
                                 event.get_raw() == event_foo.get_raw_id()
                                     || built_in_event_ids.contains(&event.get_raw())
                             );
-                        } else if e.tracer_id == tracer_b_id {
-                            // Process B should only be writing about event bar or the tracer internals events
+                        } else if e.probe_id == probe_b_id {
+                            // Process B should only be writing about event bar or the probe internals events
                             assert!(
                                 event.get_raw() == event_bar.get_raw_id()
                                     || built_in_event_ids.contains(&event.get_raw()),
@@ -853,12 +852,12 @@ mod tests {
                     }
                     LogEntryData::EventWithPayload(_, _) => (),
                     LogEntryData::LogicalClock(tid, _count) => {
-                        if e.tracer_id == tracer_a_id {
+                        if e.probe_id == probe_a_id {
                             // Process A should only know about itself, since it doesn't receive history from anyone else
-                            assert_eq!(tid, tracer_a_id);
+                            assert_eq!(tid, probe_a_id);
                         } else {
-                            // Process B should have clocks for both process's tracer ids
-                            assert!(expected_tracer_ids.contains(&tid));
+                            // Process B should have clocks for both process's probe ids
+                            assert!(expected_probe_ids.contains(&tid));
                         }
                     }
                 }
@@ -904,8 +903,8 @@ mod tests {
             thread::yield_now();
             assert_eq!(Ok(ServerState::Started), server_state_receiver.recv());
             let mut net = proc_graph::Network::new();
-            let tracer_a_id = modality_probe::TracerId::new(31).unwrap();
-            let tracer_b_id = modality_probe::TracerId::new(41).unwrap();
+            let probe_a_id = modality_probe::ProbeId::new(31).unwrap();
+            let probe_b_id = modality_probe::ProbeId::new(41).unwrap();
             let foo_payload = 777;
             let event_foo =
                 LogEvent::EventWithPayload(modality_probe::EventId::new(7).unwrap(), foo_payload);
@@ -921,7 +920,7 @@ mod tests {
                 vec!["b"],
                 make_message_broadcaster_proc(
                     "a",
-                    tracer_a_id,
+                    probe_a_id,
                     NUM_MESSAGES_FROM_A,
                     server_addr,
                     Some(event_foo),
@@ -932,7 +931,7 @@ mod tests {
                 "b",
                 vec![],
                 make_message_sink_proc(
-                    tracer_b_id,
+                    probe_b_id,
                     NUM_MESSAGES_FROM_A,
                     SendLogReportEveryFewMessages {
                         n_messages: 3,
@@ -960,11 +959,10 @@ mod tests {
                 .expect("Could not read output file as csv log entries");
 
             assert!(found_log_entries.len() > 0);
-            let expected_tracer_ids: HashSet<_> =
-                [tracer_a_id, tracer_b_id].iter().copied().collect();
+            let expected_probe_ids: HashSet<_> = [probe_a_id, probe_b_id].iter().copied().collect();
             for e in found_log_entries {
                 assert_eq!(session_id, e.session_id);
-                assert!(expected_tracer_ids.contains(&e.tracer_id));
+                assert!(expected_probe_ids.contains(&e.probe_id));
                 match e.data {
                     LogEntryData::Event(_) => (),
                     LogEntryData::EventWithPayload(event, payload) => {
@@ -980,12 +978,12 @@ mod tests {
                         }
                     }
                     LogEntryData::LogicalClock(tid, _count) => {
-                        if e.tracer_id == tracer_a_id {
+                        if e.probe_id == probe_a_id {
                             // Process A should only know about itself, since it doesn't receive history from anyone else
-                            assert_eq!(tid, tracer_a_id);
+                            assert_eq!(tid, probe_a_id);
                         } else {
-                            // Process B should have clocks for both process's tracer ids
-                            assert!(expected_tracer_ids.contains(&tid));
+                            // Process B should have clocks for both process's probe ids
+                            assert!(expected_probe_ids.contains(&tid));
                         }
                     }
                 }
@@ -995,7 +993,7 @@ mod tests {
 
     fn make_message_broadcaster_proc(
         proc_name: &'static str,
-        tracer_id: modality_probe::TracerId,
+        probe_id: modality_probe::ProbeId,
         n_messages: usize,
         collector_addr: SocketAddr,
         per_iteration_event: Option<LogEvent>,
@@ -1006,20 +1004,20 @@ mod tests {
     ) + Send
            + 'static {
         move |id_to_sender, _receiver| {
-            let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer =
-                modality_probe::ModalityProbe::new_with_storage(&mut tracer_storage, tracer_id)
-                    .expect("Could not make tracer");
+            let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
+            let mut probe =
+                modality_probe::ModalityProbe::new_with_storage(&mut probe_storage, probe_id)
+                    .expect("Could not make probe");
             let mut causal_history_blob = vec![0u8; IN_SYSTEM_SNAPSHOT_BYTES_SIZE];
             for _ in 0..n_messages {
                 match per_iteration_event {
-                    Some(LogEvent::Event(e)) => tracer.record_event(e),
+                    Some(LogEvent::Event(e)) => probe.record_event(e),
                     Some(LogEvent::EventWithPayload(e, payload)) => {
-                        tracer.record_event_with_payload(e, payload)
+                        probe.record_event_with_payload(e, payload)
                     }
                     _ => (),
                 }
-                let causal_history_bytes = tracer
+                let causal_history_bytes = probe
                     .distribute_snapshot(&mut causal_history_blob)
                     .expect("Could not write history to share with other in-system member");
 
@@ -1035,11 +1033,11 @@ mod tests {
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
             if use_chunked_reporting {
-                let token = tracer
+                let token = probe
                     .start_chunked_report()
                     .expect("Could not start chunked report");
                 loop {
-                    let log_report_bytes = tracer
+                    let log_report_bytes = probe
                         .write_next_report_chunk(&token, &mut log_report_storage)
                         .expect("Could not write report chunk");
                     if log_report_bytes == 0 {
@@ -1049,11 +1047,11 @@ mod tests {
                         .send_to(&log_report_storage[..log_report_bytes], collector_addr)
                         .expect("Could not send log report to server");
                 }
-                tracer
+                probe
                     .finish_chunked_report(token)
                     .expect("Could not finish chunked report");
             } else {
-                let log_report_bytes = tracer
+                let log_report_bytes = probe
                     .report(&mut log_report_storage)
                     .expect("Could not write log report in broadcaster");
                 socket
@@ -1071,7 +1069,7 @@ mod tests {
 
     fn make_message_relay_proc(
         proc_name: &'static str,
-        tracer_id: modality_probe::TracerId,
+        probe_id: modality_probe::ProbeId,
         stop_relaying_after_receiving_n_messages: usize,
         send_log_report_every_n_messages: Option<SendLogReportEveryFewMessages>,
         per_iteration_event: Option<LogEvent>,
@@ -1082,10 +1080,10 @@ mod tests {
     ) + Send
            + 'static {
         move |id_to_sender, receiver| {
-            let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer =
-                modality_probe::ModalityProbe::new_with_storage(&mut tracer_storage, tracer_id)
-                    .expect("Could not make tracer");
+            let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
+            let mut probe =
+                modality_probe::ModalityProbe::new_with_storage(&mut probe_storage, probe_id)
+                    .expect("Could not make probe");
 
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
@@ -1101,20 +1099,20 @@ mod tests {
                     }
                 };
                 match per_iteration_event {
-                    Some(LogEvent::Event(e)) => tracer.record_event(e),
+                    Some(LogEvent::Event(e)) => probe.record_event(e),
                     Some(LogEvent::EventWithPayload(e, payload)) => {
-                        tracer.record_event_with_payload(e, payload)
+                        probe.record_event_with_payload(e, payload)
                     }
                     _ => (),
                 }
-                tracer
+                probe
                     .merge_snapshot(&message)
                     .expect("Could not merge in history");
 
                 if messages_received > stop_relaying_after_receiving_n_messages {
                     continue;
                 }
-                let causal_history_bytes = tracer
+                let causal_history_bytes = probe
                     .distribute_snapshot(&mut causal_history_blob)
                     .expect("Could not write history to share with other in-system member");
 
@@ -1131,11 +1129,11 @@ mod tests {
                 {
                     if messages_received % n_messages == 0 {
                         if use_chunked_reporting {
-                            let token = tracer
+                            let token = probe
                                 .start_chunked_report()
                                 .expect("Could not start chunked report");
                             loop {
-                                let log_report_bytes = tracer
+                                let log_report_bytes = probe
                                     .write_next_report_chunk(&token, &mut log_report_storage)
                                     .expect("Could not write report chunk");
                                 if log_report_bytes == 0 {
@@ -1148,11 +1146,11 @@ mod tests {
                                     )
                                     .expect("Could not send log report to server");
                             }
-                            tracer
+                            probe
                                 .finish_chunked_report(token)
                                 .expect("Could not finish chunked report");
                         } else {
-                            let log_report_bytes = tracer
+                            let log_report_bytes = probe
                                 .report(&mut log_report_storage)
                                 .expect("Could not write log report in relayer");
                             socket
@@ -1167,7 +1165,7 @@ mod tests {
     }
 
     fn make_message_sink_proc(
-        tracer_id: modality_probe::TracerId,
+        probe_id: modality_probe::ProbeId,
         stop_after_receiving_n_messages: usize,
         send_log_report_every_n_messages: SendLogReportEveryFewMessages,
         per_iteration_event: Option<LogEvent>,
@@ -1179,10 +1177,10 @@ mod tests {
     ) + Send
            + 'static {
         move |_id_to_sender, receiver| {
-            let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer =
-                modality_probe::ModalityProbe::new_with_storage(&mut tracer_storage, tracer_id)
-                    .expect("Could not make tracer");
+            let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
+            let mut probe =
+                modality_probe::ModalityProbe::new_with_storage(&mut probe_storage, probe_id)
+                    .expect("Could not make probe");
 
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
@@ -1196,24 +1194,24 @@ mod tests {
                         panic!("Received on a channel with no senders!")
                     }
                 };
-                tracer
+                probe
                     .merge_snapshot(&message)
                     .expect("Could not merge in history");
                 match per_iteration_event {
-                    Some(LogEvent::Event(e)) => tracer.record_event(e),
+                    Some(LogEvent::Event(e)) => probe.record_event(e),
                     Some(LogEvent::EventWithPayload(e, payload)) => {
-                        tracer.record_event_with_payload(e, payload)
+                        probe.record_event_with_payload(e, payload)
                     }
                     _ => (),
                 }
 
                 if messages_received % send_log_report_every_n_messages.n_messages == 0 {
                     if use_chunked_reporting {
-                        let token = tracer
+                        let token = probe
                             .start_chunked_report()
                             .expect("Could not start chunked report");
                         loop {
-                            let log_report_bytes = tracer
+                            let log_report_bytes = probe
                                 .write_next_report_chunk(&token, &mut log_report_storage)
                                 .expect("Could not write report chunk");
                             if log_report_bytes == 0 {
@@ -1226,11 +1224,11 @@ mod tests {
                                 )
                                 .expect("Could not send log report to server");
                         }
-                        tracer
+                        probe
                             .finish_chunked_report(token)
                             .expect("Could not finish chunked report");
                     } else {
-                        let log_report_bytes = tracer
+                        let log_report_bytes = probe
                             .report(&mut log_report_storage)
                             .expect("Could not write log report in sink");
                         socket

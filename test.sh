@@ -5,9 +5,9 @@ set -ex
 (
     cd examples/
     rm -f events.csv tracers.csv
-    mkdir -p tracing_ids/
+    mkdir -p generated_ids/
     cargo run -p modality-probe-cli -- manifest-gen --events-csv-file events.csv --tracers-csv-file tracers.csv ./
-    cargo run -p modality-probe-cli -- header-gen --lang Rust events.csv tracers.csv --output-path tracing_ids/mod.rs
+    cargo run -p modality-probe-cli -- header-gen --lang Rust events.csv tracers.csv --output-path generated_ids/mod.rs
 )
 
 cargo build --all

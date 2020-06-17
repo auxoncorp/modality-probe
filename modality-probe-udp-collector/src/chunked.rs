@@ -16,7 +16,7 @@ impl Default for ChunkHandlingConfig {
     }
 }
 type ReportGroupId = u16;
-type ReportKey = (modality_probe::TracerId, ReportGroupId);
+type ReportKey = (modality_probe::ProbeId, ReportGroupId);
 type ChunkIndex = u16;
 type ChunksByIndexMap =
     BTreeMap<ChunkIndex, (modality_probe::report::chunked::NativeChunk, DateTime<Utc>)>;
@@ -47,7 +47,7 @@ impl ChunkHandler {
             }
         };
         let key = (
-            native_chunk.header().location_id,
+            native_chunk.header().probe_id,
             native_chunk.header().chunk_group_id,
         );
         let entry = self
@@ -68,8 +68,8 @@ impl ChunkHandler {
                     (native_chunk, receive_time),
                 );
             } else {
-                eprintln!("Ignoring duplicate chunk: Location Tracer Id: {:?}, Report Group Id: {:?}, Chunk Index: {:?}",
-                          native_chunk.header().location_id, native_chunk.header().chunk_group_id, native_chunk.header().chunk_index);
+                eprintln!("Ignoring duplicate chunk: Probe Id: {:?}, Report Group Id: {:?}, Chunk Index: {:?}",
+                          native_chunk.header().probe_id, native_chunk.header().chunk_group_id, native_chunk.header().chunk_index);
             }
         } else {
             entry.insert(
@@ -81,7 +81,7 @@ impl ChunkHandler {
 
     pub fn materialize_completed_reports(&mut self) -> Vec<(LogReport, DateTime<Utc>)> {
         let mut completed_report_keys = Vec::new();
-        for ((tracer_id, report_group_id), chunks) in self.open_reports.iter() {
+        for ((probe_id, report_group_id), chunks) in self.open_reports.iter() {
             let mut prior_chunk_index = None;
             for (chunk_index, (chunk, _received_at)) in chunks.iter() {
                 if let Some(prior_chunk_index) = prior_chunk_index {
@@ -89,13 +89,13 @@ impl ChunkHandler {
                         break;
                     }
                     if chunk.header().is_last_chunk {
-                        completed_report_keys.push((*tracer_id, *report_group_id));
+                        completed_report_keys.push((*probe_id, *report_group_id));
                         break;
                     }
                 } else if *chunk_index != 0 {
                     break;
                 } else if chunk.header().is_last_chunk {
-                    completed_report_keys.push((*tracer_id, *report_group_id));
+                    completed_report_keys.push((*probe_id, *report_group_id));
                     break;
                 } else {
                     prior_chunk_index = Some(*chunk_index)

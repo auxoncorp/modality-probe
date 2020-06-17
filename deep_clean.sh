@@ -12,7 +12,7 @@ cargo clean
 
 (
     cd examples/
-    rm -f tracers.csv events.csv tracing_ids/mod.rs
+    rm -f tracers.csv events.csv generated_ids/mod.rs
 )
 
 (

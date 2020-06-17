@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use modality_probe::{EventId, TracerId};
+use modality_probe::{EventId, ProbeId};
 
 macro_rules! newtype {
    ($(#[$meta:meta])* pub struct $name:ident(pub $t:ty);) => {
@@ -48,10 +48,10 @@ pub struct EventMapping {
     description: String,
 }
 
-/// Map an tracer id to its name and description
+/// Map a probe id to its name and description
 #[derive(Debug, Eq, PartialEq)]
-pub struct TracerMapping {
-    id: TracerId,
+pub struct ProbeMapping {
+    id: ProbeId,
     name: String,
     description: String,
 }
@@ -61,7 +61,7 @@ pub struct TracerMapping {
 pub enum LogEntryData {
     Event(EventId),
     EventWithPayload(EventId, u32),
-    LogicalClock(TracerId, u32),
+    LogicalClock(ProbeId, u32),
 }
 
 impl From<EventId> for LogEntryData {
@@ -70,8 +70,8 @@ impl From<EventId> for LogEntryData {
     }
 }
 
-impl From<(TracerId, u32)> for LogEntryData {
-    fn from((id, count): (TracerId, u32)) -> LogEntryData {
+impl From<(ProbeId, u32)> for LogEntryData {
+    fn from((id, count): (ProbeId, u32)) -> LogEntryData {
         LogEntryData::LogicalClock(id, count)
     }
 }
@@ -88,8 +88,8 @@ pub struct LogEntry {
     /// Where this entry occurs within the segment
     pub segment_index: u32,
 
-    /// The tracer that supplied this entry
-    pub tracer_id: TracerId,
+    /// The probe that supplied this entry
+    pub probe_id: ProbeId,
 
     /// This entry's data; an event, or a logical clock snapshot
     pub data: LogEntryData,
@@ -172,14 +172,14 @@ pub mod test {
     }
 
     prop_compose! {
-        pub(crate) fn arb_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> TracerId {
-            TracerId::new(raw_id).unwrap()
+        pub(crate) fn arb_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> ProbeId {
+            ProbeId::new(raw_id).unwrap()
         }
     }
 
-    pub fn arb_tracer_mapping() -> impl Strategy<Value = TracerMapping> {
-        (arb_tracer_id(), any::<String>(), any::<String>()).prop_map(|(id, name, description)| {
-            TracerMapping {
+    pub fn arb_probe_mapping() -> impl Strategy<Value = ProbeMapping> {
+        (arb_probe_id(), any::<String>(), any::<String>()).prop_map(|(id, name, description)| {
+            ProbeMapping {
                 id,
                 name,
                 description,
@@ -189,7 +189,7 @@ pub mod test {
 
     pub fn arb_log_entry_data() -> impl Strategy<Value = LogEntryData> {
         let eid = arb_event_id().prop_map_into().boxed();
-        let lc = (arb_tracer_id(), any::<u32>()).prop_map_into().boxed();
+        let lc = (arb_probe_id(), any::<u32>()).prop_map_into().boxed();
         eid.prop_union(lc)
     }
 
@@ -202,16 +202,16 @@ pub mod test {
             arb_session_id(),
             arb_segment_id(),
             arb_segment_index(),
-            arb_tracer_id(),
+            arb_probe_id(),
             arb_log_entry_data(),
             arb_datetime(),
         )
             .prop_map(
-                |(session_id, segment_id, segment_index, tracer_id, data, receive_time)| LogEntry {
+                |(session_id, segment_id, segment_index, probe_id, data, receive_time)| LogEntry {
                     session_id,
                     segment_id,
                     segment_index,
-                    tracer_id,
+                    probe_id,
                     data,
                     receive_time,
                 },

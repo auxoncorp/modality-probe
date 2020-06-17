@@ -5,13 +5,13 @@
 //! ```
 //! modality-probe manifest-gen --events-csv-file events.csv --tracers-csv-file tracers.csv ./
 //!
-//! modality-probe header-gen --lang Rust events.csv tracers.csv --output-path tracing_ids/mod.rs
+//! modality-probe header-gen --lang Rust events.csv tracers.csv --output-path generated_ids/mod.rs
 //! ```
 
-// The generated event and tracer identifiers
-mod tracing_ids;
+// The generated identifiers
+mod generated_ids;
 
-use crate::tracing_ids::*;
+use crate::generated_ids::*;
 use modality_probe::{
     try_expect, try_initialize_at, try_record, try_record_w_u32, BulkReporter, ModalityProbe,
 };

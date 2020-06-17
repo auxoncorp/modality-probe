@@ -1,6 +1,6 @@
 use super::{
     CausalSnapshot, DistributeError, EventId, ExtensionBytes, LogicalClock, MergeError,
-    ModalityProbeInstant, ReportError, StorageSetupError, TracerId,
+    ModalityProbeInstant, ProbeId, ReportError, StorageSetupError,
 };
 use crate::compact_log::{CompactLogItem, CompactLogVec};
 use crate::report::chunked::ChunkedReportState;
@@ -86,8 +86,8 @@ impl core::fmt::Debug for CausalSnapshot {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         write!(
             f,
-            "CausalSnapshot {{ tracer_id: {}, clocks: [",
-            self.tracer_id
+            "CausalSnapshot {{ probe_id: {}, clocks: [",
+            self.probe_id
         )?;
         for clock in self.clocks.iter().take(usize::from(self.clocks_len)) {
             write!(f, "{:?}, ", clock)?;
@@ -97,7 +97,7 @@ impl core::fmt::Debug for CausalSnapshot {
     }
 }
 
-/// Do a logical clock comparison, ignoring the source tracer_id
+/// Do a logical clock comparison, ignoring the source probe_id
 impl PartialEq for CausalSnapshot {
     fn eq(&self, other: &Self) -> bool {
         let self_len = usize::from(self.clocks_len);
@@ -166,19 +166,18 @@ const_assert_eq!(
     size_of::<DynamicHistory>()
 );
 
-/// Manages the core of a tracer in-memory implementation
+/// Manages the core of a probe in-memory implementation
 /// backed by runtime-sized arrays of current logical clocks
-/// and tracing log items
+/// and probe log items
 #[derive(Debug)]
 pub struct DynamicHistory<'a> {
-    pub(crate) tracer_id: TracerId,
+    pub(crate) probe_id: ProbeId,
     /// The number of events seen since the current
-    /// location's logical clock last increased.
+    /// probe's logical clock last increased.
     pub(crate) event_count: u32,
     pub(crate) chunked_report_state: ChunkedReportState,
-
     /// Invariants:
-    ///   * The first clock is always that of the local tracer id / location id
+    ///   * The first clock is always that of the local probe id
     pub(crate) clocks: FixedSliceVec<'a, LogicalClock>,
     /// Invariants:
     ///   * This log must always contain at least one item
@@ -194,7 +193,7 @@ impl<'a> DynamicHistory<'a> {
     #[inline]
     pub fn new_at(
         destination: &mut [u8],
-        tracer_id: TracerId,
+        probe_id: ProbeId,
     ) -> Result<&mut DynamicHistory, StorageSetupError> {
         let remaining_bytes = destination.len();
         if remaining_bytes < MIN_HISTORY_SIZE_BYTES {
@@ -204,7 +203,7 @@ impl<'a> DynamicHistory<'a> {
             return Err(StorageSetupError::NullDestination);
         }
         let history = match embed(destination, |dynamic_region_slice| {
-            DynamicHistory::new(dynamic_region_slice, tracer_id)
+            DynamicHistory::new(dynamic_region_slice, probe_id)
         }) {
             Ok(v) => Ok(v),
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
@@ -240,7 +239,7 @@ impl<'a> DynamicHistory<'a> {
     #[inline]
     fn new(
         dynamic_region_slice: &'a mut [u8],
-        tracer_id: TracerId,
+        probe_id: ProbeId,
     ) -> Result<Self, StorageSetupError> {
         let max_n_clocks = max(
             MIN_CLOCKS_LEN,
@@ -258,17 +257,17 @@ impl<'a> DynamicHistory<'a> {
         }
         clocks
             .try_push(LogicalClock {
-                id: tracer_id,
+                id: probe_id,
                 count: 0,
             })
             .expect(
-                "The History.clocks field should always contain a clock for this tracer instance",
+                "The History.clocks field should always contain a clock for this probe instance",
             );
         // This ensures that the first log segment always has a piece of logical
         // clock information.
         DynamicHistory::write_clocks_to_log(&mut compact_log, clocks.as_slice());
         Ok(DynamicHistory {
-            tracer_id,
+            probe_id,
             clocks,
             compact_log,
             chunked_report_state: ChunkedReportState::default(),
@@ -326,12 +325,12 @@ impl<'a> DynamicHistory<'a> {
         }
     }
 
-    /// Increments the clock in the logical clock corresponding to this tracer instance
+    /// Increments the clock in the logical clock corresponding to this probe instance
     #[inline]
     fn increment_local_clock_count(&mut self) {
         // N.B. We rely on the fact that the first member of the clocks
-        // collection is always the clock for this tracer
-        debug_assert!(self.tracer_id == self.clocks[0].id);
+        // collection is always the clock for this probe
+        debug_assert!(self.probe_id == self.clocks[0].id);
         debug_assert!(
             !self.chunked_report_state.is_report_in_progress(),
             "Should not be incrementing the local clock count when a report is in progress"
@@ -355,7 +354,7 @@ impl<'a> DynamicHistory<'a> {
             return Err(DistributeError::ReportLockConflict);
         }
         // Increment and log the local logical clock first, so we know that both
-        // local and remote events (from tracers which ingest this blob) can be
+        // local and remote events (from probes which ingest this blob) can be
         // related to previous local events.
         self.increment_local_clock_count();
         self.write_current_clocks_to_log();
@@ -363,12 +362,12 @@ impl<'a> DynamicHistory<'a> {
         let mut buffer_writer = rust_lcm_codec::BufferWriter::new(destination);
         let w = lcm::in_system::begin_causal_snapshot_write(&mut buffer_writer)?;
         let mut w = w
-            .write_tracer_id(self.tracer_id.get_raw() as i32)?
+            .write_probe_id(self.probe_id.get_raw() as i32)?
             .write_n_clocks(self.clocks.len() as i32)?;
         for (item_writer, clock) in (&mut w).zip(self.clocks.as_slice()) {
             item_writer.write(|bw| {
                 Ok(bw
-                    .write_tracer_id(clock.id.get_raw() as i32)?
+                    .write_probe_id(clock.id.get_raw() as i32)?
                     .write_count(clock.count as i32)?)
             })?
         }
@@ -387,7 +386,7 @@ impl<'a> DynamicHistory<'a> {
             return Err(DistributeError::ReportLockConflict);
         }
         let mut clocks = [LogicalClock {
-            id: TracerId::new(TracerId::MAX_ID).unwrap(),
+            id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
             count: 0,
         }; 256];
         if self.clocks.len() > clocks.len() {
@@ -409,7 +408,7 @@ impl<'a> DynamicHistory<'a> {
         }
 
         Ok(CausalSnapshot {
-            tracer_id: self.tracer_id.get_raw(),
+            probe_id: self.probe_id.get_raw(),
             clocks,
             clocks_len: non_empty_clocks_count as u8,
         })
@@ -436,13 +435,13 @@ impl<'a> DynamicHistory<'a> {
         }
         let mut buffer_reader = rust_lcm_codec::BufferReader::new(source);
         let r = lcm::in_system::begin_causal_snapshot_read(&mut buffer_reader)?;
-        let (neighbor_id, r) = r.read_tracer_id()?;
+        let (neighbor_id, r) = r.read_probe_id()?;
         let (_n_clock_clocks, mut r) = r.read_n_clocks()?;
         let clocks_iterator = (&mut r).map(|item_reader| {
             let mut found_id = 0;
             let mut found_count = 0;
             let item_read_result = item_reader.read(|ir| {
-                let (id, ir) = ir.read_tracer_id()?;
+                let (id, ir) = ir.read_probe_id()?;
                 found_id = id;
                 let (count, ir) = ir.read_count()?;
                 found_count = count;
@@ -451,7 +450,7 @@ impl<'a> DynamicHistory<'a> {
             if item_read_result.is_err() {
                 Err(MergeError::ExternalHistoryEncoding)
             } else {
-                match TracerId::new(found_id as u32) {
+                match ProbeId::new(found_id as u32) {
                     Some(id) => Ok(LogicalClock {
                         id,
                         count: found_count as u32,
@@ -488,7 +487,7 @@ impl<'a> DynamicHistory<'a> {
         }
         let num_incoming_clocks = usize::from(external_history.clocks_len);
         self.merge_internal(
-            external_history.tracer_id,
+            external_history.probe_id,
             external_history
                 .clocks
                 .iter()
@@ -506,7 +505,7 @@ impl<'a> DynamicHistory<'a> {
     where
         B: Iterator<Item = Result<LogicalClock, MergeError>>,
     {
-        let external_id = match TracerId::new(raw_neighbor_id) {
+        let external_id = match ProbeId::new(raw_neighbor_id) {
             Some(id) => id,
             None => return Err(MergeError::ExternalHistorySemantics),
         };
@@ -540,8 +539,9 @@ impl<'a> DynamicHistory<'a> {
             }
             for internal_clock in self.clocks.as_mut_slice() {
                 // N.B This depends on the local clock already having been created, above,
-                // when we received a history from the clock's source tracer_id.
-                // During early tracing, may cause us to drop data from an indirect neighbor that
+                // when we received a history from the clock's source probe_id.
+                // During early probe event recording, may cause us to drop
+                // data from an indirect neighbor that
                 // is also a direct neighbor (but has not yet sent us a message).
                 if internal_clock.id == external_clock.id {
                     internal_clock.count = max(internal_clock.count, external_clock.count);

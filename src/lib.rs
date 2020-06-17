@@ -28,14 +28,13 @@ use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
 /// Fixed-sized snapshot of causal history for transmission around the system
 ///
 /// Note the use of bare integer types rather than the safety-oriented
-/// wrappers (TracerId, NonZero*) for C representation reasons.
+/// wrappers (ProbeId, NonZero*) for C representation reasons.
 #[repr(C)]
 #[derive(Clone)]
 pub struct CausalSnapshot {
-    /// The tracer node at which this history snapshot was created
-    pub tracer_id: u32,
-
-    /// Mapping between tracer_ids and event-counts at each location
+    /// The probe at which this history snapshot was created
+    pub probe_id: u32,
+    /// Mapping between probe_ids and event-counts at each probe
     pub clocks: [LogicalClock; 256],
     /// The number of clocks in the above `clocks` field that
     /// are populated with valid ids and counts
@@ -46,9 +45,9 @@ pub struct CausalSnapshot {
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 #[repr(C)]
 pub struct LogicalClock {
-    /// The tracer node that this clock is tracking
+    /// The probe that this clock is tracking
     /// Equivalent structurally to a u32.
-    pub id: TracerId,
+    pub id: ProbeId,
     /// Clock tick count
     pub count: u32,
 }
@@ -70,8 +69,8 @@ pub trait Tracer {
     /// range.
     fn record_event_with_payload(&mut self, event_id: EventId, payload: u32);
 
-    /// Write a summary of this tracer's causal history for use
-    /// by another Tracer elsewhere in the system.
+    /// Write a summary of this probe's causal history for use
+    /// by another probe elsewhere in the system.
     ///
     /// This summary can be treated as an opaque blob of data
     /// that ought to be passed around to be `merge_snapshot`d, though
@@ -84,13 +83,13 @@ pub trait Tracer {
     fn distribute_snapshot(&mut self, destination: &mut [u8]) -> Result<usize, DistributeError>;
 
     /// Consume a causal history summary structure provided
-    /// by some other Tracer via `distribute_snapshot`.
+    /// by some other probe via `distribute_snapshot`.
     fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError>;
 }
 
 /// Reference implementation of a `ModalityProbe`.
 ///
-/// In addition to the standard `Tracer` API, it includes conveniences for:
+/// In addition to the standard `Probe` API, it includes conveniences for:
 /// * Recording events from primitive ids with just-in-time validation.
 /// * Initialization with variable-sized memory backing.
 /// * Can distribute and merge transparent fixed-sized snapshots in addition
@@ -102,50 +101,51 @@ pub struct ModalityProbe<'a> {
 }
 
 impl<'a> ModalityProbe<'a> {
-    /// Initialize tracing for this location.
-    /// `tracer_id` ought to be unique throughout the system,
-    /// and must be greater than 0 and less than TracerId::MAX_ID.
+    /// Initialize a probe for this probe id.
+    /// `probe_id` ought to be unique throughout the system,
+    /// and must be greater than 0 and less than ProbeId::MAX_ID.
     ///
-    /// Returns a mutable reference to the tracer instance,
+    /// Returns a mutable reference to the probe instance,
     /// which will be somewhere within the provided `memory`
     /// slice.
     ///
     /// This method is used to support completely opaque
-    /// sizing of the tracer implementation, which simplifies
+    /// sizing of the probe implementation, which simplifies
     /// use in C.
     ///
     /// Use `initialize_at` instead if you're working in Rust
-    /// and want to use pre-validatated tracer ids.
+    /// and want to use pre-validatated probe ids.
     ///
     #[inline]
     pub fn try_initialize_at(
         memory: &'a mut [u8],
-        tracer_id: u32,
+        probe_id: u32,
     ) -> Result<&'a mut ModalityProbe<'a>, InitializationError> {
-        let tracer_id = TracerId::try_from(tracer_id)
-            .map_err(|_: InvalidTracerId| InitializationError::InvalidTracerId)?;
-        ModalityProbe::initialize_at(memory, tracer_id)
+        let probe_id = ProbeId::try_from(probe_id)
+            .map_err(|_: InvalidProbeId| InitializationError::InvalidProbeId)?;
+        ModalityProbe::initialize_at(memory, probe_id)
             .map_err(InitializationError::StorageSetupError)
     }
-    /// Initialize tracing for this location.
-    /// `tracer_id` ought to be unique throughout the system.
+
+    /// Initialize a probe for this probe id.
+    /// `probe_id` ought to be unique throughout the system.
     ///
-    /// Returns a mutable reference to the tracer instance,
+    /// Returns a mutable reference to the probe instance,
     /// which will be somewhere within the provided `memory`
     /// slice.
     ///
     /// This method is used to support completely opaque
-    /// sizing of the tracer implementation, which simplifies
+    /// sizing of the probe implementation, which simplifies
     /// use in C.
     ///
     /// Use `new_with_storage` instead if you're working in Rust.
     #[inline]
     pub fn initialize_at(
         memory: &'a mut [u8],
-        tracer_id: TracerId,
+        probe_id: ProbeId,
     ) -> Result<&'a mut ModalityProbe<'a>, StorageSetupError> {
         match embed(memory, |history_memory| {
-            ModalityProbe::new_with_storage(history_memory, tracer_id)
+            ModalityProbe::new_with_storage(history_memory, probe_id)
         }) {
             Ok(v) => Ok(v),
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
@@ -162,18 +162,18 @@ impl<'a> ModalityProbe<'a> {
         }
     }
 
-    /// Initialize tracing for this location,
+    /// Initialize a probe for this probe id,
     /// using `history_memory` for backing storage while
-    /// returning a tracer instance on the stack.
+    /// returning a probe instance on the stack.
     ///
-    /// `tracer_id` ought to be unique throughout the system.
+    /// `probe_id` ought to be unique throughout the system.
     #[inline]
     pub fn new_with_storage(
         history_memory: &'a mut [u8],
-        tracer_id: TracerId,
+        probe_id: ProbeId,
     ) -> Result<ModalityProbe<'a>, StorageSetupError> {
         let t = ModalityProbe::<'a> {
-            history: DynamicHistory::new_at(history_memory, tracer_id)?,
+            history: DynamicHistory::new_at(history_memory, probe_id)?,
         };
         Ok(t)
     }
@@ -217,8 +217,8 @@ impl<'a> ModalityProbe<'a> {
         Ok(())
     }
 
-    /// Produce a transmittable summary of this tracer's
-    /// causal history for use by another Tracer elsewhere
+    /// Produce a transmittable summary of this probe's
+    /// causal history for use by another probe elsewhere
     /// in the system.
     ///
     /// Pre-pruned to the causal history of just this node
@@ -229,7 +229,7 @@ impl<'a> ModalityProbe<'a> {
     }
 
     /// Consume a fixed-sized causal history summary structure provided
-    /// by some other Tracer.
+    /// by some other probe.
     #[inline]
     pub fn merge_fixed_size_snapshot(
         &mut self,
@@ -238,8 +238,8 @@ impl<'a> ModalityProbe<'a> {
         self.history.merge_fixed_size(external_history)
     }
 
-    /// Write a summary of this tracer's causal history, including the
-    /// given opaque extension metadata, for use by another Tracer elsewhere in
+    /// Write a summary of this probe's causal history, including the
+    /// given opaque extension metadata, for use by another probe elsewhere in
     /// the system.
     ///
     /// This summary can be treated as an opaque blob of data that
@@ -260,7 +260,7 @@ impl<'a> ModalityProbe<'a> {
             .write_lcm_snapshot_with_metadata(destination, meta)
     }
     /// Consume a causal history summary structure provided
-    /// by some other Tracer via `distribute_snapshot` or
+    /// by some other probe via `distribute_snapshot` or
     /// `distribute_snapshot_with_metadata` and return the extension
     /// metadata bytes for further custom processing.
     pub fn merge_snapshot_with_metadata<'d>(
@@ -280,13 +280,13 @@ impl<'a> ModalityProbe<'a> {
 /// A situated moment in causal time.
 ///
 /// Note the use of bare integer types rather than the safety-oriented
-/// wrappers (TracerId, NonZero*) for C representation reasons.
+/// wrappers (ProbeId, NonZero*) for C representation reasons.
 #[derive(Debug, PartialEq, Hash)]
 #[repr(C)]
 pub struct ModalityProbeInstant {
-    /// The current location's logical clock.
-    /// `clock.id` should be equivalent to the id
-    /// (a.k.a TracerId or location id) of the source `ModalityProbe` instance
+    /// The current probe's logical clock.
+    /// `clock.id` should be equivalent to the probe id
+    /// of the source `ModalityProbe` instance
     pub clock: LogicalClock,
     /// How many events have been seen since the source instance
     /// reached the associated `clock`'s point in causal
