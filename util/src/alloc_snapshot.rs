@@ -20,8 +20,7 @@ pub struct OwnedSnapshot {
 
 impl OwnedSnapshot {
     pub fn to_lcm_bytes(&self) -> Result<Vec<u8>, SnapshotToLcmError> {
-        let mut guessed_size =
-            size_of::<u64>() // expected fingerprint size
+        let mut guessed_size = size_of::<u64>() // expected fingerprint size
             + size_of_val(self)
             + (size_of::<LogicalClock>() * self.clocks.len())
             + self.extension_bytes.len();
