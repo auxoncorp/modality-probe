@@ -1,4 +1,4 @@
-//! A wire protocol for representing ekotrace log reports
+//! A wire protocol for representing Modality probe log reports
 //! that are fragmented into multiple chunks due to sizing
 //! constraints
 //!
@@ -127,7 +127,7 @@ pub struct WireBulkHeader {
     /// data encoded in this pile of bytes.
     pub fingerprint: [u8; 4],
     /// A u32 representing the tracer_id (a.k.a. location id) of the
-    /// ekotrace agent instance producing this report.
+    /// Modality probe instance producing this report.
     pub location_id: [u8; 4],
     /// How many of the payload bytes are populated with log data?
     pub n_log_bytes: [u8; 4],
@@ -203,7 +203,7 @@ pub enum ParseBulkFromWireError {
     /// expectations from inspecting the header).
     IncompletePayload,
     /// The tracer id didn't follow the rules for being
-    /// a valid ekotrace-location-specifying TracerId
+    /// a valid Modality probe-specifying TracerId
     InvalidTracerId(u32),
 }
 

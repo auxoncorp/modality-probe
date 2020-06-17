@@ -276,7 +276,7 @@ pub struct LogSegmentEventIterator<'a> {
 /// into a concrete stream of events.
 #[derive(Debug)]
 pub enum LogEventInterpretationError {
-    /// The event id was not in the allowed ekotrace::EventId ranges
+    /// The event id was not in the allowed modality_probe::EventId ranges
     InvalidEventId(u32),
     /// An event with the "has a payload" flag was found, but the payload-bearing
     /// log item expected next was not present. This may happen when iterating
@@ -366,7 +366,7 @@ where
 /// the compact log was created wrong. Here's how.
 #[derive(Debug, PartialEq, Eq)]
 pub enum LogicalClockInterpretationError {
-    /// The id was not in the allowed ekotrace::TracerId range
+    /// The id was not in the allowed modality_probe::TracerId range
     InvalidTracerId(u32),
     /// A logical clock id was found, but the count-bearing
     /// log item expected next was not present. This may happen when iterating

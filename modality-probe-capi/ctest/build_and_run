@@ -8,5 +8,5 @@ set -ex
 
 LD_LIBRARY_PATH=../target/debug ./test_dyn
 
-# This test shouldn't be linked to libekotrace
+# This test shouldn't be linked to libmodality_probe
 ./test_noop

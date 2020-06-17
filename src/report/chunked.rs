@@ -1,4 +1,4 @@
-//! A wire protocol for representing ekotrace log reports
+//! A wire protocol for representing Modality probe log reports
 //! that are fragmented into multiple chunks due to sizing
 //! constraints
 //!
@@ -37,12 +37,12 @@ pub struct WireChunkHeader {
     /// data encoded in this pile of bytes.
     pub fingerprint: [u8; 4],
     /// A u32 representing the tracer_id (a.k.a. location id) of the
-    /// ekotrace agent instance producing this report.
+    /// Modality probe instance producing this report.
     pub location_id: [u8; 4],
     /// A u16 representing the group of report chunks to which
-    /// this chunk belongs. Determined by the ekotrace instance.
+    /// this chunk belongs. Determined by the Modality probe instance.
     /// Expected, but not guaranteed to be increasing
-    /// and wrapping-overflowing during the lifetime of an ekotrace
+    /// and wrapping-overflowing during the lifetime of an Modality probe
     /// instance.
     ///
     /// Erring on the side of a large
@@ -480,7 +480,7 @@ pub enum ParseChunkFromWireError {
     /// The data type was not one of the supported varieties
     UnsupportedDataType(u8),
     /// The tracer id didn't follow the rules for being
-    /// a valid ekotrace-location-specifying TracerId
+    /// a valid Modality probe-specifying TracerId
     InvalidTracerId(u32),
 }
 
@@ -489,12 +489,12 @@ pub enum ParseChunkFromWireError {
 #[derive(Debug, PartialEq)]
 pub struct NativeChunkHeader {
     /// The tracer_id (a.k.a. location id) of the
-    /// ekotrace agent instance producing this report.
+    /// Modality probe instance producing this report.
     pub location_id: TracerId,
     /// A u16 representing the group of report chunks to which
-    /// this chunk belongs. Determined by the ekotrace instance.
+    /// this chunk belongs. Determined by the Modality probe instance.
     /// Expected, but not guaranteed to be increasing
-    /// and wrapping-overflowing during the lifetime of an ekotrace
+    /// and wrapping-overflowing during the lifetime of an Modality probe
     /// instance.
     pub chunk_group_id: u16,
     /// In what ordinal position does this chunk's payload live relative to the other chunks.
@@ -618,7 +618,7 @@ mod tests {
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
         let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
-            .expect("Could not initialize ekotrace");
+            .expect("Could not initialize Modality probe");
         let token = eko
             .start_chunked_report()
             .expect("Could not start chunked report");
@@ -643,7 +643,7 @@ mod tests {
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
         let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
-            .expect("Could not initialize ekotrace");
+            .expect("Could not initialize Modality probe");
         for i in 1..=MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK {
             eko.record_event(EventId::new(i as u32).unwrap());
         }
@@ -679,12 +679,12 @@ mod tests {
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage_foo = [0u8; 4096];
         let mut eko_foo = ModalityProbe::new_with_storage(&mut storage_foo, tracer_id_foo)
-            .expect("Could not initialize ekotrace");
+            .expect("Could not initialize Modality probe");
 
         let tracer_id_bar = 1u32.try_into().expect("Invalid tracer id");
         let mut storage_bar = [0u8; 4096];
         let mut eko_bar = ModalityProbe::new_with_storage(&mut storage_bar, tracer_id_bar)
-            .expect("Could not initialize ekotrace");
+            .expect("Could not initialize Modality probe");
         let bar_snapshot_len = eko_bar
             .distribute_snapshot(&mut other_transmission_buffer)
             .unwrap();
@@ -795,7 +795,7 @@ mod tests {
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
         let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
-            .expect("Could not initialize ekotrace");
+            .expect("Could not initialize Modality probe");
         let made_up_token = ChunkedReportToken { group_id: 0 };
         assert_eq!(
             ChunkedReportError::NoChunkedReportInProgress,
@@ -814,7 +814,7 @@ mod tests {
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
         let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
-            .expect("Could not initialize ekotrace");
+            .expect("Could not initialize Modality probe");
         let token = eko
             .start_chunked_report()
             .expect("Could not start chunked report");
@@ -848,7 +848,7 @@ mod tests {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
         let mut storage = [0u8; 4096];
         let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
-            .expect("Could not initialize ekotrace");
+            .expect("Could not initialize Modality probe");
         let _token = eko
             .start_chunked_report()
             .expect("Could not start chunked report");
@@ -865,7 +865,7 @@ mod tests {
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
         let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
-            .expect("Could not initialize ekotrace");
+            .expect("Could not initialize Modality probe");
         let token = eko
             .start_chunked_report()
             .expect("Could not start chunked report");
@@ -909,7 +909,8 @@ mod tests {
             let mut report_transmission_buffer: Vec<u8> = Vec::new();
             report_transmission_buffer.resize(MAX_CHUNK_BYTES, 0u8);
             let mut storage = [0u8; 4096];
-            let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id).expect("Could not initialize ekotrace");
+            let mut eko = ModalityProbe::new_with_storage(
+                &mut storage, tracer_id).expect("Could not initialize Modality probe");
             let mut seen_group_ids = HashSet::new();
 
             for (produced_report_index, input_events) in event_lists.iter().enumerate() {

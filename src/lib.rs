@@ -1,4 +1,4 @@
-//! ekotrace, a causal history tracing system
+//! Modality probe, a causal history tracing system
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(warnings)]
 #![deny(missing_docs)]
@@ -53,7 +53,7 @@ pub struct LogicalClock {
     pub count: u32,
 }
 
-/// Interface for the core (post-initialization) operations of `ekotrace`
+/// Interface for the core (post-initialization) operations of `ModalityProbe`
 pub trait Tracer {
     /// Record that an event occurred. The end user is responsible
     /// for associating meaning with each event_id.
@@ -88,7 +88,7 @@ pub trait Tracer {
     fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError>;
 }
 
-/// Reference implementation of an `ekotrace` tracer.
+/// Reference implementation of a `ModalityProbe`.
 ///
 /// In addition to the standard `Tracer` API, it includes conveniences for:
 /// * Recording events from primitive ids with just-in-time validation.

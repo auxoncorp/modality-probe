@@ -1,4 +1,4 @@
-//! Identifiers critical to the Ekotrace system
+//! Identifiers critical to the Modality probe system
 use crate::{InvalidEventId, InvalidTracerId};
 use core::convert::{TryFrom, TryInto};
 use core::num::NonZeroU32;
@@ -192,7 +192,7 @@ impl EventId {
     /// A logical clock's count reached the maximum trackable value
     pub const EVENT_LOGICAL_CLOCK_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 3) });
-    /// The local tracing instance (e.g. Ekotrace) did not have enough memory
+    /// The local instance (e.g. Modality probe) did not have enough memory
     /// reserved to store enough logical clocks to track all of the unique
     /// neighbors that attempt to communicate with it.
     pub const EVENT_NUM_CLOCKS_OVERFLOWED: EventId =

@@ -5,7 +5,7 @@ fn main() {
     // NOTE: use the desired shared object name here, not the crate name,
     // we do this so we don't have to run `patchelf --set-soname ...` afterwards
     // which breaks ldconfig, doing it here means it happens at link-time
-    let name = "ekotrace";
+    let name = "modality_probe";
 
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap();

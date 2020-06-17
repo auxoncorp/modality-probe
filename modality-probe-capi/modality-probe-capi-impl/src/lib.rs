@@ -334,7 +334,8 @@ pub unsafe fn modality_probe_now(tracer: *mut ModalityProbe<'static>) -> Modalit
     };
     tracer.now()
 }
-// ChunkedReportToken is expressed as a uint16_t in ekotrace.h ,
+
+// ChunkedReportToken is expressed as a uint16_t in probe.h,
 // so let's be extra sure that the sizes and alignment match up
 use static_assertions::{assert_eq_align, assert_eq_size};
 assert_eq_size!(u16, ChunkedReportToken);
@@ -345,12 +346,13 @@ assert_eq_align!(u16, ChunkedReportToken);
 /// Populates the out-parameter `out_report_token` with
 /// a value that will be used to produce the
 /// chunks for the report in calls to
-/// `modality_probe_write_next_report_chunk` and `modality_probe_finish_chunked_report`
+/// `modality_probe_write_next_report_chunk` and
+/// `modality_probe_finish_chunked_report`
 ///
 /// Once this method has been called, mutating operations on
 /// the ModalityProbe instance will return
-/// `MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR` until all available chunks have
-/// been written with  `modality_probe_write_next_report_chunk`
+/// `MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR` until all available chunks
+/// have been written with  `modality_probe_write_next_report_chunk`
 /// and `modality_probe_finish_chunked_report` called.
 ///
 /// # Safety

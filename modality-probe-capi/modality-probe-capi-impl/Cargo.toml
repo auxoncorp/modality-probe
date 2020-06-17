@@ -11,7 +11,7 @@ workspace = ".."
 [lib]
 name = "modality_probe_capi_impl"
 # Note that we intentionally separate out the staticlib and cydlib
-# crate types into ekotrace-capi to avoid the pain of panic handler
+# crate types into modality-probe-capi to avoid the pain of panic handler
 # definition conflicts
 crate-type = ["lib"]
 
