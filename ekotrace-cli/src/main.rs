@@ -1,6 +1,13 @@
-use ekotrace_cli::{analysis, header_gen, lang::Lang, manifest_gen};
 use std::path::PathBuf;
+
 use structopt::StructOpt;
+
+use ekotrace_cli::{
+    export::{self, Export},
+    header_gen,
+    lang::Lang,
+    manifest_gen,
+};
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "ekotrace", about = "Ekotrace command line interface")]
@@ -11,8 +18,8 @@ enum Opt {
     /// Generate Rust/C header files with event/tracer id constants
     HeaderGen(HeaderGen),
 
-    /// Analyze 'Ekotrace' event logs
-    Analysis(Analysis),
+    /// Export a collected event log in a well-known graph format.
+    Export(Export),
 }
 
 #[derive(Debug, StructOpt)]
@@ -76,48 +83,6 @@ pub struct HeaderGen {
     output_path: Option<PathBuf>,
 }
 
-#[derive(Debug, StructOpt)]
-enum Analysis {
-    SessionSummary {
-        /// Event log csv file
-        #[structopt(parse(from_os_str))]
-        event_log_csv_file: PathBuf,
-    },
-
-    /// Produce a graphviz (.dot) formatted graph of log segments and direct
-    /// causal relationships. The .dot source is printed to standard out.
-    SegmentGraph {
-        /// Event log csv file
-        #[structopt(parse(from_os_str))]
-        event_log_csv_file: PathBuf,
-
-        /// The session to graph
-        session_id: u32,
-    },
-
-    /// Produce a graphviz (.dot) formatted graph of log events and direct
-    /// causal relationships. The .dot source is printed to standard out.
-    EventGraph {
-        /// Event log csv file
-        #[structopt(parse(from_os_str))]
-        event_log_csv_file: PathBuf,
-
-        /// The session to graph
-        session_id: u32,
-    },
-
-    /// See if event A is caused by (is a causal descendant of) event B. Events
-    /// are identified by "<session id>.<segment id>.<segment index>".
-    QueryCausedBy {
-        /// Event log csv file
-        #[structopt(parse(from_os_str))]
-        event_log_csv_file: PathBuf,
-
-        event_a: analysis::EventCoordinates,
-        event_b: analysis::EventCoordinates,
-    },
-}
-
 impl From<ManifestGen> for manifest_gen::Opt {
     fn from(opt: ManifestGen) -> Self {
         manifest_gen::Opt {
@@ -146,39 +111,6 @@ impl From<HeaderGen> for header_gen::Opt {
     }
 }
 
-impl From<Analysis> for analysis::Opt {
-    fn from(opt: Analysis) -> Self {
-        match opt {
-            Analysis::SessionSummary { event_log_csv_file } => {
-                analysis::Opt::SessionSummary { event_log_csv_file }
-            }
-            Analysis::SegmentGraph {
-                event_log_csv_file,
-                session_id,
-            } => analysis::Opt::SegmentGraph {
-                event_log_csv_file,
-                session_id,
-            },
-            Analysis::EventGraph {
-                event_log_csv_file,
-                session_id,
-            } => analysis::Opt::EventGraph {
-                event_log_csv_file,
-                session_id,
-            },
-            Analysis::QueryCausedBy {
-                event_log_csv_file,
-                event_a,
-                event_b,
-            } => analysis::Opt::QueryCausedBy {
-                event_log_csv_file,
-                event_a,
-                event_b,
-            },
-        }
-    }
-}
-
 fn main() {
     let opt = Opt::from_args();
 
@@ -190,6 +122,10 @@ fn main() {
     match opt {
         Opt::ManifestGen(opt) => manifest_gen::run(opt.into()),
         Opt::HeaderGen(opt) => header_gen::run(opt.into(), internal_events),
-        Opt::Analysis(opt) => analysis::run(opt.into()),
+        Opt::Export(exp) => {
+            if let Err(e) = export::run(exp) {
+                println!("Error: {}", e);
+            }
+        }
     }
 }
