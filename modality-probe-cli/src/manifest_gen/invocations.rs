@@ -77,7 +77,7 @@ pub struct Config<'cfg> {
 impl<'cfg> Default for Config<'cfg> {
     fn default() -> Self {
         Config {
-            log_prefix: "ekotrace",
+            log_prefix: "modality-probe",
             log_module: "manifest-gen",
             lang: None,
             no_tracers: false,
@@ -822,7 +822,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "event_a".to_string(),
-                agent_instance: "ekt".to_string(),
+                agent_instance: "probe".to_string(),
                 payload: None,
                 description: None,
                 tags: None,
@@ -849,7 +849,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                agent_instance: "ekt".to_string(),
+                agent_instance: "probe".to_string(),
                 payload: None,
                 description: None,
                 tags: None,
@@ -863,7 +863,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                agent_instance: "ekt".to_string(),
+                agent_instance: "probe".to_string(),
                 payload: None,
                 description: None,
                 tags: None,
@@ -890,7 +890,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                agent_instance: "ekt".to_string(),
+                agent_instance: "probe".to_string(),
                 payload: None,
                 description: None,
                 tags: None,
@@ -938,7 +938,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                agent_instance: "ekt".to_string(),
+                agent_instance: "probe".to_string(),
                 payload: None,
                 description: None,
                 tags: None,
@@ -986,7 +986,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                agent_instance: "ekt".to_string(),
+                agent_instance: "probe".to_string(),
                 payload: Some((TypeHint::U8, "mydata").into()),
                 description: None,
                 tags: None,
@@ -1034,7 +1034,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                agent_instance: "ekt".to_string(),
+                agent_instance: "probe".to_string(),
                 payload: None,
                 description: Some("desc".to_string()),
                 tags: Some("my-tag".to_string()),

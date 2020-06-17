@@ -28,7 +28,7 @@ pub struct CParser<'a> {
 impl<'a> Default for CParser<'a> {
     fn default() -> Self {
         CParser {
-            config: ParserConfig { prefix: "EKOTRACE" },
+            config: ParserConfig { prefix: "MODALITY" },
         }
     }
 }
@@ -591,111 +591,112 @@ mod tests {
 
     const MIXED_TRACER_ID_INPUT: &'static str = r#"
     /* C/C++ style */
-    ekotrace_result result = EKOTRACE_INITIALIZE(
+    modality_probe_error result = MODALITY_INITIALIZE(
         destination,
-        DEFAULT_TRACER_SIZE,
-        DEFAULT_TRACER_ID,
+        DEFAULT_PROBE_SIZE,
+        DEFAULT_PROBE_ID,
         &t);
 
     // One line
-    EKOTRACE_INITIALIZE(dest,TRACER_SIZE,MY_TRACER_ID,&t);
+    MODALITY_INITIALIZE(dest,PROBE_SIZE,MY_PROBE_ID,&t);
 
-    const size_t err = EKOTRACE_INITIALIZE(     dest,  TRACER_SIZE,
-    LOCATION_ID_FOO,      &t);
+    const size_t err = MODALITY_INITIALIZE(     dest,  PROBE_SIZE,
+    PROBE_ID_FOO,      &t);
 
     const size_t err =
-        EKOTRACE_INITIALIZE(
+        MODALITY_INITIALIZE(
         // stuff
         dest, // more stuff
-        TRACER_SIZE, /* comment */
-    LOCATION_ID_BAR,   /* things */   &t);
+        PROBE_SIZE, /* comment */
+    PROBE_ID_BAR,   /* things */   &t);
 
-    EKOTRACE_INITIALIZE(
-        dest, /* more docs */ TRACER_SIZE , /* docs */ MY_OTHER_TRACER_ID, /* docs */ &t, "desc");
+    MODALITY_INITIALIZE(
+        dest, /* more docs */ PROBE_SIZE , /* docs */ MY_OTHER_PROBE_ID, /* docs */ &t, "desc");
 
     /* things in comments
      * are
      * ignored
      *
-     * EKOTRACE_INITIALIZE(dest,TRACER_SIZE,ANOTHER_ID,&t);
+     * MODALITY_INITIALIZE(dest,PROBE_SIZE,ANOTHER_ID,&t);
      *
      */
-    size_t err = EKOTRACE_INITIALIZE(
+    size_t err = MODALITY_INITIALIZE(
             &g_agent_storage[0],
             STORAGE_SIZE,
-            LOCATION_ID_FOO,
+            PROBE_ID_FOO,
             &g_agent,
             "tags=my-tags;more tags",
             "Description");
-    assert(err == EKOTRACE_ERROR_OK);
+    assert(err == MODALITY_PROBE_ERROR_OK);
 
-    EKOTRACE_INITIALIZE(storage, size, ID_BAR, t, "tags=my tag");
+    MODALITY_INITIALIZE(storage, size, ID_BAR, t, "tags=my tag");
 "#;
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
     /* The user writes this line: */
-    const size_t err = EKOTRACE_RECORD(g_ekotrace, EVENT_READ1);
+    const size_t err = MODALITY_RECORD(g_probe, EVENT_READ1);
 
-    assert(err == EKOTRACE_ERROR_OK);
+    assert(err == MODALITY_PROBE_ERROR_OK);
 
-    /* The tooling replaces it with this (assumes it picked ID 1): */
-    const size_t err = EKOTRACE_RECORD(g_ekotrace, EVENT_READ2, "my docs");
+    /*
+     * Comments */
+    const size_t err = MODALITY_RECORD(g_probe, EVENT_READ2, "my docs");
 
-    assert(err == EKOTRACE_ERROR_OK);
+    assert(err == MODALITY_PROBE_ERROR_OK);
 
-    EKOTRACE_RECORD(
-            ekt, /* comments */
+    MODALITY_RECORD(
+            probe, /* comments */
             EVENT_WRITE1,
             "tags=network"); // more comments
 
-    EKOTRACE_RECORD(  ekt, /* comments */ EVENT_WRITE2, "tags=network;file-system", "docs"); // more comments
+    MODALITY_RECORD(  probe, /* comments */ EVENT_WRITE2, "tags=network;file-system", "docs"); // more comments
 
     uint8_t status;
-    const size_t err = EKOTRACE_RECORD_W_U8(ekt, EVENT_A, status);
+    const size_t err = MODALITY_RECORD_W_U8(probe, EVENT_A, status);
 
-    const size_t err = EKOTRACE_RECORD_W_U8(
-        ekt, // stuff
+    const size_t err = MODALITY_RECORD_W_U8(
+        probe, // stuff
         EVENT_B, /* here */
         status,
         "desc text here"); // The end
 
     /* stuff
-     * EKOTRACE_RECORD_W_U8(ekt, SOME_EVENT, status);
+     * MODALITY_RECORD_W_U8(probe, SOME_EVENT, status);
      */
-    const size_t err = EKOTRACE_RECORD_W_I16(ekt, EVENT_C, (int16_t) data);
+    const size_t err = MODALITY_RECORD_W_I16(probe, EVENT_C, (int16_t) data);
 
-    const size_t err = EKOTRACE_RECORD_W_I16(ekt, EVENT_D, (int16_t) data, "docs");
+    const size_t err = MODALITY_RECORD_W_I16(probe, EVENT_D, (int16_t) data, "docs");
 
-    const size_t err = EKOTRACE_RECORD_W_I8(ekt, EVENT_E,
+    const size_t err = MODALITY_RECORD_W_I8(probe, EVENT_E,
     (int8_t) *((uint8_t*) &mydata));
 
-    const size_t err = EKOTRACE_RECORD_W_U16(
-        ekt,
+    const size_t err = MODALITY_RECORD_W_U16(
+        probe,
         EVENT_F,
     (uint16_t) *((uint16_t*) &mydata),
     "tags=my tag"
     );
 
-    const size_t err = EKOTRACE_RECORD_W_U16(
-        ekt,
+    const size_t err = MODALITY_RECORD_W_U16(
+        probe,
         EVENT_G,
     (uint16_t) *((uint16_t*) &mydata),
     " docs ", /* Order of tags and docs doesn't matter */
     "tags=thing1;thing2;my::namespace;tag with spaces" //docs
     );
 
-    err = EKOTRACE_EXPECT(
-            tracer,
+    err = MODALITY_EXPECT(
+            probe,
             EVENT_H,
             1 == 0, /* Arbitrary expression, evaluates to 0 (failure) or 1 (success) */
             "tags=severity.1;another tag",
             "Some description");
-    assert(err == EKOTRACE_ERROR_OK);
+    assert(err == MODALITY_PROBE_ERROR_OK);
 
-    EKOTRACE_EXPECT(ekt, EVENT_I, *foo != (1 + bar), "tags=expectation;severity.2;network");
+    MODALITY_EXPECT(probe, EVENT_I, *foo != (1 + bar), "tags=expectation;severity.2;network");
 
     /* Special "expectation" tag is inserted"
-    EKOTRACE_EXPECT(ekt, EVENT_J, 0 == 0);
+    MODALITY_EXPECT(probe, EVENT_J, 0 == 0);
 "#;
 
     #[test]
@@ -706,44 +707,44 @@ mod tests {
             tokens,
             Ok(vec![
                 TracerMetadata {
-                    name: "DEFAULT_TRACER_ID".to_string(),
-                    location: (52, 3, 30).into(),
+                    name: "DEFAULT_PROBE_ID".to_string(),
+                    location: (57, 3, 35).into(),
                     tags: None,
                     description: None,
                 },
                 TracerMetadata {
-                    name: "MY_TRACER_ID".to_string(),
-                    location: (184, 10, 5).into(),
+                    name: "MY_PROBE_ID".to_string(),
+                    location: (187, 10, 5).into(),
                     tags: None,
                     description: None,
                 },
                 TracerMetadata {
-                    name: "LOCATION_ID_FOO".to_string(),
-                    location: (263, 12, 24).into(),
+                    name: "PROBE_ID_FOO".to_string(),
+                    location: (264, 12, 24).into(),
                     tags: None,
                     description: None,
                 },
                 TracerMetadata {
-                    name: "LOCATION_ID_BAR".to_string(),
-                    location: (371, 16, 9).into(),
+                    name: "PROBE_ID_BAR".to_string(),
+                    location: (368, 16, 9).into(),
                     tags: None,
                     description: None,
                 },
                 TracerMetadata {
-                    name: "MY_OTHER_TRACER_ID".to_string(),
-                    location: (520, 22, 5).into(),
+                    name: "MY_OTHER_PROBE_ID".to_string(),
+                    location: (513, 22, 5).into(),
                     tags: None,
                     description: Some("desc".to_string()),
                 },
                 TracerMetadata {
-                    name: "LOCATION_ID_FOO".to_string(),
-                    location: (792, 32, 18).into(),
+                    name: "PROBE_ID_FOO".to_string(),
+                    location: (782, 32, 18).into(),
                     tags: Some("my-tags;more tags".to_string()),
                     description: Some("Description".to_string()),
                 },
                 TracerMetadata {
                     name: "ID_BAR".to_string(),
-                    location: (1032, 41, 5).into(),
+                    location: (1025, 41, 5).into(),
                     tags: Some("my tag".to_string()),
                     description: None,
                 },
@@ -760,7 +761,7 @@ mod tests {
             Ok(vec![
                 EventMetadata {
                     name: "EVENT_READ1".to_string(),
-                    agent_instance: "g_ekotrace".to_string(),
+                    agent_instance: "g_probe".to_string(),
                     payload: None,
                     description: None,
                     tags: None,
@@ -768,107 +769,107 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_READ2".to_string(),
-                    agent_instance: "g_ekotrace".to_string(),
+                    agent_instance: "g_probe".to_string(),
                     payload: None,
                     description: Some("my docs".to_string()),
                     tags: None,
-                    location: (236, 8, 24).into(),
+                    location: (195, 9, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_WRITE1".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: None,
                     tags: Some("network".to_string()),
-                    location: (333, 12, 5).into(),
+                    location: (295, 13, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_WRITE2".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: Some("docs".to_string()),
                     tags: Some("network;file-system".to_string()),
-                    location: (459, 17, 5).into(),
+                    location: (423, 18, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_A".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
                     description: None,
                     tags: None,
-                    location: (609, 20, 24).into(),
+                    location: (575, 21, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_B".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
                     description: Some("desc text here".to_string()),
                     tags: None,
-                    location: (677, 22, 24).into(),
+                    location: (645, 23, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_C".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: None,
                     tags: None,
-                    location: (902, 31, 24).into(),
+                    location: (874, 32, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_D".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: Some("docs".to_string()),
                     tags: None,
-                    location: (979, 33, 24).into(),
+                    location: (953, 34, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_E".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::I8, "(int8_t) *((uint8_t*) &mydata)").into()),
                     description: None,
                     tags: None,
-                    location: (1064, 35, 24).into(),
+                    location: (1040, 36, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_F".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: None,
                     tags: Some("my tag".to_string()),
-                    location: (1160, 38, 24).into(),
+                    location: (1138, 39, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_G".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: Some("docs".to_string()),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
-                    location: (1301, 45, 24).into(),
+                    location: (1281, 46, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_H".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "1 == 0").into()),
                     description: Some("Some description".to_string()),
                     tags: Some("expectation;severity.1;another tag".to_string()),
-                    location: (1531, 53, 11).into(),
+                    location: (1513, 54, 11).into(),
                 },
                 EventMetadata {
                     name: "EVENT_I".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "*foo != (1 + bar)").into()),
                     description: None,
                     tags: Some("expectation;severity.2;network".to_string()),
-                    location: (1796, 61, 5).into(),
+                    location: (1783, 62, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_J".to_string(),
-                    agent_instance: "ekt".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "0 == 0").into()),
                     description: None,
                     tags: Some("expectation".to_string()),
-                    location: (1936, 64, 5).into(),
+                    location: (1925, 65, 5).into(),
                 },
             ])
         );
@@ -878,18 +879,18 @@ mod tests {
     fn missing_semicolon_errors() {
         let parser = CParser::default();
         let input = r#"
-const size_t err = EKOTRACE_RECORD(g_ekotrace, EVENT_READ)
-assert(err == EKOTRACE_ERROR_OK);
+const size_t err = MODALITY_RECORD(g_probe, EVENT_READ)
+assert(err == MODALITY_PROBE_ERROR_OK);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((20, 2, 20).into())));
-        let input = "const size_t err = EKOTRACE_RECORD(g_ekotrace, EVENT_READ)";
+        let input = "const size_t err = MODALITY_RECORD(g_probe, EVENT_READ)";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((19, 1, 20).into())));
-        let input = "EKOTRACE_RECORD_W_I16(ekt, E0, data)";
+        let input = "MODALITY_RECORD_W_I16(probe, E0, data)";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
-        let input = "EKOTRACE_INITIALIZE(storage, size, ID_BAR, t)";
+        let input = "MODALITY_INITIALIZE(storage, size, ID_BAR, t)";
         let tokens = parser.parse_tracer_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
     }
@@ -898,13 +899,13 @@ assert(err == EKOTRACE_ERROR_OK);
     fn syntax_errors() {
         let parser = CParser::default();
         let input = r#"
-const size_t err = EKOTRACE_RECORD_W_U8(g_ekotrace, EVENT_READ, (uint8_t) (( ))))status);
+const size_t err = MODALITY_RECORD_W_U8(g_probe, EVENT_READ, (uint8_t) (( ))))status);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((20, 2, 20).into())));
         let input = r#"
-const size_t err = EKOTRACE_RECORD_W_U8(g_ekotrace, EVENT_READ, (uint8_t) status)
-assert(err == EKOTRACE_ERROR_OK);
+const size_t err = MODALITY_RECORD_W_U8(g_probe, EVENT_READ, (uint8_t) status)
+assert(err == MODALITY_PROBE_ERROR_OK);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(
@@ -912,19 +913,19 @@ assert(err == EKOTRACE_ERROR_OK);
             Err(Error::PayloadArgumentSpansManyLines((20, 2, 20).into()))
         );
         let input = r#"
-err = EKOTRACE_RECORD_W_U8(
-        g_ekotrace,
+err = MODALITY_RECORD_W_U8(
+        g_probe,
         EVENT_READ_STATUS2,
         (uint8_t) status,
-assert(err == EKOTRACE_ERROR_OK);
+assert(err == MODALITY_PROBE_ERROR_OK);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((7, 2, 7).into())));
         let input = r#"
-err = EKOTRACE_RECORD(
-        g_ekotrace,
+err = MODALITY_RECORD(
+        g_probe,
         EVENT_READ_STATUS2,
-assert(err == EKOTRACE_ERROR_OK);
+assert(err == MODALITY_PROBE_ERROR_OK);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((7, 2, 7).into())));
@@ -933,7 +934,7 @@ assert(err == EKOTRACE_ERROR_OK);
     #[test]
     fn event_payload_type_hint_errors() {
         let parser = CParser::default();
-        let input = "EKOTRACE_RECORD_W_I12(ekt, E0, data);";
+        let input = "MODALITY_RECORD_W_I12(probe, E0, data);";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::UnrecognizedTypeHint((0, 1, 1).into())));
     }
@@ -941,7 +942,7 @@ assert(err == EKOTRACE_ERROR_OK);
     #[test]
     fn event_payload_casing_errors() {
         let parser = CParser::default();
-        let input = "EKOTRACE_RECORD_W_i8(ekt, EVENT_A, status);";
+        let input = "MODALITY_RECORD_W_i8(probe, EVENT_A, status);";
         let tokens = parser.parse_event_md(input);
         assert_eq!(
             tokens,
@@ -952,13 +953,13 @@ assert(err == EKOTRACE_ERROR_OK);
     #[test]
     fn empty_event_tags_errors() {
         let parser = CParser::default();
-        let input = r#"EKOTRACE_RECORD(ekt, EVENT_A, "tags=", "desc");"#;
+        let input = r#"MODALITY_RECORD(probe, EVENT_A, "tags=", "desc");"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
-        let input = r#"EKOTRACE_RECORD(ekt, EVENT_A, "tags=");"#;
+        let input = r#"MODALITY_RECORD(probe, EVENT_A, "tags=");"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
-        let input = r#"EKOTRACE_RECORD_W_U32(ekt, EVENT_A, 123, "desc", "tags=");"#;
+        let input = r#"MODALITY_RECORD_W_U32(probe, EVENT_A, 123, "desc", "tags=");"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
     }

@@ -31,7 +31,7 @@ pub(crate) trait GracefulExit<T> {
 impl<T, E: Display> GracefulExit<T> for Result<T, E> {
     fn unwrap_or_exit(self, msg: &str) -> T {
         self.unwrap_or_else(|e| {
-            eprintln!("ekotrace {}: error: {}", msg, e);
+            eprintln!("modality-probe {}: error: {}", msg, e);
             exit(1);
         })
     }

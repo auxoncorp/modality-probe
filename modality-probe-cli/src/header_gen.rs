@@ -107,7 +107,7 @@ impl Default for Opt {
             events_csv_file: PathBuf::from("events.csv"),
             tracers_csv_file: PathBuf::from("tracers.csv"),
             lang: Lang::Rust,
-            include_guard_prefix: String::from("EKOTRACE"),
+            include_guard_prefix: String::from("MODALITY_PROBE"),
             output_path: None,
         }
     }

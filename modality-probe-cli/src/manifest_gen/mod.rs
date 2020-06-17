@@ -47,7 +47,7 @@ impl Opt {
     pub fn validate(&self) {
         if !self.source_path.exists() {
             exit_error!(
-                "ekotrace",
+                "modality-probe",
                 "manifest-gen",
                 "The source path '{}' does not exist",
                 self.source_path.display()

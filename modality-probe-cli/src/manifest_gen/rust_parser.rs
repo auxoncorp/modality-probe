@@ -28,7 +28,9 @@ pub struct RustParser<'a> {
 impl<'a> Default for RustParser<'a> {
     fn default() -> Self {
         RustParser {
-            config: ParserConfig { prefix: "Ekotrace" },
+            config: ParserConfig {
+                prefix: "ModalityProbe",
+            },
         }
     }
 }
@@ -805,28 +807,28 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     const MIXED_TRACER_ID_INPUT: &'static str = r#"
-    /// Docs Ekotrace::try_initialize_at(a, b, c)
-    let tracer = try_initialize_at!(&mut storage, LOCATION_ID_A)
-        .expect("Could not initialize Ekotrace");
+    /// Docs ModalityProbe::try_initialize_at(a, b, c)
+    let probe = try_initialize_at!(&mut storage, PROBE_ID_A)
+        .expect("Could not initialize ModalityProbe");
 
-    let ekotrace_foo = try_initialize_at!(&mut storage_bytes, LOCATION_ID_B, "desc")?;
+    let probe_foo = try_initialize_at!(&mut storage_bytes, PROBE_ID_B, "desc")?;
 
     // A comment
-    let bar = ekotrace::initialize_at!(
+    let bar = modality_probe::initialize_at!(
         &mut storage_bytes, // docs
-        my_ids::LOCATION_ID_C)?; // docs
+        my_ids::PROBE_ID_C)?; // docs
 
-    let ekotrace_foo = try_initialize_at!(&mut storage_bytes,
-    my::nested::mod::LOCATION_ID_D, "tags=my tag;more-tags")?; // docs
+    let probe_foo = try_initialize_at!(&mut storage_bytes,
+    my::nested::mod::PROBE_ID_D, "tags=my tag;more-tags")?; // docs
 
     /* More comments
-     * on more lines ekotrace::new_with_storage!(a, b)
+     * on more lines modality_probe::new_with_storage!(a, b)
      */
-    let tracer = ekotrace::new_with_storage!(storage, LOCATION_ID_E).unwrap();
+    let probe = modality_probe::new_with_storage!(storage, PROBE_ID_E).unwrap();
 
-    let bar = ekotrace::initialize_at!(
+    let bar = modality_probe::initialize_at!(
         &mut storage_bytes, /* comments */
-        my_ids::LOCATION_ID_F, // comments
+        my_ids::PROBE_ID_F, // comments
         " desc ", /* Order of tags and docs doesn't matter */
         "tags=thing1;thing2;my::namespace;tag with spaces")?; //docs
 
@@ -834,43 +836,43 @@ mod tests {
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
     /* Comments */
-    try_record!(tracer, EVENT_A, "my text").expect("Could not record event");
+    try_record!(probe, EVENT_A, "my text").expect("Could not record event");
 
     try_record!(
-        tracer, // docs
+        probe, // docs
         EVENT_B, /* docs */
         "my text") /// docs
     .expect("Could not record event");
 
     /// More docs
-    try_record!(tracer, EVENT_C).expect("Could not record event");
+    try_record!(probe, EVENT_C).expect("Could not record event");
 
     record!(
-        tracer, // docs
+        probe, // docs
         EventId::try_from(EVENT_D).unwrap(), /* docs */
         "my text" //docs
     ); // docs
 
-    record!(tracer, EVENT_E.try_into()?);
-    record!(tracer, EVENT_EAGAIN1.try_into()?,
+    record!(probe, EVENT_E.try_into()?);
+    record!(probe, EVENT_EAGAIN1.try_into()?,
     );
-    record!(tracer, EventId::try_from(EVENT_EAGAIN2).unwrap(),
+    record!(probe, EventId::try_from(EVENT_EAGAIN2).unwrap(),
     );
-    record!(tracer, EVENT_F.try_into().unwrap());
-    record!(tracer, EventId::try_from(EVENT_G).expect("abc"), "docs");
+    record!(probe, EVENT_F.try_into().unwrap());
+    record!(probe, EventId::try_from(EVENT_G).expect("abc"), "docs");
 
-    try_record_w_u32!(tracer, EVENT_H, 1_u32)
+    try_record_w_u32!(probe, EVENT_H, 1_u32)
         .expect("Could not record event");
 
     /*
      * docs
-     * record!(tracer, EventId::try_from(EVENT_NONE).unwrap());
+     * record!(probe, EventId::try_from(EVENT_NONE).unwrap());
      */
-    try_record_w_f32!(tracer, EVENT_I, 1.234_f32, "desc") // docs
+    try_record_w_f32!(probe, EVENT_I, 1.234_f32, "desc") // docs
         .expect("Could not record event");
 
     record_w_i8!(
-        tracer,
+        probe,
         EventId::try_from(EVENT_J).unwrap(),
         -2_i8,
         "tags=thing1;thing2;my::namespace;tag with spaces", //docs
@@ -878,17 +880,17 @@ mod tests {
     );
 
     expect!(
-        tracer,
+        probe,
         EventId::try_from(EVENT_K).unwrap(),
         14 == (10 + 4),
         "tags=severity.1;another tag",
         "Some description",
     );
 
-    try_expect!(tracer, EVENT_K, foo != bar, "tags=expectation;severity.2;network").unwrap();
+    try_expect!(probe, EVENT_K, foo != bar, "tags=expectation;severity.2;network").unwrap();
 
-    /* Special "expectation" tag is inserted"
-    ekotrace::expect!(tracer, EVENT_K.try_into()?, foo != bar);
+    /* Special "expectation" tag is inserted" */
+    modality_probe::expect!(probe, EVENT_K.try_into()?, foo != bar);
 "#;
 
     #[test]
@@ -899,38 +901,38 @@ mod tests {
             tokens,
             Ok(vec![
                 TracerMetadata {
-                    name: "LOCATION_ID_A".to_string(),
-                    location: (68, 3, 18).into(),
+                    name: "PROBE_ID_A".to_string(),
+                    location: (72, 3, 17).into(),
                     tags: None,
                     description: None,
                 },
                 TracerMetadata {
-                    name: "LOCATION_ID_B".to_string(),
-                    location: (190, 6, 24).into(),
+                    name: "PROBE_ID_B".to_string(),
+                    location: (193, 6, 21).into(),
                     tags: None,
                     description: Some("desc".to_string()),
                 },
                 TracerMetadata {
-                    name: "LOCATION_ID_C".to_string(),
-                    location: (296, 9, 25).into(),
+                    name: "PROBE_ID_C".to_string(),
+                    location: (302, 9, 31).into(),
                     tags: None,
                     description: None,
                 },
                 TracerMetadata {
-                    name: "LOCATION_ID_D".to_string(),
-                    location: (413, 13, 24).into(),
+                    name: "PROBE_ID_D".to_string(),
+                    location: (413, 13, 21).into(),
                     tags: Some("my tag;more-tags".to_string()),
                     description: None,
                 },
                 TracerMetadata {
-                    name: "LOCATION_ID_E".to_string(),
-                    location: (635, 19, 28).into(),
+                    name: "PROBE_ID_E".to_string(),
+                    location: (643, 19, 33).into(),
                     tags: None,
                     description: None,
                 },
                 TracerMetadata {
-                    name: "LOCATION_ID_F".to_string(),
-                    location: (712, 21, 25).into(),
+                    name: "PROBE_ID_F".to_string(),
+                    location: (723, 21, 31).into(),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
                     description: Some("desc".to_string()),
                 },
@@ -947,7 +949,7 @@ mod tests {
             Ok(vec![
                 EventMetadata {
                     name: "EVENT_A".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: Some("my text".to_string()),
                     tags: None,
@@ -955,115 +957,115 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_B".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: Some("my text".to_string()),
                     tags: None,
-                    location: (103, 5, 5).into(),
+                    location: (102, 5, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_C".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: None,
                     tags: None,
-                    location: (258, 12, 5).into(),
+                    location: (256, 12, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_D".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: Some("my text".to_string()),
                     tags: None,
-                    location: (326, 14, 5).into(),
+                    location: (323, 14, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_E".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: None,
                     tags: None,
-                    location: (460, 20, 5).into(),
+                    location: (456, 20, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_EAGAIN1".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: None,
                     tags: None,
-                    location: (502, 21, 5).into(),
+                    location: (497, 21, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_EAGAIN2".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: None,
                     tags: None,
-                    location: (556, 23, 5).into(),
+                    location: (550, 23, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_F".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: None,
                     tags: None,
-                    location: (626, 25, 5).into(),
+                    location: (619, 25, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_G".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: Some("docs".to_string()),
                     tags: None,
-                    location: (676, 26, 5).into(),
+                    location: (668, 26, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_H".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "1_u32").into()),
                     description: None,
                     tags: None,
-                    location: (748, 28, 5).into(),
+                    location: (739, 28, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_I".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::F32, "1.234_f32").into()),
                     description: Some("desc".to_string()),
                     tags: None,
-                    location: (929, 35, 5).into(),
+                    location: (918, 35, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_J".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::I8, "-2_i8").into()),
                     description: Some("desc".to_string()),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
-                    location: (1039, 38, 5).into(),
+                    location: (1027, 38, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_K".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "14 == (10 + 4)").into()),
                     description: Some("Some description".to_string()),
                     tags: Some("expectation;severity.1;another tag".to_string()),
-                    location: (1230, 46, 5).into(),
+                    location: (1217, 46, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_K".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "foo != bar").into()),
                     description: None,
                     tags: Some("expectation;severity.2;network".to_string()),
-                    location: (1403, 54, 5).into(),
+                    location: (1389, 54, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_K".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "foo != bar").into()),
                     description: None,
                     tags: Some("expectation".to_string()),
-                    location: (1554, 57, 15).into(),
+                    location: (1548, 57, 21).into(),
                 },
             ])
         );
@@ -1072,23 +1074,23 @@ mod tests {
     #[test]
     fn tracer_id_namespace_error() {
         let parser = RustParser::default();
-        let input = "ekotrace::try_initialize_at!(&mut storage_bytes,my::nested::mod::)";
+        let input = "modality_probe::try_initialize_at!(&mut storage_bytes,my::nested::mod::)";
         let tokens = parser.parse_tracer_md(input);
-        assert_eq!(tokens, Err(Error::Syntax((10, 1, 11).into())));
+        assert_eq!(tokens, Err(Error::Syntax((16, 1, 17).into())));
     }
 
     #[test]
     fn missing_semicolon_errors() {
         let parser = RustParser::default();
         let input = r#"
-record!(tracer, EVENT_F.try_into().unwrap())
+record!(probe, EVENT_F.try_into().unwrap())
 let a = b;
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((1, 2, 1).into())));
         let input = r#"
 record_w_i8!(
-        tracer,
+        probe,
         EventId::try_from(EVENT_J).unwrap(),
         -2_i8,
         "desc"
@@ -1103,18 +1105,18 @@ let a = b;
     fn event_syntax_errors() {
         let parser = RustParser::default();
         let input = r#"
-record!(tracer, abc, EVENT_F.try_into().unwrap());
+record!(probe, abc, EVENT_F.try_into().unwrap());
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
-record!(tracer, EVENT_F.try_into().unwrap(), abc, abc);
+record!(probe, EVENT_F.try_into().unwrap(), abc, abc);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
 record_w_f32!(
-            tracer,
+            probe,
             EventId::try_from(EVENT_J).unwrap(),
             1.234_f32,
             "desc",
@@ -1125,21 +1127,21 @@ record_w_f32!(
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
 record_w_i32!(
-            tracer,
+            probe,
             EventId::try_from(EVENT_J).unwrap(),
         );
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
-record!(tracer, EventId::try_from::<>EVENT_E);
+record!(probe, EventId::try_from::<>EVENT_E);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
         let input = r#"
 try_record!(
 
-record!(tracer, EventId::try_from(EVENT_D).unwrap(), "my text");
+record!(probe, EventId::try_from(EVENT_D).unwrap(), "my text");
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((1, 2, 1).into())));
@@ -1161,7 +1163,7 @@ record!(tracer, EventId::try_from(EVENT_D).unwrap(), "my text");
         let parser = RustParser::default();
         let input = r#"
 use crate::tracing_ids::*;
-use ekotrace::{try_record, record, try_record_w_u32, record_w_i8, Ekotrace, Tracer};
+use modality_probe::{try_record, record, try_record_w_u32, record_w_i8, ModalityProbe, Tracer};
 use std::net::UdpSocket;
 use std::{thread, time};
 
@@ -1177,13 +1179,13 @@ another_macro!(mything);
     fn events_with_namespace() {
         let parser = RustParser::default();
         let input = r#"
-try_record!(tracer, events::EVENT_A, "desc").unwrap();
+try_record!(probe, events::EVENT_A, "desc").unwrap();
 
-record!(tracer, EventId::try_from(events::more_events::EVENT_B).unwrap(), "my text");
+record!(probe, EventId::try_from(events::more_events::EVENT_B).unwrap(), "my text");
 
-try_record_w_u32!(tracer, events::EVENT_C, 1_u32).expect("Could not record event");
+try_record_w_u32!(probe, events::EVENT_C, 1_u32).expect("Could not record event");
 
-record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "desc");
+record_w_i8!(probe, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "desc");
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(
@@ -1191,7 +1193,7 @@ record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "d
             Ok(vec![
                 EventMetadata {
                     name: "EVENT_A".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: Some("desc".to_string()),
                     tags: None,
@@ -1199,27 +1201,27 @@ record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "d
                 },
                 EventMetadata {
                     name: "EVENT_B".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: None,
                     description: Some("my text".to_string()),
                     tags: None,
-                    location: (57, 4, 1).into(),
+                    location: (56, 4, 1).into(),
                 },
                 EventMetadata {
                     name: "EVENT_C".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "1_u32").into()),
                     description: None,
                     tags: None,
-                    location: (144, 6, 1).into(),
+                    location: (142, 6, 1).into(),
                 },
                 EventMetadata {
                     name: "EVENT_D".to_string(),
-                    agent_instance: "tracer".to_string(),
+                    agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::I8, "1_i8").into()),
                     description: Some("desc".to_string()),
                     tags: None,
-                    location: (229, 8, 1).into(),
+                    location: (226, 8, 1).into(),
                 },
             ])
         );
@@ -1228,19 +1230,19 @@ record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "d
     #[test]
     fn empty_event_tags_errors() {
         let parser = RustParser::default();
-        let input = r#"try_record!(tracer, events::EVENT_A, "desc", "tags=").unwrap();"#;
+        let input = r#"try_record!(probe, events::EVENT_A, "desc", "tags=").unwrap();"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
         let input = r#"
-        record!(tracer, EventId::try_from(events::more_events::EVENT_B).unwrap(), "tags=", "my text");"#;
+        record!(probe, EventId::try_from(events::more_events::EVENT_B).unwrap(), "tags=", "my text");"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((9, 2, 9).into())));
         let input = r#"
-        try_record_w_u32!(tracer, events::EVENT_C, 1_u32, "tags=").expect("failed here");"#;
+        try_record_w_u32!(probe, events::EVENT_C, 1_u32, "tags=").expect("failed here");"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((9, 2, 9).into())));
         let input = r#"
-        record_w_i8!(tracer, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "tags=", "desc");"#;
+        record_w_i8!(probe, EventId::try_from(events::more::EVENT_D).unwrap(), 1_i8, "tags=", "desc");"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((9, 2, 9).into())));
     }

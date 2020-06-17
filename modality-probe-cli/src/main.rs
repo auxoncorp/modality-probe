@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "ekotrace", about = "Ekotrace command line interface")]
+#[structopt(
+    name = "modality-probe",
+    about = "Modality probe command line interface"
+)]
 enum Opt {
     /// Generate event and tracer id manifest files from tracer event recording invocations
     ManifestGen(ManifestGen),
@@ -11,7 +14,7 @@ enum Opt {
     /// Generate Rust/C header files with event/tracer id constants
     HeaderGen(HeaderGen),
 
-    /// Analyze 'Ekotrace' event logs
+    /// Analyze 'ModalityProbe' event logs
     Analysis(Analysis),
 }
 
@@ -68,7 +71,7 @@ pub struct HeaderGen {
     lang: Lang,
 
     /// C header include guard prefix
-    #[structopt(long, default_value = "EKOTRACE")]
+    #[structopt(long, default_value = "MODALITY_PROBE")]
     include_guard_prefix: String,
 
     /// Write output to file (instead of stdout)
