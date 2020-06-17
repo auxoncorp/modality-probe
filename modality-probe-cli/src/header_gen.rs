@@ -1,4 +1,4 @@
-use crate::{events::Event, lang::Lang, tracers::Tracer};
+use crate::{events::Event, lang::Lang, probes::Probe};
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io;
@@ -20,7 +20,7 @@ trait ConstGenerator {
     }
 }
 
-impl ConstGenerator for Tracer {
+impl ConstGenerator for Probe {
     fn primitive_value(&self) -> u32 {
         self.id.0
     }
@@ -95,7 +95,7 @@ fn pad_nonempty(s: &str) -> String {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Opt {
     pub events_csv_file: PathBuf,
-    pub tracers_csv_file: PathBuf,
+    pub probes_csv_file: PathBuf,
     pub lang: Lang,
     pub include_guard_prefix: String,
     pub output_path: Option<PathBuf>,
@@ -105,7 +105,7 @@ impl Default for Opt {
     fn default() -> Self {
         Opt {
             events_csv_file: PathBuf::from("events.csv"),
-            tracers_csv_file: PathBuf::from("tracers.csv"),
+            probes_csv_file: PathBuf::from("probes.csv"),
             lang: Lang::Rust,
             include_guard_prefix: String::from("MODALITY_PROBE"),
             output_path: None,
@@ -144,9 +144,9 @@ impl Opt {
         );
 
         assert!(
-            self.tracers_csv_file.exists(),
-            "Tracers csv file \"{}\" does not exist",
-            self.tracers_csv_file.display()
+            self.probes_csv_file.exists(),
+            "Probes csv file \"{}\" does not exist",
+            self.probes_csv_file.display()
         );
     }
 }
@@ -165,11 +165,11 @@ pub fn generate_output<W: io::Write>(
     mut w: W,
     internal_events: Vec<u32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let tracers_csv_hash = file_sha256(&opt.tracers_csv_file);
+    let probes_csv_hash = file_sha256(&opt.probes_csv_file);
     let events_csv_hash = file_sha256(&opt.events_csv_file);
 
-    let mut tracers_reader = csv::Reader::from_reader(
-        File::open(&opt.tracers_csv_file).expect("Can't open tracers csv file"),
+    let mut probes_reader = csv::Reader::from_reader(
+        File::open(&opt.probes_csv_file).expect("Can't open probes csv file"),
     );
 
     let mut events_reader = csv::Reader::from_reader(
@@ -200,11 +200,11 @@ pub fn generate_output<W: io::Write>(
     }
 
     writeln!(w, "/*")?;
-    writeln!(w, " * Tracers (csv sha256sum {})", tracers_csv_hash)?;
+    writeln!(w, " * Probes (csv sha256sum {})", probes_csv_hash)?;
     writeln!(w, " */")?;
 
-    for maybe_tracer in tracers_reader.deserialize() {
-        let t: Tracer = maybe_tracer.expect("Can't deserialize tracer");
+    for maybe_probe in probes_reader.deserialize() {
+        let t: Probe = maybe_probe.expect("Can't deserialize probe");
 
         writeln!(w)?;
         writeln!(w, "{}", t.doc_comment(opt.lang))?;

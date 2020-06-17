@@ -2,14 +2,14 @@ use crate::manifest_gen::{
     c_parser::CParser,
     file_path::{self, FilePath},
     in_source_event::InSourceEvent,
-    in_source_tracer::InSourceTracer,
+    in_source_probe::InSourceProbe,
     parser::{self, Parser},
     rust_parser::RustParser,
 };
 use crate::{
     events::{Event, EventId, Events},
     lang::Lang,
-    tracers::{TracerId, Tracers},
+    probes::{ProbeId, Probes},
     warn,
 };
 use std::collections::HashMap;
@@ -30,9 +30,9 @@ pub enum CreationError {
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum TracerCheckError {
-    MultipleLocationsInSource(InSourceTracer, InSourceTracer),
-    NameNotUpperCase(InSourceTracer),
+pub enum ProbeCheckError {
+    MultipleLocationsInSource(InSourceProbe, InSourceProbe),
+    NameNotUpperCase(InSourceProbe),
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -45,7 +45,7 @@ pub struct Invocations<'cfg> {
     pub log_prefix: &'cfg str,
     pub log_module: &'cfg str,
     pub internal_events: Vec<Event>,
-    pub tracers: Vec<InSourceTracer>,
+    pub probes: Vec<InSourceProbe>,
     pub events: Vec<InSourceEvent>,
 }
 
@@ -56,7 +56,7 @@ impl<'cfg> Default for Invocations<'cfg> {
             log_prefix: config.log_prefix,
             log_module: config.log_module,
             internal_events: config.internal_events,
-            tracers: Default::default(),
+            probes: Default::default(),
             events: Default::default(),
         }
     }
@@ -66,7 +66,7 @@ pub struct Config<'cfg> {
     pub log_prefix: &'cfg str,
     pub log_module: &'cfg str,
     pub lang: Option<Lang>,
-    pub no_tracers: bool,
+    pub no_probes: bool,
     pub no_events: bool,
     pub c_parser: CParser<'cfg>,
     pub rust_parser: RustParser<'cfg>,
@@ -80,7 +80,7 @@ impl<'cfg> Default for Config<'cfg> {
             log_prefix: "modality-probe",
             log_module: "manifest-gen",
             lang: None,
-            no_tracers: false,
+            no_probes: false,
             no_events: false,
             c_parser: CParser::default(),
             rust_parser: RustParser::default(),
@@ -92,7 +92,7 @@ impl<'cfg> Default for Config<'cfg> {
 
 impl<'cfg> Invocations<'cfg> {
     pub fn from_path<P: AsRef<Path>>(config: Config<'cfg>, p: P) -> Result<Self, CreationError> {
-        let mut tracers = Vec::new();
+        let mut probes = Vec::new();
         let mut events = Vec::new();
         let mut buffer = String::new();
         for entry in WalkDir::new(&p)
@@ -169,18 +169,18 @@ impl<'cfg> Invocations<'cfg> {
                         },
                     };
 
-                    if !config.no_tracers {
-                        let tracer_metadata = parser
-                            .parse_tracers(&buffer)
+                    if !config.no_probes {
+                        let probe_metadata = parser
+                            .parse_probes(&buffer)
                             .map_err(|e| CreationError::Parser(file_path.path.clone(), e))?;
-                        let mut tracers_in_file: Vec<InSourceTracer> = tracer_metadata
+                        let mut probes_in_file: Vec<InSourceProbe> = probe_metadata
                             .into_iter()
-                            .map(|md| InSourceTracer {
+                            .map(|md| InSourceProbe {
                                 file: file_path.clone(),
                                 metadata: md,
                             })
                             .collect();
-                        tracers.append(&mut tracers_in_file);
+                        probes.append(&mut probes_in_file);
                     }
 
                     if !config.no_events {
@@ -203,25 +203,25 @@ impl<'cfg> Invocations<'cfg> {
             log_prefix: config.log_prefix,
             log_module: config.log_module,
             internal_events: config.internal_events,
-            tracers,
+            probes,
             events,
         })
     }
 
-    pub fn check_tracers(&self) -> Result<(), TracerCheckError> {
+    pub fn check_probes(&self) -> Result<(), ProbeCheckError> {
         let mut uniq = HashMap::new();
-        for t in self.tracers.iter() {
+        for t in self.probes.iter() {
             if let Some(prev_t) = uniq.insert(t.canonical_name(), t) {
-                return Err(TracerCheckError::MultipleLocationsInSource(
+                return Err(ProbeCheckError::MultipleLocationsInSource(
                     prev_t.clone(),
                     t.clone(),
                 ));
             }
         }
 
-        for t in self.tracers.iter() {
+        for t in self.probes.iter() {
             if t.name().to_uppercase() != t.name() {
-                return Err(TracerCheckError::NameNotUpperCase(t.clone()));
+                return Err(ProbeCheckError::NameNotUpperCase(t.clone()));
             }
         }
         Ok(())
@@ -247,23 +247,23 @@ impl<'cfg> Invocations<'cfg> {
         Ok(())
     }
 
-    pub fn merge_tracers_into(&self, tracer_id_offset: Option<u32>, mf_tracers: &mut Tracers) {
-        let mf_path = mf_tracers.path.clone();
-        self.tracers.iter().for_each(|src_tracer| {
-            mf_tracers
-                .tracers
+    pub fn merge_probes_into(&self, probe_id_offset: Option<u32>, mf_probes: &mut Probes) {
+        let mf_path = mf_probes.path.clone();
+        self.probes.iter().for_each(|src_probe| {
+            mf_probes
+                .probes
                 .iter_mut()
                 .filter(|t| {
                     t.name
                         .as_str()
-                        .eq_ignore_ascii_case(&src_tracer.canonical_name())
+                        .eq_ignore_ascii_case(&src_probe.canonical_name())
                 })
                 .for_each(|t| {
-                    if !src_tracer.eq(t) {
+                    if !src_probe.eq(t) {
                         warn!(
                             self.log_prefix,
                             self.log_module,
-                            "Tracer {}, ID {} may have moved\n\
+                            "Probe {}, ID {} may have moved\n\
                             Prior location from {}: {}:{}\n\
                             New location in source code: {}:{}:{}",
                             t.name,
@@ -271,16 +271,16 @@ impl<'cfg> Invocations<'cfg> {
                             mf_path.display(),
                             t.file,
                             t.line,
-                            src_tracer.file.path,
-                            src_tracer.metadata.location.line,
-                            src_tracer.metadata.location.column
+                            src_probe.file.path,
+                            src_probe.metadata.location.line,
+                            src_probe.metadata.location.column
                         );
 
-                        t.file = src_tracer.file.path.clone();
-                        t.line = src_tracer.metadata.location.line.to_string();
+                        t.file = src_probe.file.path.clone();
+                        t.line = src_probe.metadata.location.line.to_string();
                     }
 
-                    let src_desc = src_tracer
+                    let src_desc = src_probe
                         .metadata
                         .description
                         .as_ref()
@@ -289,56 +289,51 @@ impl<'cfg> Invocations<'cfg> {
                         t.description = String::from(src_desc);
                     }
 
-                    let src_tags = src_tracer.metadata.tags.as_ref().map_or("", |d| d.as_str());
+                    let src_tags = src_probe.metadata.tags.as_ref().map_or("", |d| d.as_str());
                     if !t.tags.as_str().eq(src_tags) {
                         t.tags = String::from(src_tags);
                     }
                 });
         });
 
-        let tracer_id_offset = tracer_id_offset.unwrap_or(0);
-        let mut next_available_tracer_id: u32 = match mf_tracers.next_available_tracer_id() {
-            id if tracer_id_offset > id => tracer_id_offset,
+        let probe_id_offset = probe_id_offset.unwrap_or(0);
+        let mut next_available_probe_id: u32 = match mf_probes.next_available_probe_id() {
+            id if probe_id_offset > id => probe_id_offset,
             id => id,
         };
 
-        self.tracers.iter().for_each(|src_tracer| {
-            if mf_tracers
-                .tracers
-                .iter()
-                .find(|t| src_tracer.eq(t))
-                .is_none()
-            {
-                let tracer = src_tracer.to_tracer(TracerId(next_available_tracer_id));
+        self.probes.iter().for_each(|src_probe| {
+            if mf_probes.probes.iter().find(|t| src_probe.eq(t)).is_none() {
+                let probe = src_probe.to_probe(ProbeId(next_available_probe_id));
                 println!(
-                    "Adding tracer {}, ID {} to {}",
-                    tracer.name,
-                    tracer.id.0,
+                    "Adding probe {}, ID {} to {}",
+                    probe.name,
+                    probe.id.0,
                     mf_path.display(),
                 );
-                mf_tracers.tracers.push(tracer);
-                next_available_tracer_id += 1;
+                mf_probes.probes.push(probe);
+                next_available_probe_id += 1;
             }
         });
 
-        mf_tracers.tracers.iter().for_each(|mf_tracer| {
-            let missing_tracer = self
-                .tracers
+        mf_probes.probes.iter().for_each(|mf_probe| {
+            let missing_probe = self
+                .probes
                 .iter()
                 .find(|t| {
-                    mf_tracer
+                    mf_probe
                         .name
                         .as_str()
                         .eq_ignore_ascii_case(&t.canonical_name())
                 })
                 .is_none();
-            if missing_tracer {
+            if missing_probe {
                 warn!(
                     self.log_prefix,
                     self.log_module,
-                    "Tracer {}, ID {} in manifest no longer exists in source",
-                    mf_tracer.name,
-                    mf_tracer.id.0
+                    "Probe {}, ID {} in manifest no longer exists in source",
+                    mf_probe.name,
+                    mf_probe.id.0
                 );
             }
         });
@@ -506,11 +501,11 @@ fn is_hidden(entry: &DirEntry) -> bool {
         .unwrap_or(false)
 }
 
-impl fmt::Display for TracerCheckError {
+impl fmt::Display for ProbeCheckError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TracerCheckError::MultipleLocationsInSource(first, dup) => {
-                writeln!(f, "Duplicate tracer identifiers found for {}", first.name())?;
+            ProbeCheckError::MultipleLocationsInSource(first, dup) => {
+                writeln!(f, "Duplicate probe identifiers found for {}", first.name())?;
                 writeln!(
                     f,
                     "{}:{}:{}",
@@ -523,10 +518,10 @@ impl fmt::Display for TracerCheckError {
                     dup.file.path, dup.metadata.location.line, dup.metadata.location.column
                 )
             }
-            TracerCheckError::NameNotUpperCase(t) => {
+            ProbeCheckError::NameNotUpperCase(t) => {
                 writeln!(
                     f,
-                    "The tracer name '{}' needs to be converted to uppercase",
+                    "The probe name '{}' needs to be converted to uppercase",
                     t.name(),
                 )?;
                 writeln!(
@@ -607,31 +602,31 @@ mod tests {
     use super::*;
     use crate::events::Event;
     use crate::manifest_gen::event_metadata::EventMetadata;
-    use crate::manifest_gen::tracer_metadata::TracerMetadata;
+    use crate::manifest_gen::probe_metadata::ProbeMetadata;
     use crate::manifest_gen::type_hint::TypeHint;
-    use crate::tracers::Tracer;
+    use crate::probes::Probe;
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn tracer_multi_location_file_error() {
-        let loc_0 = InSourceTracer {
+    fn probe_multi_location_file_error() {
+        let loc_0 = InSourceProbe {
             file: FilePath {
                 full_path: "main.c".to_string(),
                 path: "main.c".to_string(),
             },
-            metadata: TracerMetadata {
+            metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
                 tags: None,
                 description: None,
             },
         };
-        let loc_1 = InSourceTracer {
+        let loc_1 = InSourceProbe {
             file: FilePath {
                 full_path: "file.c".to_string(),
                 path: "file.c".to_string(),
             },
-            metadata: TracerMetadata {
+            metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
                 tags: None,
@@ -639,36 +634,36 @@ mod tests {
             },
         };
         let invcs = Invocations {
-            tracers: vec![loc_0.clone(), loc_1.clone()],
+            probes: vec![loc_0.clone(), loc_1.clone()],
             events: Vec::new(),
             ..Default::default()
         };
         assert_eq!(
-            invcs.check_tracers(),
-            Err(TracerCheckError::MultipleLocationsInSource(loc_0, loc_1))
+            invcs.check_probes(),
+            Err(ProbeCheckError::MultipleLocationsInSource(loc_0, loc_1))
         );
     }
 
     #[test]
-    fn tracer_multi_location_line_error() {
-        let loc_0 = InSourceTracer {
+    fn probe_multi_location_line_error() {
+        let loc_0 = InSourceProbe {
             file: FilePath {
                 full_path: "main.c".to_string(),
                 path: "main.c".to_string(),
             },
-            metadata: TracerMetadata {
+            metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 1, 1).into(),
                 tags: None,
                 description: None,
             },
         };
-        let loc_1 = InSourceTracer {
+        let loc_1 = InSourceProbe {
             file: FilePath {
                 full_path: "main.c".to_string(),
                 path: "main.c".to_string(),
             },
-            metadata: TracerMetadata {
+            metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 2, 1).into(),
                 tags: None,
@@ -676,36 +671,36 @@ mod tests {
             },
         };
         let invcs = Invocations {
-            tracers: vec![loc_0.clone(), loc_1.clone()],
+            probes: vec![loc_0.clone(), loc_1.clone()],
             events: Vec::new(),
             ..Default::default()
         };
         assert_eq!(
-            invcs.check_tracers(),
-            Err(TracerCheckError::MultipleLocationsInSource(loc_0, loc_1))
+            invcs.check_probes(),
+            Err(ProbeCheckError::MultipleLocationsInSource(loc_0, loc_1))
         );
     }
 
     #[test]
-    fn tracer_in_source_casing_error() {
-        let loc_0 = InSourceTracer {
+    fn probe_in_source_casing_error() {
+        let loc_0 = InSourceProbe {
             file: FilePath {
                 full_path: "main.c".to_string(),
                 path: "main.c".to_string(),
             },
-            metadata: TracerMetadata {
+            metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 2, 3).into(),
                 tags: None,
                 description: None,
             },
         };
-        let loc_1 = InSourceTracer {
+        let loc_1 = InSourceProbe {
             file: FilePath {
                 full_path: "main.c".to_string(),
                 path: "main.c".to_string(),
             },
-            metadata: TracerMetadata {
+            metadata: ProbeMetadata {
                 name: "location_b".to_string(),
                 location: (4, 5, 6).into(),
                 tags: None,
@@ -713,32 +708,32 @@ mod tests {
             },
         };
         let invcs = Invocations {
-            tracers: vec![loc_0, loc_1.clone()],
+            probes: vec![loc_0, loc_1.clone()],
             events: Vec::new(),
             ..Default::default()
         };
         assert_eq!(
-            invcs.check_tracers(),
-            Err(TracerCheckError::NameNotUpperCase(loc_1))
+            invcs.check_probes(),
+            Err(ProbeCheckError::NameNotUpperCase(loc_1))
         );
     }
 
     #[test]
-    fn tracer_merge_relocated() {
-        let in_src_tracer = InSourceTracer {
+    fn probe_merge_relocated() {
+        let in_src_probe = InSourceProbe {
             file: FilePath {
                 full_path: "file.c".to_string(),
                 path: "file.c".to_string(),
             },
-            metadata: TracerMetadata {
+            metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 4, 3).into(),
                 tags: None,
                 description: None,
             },
         };
-        let in_mf_tracer = Tracer {
-            id: TracerId(1),
+        let in_mf_probe = Probe {
+            id: ProbeId(1),
             name: "location_a".to_string(),
             description: String::new(),
             tags: String::new(),
@@ -746,19 +741,19 @@ mod tests {
             line: "2".to_string(),
         };
         let invcs = Invocations {
-            tracers: vec![in_src_tracer],
+            probes: vec![in_src_probe],
             events: Vec::new(),
             ..Default::default()
         };
-        let mut mf_tracers = Tracers {
+        let mut mf_probes = Probes {
             path: PathBuf::new(),
-            tracers: vec![in_mf_tracer.clone()],
+            probes: vec![in_mf_probe.clone()],
         };
-        invcs.merge_tracers_into(None, &mut mf_tracers);
+        invcs.merge_probes_into(None, &mut mf_probes);
         assert_eq!(
-            mf_tracers.tracers,
-            vec![Tracer {
-                id: TracerId(1),
+            mf_probes.probes,
+            vec![Probe {
+                id: ProbeId(1),
                 name: "location_a".to_string(),
                 description: String::new(),
                 tags: String::new(),
@@ -769,21 +764,21 @@ mod tests {
     }
 
     #[test]
-    fn tracer_merge_tags_desc_change() {
-        let in_src_tracer = InSourceTracer {
+    fn probe_merge_tags_desc_change() {
+        let in_src_probe = InSourceProbe {
             file: FilePath {
                 full_path: "file.c".to_string(),
                 path: "file.c".to_string(),
             },
-            metadata: TracerMetadata {
+            metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
                 location: (1, 4, 3).into(),
                 tags: Some("my-tag".to_string()),
                 description: Some("desc".to_string()),
             },
         };
-        let in_mf_tracer = Tracer {
-            id: TracerId(1),
+        let in_mf_probe = Probe {
+            id: ProbeId(1),
             name: "location_a".to_string(),
             description: String::new(),
             tags: String::new(),
@@ -791,19 +786,19 @@ mod tests {
             line: "4".to_string(),
         };
         let invcs = Invocations {
-            tracers: vec![in_src_tracer],
+            probes: vec![in_src_probe],
             events: Vec::new(),
             ..Default::default()
         };
-        let mut mf_tracers = Tracers {
+        let mut mf_probes = Probes {
             path: PathBuf::new(),
-            tracers: vec![in_mf_tracer.clone()],
+            probes: vec![in_mf_probe.clone()],
         };
-        invcs.merge_tracers_into(None, &mut mf_tracers);
+        invcs.merge_probes_into(None, &mut mf_probes);
         assert_eq!(
-            mf_tracers.tracers,
-            vec![Tracer {
-                id: TracerId(1),
+            mf_probes.probes,
+            vec![Probe {
+                id: ProbeId(1),
                 name: "location_a".to_string(),
                 description: "desc".to_string(),
                 tags: "my-tag".to_string(),
@@ -830,7 +825,7 @@ mod tests {
             },
         };
         let invcs = Invocations {
-            tracers: Vec::new(),
+            probes: Vec::new(),
             events: vec![in_src_event.clone()],
             ..Default::default()
         };
@@ -871,7 +866,7 @@ mod tests {
             },
         };
         let invcs = Invocations {
-            tracers: Vec::new(),
+            probes: Vec::new(),
             events: vec![e0.clone(), e1.clone()],
             ..Default::default()
         };
@@ -907,7 +902,7 @@ mod tests {
             line: "2".to_string(),
         };
         let invcs = Invocations {
-            tracers: Vec::new(),
+            probes: Vec::new(),
             events: vec![in_src_event.clone()],
             ..Default::default()
         };
@@ -955,7 +950,7 @@ mod tests {
             line: "2".to_string(),
         };
         let invcs = Invocations {
-            tracers: Vec::new(),
+            probes: Vec::new(),
             events: vec![in_src_event.clone()],
             ..Default::default()
         };
@@ -1003,7 +998,7 @@ mod tests {
             line: "2".to_string(),
         };
         let invcs = Invocations {
-            tracers: Vec::new(),
+            probes: Vec::new(),
             events: vec![in_src_event.clone()],
             ..Default::default()
         };
@@ -1051,7 +1046,7 @@ mod tests {
             line: "2".to_string(),
         };
         let invcs = Invocations {
-            tracers: Vec::new(),
+            probes: Vec::new(),
             events: vec![in_src_event.clone()],
             ..Default::default()
         };

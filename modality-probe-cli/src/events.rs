@@ -33,7 +33,7 @@ impl Events {
             Event {
                 id: EventId(modality_probe::EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw()),
                 name: "INTERNAL_EVENT_PRODUCED_EXTERNAL_REPORT".to_string(),
-                description: "The tracer produced a log report for transmission to \
+                description: "The probe produced a log report for transmission to \
                     the backend for external analysis"
                     .to_string(),
                 tags: "internal".to_string(),
@@ -64,7 +64,7 @@ impl Events {
             Event {
                 id: EventId(modality_probe::EventId::EVENT_NUM_CLOCKS_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_NUM_CLOCKS_OVERFLOWED".to_string(),
-                description: "The tracer did not have enough memory reserved to store enough logical \
+                description: "The probe did not have enough memory reserved to store enough logical \
                     clocks to track all of the unique neighbors that attempt to communicate with it"
                     .to_string(),
                 tags: "internal".to_string(),

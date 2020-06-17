@@ -8,10 +8,10 @@ use structopt::StructOpt;
     about = "Modality probe command line interface"
 )]
 enum Opt {
-    /// Generate event and tracer id manifest files from tracer event recording invocations
+    /// Generate event and probe id manifest files from probe macro invocations
     ManifestGen(ManifestGen),
 
-    /// Generate Rust/C header files with event/tracer id constants
+    /// Generate Rust/C header files with event/probe id constants
     HeaderGen(HeaderGen),
 
     /// Analyze 'ModalityProbe' event logs
@@ -28,9 +28,9 @@ pub struct ManifestGen {
     #[structopt(long)]
     event_id_offset: Option<u32>,
 
-    /// Tracer ID offset
+    /// Probe ID offset
     #[structopt(long)]
-    tracer_id_offset: Option<u32>,
+    probe_id_offset: Option<u32>,
 
     /// Limit the source code searching to files with matching extensions
     #[structopt(long = "file-extension")]
@@ -40,17 +40,17 @@ pub struct ManifestGen {
     #[structopt(long, parse(from_os_str), default_value = "events.csv")]
     events_csv_file: PathBuf,
 
-    /// Tracer ID manifest CSV file
-    #[structopt(long, parse(from_os_str), default_value = "tracers.csv")]
-    tracers_csv_file: PathBuf,
+    /// Probe ID manifest CSV file
+    #[structopt(long, parse(from_os_str), default_value = "probes.csv")]
+    probes_csv_file: PathBuf,
 
     /// Omit generating event ID manifest
     #[structopt(long)]
     no_events: bool,
 
-    /// Omit generating tracer ID manifest
+    /// Omit generating probe ID manifest
     #[structopt(long)]
-    no_tracers: bool,
+    no_probes: bool,
 
     /// Source code path to search
     #[structopt(parse(from_os_str))]
@@ -63,9 +63,9 @@ pub struct HeaderGen {
     #[structopt(parse(from_os_str))]
     events_csv_file: PathBuf,
 
-    /// Tracers csv file
+    /// Probes csv file
     #[structopt(parse(from_os_str))]
-    tracers_csv_file: PathBuf,
+    probes_csv_file: PathBuf,
 
     #[structopt(short, long, parse(try_from_str), default_value = "C")]
     lang: Lang,
@@ -126,12 +126,12 @@ impl From<ManifestGen> for manifest_gen::Opt {
         manifest_gen::Opt {
             lang: opt.lang,
             event_id_offset: opt.event_id_offset,
-            tracer_id_offset: opt.tracer_id_offset,
+            probe_id_offset: opt.probe_id_offset,
             file_extensions: opt.file_extensions,
             events_csv_file: opt.events_csv_file,
-            tracers_csv_file: opt.tracers_csv_file,
+            probes_csv_file: opt.probes_csv_file,
             no_events: opt.no_events,
-            no_tracers: opt.no_tracers,
+            no_probes: opt.no_probes,
             source_path: opt.source_path,
         }
     }
@@ -141,7 +141,7 @@ impl From<HeaderGen> for header_gen::Opt {
     fn from(opt: HeaderGen) -> Self {
         header_gen::Opt {
             events_csv_file: opt.events_csv_file,
-            tracers_csv_file: opt.tracers_csv_file,
+            probes_csv_file: opt.probes_csv_file,
             lang: opt.lang,
             include_guard_prefix: opt.include_guard_prefix,
             output_path: opt.output_path,

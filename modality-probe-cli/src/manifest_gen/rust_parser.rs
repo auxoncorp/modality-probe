@@ -1,11 +1,11 @@
 use crate::manifest_gen::{
     event_metadata::EventMetadata,
     parser::{
-        self, event_name_valid, remove_double_quotes, tags_or_desc_valid, tracer_name_valid,
+        self, event_name_valid, probe_name_valid, remove_double_quotes, tags_or_desc_valid,
         trimmed_string, trimmed_string_w_space, Parser, ParserConfig, Span,
     },
+    probe_metadata::ProbeMetadata,
     source_location::SourceLocation,
-    tracer_metadata::TracerMetadata,
     type_hint::TypeHint,
 };
 use nom::{
@@ -60,8 +60,8 @@ impl<'a> Parser for RustParser<'a> {
         Ok(md)
     }
 
-    fn parse_tracers(&self, input: &str) -> Result<Vec<TracerMetadata>, parser::Error> {
-        let md = self.parse_tracer_md(input)?;
+    fn parse_probes(&self, input: &str) -> Result<Vec<ProbeMetadata>, parser::Error> {
+        let md = self.parse_probe_md(input)?;
         Ok(md)
     }
 }
@@ -75,7 +75,7 @@ impl<'a> RustParser<'a> {
         parse_input(&self.config, input, parse_record_event_call_exp)
     }
 
-    pub fn parse_tracer_md(&self, input: &str) -> Result<Vec<TracerMetadata>, Error> {
+    pub fn parse_probe_md(&self, input: &str) -> Result<Vec<ProbeMetadata>, Error> {
         parse_input(&self.config, input, parse_init_call_exp)
     }
 }
@@ -222,7 +222,7 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         .filter(|s| !s.is_empty())
         .collect();
     match arg_vec.len() {
-        3..=5 => (), // Tracer, event name and expression required, maybe tags and description
+        3..=5 => (), // Probe, event name and expression required, maybe tags and description
         _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
     }
     let arg = Span::new_extra(arg_vec.remove(0), input.extra);
@@ -337,7 +337,7 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         .filter(|s| !s.is_empty())
         .collect();
     match arg_vec.len() {
-        2..=4 => (), // Tracer and event name required, maybe tags and description
+        2..=4 => (), // Probe and event name required, maybe tags and description
         _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
     }
     let arg0 = Span::new_extra(arg_vec.remove(0), input.extra);
@@ -452,7 +452,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         .filter(|s| !s.is_empty())
         .collect();
     match arg_vec.len() {
-        3..=5 => (), // Tracer, event name and payload required, maybe tags and description
+        3..=5 => (), // Probe, event name and payload required, maybe tags and description
         _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
     }
     let arg = Span::new_extra(arg_vec.remove(0), input.extra);
@@ -555,7 +555,7 @@ fn variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
     Ok((input, (*arg.fragment()).to_string()))
 }
 
-fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
+fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
     let (input, _) = comments_and_spacing(input)?;
     let (input, _) = imports(input)?;
     let (input, pos) = position(input)?;
@@ -578,7 +578,7 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
     };
     let name =
         reduce_namespace(&full_name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
-    if !tracer_name_valid(&name) {
+    if !probe_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
     let mut tags_and_desc: Vec<String> = Vec::new();
@@ -603,7 +603,7 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
     let description = tags_and_desc.pop();
     Ok((
         input,
-        TracerMetadata {
+        ProbeMetadata {
             name,
             location: pos.into(),
             tags,
@@ -806,7 +806,7 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    const MIXED_TRACER_ID_INPUT: &'static str = r#"
+    const MIXED_PROBE_ID_INPUT: &'static str = r#"
     /// Docs ModalityProbe::try_initialize_at(a, b, c)
     let probe = try_initialize_at!(&mut storage, PROBE_ID_A)
         .expect("Could not initialize ModalityProbe");
@@ -894,43 +894,43 @@ mod tests {
 "#;
 
     #[test]
-    fn tracer_metadata_in_mixed_input() {
+    fn probe_metadata_in_mixed_input() {
         let parser = RustParser::default();
-        let tokens = parser.parse_tracers(MIXED_TRACER_ID_INPUT);
+        let tokens = parser.parse_probes(MIXED_PROBE_ID_INPUT);
         assert_eq!(
             tokens,
             Ok(vec![
-                TracerMetadata {
+                ProbeMetadata {
                     name: "PROBE_ID_A".to_string(),
                     location: (72, 3, 17).into(),
                     tags: None,
                     description: None,
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "PROBE_ID_B".to_string(),
                     location: (193, 6, 21).into(),
                     tags: None,
                     description: Some("desc".to_string()),
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "PROBE_ID_C".to_string(),
                     location: (302, 9, 31).into(),
                     tags: None,
                     description: None,
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "PROBE_ID_D".to_string(),
                     location: (413, 13, 21).into(),
                     tags: Some("my tag;more-tags".to_string()),
                     description: None,
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "PROBE_ID_E".to_string(),
                     location: (643, 19, 33).into(),
                     tags: None,
                     description: None,
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "PROBE_ID_F".to_string(),
                     location: (723, 21, 31).into(),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
@@ -1072,10 +1072,10 @@ mod tests {
     }
 
     #[test]
-    fn tracer_id_namespace_error() {
+    fn probe_id_namespace_error() {
         let parser = RustParser::default();
         let input = "modality_probe::try_initialize_at!(&mut storage_bytes,my::nested::mod::)";
-        let tokens = parser.parse_tracer_md(input);
+        let tokens = parser.parse_probe_md(input);
         assert_eq!(tokens, Err(Error::Syntax((16, 1, 17).into())));
     }
 
@@ -1163,13 +1163,13 @@ record!(probe, EventId::try_from(EVENT_D).unwrap(), "my text");
         let parser = RustParser::default();
         let input = r#"
 use crate::tracing_ids::*;
-use modality_probe::{try_record, record, try_record_w_u32, record_w_i8, ModalityProbe, Tracer};
+use modality_probe::{try_record, record, try_record_w_u32, record_w_i8, ModalityProbe, Probe};
 use std::net::UdpSocket;
 use std::{thread, time};
 
 another_macro!(mything);
 "#;
-        let tokens = parser.parse_tracer_md(input);
+        let tokens = parser.parse_probe_md(input);
         assert_eq!(tokens, Ok(vec![]));
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Ok(vec![]));

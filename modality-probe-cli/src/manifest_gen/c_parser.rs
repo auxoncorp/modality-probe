@@ -1,11 +1,11 @@
 use crate::manifest_gen::{
     event_metadata::EventMetadata,
     parser::{
-        self, event_name_valid, remove_double_quotes, tags_or_desc_valid, tracer_name_valid,
+        self, event_name_valid, probe_name_valid, remove_double_quotes, tags_or_desc_valid,
         trimmed_string, trimmed_string_w_space, Parser, ParserConfig, Span,
     },
+    probe_metadata::ProbeMetadata,
     source_location::SourceLocation,
-    tracer_metadata::TracerMetadata,
     type_hint::TypeHint,
 };
 use nom::{
@@ -62,8 +62,8 @@ impl<'a> Parser for CParser<'a> {
         Ok(md)
     }
 
-    fn parse_tracers(&self, input: &str) -> Result<Vec<TracerMetadata>, parser::Error> {
-        let md = self.parse_tracer_md(input)?;
+    fn parse_probes(&self, input: &str) -> Result<Vec<ProbeMetadata>, parser::Error> {
+        let md = self.parse_probe_md(input)?;
         Ok(md)
     }
 }
@@ -77,7 +77,7 @@ impl<'a> CParser<'a> {
         parse_input(&self.config, input, parse_record_event_call_exp)
     }
 
-    pub fn parse_tracer_md(&self, input: &str) -> Result<Vec<TracerMetadata>, Error> {
+    pub fn parse_probe_md(&self, input: &str) -> Result<Vec<ProbeMetadata>, Error> {
         parse_input(&self.config, input, parse_init_call_exp)
     }
 }
@@ -355,7 +355,7 @@ fn variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
     Ok((input, (*arg.fragment()).to_string()))
 }
 
-fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
+fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
     let prefix = input.extra.as_ref().unwrap().prefix;
     let tag_string = format!("{}_INITIALIZE", prefix);
     let (input, _) = comments_and_spacing(input)?;
@@ -373,7 +373,7 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let (args, name) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    if !tracer_name_valid(&name) {
+    if !probe_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
@@ -404,7 +404,7 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, TracerMetadata> {
     let description = tags_and_desc.pop();
     Ok((
         input,
-        TracerMetadata {
+        ProbeMetadata {
             name,
             location: pos.into(),
             tags,
@@ -589,7 +589,7 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    const MIXED_TRACER_ID_INPUT: &'static str = r#"
+    const MIXED_PROBE_ID_INPUT: &'static str = r#"
     /* C/C++ style */
     modality_probe_error result = MODALITY_INITIALIZE(
         destination,
@@ -700,49 +700,49 @@ mod tests {
 "#;
 
     #[test]
-    fn tracer_metadata_in_mixed_input() {
+    fn probe_metadata_in_mixed_input() {
         let parser = CParser::default();
-        let tokens = parser.parse_tracers(MIXED_TRACER_ID_INPUT);
+        let tokens = parser.parse_probes(MIXED_PROBE_ID_INPUT);
         assert_eq!(
             tokens,
             Ok(vec![
-                TracerMetadata {
+                ProbeMetadata {
                     name: "DEFAULT_PROBE_ID".to_string(),
                     location: (57, 3, 35).into(),
                     tags: None,
                     description: None,
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "MY_PROBE_ID".to_string(),
                     location: (187, 10, 5).into(),
                     tags: None,
                     description: None,
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "PROBE_ID_FOO".to_string(),
                     location: (264, 12, 24).into(),
                     tags: None,
                     description: None,
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "PROBE_ID_BAR".to_string(),
                     location: (368, 16, 9).into(),
                     tags: None,
                     description: None,
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "MY_OTHER_PROBE_ID".to_string(),
                     location: (513, 22, 5).into(),
                     tags: None,
                     description: Some("desc".to_string()),
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "PROBE_ID_FOO".to_string(),
                     location: (782, 32, 18).into(),
                     tags: Some("my-tags;more tags".to_string()),
                     description: Some("Description".to_string()),
                 },
-                TracerMetadata {
+                ProbeMetadata {
                     name: "ID_BAR".to_string(),
                     location: (1025, 41, 5).into(),
                     tags: Some("my tag".to_string()),
@@ -891,7 +891,7 @@ assert(err == MODALITY_PROBE_ERROR_OK);
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
         let input = "MODALITY_INITIALIZE(storage, size, ID_BAR, t)";
-        let tokens = parser.parse_tracer_md(input);
+        let tokens = parser.parse_probe_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
     }
 

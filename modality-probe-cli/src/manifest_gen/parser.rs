@@ -1,6 +1,6 @@
 use crate::manifest_gen::{
-    c_parser, event_metadata::EventMetadata, rust_parser, source_location::SourceLocation,
-    tracer_metadata::TracerMetadata,
+    c_parser, event_metadata::EventMetadata, probe_metadata::ProbeMetadata, rust_parser,
+    source_location::SourceLocation,
 };
 use nom_locate::LocatedSpan;
 use std::fmt;
@@ -23,7 +23,7 @@ impl Error {
 pub trait Parser {
     fn parse_events(&self, input: &str) -> Result<Vec<EventMetadata>, Error>;
 
-    fn parse_tracers(&self, input: &str) -> Result<Vec<TracerMetadata>, Error>;
+    fn parse_probes(&self, input: &str) -> Result<Vec<ProbeMetadata>, Error>;
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -98,6 +98,6 @@ pub(crate) fn event_name_valid(s: &str) -> bool {
     s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
 
-pub(crate) fn tracer_name_valid(s: &str) -> bool {
+pub(crate) fn probe_name_valid(s: &str) -> bool {
     s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }

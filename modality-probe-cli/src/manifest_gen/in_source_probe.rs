@@ -1,15 +1,15 @@
 use crate::{
-    manifest_gen::{file_path::FilePath, tracer_metadata::TracerMetadata},
-    tracers::{Tracer, TracerId},
+    manifest_gen::{file_path::FilePath, probe_metadata::ProbeMetadata},
+    probes::{Probe, ProbeId},
 };
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
-pub struct InSourceTracer {
+pub struct InSourceProbe {
     pub file: FilePath,
-    pub metadata: TracerMetadata,
+    pub metadata: ProbeMetadata,
 }
 
-impl InSourceTracer {
+impl InSourceProbe {
     pub fn name(&self) -> &str {
         &self.metadata.name
     }
@@ -18,8 +18,8 @@ impl InSourceTracer {
         self.metadata.canonical_name()
     }
 
-    pub fn to_tracer(&self, id: TracerId) -> Tracer {
-        Tracer {
+    pub fn to_probe(&self, id: ProbeId) -> Probe {
+        Probe {
             id,
             name: self.canonical_name(),
             description: self
@@ -37,7 +37,7 @@ impl InSourceTracer {
         }
     }
 
-    fn cmp_eq(&self, other: &Tracer) -> bool {
+    fn cmp_eq(&self, other: &Probe) -> bool {
         self.canonical_name()
             .as_str()
             .eq_ignore_ascii_case(other.name.as_str())
@@ -56,14 +56,14 @@ impl InSourceTracer {
     }
 }
 
-impl PartialEq<Tracer> for InSourceTracer {
-    fn eq(&self, other: &Tracer) -> bool {
+impl PartialEq<Probe> for InSourceProbe {
+    fn eq(&self, other: &Probe) -> bool {
         self.cmp_eq(other)
     }
 }
 
-impl PartialEq<&Tracer> for InSourceTracer {
-    fn eq(&self, other: &&Tracer) -> bool {
+impl PartialEq<&Probe> for InSourceProbe {
+    fn eq(&self, other: &&Probe) -> bool {
         self.cmp_eq(other)
     }
 }
@@ -74,26 +74,26 @@ mod tests {
 
     #[test]
     fn equality() {
-        let in_src_tracer = InSourceTracer {
+        let in_src_probe = InSourceProbe {
             file: FilePath {
                 full_path: "main.c".to_string(),
                 path: "main.c".to_string(),
             },
-            metadata: TracerMetadata {
-                name: "LOCATION_A".to_string(),
+            metadata: ProbeMetadata {
+                name: "PROBE_ID_A".to_string(),
                 location: (1, 4, 3).into(),
                 tags: None,
                 description: None,
             },
         };
-        let in_mf_tracer = Tracer {
-            id: TracerId(1),
-            name: "location_a".to_string(),
+        let in_mf_probe = Probe {
+            id: ProbeId(1),
+            name: "PROBE_ID_A".to_string(),
             description: String::from("not in src"),
             tags: String::new(),
             file: "main.c".to_string(),
             line: "4".to_string(),
         };
-        assert!(in_src_tracer.eq(&in_mf_tracer));
+        assert!(in_src_probe.eq(&in_mf_probe));
     }
 }
