@@ -11,8 +11,8 @@ pub const MODALITY_PROBE_ERROR_OK: ModalityProbeError = 0;
 pub const MODALITY_PROBE_ERROR_NULL_POINTER: ModalityProbeError = 1;
 /// An event id outside of the allowed range was provided.
 pub const MODALITY_PROBE_ERROR_INVALID_EVENT_ID: ModalityProbeError = 2;
-/// A tracer id outside of the allowed range was provided.
-pub const MODALITY_PROBE_ERROR_INVALID_TRACER_ID: ModalityProbeError = 3;
+/// A probe id outside of the allowed range was provided.
+pub const MODALITY_PROBE_ERROR_INVALID_PROBE_ID: ModalityProbeError = 3;
 /// The size available for output bytes was insufficient
 /// to store a valid representation.
 pub const MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES: ModalityProbeError = 4;
@@ -20,7 +20,7 @@ pub const MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES: ModalityProbeErro
 pub const MODALITY_PROBE_ERROR_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE: ModalityProbeError = 5;
 /// An unexpected error in internal data encoding occurred.
 pub const MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR: ModalityProbeError = 6;
-/// The local tracer does not have enough space to track all
+/// The local probe does not have enough space to track all
 /// of direct neighbors attempting to communicate with it.
 /// Detected during merging.
 pub const MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS: ModalityProbeError = 7;
@@ -30,15 +30,15 @@ pub const MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS: ModalityProbeError = 7
 /// Detected during merging.
 pub const MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_ENCODING: ModalityProbeError = 8;
 /// The provided external history violated a semantic rule of the protocol;
-/// such as by having a tracer_id out of the allowed value range.
+/// such as by having a probe_id out of the allowed value range.
 /// Detected during merging.
 pub const MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS: ModalityProbeError = 9;
-/// The tracer encountered a problem dealing with extension metadata
+/// The probe encountered a problem dealing with extension metadata
 pub const MODALITY_PROBE_ERROR_EXTENSION_ERROR: ModalityProbeError = 10;
-/// The tracer attempted to mutate internal state while
+/// The probe attempted to mutate internal state while
 /// a report lock was active.
 pub const MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR: ModalityProbeError = 11;
-/// The tracer attempted to do a chunked report operation when no
+/// The probe attempted to do a chunked report operation when no
 /// chunked report has been started.
 pub const MODALITY_PROBE_ERROR_NO_CHUNKED_REPORT_IN_PROGRESS: ModalityProbeError = 12;
 
@@ -59,7 +59,7 @@ pub const MODALITY_PROBE_ERROR_NO_CHUNKED_REPORT_IN_PROGRESS: ModalityProbeError
 pub unsafe fn modality_probe_initialize(
     destination: *mut u8,
     destination_size_bytes: usize,
-    tracer_id: u32,
+    probe_id: u32,
     out: *mut *mut ModalityProbe<'static>,
 ) -> ModalityProbeError {
     if destination.is_null() {
@@ -70,13 +70,13 @@ pub unsafe fn modality_probe_initialize(
     }
     match ModalityProbe::try_initialize_at(
         core::slice::from_raw_parts_mut(destination, destination_size_bytes),
-        tracer_id,
+        probe_id,
     ) {
         Ok(t) => {
             *out = t;
             MODALITY_PROBE_ERROR_OK
         }
-        Err(InitializationError::InvalidTracerId) => MODALITY_PROBE_ERROR_INVALID_TRACER_ID,
+        Err(InitializationError::InvalidProbeId) => MODALITY_PROBE_ERROR_INVALID_PROBE_ID,
         Err(InitializationError::StorageSetupError(StorageSetupError::NullDestination)) => {
             MODALITY_PROBE_ERROR_NULL_POINTER
         }
@@ -96,14 +96,14 @@ pub unsafe fn modality_probe_initialize(
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_record_event(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
 ) -> ModalityProbeError {
-    let tracer = match tracer.as_mut() {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match tracer.try_record_event(event_id) {
+    match probe.try_record_event(event_id) {
         Ok(_) => MODALITY_PROBE_ERROR_OK,
         Err(modality_probe::InvalidEventId) => MODALITY_PROBE_ERROR_INVALID_EVENT_ID,
     }
@@ -116,15 +116,15 @@ pub unsafe fn modality_probe_record_event(
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_record_event_with_payload(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
     payload: u32,
 ) -> ModalityProbeError {
-    let tracer = match tracer.as_mut() {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match tracer.try_record_event_with_payload(event_id, payload) {
+    match probe.try_record_event_with_payload(event_id, payload) {
         Ok(_) => MODALITY_PROBE_ERROR_OK,
         Err(modality_probe::InvalidEventId) => MODALITY_PROBE_ERROR_INVALID_EVENT_ID,
     }
@@ -139,19 +139,19 @@ pub unsafe fn modality_probe_record_event_with_payload(
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_report(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     log_report_destination: *mut u8,
     log_report_destination_size_bytes: usize,
     out_written_bytes: *mut usize,
 ) -> ModalityProbeError {
-    let tracer = match tracer.as_mut() {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
     if log_report_destination.is_null() {
         return MODALITY_PROBE_ERROR_NULL_POINTER;
     }
-    let written_bytes = match tracer.report(core::slice::from_raw_parts_mut(
+    let written_bytes = match probe.report(core::slice::from_raw_parts_mut(
         log_report_destination,
         log_report_destination_size_bytes,
     )) {
@@ -188,16 +188,16 @@ fn report_error_to_modality_probe_error(report_error: ReportError) -> ModalityPr
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_distribute_snapshot(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     history_destination: *mut u8,
     history_destination_bytes: usize,
     out_written_bytes: *mut usize,
 ) -> ModalityProbeError {
-    let tracer = match tracer.as_mut() {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match tracer.distribute_snapshot(core::slice::from_raw_parts_mut(
+    match probe.distribute_snapshot(core::slice::from_raw_parts_mut(
         history_destination,
         history_destination_bytes,
     )) {
@@ -229,14 +229,14 @@ fn distribute_error_to_modality_probe_error(
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_distribute_fixed_size_snapshot(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     destination_snapshot: *mut CausalSnapshot,
 ) -> ModalityProbeError {
-    let tracer = match tracer.as_mut() {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match tracer.distribute_fixed_size_snapshot() {
+    match probe.distribute_fixed_size_snapshot() {
         Ok(snapshot) => {
             *destination_snapshot = snapshot;
             MODALITY_PROBE_ERROR_OK
@@ -252,15 +252,15 @@ pub unsafe fn modality_probe_distribute_fixed_size_snapshot(
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_merge_snapshot(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     history_source: *const u8,
     history_source_bytes: usize,
 ) -> ModalityProbeError {
-    let tracer = match tracer.as_mut() {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match tracer.merge_snapshot(core::slice::from_raw_parts(
+    match probe.merge_snapshot(core::slice::from_raw_parts(
         history_source,
         history_source_bytes,
     )) {
@@ -290,14 +290,14 @@ fn merge_error_to_modality_probe_error(merge_error: MergeError) -> ModalityProbe
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_merge_fixed_size_snapshot(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     snapshot: *const CausalSnapshot,
 ) -> ModalityProbeError {
-    let tracer = match tracer.as_mut() {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match tracer.merge_fixed_size_snapshot(&*snapshot) {
+    match probe.merge_fixed_size_snapshot(&*snapshot) {
         Ok(_) => MODALITY_PROBE_ERROR_OK,
         Err(e) => merge_error_to_modality_probe_error(e),
     }
@@ -306,9 +306,9 @@ pub unsafe fn modality_probe_merge_fixed_size_snapshot(
 /// Capture the ModalityProbe instance's moment in causal time
 /// for correlation with external systems.
 ///
-/// If the pointer to the ModalityProbe instance (a.k.a. tracer) was null,
+/// If the pointer to the ModalityProbe instance was null,
 /// returns an `ModalityProbeInstant` with its `clock.id` value
-/// set to the invalid location id `0`.
+/// set to the invalid probe id `0`.
 ///
 /// # Safety
 ///
@@ -317,8 +317,8 @@ pub unsafe fn modality_probe_merge_fixed_size_snapshot(
 /// fashion.
 #[allow(invalid_value)]
 #[cfg_attr(feature = "no_mangle", no_mangle)]
-pub unsafe fn modality_probe_now(tracer: *mut ModalityProbe<'static>) -> ModalityProbeInstant {
-    let tracer = match tracer.as_mut() {
+pub unsafe fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> ModalityProbeInstant {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => {
             return ModalityProbeInstant {
@@ -332,7 +332,7 @@ pub unsafe fn modality_probe_now(tracer: *mut ModalityProbe<'static>) -> Modalit
             };
         }
     };
-    tracer.now()
+    probe.now()
 }
 
 // ChunkedReportToken is expressed as a uint16_t in probe.h,
@@ -366,14 +366,14 @@ assert_eq_align!(u16, ChunkedReportToken);
 /// will not be populated.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_start_chunked_report(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     out_report_token: *mut ChunkedReportToken,
 ) -> ModalityProbeError {
-    let tracer = match tracer.as_mut() {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match tracer.start_chunked_report() {
+    match probe.start_chunked_report() {
         Ok(token) => {
             *out_report_token = token;
             MODALITY_PROBE_ERROR_OK
@@ -417,17 +417,17 @@ fn chunked_report_error_to_modality_probe_error(cre: ChunkedReportError) -> Moda
 /// are not certain to be initialized or a valid chunk.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_write_next_report_chunk(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     report_token: *const ChunkedReportToken,
     log_report_destination: *mut u8,
     log_report_destination_size_bytes: usize,
     out_written_bytes: *mut usize,
 ) -> ModalityProbeError {
-    let tracer = match tracer.as_mut() {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match tracer.write_next_report_chunk(
+    match probe.write_next_report_chunk(
         &*report_token,
         core::slice::from_raw_parts_mut(log_report_destination, log_report_destination_size_bytes),
     ) {
@@ -455,14 +455,14 @@ pub unsafe fn modality_probe_write_next_report_chunk(
 /// there has been an error.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_finish_chunked_report(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     report_token: *const ChunkedReportToken,
 ) -> ModalityProbeError {
-    let tracer = match tracer.as_mut() {
+    let probe = match probe.as_mut() {
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match tracer.finish_chunked_report(core::ptr::read(report_token)) {
+    match probe.finish_chunked_report(core::ptr::read(report_token)) {
         Ok(_) => MODALITY_PROBE_ERROR_OK,
         Err(e) => chunked_report_error_to_modality_probe_error(e),
     }
@@ -474,10 +474,10 @@ mod tests {
     use core::cmp::Ordering;
     use core::mem::MaybeUninit;
 
-    fn stack_snapshot(tracer: *mut ModalityProbe<'static>) -> CausalSnapshot {
+    fn stack_snapshot(probe: *mut ModalityProbe<'static>) -> CausalSnapshot {
         let mut snap = MaybeUninit::uninit();
         assert_eq!(MODALITY_PROBE_ERROR_OK, unsafe {
-            modality_probe_distribute_fixed_size_snapshot(tracer, snap.as_mut_ptr())
+            modality_probe_distribute_fixed_size_snapshot(probe, snap.as_mut_ptr())
         });
         unsafe { snap.assume_init() }
     }
@@ -486,27 +486,27 @@ mod tests {
     fn end_to_end_use_of_modality_probe_capi_works() {
         let mut backend = [0u8; 2099];
 
-        let tracer_id = 2;
+        let probe_id = 2;
         let mut storage = [0u8; 1024];
         let storage_slice = &mut storage;
-        let mut tracer = MaybeUninit::uninit();
+        let mut probe = MaybeUninit::uninit();
         let result = unsafe {
             modality_probe_initialize(
                 storage_slice.as_mut_ptr() as *mut u8,
                 storage_slice.len(),
-                tracer_id,
-                tracer.as_mut_ptr(),
+                probe_id,
+                probe.as_mut_ptr(),
             )
         };
         assert_eq!(MODALITY_PROBE_ERROR_OK, result);
-        let tracer = unsafe { tracer.assume_init() };
-        let snap_empty = stack_snapshot(tracer);
-        assert_eq!(snap_empty.tracer_id, tracer_id);
+        let probe = unsafe { probe.assume_init() };
+        let snap_empty = stack_snapshot(probe);
+        assert_eq!(snap_empty.probe_id, probe_id);
         assert_eq!(1, snap_empty.clocks_len);
         unsafe {
-            modality_probe_record_event(tracer, 100);
+            modality_probe_record_event(probe, 100);
         }
-        let snap_a = stack_snapshot(tracer);
+        let snap_a = stack_snapshot(probe);
         assert!(snap_empty < snap_a);
         assert!(!(snap_a < snap_empty));
         assert_eq!(1, snap_a.clocks_len);
@@ -515,7 +515,7 @@ mod tests {
         let mut bytes_written: usize = 0;
         let result = unsafe {
             modality_probe_report(
-                tracer,
+                probe,
                 backend.as_mut_ptr(),
                 backend.len(),
                 &mut bytes_written as *mut usize,
@@ -524,33 +524,33 @@ mod tests {
         assert_eq!(MODALITY_PROBE_ERROR_OK, result);
         assert!(bytes_written > 0);
         assert!(!&backend.iter().all(|b| *b == 0));
-        let snap_b = stack_snapshot(tracer);
+        let snap_b = stack_snapshot(probe);
         // We expect the local clock to have progressed thanks to recording an event
         // internally when we successfully transmitted the state to the backend.
         assert!(snap_a < snap_b);
         assert!(!(snap_b < snap_a));
-        let snap_b_neighborhood = stack_snapshot(tracer);
+        let snap_b_neighborhood = stack_snapshot(probe);
         assert_eq!(1, snap_b_neighborhood.clocks_len);
         assert!(snap_b < snap_b_neighborhood);
 
         // Share that snapshot with another component in the system, pretend it lives on
         // some other thread.
-        let remote_tracer_id = tracer_id + 1;
+        let remote_probe_id = probe_id + 1;
 
         let mut remote_storage = [0u8; 1024];
         let remote_storage_slice = &mut remote_storage;
-        let mut remote_tracer = MaybeUninit::uninit();
+        let mut remote_probe = MaybeUninit::uninit();
         let result = unsafe {
             modality_probe_initialize(
                 remote_storage_slice.as_mut_ptr() as *mut u8,
                 remote_storage_slice.len(),
-                remote_tracer_id,
-                remote_tracer.as_mut_ptr(),
+                remote_probe_id,
+                remote_probe.as_mut_ptr(),
             )
         };
         assert_eq!(MODALITY_PROBE_ERROR_OK, result);
-        let remote_tracer = unsafe { remote_tracer.assume_init() };
-        let remote_snap_pre_merge = stack_snapshot(remote_tracer);
+        let remote_probe = unsafe { remote_probe.assume_init() };
+        let remote_snap_pre_merge = stack_snapshot(remote_probe);
         // Since we haven't manually combined history information yet, the remote's
         // history is disjoint
         assert_eq!(
@@ -558,17 +558,17 @@ mod tests {
             remote_snap_pre_merge.partial_cmp(&snap_b_neighborhood)
         );
         assert!(!(snap_b_neighborhood < remote_snap_pre_merge));
-        assert_eq!(remote_snap_pre_merge.tracer_id, remote_tracer_id);
+        assert_eq!(remote_snap_pre_merge.probe_id, remote_probe_id);
         assert_eq!(1, remote_snap_pre_merge.clocks_len);
 
         unsafe {
             modality_probe_merge_fixed_size_snapshot(
-                remote_tracer,
+                remote_probe,
                 &snap_b_neighborhood as *const CausalSnapshot,
             )
         };
 
-        let remote_snap_post_merge = stack_snapshot(remote_tracer);
+        let remote_snap_post_merge = stack_snapshot(remote_probe);
         assert_eq!(
             Some(Ordering::Greater),
             remote_snap_post_merge.partial_cmp(&snap_b_neighborhood)
@@ -580,7 +580,7 @@ mod tests {
         assert!(snap_b_neighborhood < remote_snap_post_merge);
         assert!(!(remote_snap_post_merge < snap_b_neighborhood));
 
-        let snap_c = stack_snapshot(tracer);
+        let snap_c = stack_snapshot(probe);
         assert!(snap_b < snap_c);
         assert!(!(snap_c < snap_b));
     }

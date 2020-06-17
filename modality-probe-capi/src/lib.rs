@@ -9,14 +9,14 @@ pub use modality_probe_capi_impl::{
 pub extern "C" fn modality_probe_initialize(
     destination: *mut u8,
     destination_size_bytes: usize,
-    tracer_id: u32,
+    probe_id: u32,
     out: *mut *mut ModalityProbe<'static>,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_initialize(
             destination,
             destination_size_bytes,
-            tracer_id,
+            probe_id,
             out,
         )
     }
@@ -24,34 +24,32 @@ pub extern "C" fn modality_probe_initialize(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_record_event(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
 ) -> ModalityProbeError {
-    unsafe { modality_probe_capi_impl::modality_probe_record_event(tracer, event_id) }
+    unsafe { modality_probe_capi_impl::modality_probe_record_event(probe, event_id) }
 }
 
 #[no_mangle]
 pub extern "C" fn modality_probe_record_event_with_payload(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
     payload: u32,
 ) -> ModalityProbeError {
     unsafe {
-        modality_probe_capi_impl::modality_probe_record_event_with_payload(
-            tracer, event_id, payload,
-        )
+        modality_probe_capi_impl::modality_probe_record_event_with_payload(probe, event_id, payload)
     }
 }
 
 #[no_mangle]
 pub extern "C" fn modality_probe_record_event_with_payload_i8(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
     payload: i8,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_record_event_with_payload(
-            tracer,
+            probe,
             event_id,
             payload as _,
         )
@@ -60,13 +58,13 @@ pub extern "C" fn modality_probe_record_event_with_payload_i8(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_record_event_with_payload_u8(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
     payload: u8,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_record_event_with_payload(
-            tracer,
+            probe,
             event_id,
             u32::from(payload),
         )
@@ -75,13 +73,13 @@ pub extern "C" fn modality_probe_record_event_with_payload_u8(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_record_event_with_payload_i16(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
     payload: i16,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_record_event_with_payload(
-            tracer,
+            probe,
             event_id,
             payload as _,
         )
@@ -90,13 +88,13 @@ pub extern "C" fn modality_probe_record_event_with_payload_i16(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_record_event_with_payload_u16(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
     payload: u16,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_record_event_with_payload(
-            tracer,
+            probe,
             event_id,
             u32::from(payload),
         )
@@ -105,13 +103,13 @@ pub extern "C" fn modality_probe_record_event_with_payload_u16(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_record_event_with_payload_i32(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
     payload: i32,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_record_event_with_payload(
-            tracer,
+            probe,
             event_id,
             payload as _,
         )
@@ -120,26 +118,24 @@ pub extern "C" fn modality_probe_record_event_with_payload_i32(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_record_event_with_payload_u32(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
     payload: u32,
 ) -> ModalityProbeError {
     unsafe {
-        modality_probe_capi_impl::modality_probe_record_event_with_payload(
-            tracer, event_id, payload,
-        )
+        modality_probe_capi_impl::modality_probe_record_event_with_payload(probe, event_id, payload)
     }
 }
 
 #[no_mangle]
 pub extern "C" fn modality_probe_record_event_with_payload_bool(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
     payload: bool,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_record_event_with_payload(
-            tracer,
+            probe,
             event_id,
             u32::from(payload),
         )
@@ -148,13 +144,13 @@ pub extern "C" fn modality_probe_record_event_with_payload_bool(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_record_event_with_payload_f32(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     event_id: u32,
     payload: f32,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_record_event_with_payload(
-            tracer,
+            probe,
             event_id,
             payload.to_bits(),
         )
@@ -163,14 +159,14 @@ pub extern "C" fn modality_probe_record_event_with_payload_f32(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_report(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     log_report_destination: *mut u8,
     log_report_destination_size_bytes: usize,
     out_written_bytes: *mut usize,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_report(
-            tracer,
+            probe,
             log_report_destination,
             log_report_destination_size_bytes,
             out_written_bytes,
@@ -180,14 +176,14 @@ pub extern "C" fn modality_probe_report(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_distribute_snapshot(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     history_destination: *mut u8,
     history_destination_bytes: usize,
     out_written_bytes: *mut usize,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_distribute_snapshot(
-            tracer,
+            probe,
             history_destination,
             history_destination_bytes,
             out_written_bytes,
@@ -197,12 +193,12 @@ pub extern "C" fn modality_probe_distribute_snapshot(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_distribute_fixed_size_snapshot(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     destination_snapshot: *mut CausalSnapshot,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_distribute_fixed_size_snapshot(
-            tracer,
+            probe,
             destination_snapshot,
         )
     }
@@ -210,13 +206,13 @@ pub extern "C" fn modality_probe_distribute_fixed_size_snapshot(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_merge_snapshot(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     history_source: *const u8,
     history_source_bytes: usize,
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_merge_snapshot(
-            tracer,
+            probe,
             history_source,
             history_source_bytes,
         )
@@ -225,29 +221,29 @@ pub extern "C" fn modality_probe_merge_snapshot(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_merge_fixed_size_snapshot(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     snapshot: *const CausalSnapshot,
 ) -> ModalityProbeError {
-    unsafe { modality_probe_capi_impl::modality_probe_merge_fixed_size_snapshot(tracer, snapshot) }
+    unsafe { modality_probe_capi_impl::modality_probe_merge_fixed_size_snapshot(probe, snapshot) }
 }
 #[no_mangle]
-pub extern "C" fn modality_probe_now(tracer: *mut ModalityProbe<'static>) -> ModalityProbeInstant {
-    unsafe { modality_probe_capi_impl::modality_probe_now(tracer) }
+pub extern "C" fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> ModalityProbeInstant {
+    unsafe { modality_probe_capi_impl::modality_probe_now(probe) }
 }
 
 #[no_mangle]
 pub extern "C" fn modality_probe_start_chunked_report(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     out_report_token: *mut ChunkedReportToken,
 ) -> ModalityProbeError {
     unsafe {
-        modality_probe_capi_impl::modality_probe_start_chunked_report(tracer, out_report_token)
+        modality_probe_capi_impl::modality_probe_start_chunked_report(probe, out_report_token)
     }
 }
 
 #[no_mangle]
 pub extern "C" fn modality_probe_write_next_report_chunk(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     report_token: *const ChunkedReportToken,
     log_report_destination: *mut u8,
     log_report_destination_size_bytes: usize,
@@ -255,7 +251,7 @@ pub extern "C" fn modality_probe_write_next_report_chunk(
 ) -> ModalityProbeError {
     unsafe {
         modality_probe_capi_impl::modality_probe_write_next_report_chunk(
-            tracer,
+            probe,
             report_token,
             log_report_destination,
             log_report_destination_size_bytes,
@@ -266,10 +262,10 @@ pub extern "C" fn modality_probe_write_next_report_chunk(
 
 #[no_mangle]
 pub extern "C" fn modality_probe_finish_chunked_report(
-    tracer: *mut ModalityProbe<'static>,
+    probe: *mut ModalityProbe<'static>,
     report_token: *const ChunkedReportToken,
 ) -> ModalityProbeError {
-    unsafe { modality_probe_capi_impl::modality_probe_finish_chunked_report(tracer, report_token) }
+    unsafe { modality_probe_capi_impl::modality_probe_finish_chunked_report(probe, report_token) }
 }
 
 #[cfg(not(test))]

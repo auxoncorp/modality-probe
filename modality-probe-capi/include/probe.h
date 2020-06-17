@@ -69,7 +69,7 @@ typedef enum {
     /*
      * A probe id outside of the allowed range was provided.
      */
-    MODALITY_PROBE_ERROR_INVALID_TRACER_ID = 3,
+    MODALITY_PROBE_ERROR_INVALID_PROBE_ID = 3,
     /*
      * The size available for output bytes was insufficient
      * to store a valid representation.
@@ -84,7 +84,7 @@ typedef enum {
      */
     MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR = 6,
     /*
-     * The local Modality probe does not have enough space to track all
+     * The local probe does not have enough space to track all
      * of direct neighbors attempting to communicate with it.
      * Detected during merging.
      */
@@ -102,16 +102,16 @@ typedef enum {
      */
     MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS = 9,
     /*
-     * The Modality probe encountered a problem dealing with extension metadata
+     * The probe encountered a problem dealing with extension metadata
      */
     MODALITY_PROBE_ERROR_EXTENSION_ERROR = 10,
     /*
-     * The Modality probe attempted to mutate internal state while
+     * The probe attempted to mutate internal state while
      * a report lock was active.
      */
     MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR = 11,
     /*
-     * The Modality probe attempted to do a chunked report operation when no
+     * The probe attempted to do a chunked report operation when no
      * chunked report has been started.
      */
     MODALITY_PROBE_ERROR_NO_CHUNKED_REPORT_IN_PROGRESS = 12,
