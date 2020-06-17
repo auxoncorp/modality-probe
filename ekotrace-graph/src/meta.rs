@@ -38,6 +38,5 @@ pub struct TracerMeta {
     pub name: String,
     pub description: String,
     pub file: String,
-    pub function: String,
     pub line: u32,
 }
