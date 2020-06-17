@@ -97,11 +97,11 @@ pub trait Tracer {
 /// to the opaque, arbitrarily-sized standard snapshots.
 #[derive(Debug)]
 #[repr(C)]
-pub struct Ekotrace<'a> {
+pub struct ModalityProbe<'a> {
     history: &'a mut DynamicHistory<'a>,
 }
 
-impl<'a> Ekotrace<'a> {
+impl<'a> ModalityProbe<'a> {
     /// Initialize tracing for this location.
     /// `tracer_id` ought to be unique throughout the system,
     /// and must be greater than 0 and less than TracerId::MAX_ID.
@@ -121,10 +121,11 @@ impl<'a> Ekotrace<'a> {
     pub fn try_initialize_at(
         memory: &'a mut [u8],
         tracer_id: u32,
-    ) -> Result<&'a mut Ekotrace<'a>, InitializationError> {
+    ) -> Result<&'a mut ModalityProbe<'a>, InitializationError> {
         let tracer_id = TracerId::try_from(tracer_id)
             .map_err(|_: InvalidTracerId| InitializationError::InvalidTracerId)?;
-        Ekotrace::initialize_at(memory, tracer_id).map_err(InitializationError::StorageSetupError)
+        ModalityProbe::initialize_at(memory, tracer_id)
+            .map_err(InitializationError::StorageSetupError)
     }
     /// Initialize tracing for this location.
     /// `tracer_id` ought to be unique throughout the system.
@@ -142,9 +143,9 @@ impl<'a> Ekotrace<'a> {
     pub fn initialize_at(
         memory: &'a mut [u8],
         tracer_id: TracerId,
-    ) -> Result<&'a mut Ekotrace<'a>, StorageSetupError> {
+    ) -> Result<&'a mut ModalityProbe<'a>, StorageSetupError> {
         match embed(memory, |history_memory| {
-            Ekotrace::new_with_storage(history_memory, tracer_id)
+            ModalityProbe::new_with_storage(history_memory, tracer_id)
         }) {
             Ok(v) => Ok(v),
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
@@ -154,7 +155,7 @@ impl<'a> Ekotrace<'a> {
                 Err(StorageSetupError::UnderMinimumAllowedSize)
             }
             Err(EmbedValueError::SplitUninitError(SplitUninitError::ZeroSizedTypesUnsupported)) => {
-                const_assert!(size_of::<Ekotrace>() > 0);
+                const_assert!(size_of::<ModalityProbe>() > 0);
                 panic!("Static assertions ensure that this structure is not zero sized")
             }
             Err(EmbedValueError::ConstructionError(e)) => Err(e),
@@ -170,8 +171,8 @@ impl<'a> Ekotrace<'a> {
     pub fn new_with_storage(
         history_memory: &'a mut [u8],
         tracer_id: TracerId,
-    ) -> Result<Ekotrace<'a>, StorageSetupError> {
-        let t = Ekotrace::<'a> {
+    ) -> Result<ModalityProbe<'a>, StorageSetupError> {
+        let t = ModalityProbe::<'a> {
             history: DynamicHistory::new_at(history_memory, tracer_id)?,
         };
         Ok(t)
@@ -271,7 +272,7 @@ impl<'a> Ekotrace<'a> {
 
     /// Capture the current instance's moment in causal time
     /// for correlation with external systems.
-    pub fn now(&self) -> EkotraceInstant {
+    pub fn now(&self) -> ModalityProbeInstant {
         self.history.now()
     }
 }
@@ -282,10 +283,10 @@ impl<'a> Ekotrace<'a> {
 /// wrappers (TracerId, NonZero*) for C representation reasons.
 #[derive(Debug, PartialEq, Hash)]
 #[repr(C)]
-pub struct EkotraceInstant {
+pub struct ModalityProbeInstant {
     /// The current location's logical clock.
     /// `clock.id` should be equivalent to the id
-    /// (a.k.a TracerId or location id) of the source `Ekotrace` instance
+    /// (a.k.a TracerId or location id) of the source `ModalityProbe` instance
     pub clock: LogicalClock,
     /// How many events have been seen since the source instance
     /// reached the associated `clock`'s point in causal
@@ -293,7 +294,7 @@ pub struct EkotraceInstant {
     pub event_count: u32,
 }
 
-impl PartialOrd for EkotraceInstant {
+impl PartialOrd for ModalityProbeInstant {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.clock.id != other.clock.id {
             return None;
@@ -311,7 +312,7 @@ impl PartialOrd for EkotraceInstant {
 #[derive(Debug)]
 pub struct ExtensionBytes<'a>(pub &'a [u8]);
 
-impl<'a> Tracer for Ekotrace<'a> {
+impl<'a> Tracer for ModalityProbe<'a> {
     #[inline]
     fn record_event(&mut self, event_id: EventId) {
         self.history.record_event(event_id);
@@ -333,7 +334,7 @@ impl<'a> Tracer for Ekotrace<'a> {
     }
 }
 
-impl<'a> BulkReporter for Ekotrace<'a> {
+impl<'a> BulkReporter for ModalityProbe<'a> {
     fn report_with_extension(
         &mut self,
         destination: &mut [u8],
@@ -344,7 +345,7 @@ impl<'a> BulkReporter for Ekotrace<'a> {
     }
 }
 
-impl<'a> ChunkedReporter for Ekotrace<'a> {
+impl<'a> ChunkedReporter for ModalityProbe<'a> {
     fn start_chunked_report(&mut self) -> Result<ChunkedReportToken, ChunkedReportError> {
         self.history.start_chunked_report()
     }

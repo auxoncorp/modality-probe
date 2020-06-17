@@ -104,7 +104,7 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
                         session_id,
                         segment_id,
                         segment_index,
-                        message: "When lc_tracer_id is present, it must be a valid ekotrac::TracerId",
+                        message: "When lc_tracer_id is present, it must be a valid modality_probe::TracerId",
                     }
                 )?, lc_clock),
             }
@@ -126,7 +126,8 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
                     session_id,
                     segment_id,
                     segment_index,
-                    message: "When lc_tracer_id is present, it must be a valid ekotrac::TracerId",
+                    message:
+                        "When lc_tracer_id is present, it must be a valid modality_probe::TracerId",
                 })?,
             data,
             receive_time: l.receive_time,
@@ -180,8 +181,8 @@ pub fn read_csv_log_entries<R: Read>(r: &mut R) -> Result<Vec<model::LogEntry>, 
 #[derive(Clone, Debug)]
 struct SegmentMetadata {
     id: model::SegmentId,
-    tracer_id: ekotrace::TracerId,
-    logical_clock: HashMap<ekotrace::TracerId, u32>,
+    tracer_id: modality_probe::TracerId,
+    logical_clock: HashMap<modality_probe::TracerId, u32>,
 }
 
 impl SegmentMetadata {
@@ -207,7 +208,7 @@ impl SegmentMetadataIndex {
 
 // source tracer id -> local clock value -> segment id
 #[derive(Debug)]
-struct LCIndex(HashMap<ekotrace::TracerId, BTreeMap<u32, model::SegmentId>>);
+struct LCIndex(HashMap<modality_probe::TracerId, BTreeMap<u32, model::SegmentId>>);
 
 #[derive(Debug)]
 pub enum LCIndexError {
@@ -325,7 +326,7 @@ pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogE
 }
 
 pub struct SegmentGraphNode {
-    pub tracer_id: ekotrace::TracerId,
+    pub tracer_id: modality_probe::TracerId,
     pub segment_id: model::SegmentId,
     pub event_count: usize,
 }
@@ -402,7 +403,7 @@ pub fn build_log_entry_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + C
 #[cfg(test)]
 mod test {
     use super::*;
-    use ekotrace::EventId;
+    use modality_probe::EventId;
     use proptest::prelude::*;
 
     prop_compose! {

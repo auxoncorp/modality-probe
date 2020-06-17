@@ -617,7 +617,7 @@ mod tests {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
-        let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
+        let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
         let token = eko
             .start_chunked_report()
@@ -642,7 +642,7 @@ mod tests {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
-        let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
+        let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
         for i in 1..=MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK {
             eko.record_event(EventId::new(i as u32).unwrap());
@@ -678,12 +678,12 @@ mod tests {
         let tracer_id_foo = 1u32.try_into().expect("Invalid tracer id");
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage_foo = [0u8; 4096];
-        let mut eko_foo = Ekotrace::new_with_storage(&mut storage_foo, tracer_id_foo)
+        let mut eko_foo = ModalityProbe::new_with_storage(&mut storage_foo, tracer_id_foo)
             .expect("Could not initialize ekotrace");
 
         let tracer_id_bar = 1u32.try_into().expect("Invalid tracer id");
         let mut storage_bar = [0u8; 4096];
-        let mut eko_bar = Ekotrace::new_with_storage(&mut storage_bar, tracer_id_bar)
+        let mut eko_bar = ModalityProbe::new_with_storage(&mut storage_bar, tracer_id_bar)
             .expect("Could not initialize ekotrace");
         let bar_snapshot_len = eko_bar
             .distribute_snapshot(&mut other_transmission_buffer)
@@ -794,7 +794,7 @@ mod tests {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
-        let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
+        let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
         let made_up_token = ChunkedReportToken { group_id: 0 };
         assert_eq!(
@@ -813,7 +813,7 @@ mod tests {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
-        let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
+        let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
         let token = eko
             .start_chunked_report()
@@ -847,7 +847,7 @@ mod tests {
     fn chunked_report_attempt_multiple_starts_causes_error() {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
         let mut storage = [0u8; 4096];
-        let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
+        let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
         let _token = eko
             .start_chunked_report()
@@ -864,7 +864,7 @@ mod tests {
         let tracer_id = 1u32.try_into().expect("Invalid tracer id");
         let mut report_transmission_buffer = [0u8; MAX_CHUNK_BYTES];
         let mut storage = [0u8; 4096];
-        let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id)
+        let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id)
             .expect("Could not initialize ekotrace");
         let token = eko
             .start_chunked_report()
@@ -909,7 +909,7 @@ mod tests {
             let mut report_transmission_buffer: Vec<u8> = Vec::new();
             report_transmission_buffer.resize(MAX_CHUNK_BYTES, 0u8);
             let mut storage = [0u8; 4096];
-            let mut eko = Ekotrace::new_with_storage(&mut storage, tracer_id).expect("Could not initialize ekotrace");
+            let mut eko = ModalityProbe::new_with_storage(&mut storage, tracer_id).expect("Could not initialize ekotrace");
             let mut seen_group_ids = HashSet::new();
 
             for (produced_report_index, input_events) in event_lists.iter().enumerate() {

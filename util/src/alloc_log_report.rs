@@ -1,31 +1,31 @@
-use ekotrace::compact_log::{CompactLogItem, LogEvent, LogItem};
-use ekotrace::{BulkReporter, ExtensionBytes, ReportError};
+use modality_probe::compact_log::{CompactLogItem, LogEvent, LogItem};
+use modality_probe::{BulkReporter, ExtensionBytes, ReportError};
 
 /// Literal materialization of the log_report LCM structure
 /// with no semantic enrichment.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LogReport {
-    pub tracer_id: ekotrace::TracerId,
+    pub tracer_id: modality_probe::TracerId,
     pub segments: Vec<OwnedLogSegment>,
     pub extension_bytes: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct OwnedLogSegment {
-    pub clocks: Vec<ekotrace::LogicalClock>,
+    pub clocks: Vec<modality_probe::LogicalClock>,
     pub events: Vec<LogEvent>,
 }
 
 impl LogReport {
     #[inline]
     pub fn try_from_log(
-        tracer_id: ekotrace::TracerId,
+        tracer_id: modality_probe::TracerId,
         log: impl Iterator<Item = CompactLogItem>,
         extension_bytes: &[u8],
-    ) -> Result<Self, ekotrace::compact_log::LogItemInterpretationError> {
+    ) -> Result<Self, modality_probe::compact_log::LogItemInterpretationError> {
         let mut segments = Vec::new();
         let mut curr_segment = None;
-        for item_result in ekotrace::compact_log::LogItemIterator::new(log) {
+        for item_result in modality_probe::compact_log::LogItemIterator::new(log) {
             let item = item_result?;
             match item {
                 LogItem::Clock(clock) => {
@@ -71,14 +71,14 @@ impl LogReport {
 
     pub fn try_from_bulk_bytes(bytes: &[u8]) -> Result<Self, ParseBulkReportError> {
         let (location, log_iter, ext_bytes) =
-            ekotrace::report::bulk::try_bulk_from_wire_bytes(bytes)
+            modality_probe::report::bulk::try_bulk_from_wire_bytes(bytes)
                 .map_err(ParseBulkReportError::ParseBulkFromWire)?;
         LogReport::try_from_log(location, log_iter, ext_bytes.0)
             .map_err(ParseBulkReportError::CompactLogInterpretation)
     }
 
     pub fn write_bulk_bytes(&self, destination: &mut [u8]) -> Result<usize, ReportError> {
-        use ekotrace::report::bulk::BulkReportSourceComponents;
+        use modality_probe::report::bulk::BulkReportSourceComponents;
         let mut log = Vec::new();
         for segment in &self.segments {
             for clock in &segment.clocks {
@@ -108,14 +108,14 @@ impl LogReport {
 
 #[derive(Debug)]
 pub enum ParseBulkReportError {
-    ParseBulkFromWire(ekotrace::report::bulk::ParseBulkFromWireError),
-    CompactLogInterpretation(ekotrace::compact_log::LogItemInterpretationError),
+    ParseBulkFromWire(modality_probe::report::bulk::ParseBulkFromWireError),
+    CompactLogInterpretation(modality_probe::compact_log::LogItemInterpretationError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ekotrace::{EventId, LogicalClock, TracerId};
+    use modality_probe::{EventId, LogicalClock, TracerId};
     use proptest::prelude::*;
     use std::convert::TryInto;
 

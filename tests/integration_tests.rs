@@ -1,4 +1,4 @@
-use ekotrace::*;
+use modality_probe::*;
 use std::convert::{TryFrom, TryInto};
 use util::alloc_log_report::*;
 
@@ -18,12 +18,12 @@ impl Buffer {
 }
 
 #[test]
-fn tracer_lifecycle_does_not_panic() -> Result<(), EkotraceError> {
+fn tracer_lifecycle_does_not_panic() -> Result<(), ModalityProbeError> {
     let tracer_id = 1u32.try_into()?;
 
     let mut backend = Buffer::new(1024);
     let mut storage = [0u8; 1024];
-    let tracer = Ekotrace::initialize_at(&mut storage, tracer_id)?;
+    let tracer = ModalityProbe::initialize_at(&mut storage, tracer_id)?;
 
     let p = tracer.distribute_fixed_size_snapshot()?;
     let q = tracer.distribute_fixed_size_snapshot()?;
@@ -53,17 +53,17 @@ fn tracer_lifecycle_does_not_panic() -> Result<(), EkotraceError> {
 }
 
 #[test]
-fn round_trip_merge_snapshot() -> Result<(), EkotraceError> {
+fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
     let tracer_id_foo = 1.try_into()?;
     let tracer_id_bar = 2.try_into()?;
 
     let mut storage_foo = [0u8; 1024];
-    let tracer_foo = Ekotrace::initialize_at(&mut storage_foo, tracer_id_foo)?;
+    let tracer_foo = ModalityProbe::initialize_at(&mut storage_foo, tracer_id_foo)?;
     let snap_foo_a = tracer_foo.distribute_fixed_size_snapshot()?;
 
     // Re-initialize a tracer with no previous history
     let mut storage_bar = [0u8; 1024];
-    let tracer_bar = Ekotrace::initialize_at(&mut storage_bar, tracer_id_bar)?;
+    let tracer_bar = ModalityProbe::initialize_at(&mut storage_bar, tracer_id_bar)?;
     assert!(tracer_bar.merge_fixed_size_snapshot(&snap_foo_a).is_ok());
     let snap_bar_b = tracer_bar.distribute_fixed_size_snapshot()?;
 
@@ -88,10 +88,10 @@ fn round_trip_merge_snapshot() -> Result<(), EkotraceError> {
 }
 
 #[test]
-fn invalid_neighbor_id_in_fixed_size_merge_produces_error() -> Result<(), EkotraceError> {
+fn invalid_neighbor_id_in_fixed_size_merge_produces_error() -> Result<(), ModalityProbeError> {
     let tracer_id_foo = 1.try_into()?;
     let mut storage_foo = [0u8; 1024];
-    let tracer_foo = Ekotrace::initialize_at(&mut storage_foo, tracer_id_foo)?;
+    let tracer_foo = ModalityProbe::initialize_at(&mut storage_foo, tracer_id_foo)?;
 
     let mut clocks = [LogicalClock {
         id: TracerId::new(TracerId::MAX_ID).unwrap(),
@@ -109,10 +109,10 @@ fn invalid_neighbor_id_in_fixed_size_merge_produces_error() -> Result<(), Ekotra
 }
 
 #[test]
-fn happy_path_backend_service() -> Result<(), EkotraceError> {
+fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     let mut storage_foo = [0u8; 1024];
     let tracer_id_foo = 123.try_into()?;
-    let mut tracer = Ekotrace::new_with_storage(&mut storage_foo, tracer_id_foo)?;
+    let mut tracer = ModalityProbe::new_with_storage(&mut storage_foo, tracer_id_foo)?;
     let mut backend = [0u8; 1024];
     let bytes_written = tracer.report(&mut backend)?;
     let log_report = LogReport::try_from_bulk_bytes(&backend[..bytes_written])
@@ -138,7 +138,7 @@ fn happy_path_backend_service() -> Result<(), EkotraceError> {
 }
 
 #[test]
-fn all_allowed_events() -> Result<(), EkotraceError> {
+fn all_allowed_events() -> Result<(), ModalityProbeError> {
     // zero-value EventId is not allowed
     assert!(EventId::new(0).is_none());
 
@@ -172,15 +172,15 @@ fn all_allowed_events() -> Result<(), EkotraceError> {
 #[test]
 fn try_initialize_handles_raw_tracer_ids() {
     let mut storage = [0u8; 512];
-    assert!(Ekotrace::try_initialize_at(&mut storage, 0).is_err());
-    assert!(Ekotrace::try_initialize_at(&mut storage, TracerId::MAX_ID + 1).is_err());
-    assert!(Ekotrace::try_initialize_at(&mut storage, 1).is_ok());
+    assert!(ModalityProbe::try_initialize_at(&mut storage, 0).is_err());
+    assert!(ModalityProbe::try_initialize_at(&mut storage, TracerId::MAX_ID + 1).is_err());
+    assert!(ModalityProbe::try_initialize_at(&mut storage, 1).is_ok());
 }
 
 #[test]
-fn try_record_event_raw_tracer_ids() -> Result<(), EkotraceError> {
+fn try_record_event_raw_tracer_ids() -> Result<(), ModalityProbeError> {
     let mut storage = [0u8; 512];
-    let tracer = Ekotrace::try_initialize_at(&mut storage, 1)?;
+    let tracer = ModalityProbe::try_initialize_at(&mut storage, 1)?;
     assert!(tracer.try_record_event(0).is_err());
     assert!(tracer.try_record_event(EventId::MAX_USER_ID).is_ok());
     // Allowed to record internal events
@@ -194,14 +194,14 @@ fn try_record_event_raw_tracer_ids() -> Result<(), EkotraceError> {
 }
 
 #[test]
-fn snapshot_extension_data_smuggling() -> Result<(), EkotraceError> {
+fn snapshot_extension_data_smuggling() -> Result<(), ModalityProbeError> {
     let mut storage_foo = [0u8; 1024];
     let tracer_id_foo = 123.try_into()?;
-    let mut foo = Ekotrace::new_with_storage(&mut storage_foo, tracer_id_foo)?;
+    let mut foo = ModalityProbe::new_with_storage(&mut storage_foo, tracer_id_foo)?;
 
     let mut storage_bar = [0u8; 1024];
     let tracer_id_bar = 456.try_into()?;
-    let mut bar = Ekotrace::new_with_storage(&mut storage_bar, tracer_id_bar)?;
+    let mut bar = ModalityProbe::new_with_storage(&mut storage_bar, tracer_id_bar)?;
 
     let mut snapshot_buffer = [0u8; 512];
     let extension = [3u8, 1, 4, 1, 5, 9];

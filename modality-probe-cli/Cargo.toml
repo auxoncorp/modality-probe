@@ -1,5 +1,5 @@
 [package]
-name = "ekotrace-cli"
+name = "modality-probe-cli"
 version = "0.2.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
@@ -8,15 +8,15 @@ authors = [
 ]
 edition = "2018"
 license = "Apache-2.0"
-repository = "https://github.com/auxoncorp/ekotrace"
+repository = "https://github.com/auxoncorp/modality-probe"
 readme = "README.md"
 
 [[bin]]
-name = "ekotrace"
+name = "modality-probe"
 path = "src/main.rs"
 
 [lib]
-name = "ekotrace_cli"
+name = "modality_probe_cli"
 path = "src/lib.rs"
 
 [dependencies]
@@ -28,7 +28,7 @@ petgraph = "0.5.0"
 sha2 = "0.8"
 nom_locate = "2.0"
 
-[dependencies.ekotrace]
+[dependencies.modality-probe]
 path = "../"
 
 [dependencies.util]

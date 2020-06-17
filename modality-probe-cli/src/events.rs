@@ -31,7 +31,7 @@ impl Events {
     pub fn internal_events() -> Vec<Event> {
         vec![
             Event {
-                id: EventId(ekotrace::EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw()),
+                id: EventId(modality_probe::EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw()),
                 name: "INTERNAL_EVENT_PRODUCED_EXTERNAL_REPORT".to_string(),
                 description: "The tracer produced a log report for transmission to \
                     the backend for external analysis"
@@ -42,7 +42,7 @@ impl Events {
                 line: String::new(),
             },
             Event {
-                id: EventId(ekotrace::EventId::EVENT_LOG_OVERFLOWED.get_raw()),
+                id: EventId(modality_probe::EventId::EVENT_LOG_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_LOG_OVERFLOWED".to_string(),
                 description: "There was not sufficient room in memory to store all desired events or clock data"
                     .to_string(),
@@ -52,7 +52,7 @@ impl Events {
                 line: String::new(),
             },
             Event {
-                id: EventId(ekotrace::EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED.get_raw()),
+                id: EventId(modality_probe::EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_LOGICAL_CLOCK_OVERFLOWED".to_string(),
                 description: "A logical clock's count reached the maximum trackable value"
                     .to_string(),
@@ -62,7 +62,7 @@ impl Events {
                 line: String::new(),
             },
             Event {
-                id: EventId(ekotrace::EventId::EVENT_NUM_CLOCKS_OVERFLOWED.get_raw()),
+                id: EventId(modality_probe::EventId::EVENT_NUM_CLOCKS_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_NUM_CLOCKS_OVERFLOWED".to_string(),
                 description: "The tracer did not have enough memory reserved to store enough logical \
                     clocks to track all of the unique neighbors that attempt to communicate with it"
@@ -160,9 +160,9 @@ mod tests {
         let internal_events = Events::internal_events();
         assert_eq!(
             internal_events.len(),
-            ekotrace::EventId::INTERNAL_EVENTS.len()
+            modality_probe::EventId::INTERNAL_EVENTS.len()
         );
-        ekotrace::EventId::INTERNAL_EVENTS
+        modality_probe::EventId::INTERNAL_EVENTS
             .iter()
             .zip(internal_events.iter())
             .for_each(|(a, b)| assert_eq!(a.get_raw(), b.id.0));
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn next_available_id_skips_internal_ids() {
-        let internal_events: Vec<u32> = ekotrace::EventId::INTERNAL_EVENTS
+        let internal_events: Vec<u32> = modality_probe::EventId::INTERNAL_EVENTS
             .iter()
             .map(|id| id.get_raw())
             .collect();

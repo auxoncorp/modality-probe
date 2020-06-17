@@ -16,10 +16,10 @@ impl Default for ChunkHandlingConfig {
     }
 }
 type ReportGroupId = u16;
-type ReportKey = (ekotrace::TracerId, ReportGroupId);
+type ReportKey = (modality_probe::TracerId, ReportGroupId);
 type ChunkIndex = u16;
 type ChunksByIndexMap =
-    BTreeMap<ChunkIndex, (ekotrace::report::chunked::NativeChunk, DateTime<Utc>)>;
+    BTreeMap<ChunkIndex, (modality_probe::report::chunked::NativeChunk, DateTime<Utc>)>;
 
 pub struct ChunkHandler {
     config: ChunkHandlingConfig,
@@ -35,7 +35,7 @@ impl ChunkHandler {
     }
 
     pub fn add_incoming_chunk(&mut self, message_bytes: &[u8], receive_time: DateTime<Utc>) {
-        use ekotrace::report::chunked::*;
+        use modality_probe::report::chunked::*;
         let native_chunk = match NativeChunk::from_wire_bytes(message_bytes) {
             Ok(nc) => nc,
             Err(e) => {
@@ -110,7 +110,7 @@ impl ChunkHandler {
             let mut log_payload_items = Vec::new();
             let mut latest_receive_time = None;
             for (_k, (chunk, recv_time)) in chunks.into_iter() {
-                if let ekotrace::report::chunked::NativeChunk::Log { contents, .. } = chunk {
+                if let modality_probe::report::chunked::NativeChunk::Log { contents, .. } = chunk {
                     log_payload_items.extend_from_slice(contents.log_slice());
                     if let Some(prior_recv_time) = latest_receive_time {
                         if prior_recv_time < recv_time {
@@ -189,13 +189,15 @@ impl ChunkHandler {
 }
 
 pub fn matches_chunk_fingerprint(message_bytes: &[u8]) -> bool {
-    if message_bytes.len() >= std::mem::size_of::<ekotrace::report::chunked::WireChunkHeader>() {
+    if message_bytes.len()
+        >= std::mem::size_of::<modality_probe::report::chunked::WireChunkHeader>()
+    {
         [
             message_bytes[0],
             message_bytes[1],
             message_bytes[2],
             message_bytes[3],
-        ] == ekotrace::report::chunked::chunk_framing_fingerprint()
+        ] == modality_probe::report::chunked::chunk_framing_fingerprint()
     } else {
         false
     }

@@ -1,5 +1,5 @@
 [package]
-name = "ekotrace-capi"
+name = "modality-probe-capi"
 version = "0.2.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
@@ -9,17 +9,17 @@ authors = [
 ]
 edition = "2018"
 license = "Apache-2.0"
-repository = "https://github.com/auxoncorp/ekotrace"
+repository = "https://github.com/auxoncorp/modality-probe"
 readme = "README.md"
 description = "A distributed causal tracing system suitable for embedded use"
 build = "build.rs"
 
 [lib]
-name = "ekotrace"
+name = "modality_probe"
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-ekotrace-capi-impl = { path = "./ekotrace-capi-impl" }
+modality-probe-capi-impl = { path = "./modality-probe-capi-impl" }
 
 [build-dependencies]
 cdylib-link-lines = "0.1"
@@ -33,7 +33,7 @@ panic = "abort"
 [workspace]
 
 [package.metadata.deb]
-name = "ekotrace"
+name = "modality-probe"
 extended-description = ""
 license-file = ["../LICENSE", "0"]
 maintainer = "Auxon <help@auxon.io>"
@@ -41,8 +41,8 @@ section = "devel"
 priority = "optional"
 triggers-file = "debian/triggers"
 assets = [
-    ["target/release/libekotrace.a", "usr/lib/", "644"],
-    ["target/release/libekotrace.so", "usr/lib/", "644"],
-    ["include/*.h", "usr/include/ekotrace/", "644"],
+    ["target/release/libmodality_probe.a", "usr/lib/", "644"],
+    ["target/release/libmodality_probe.so", "usr/lib/", "644"],
+    ["include/*.h", "usr/include/modality/", "644"],
 ]
 

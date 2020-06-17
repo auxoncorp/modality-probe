@@ -39,5 +39,5 @@ jobs:
 
       - name: Generate debian package
         run: |
-          cd ekotrace-capi
+          cd modality-probe-capi
           cargo deb

@@ -10,8 +10,8 @@ const DEFAULT_PORT: u16 = 2718;
 #[cfg_attr(
     feature = "cli",
     structopt(
-        name = "ekotrace-udp-collector",
-        about = "Server that receives ekotrace reports via UDP and logs to file"
+        name = "modality-probe-udp-collector",
+        about = "Server that receives modality-probe reports via UDP and logs to file"
     )
 )]
 pub struct CLIOptions {
@@ -31,10 +31,10 @@ pub struct CLIOptions {
     output_file: Option<PathBuf>,
 }
 
-impl From<CLIOptions> for ekotrace_udp_collector::Config {
+impl From<CLIOptions> for modality_probe_udp_collector::Config {
     fn from(o: CLIOptions) -> Self {
         let session_id = o.session_id.unwrap_or(0);
-        ekotrace_udp_collector::Config {
+        modality_probe_udp_collector::Config {
             addr: SocketAddr::V4(SocketAddrV4::new(
                 Ipv4Addr::new(127, 0, 0, 1),
                 o.port.unwrap_or(DEFAULT_PORT),
@@ -55,10 +55,10 @@ fn main() {
     #[cfg(feature = "cli")]
     let opts = CLIOptions::from_args();
 
-    let config: ekotrace_udp_collector::Config = opts.into();
+    let config: modality_probe_udp_collector::Config = opts.into();
     println!("Running udp collector with configuration: {:#?}", config);
     let (_shutdown_sender, shutdown_receiver) =
-        ekotrace_udp_collector::ShutdownSignalSender::new(config.addr);
-    ekotrace_udp_collector::start_receiving(config, shutdown_receiver)
+        modality_probe_udp_collector::ShutdownSignalSender::new(config.addr);
+    modality_probe_udp_collector::start_receiving(config, shutdown_receiver)
         .expect("Could not set up UDP Socket");
 }

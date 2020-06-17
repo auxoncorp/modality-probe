@@ -1,19 +1,19 @@
-//! Basic Ekotrace event recording and reporting example.
+//! Basic ModalityProbe event recording and reporting example.
 //!
 //! Before building this example, run:
 //!
 //! ```
-//! ekotrace manifest-gen --events-csv-file events.csv --tracers-csv-file tracers.csv ./
+//! modality-probe manifest-gen --events-csv-file events.csv --tracers-csv-file tracers.csv ./
 //!
-//! ekotrace header-gen --lang Rust events.csv tracers.csv > tracing_ids/mod.rs
+//! modality-probe header-gen --lang Rust events.csv tracers.csv --output-path tracing_ids/mod.rs
 //! ```
 
 // The generated event and tracer identifiers
 mod tracing_ids;
 
 use crate::tracing_ids::*;
-use ekotrace::{
-    try_expect, try_initialize_at, try_record, try_record_w_u32, BulkReporter, Ekotrace,
+use modality_probe::{
+    try_expect, try_initialize_at, try_record, try_record_w_u32, BulkReporter, ModalityProbe,
 };
 use std::net::UdpSocket;
 use std::{thread, time};
@@ -29,7 +29,7 @@ fn main() {
         "tags=example",
         "Example location"
     )
-    .expect("Could not initialize Ekotrace");
+    .expect("Could not initialize ModalityProbe");
 
     let mut loop_counter = 0;
     loop {

@@ -1,15 +1,15 @@
 [package]
-name = "ekotrace-capi-impl"
+name = "modality-probe-capi-impl"
 version = "0.2.0"
 authors = ["Zachary Pierce <zack@auxon.io>"]
 edition = "2018"
 license = "Apache-2.0"
-repository = "https://github.com/auxoncorp/ekotrace"
+repository = "https://github.com/auxoncorp/modality-probe"
 readme = "README.md"
 workspace = ".."
 
 [lib]
-name = "ekotrace_capi_impl"
+name = "modality_probe_capi_impl"
 # Note that we intentionally separate out the staticlib and cydlib
 # crate types into ekotrace-capi to avoid the pain of panic handler
 # definition conflicts
@@ -17,7 +17,7 @@ crate-type = ["lib"]
 
 [dependencies]
 static_assertions = "1.1.0"
-ekotrace = { path = "../../" }
+modality-probe = { path = "../../" }
 
 [build-dependencies]
 

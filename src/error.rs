@@ -1,4 +1,4 @@
-//! Errors exposed in the Ekotrace API.
+//! Errors exposed in the ModalityProbe API.
 //!
 //! In order to be appropriate for embedded
 //! use, these errors should be as tiny
@@ -19,7 +19,7 @@ pub struct InvalidEventId;
 pub struct InvalidTracerId;
 
 /// An error relating to the initialization
-/// of an Ekotrace instance from parts.
+/// of an ModalityProbe instance from parts.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InitializationError {
     /// A provided primitive, unvalidated tracer id
@@ -116,12 +116,12 @@ pub enum ReportError {
 }
 
 /// General purpose error that captures all errors that arise
-/// from using the Ekotrace APIs.
+/// from using the ModalityProbe APIs.
 ///
 /// Not directly returned by any of the public APIs, but provided
 /// as a convenience for catch-all error piping.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EkotraceError {
+pub enum ModalityProbeError {
     /// Error that indicates an invalid event id was detected.
     ///
     /// Event ids must be greater than 0 and less than EventId::MAX_USER_ID
@@ -130,7 +130,7 @@ pub enum EkotraceError {
     ///
     /// Tracer ids must be greater than 0 and less than TracerId::MAX_ID
     InvalidTracerId,
-    /// An error relating to the initialization of an Ekotrace instance.
+    /// An error relating to the initialization of an ModalityProbe instance.
     InitializationError(InitializationError),
     /// The errors than can occur when using the `distribute_snapshot`
     /// and `distribute_fixed_size_snapshot` functions.
@@ -143,51 +143,51 @@ pub enum EkotraceError {
     ReportError(ReportError),
 }
 
-impl From<InvalidEventId> for EkotraceError {
+impl From<InvalidEventId> for ModalityProbeError {
     #[inline]
     fn from(_: InvalidEventId) -> Self {
-        EkotraceError::InvalidEventId
+        ModalityProbeError::InvalidEventId
     }
 }
 
-impl From<InvalidTracerId> for EkotraceError {
+impl From<InvalidTracerId> for ModalityProbeError {
     #[inline]
     fn from(_: InvalidTracerId) -> Self {
-        EkotraceError::InvalidTracerId
+        ModalityProbeError::InvalidTracerId
     }
 }
 
-impl From<InitializationError> for EkotraceError {
+impl From<InitializationError> for ModalityProbeError {
     #[inline]
     fn from(e: InitializationError) -> Self {
-        EkotraceError::InitializationError(e)
+        ModalityProbeError::InitializationError(e)
     }
 }
 
-impl From<DistributeError> for EkotraceError {
+impl From<DistributeError> for ModalityProbeError {
     #[inline]
     fn from(e: DistributeError) -> Self {
-        EkotraceError::DistributeError(e)
+        ModalityProbeError::DistributeError(e)
     }
 }
 
-impl From<MergeError> for EkotraceError {
+impl From<MergeError> for ModalityProbeError {
     #[inline]
     fn from(e: MergeError) -> Self {
-        EkotraceError::MergeError(e)
+        ModalityProbeError::MergeError(e)
     }
 }
 
-impl From<ReportError> for EkotraceError {
+impl From<ReportError> for ModalityProbeError {
     #[inline]
     fn from(e: ReportError) -> Self {
-        EkotraceError::ReportError(e)
+        ModalityProbeError::ReportError(e)
     }
 }
 
-impl From<StorageSetupError> for EkotraceError {
+impl From<StorageSetupError> for ModalityProbeError {
     #[inline]
     fn from(e: StorageSetupError) -> Self {
-        EkotraceError::InitializationError(InitializationError::StorageSetupError(e))
+        ModalityProbeError::InitializationError(InitializationError::StorageSetupError(e))
     }
 }

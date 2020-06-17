@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use ekotrace::{EventId, TracerId};
+use modality_probe::{EventId, TracerId};
 
 macro_rules! newtype {
    ($(#[$meta:meta])* pub struct $name:ident(pub $t:ty);) => {

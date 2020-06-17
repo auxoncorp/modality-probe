@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use ekotrace::compact_log::LogEvent;
+use modality_probe::compact_log::LogEvent;
 use std::io::{Error as IoError, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
@@ -137,7 +137,7 @@ pub fn start_receiving_from_socket<W: Write>(
 
         if matches_chunk_fingerprint(&buf[..bytes_read]) {
             chunk_handler.add_incoming_chunk(
-                &buf[..ekotrace::report::chunked::MAX_CHUNK_BYTES],
+                &buf[..modality_probe::report::chunked::MAX_CHUNK_BYTES],
                 receive_time,
             );
             let owned_reports = chunk_handler.materialize_completed_reports();
@@ -267,7 +267,7 @@ fn add_owned_report_to_entries(
 
         for event in &segment.events {
             match event {
-                ekotrace::compact_log::LogEvent::Event(ev) => {
+                modality_probe::compact_log::LogEvent::Event(ev) => {
                     log_entries_buffer.push(LogEntry {
                         session_id,
                         segment_id: next_segment_id.into(),
@@ -277,7 +277,7 @@ fn add_owned_report_to_entries(
                         receive_time,
                     });
                 }
-                ekotrace::compact_log::LogEvent::EventWithPayload(ev, payload) => {
+                modality_probe::compact_log::LogEvent::EventWithPayload(ev, payload) => {
                     log_entries_buffer.push(LogEntry {
                         session_id,
                         segment_id: next_segment_id.into(),
@@ -313,7 +313,7 @@ mod tests {
 
     use lazy_static::*;
 
-    use ekotrace::{BulkReporter, ChunkedReporter, LogicalClock, Tracer};
+    use modality_probe::{BulkReporter, ChunkedReporter, LogicalClock, Tracer};
 
     use super::*;
 
@@ -574,13 +574,13 @@ mod tests {
     const LOG_REPORT_BYTES_SIZE: usize = 512;
 
     trait HasEventId {
-        fn get_id(&self) -> ekotrace::EventId;
+        fn get_id(&self) -> modality_probe::EventId;
         fn get_raw_id(&self) -> u32 {
             self.get_id().get_raw()
         }
     }
     impl HasEventId for LogEvent {
-        fn get_id(&self) -> ekotrace::EventId {
+        fn get_id(&self) -> modality_probe::EventId {
             match self {
                 LogEvent::Event(e) => *e,
                 LogEvent::EventWithPayload(e, _) => *e,
@@ -626,12 +626,12 @@ mod tests {
             thread::yield_now();
             assert_eq!(Ok(ServerState::Started), server_state_receiver.recv());
             let mut net = proc_graph::Network::new();
-            let tracer_a_id = ekotrace::TracerId::new(131).unwrap();
-            let tracer_b_id = ekotrace::TracerId::new(141).unwrap();
-            let tracer_c_id = ekotrace::TracerId::new(159).unwrap();
-            let event_foo = LogEvent::Event(ekotrace::EventId::new(7).unwrap());
-            let event_bar = LogEvent::Event(ekotrace::EventId::new(23).unwrap());
-            let event_baz = LogEvent::Event(ekotrace::EventId::new(29).unwrap());
+            let tracer_a_id = modality_probe::TracerId::new(131).unwrap();
+            let tracer_b_id = modality_probe::TracerId::new(141).unwrap();
+            let tracer_c_id = modality_probe::TracerId::new(159).unwrap();
+            let event_foo = LogEvent::Event(modality_probe::EventId::new(7).unwrap());
+            let event_bar = LogEvent::Event(modality_probe::EventId::new(23).unwrap());
+            let event_baz = LogEvent::Event(modality_probe::EventId::new(29).unwrap());
             const NUM_MESSAGES_FROM_A: usize = 11;
 
             let (network_done_sender, network_done_receiver) = crossbeam::bounded(0);
@@ -694,7 +694,7 @@ mod tests {
             let expected_direct_tracer_ids: HashSet<_> =
                 [tracer_a_id, tracer_c_id].iter().copied().collect();
             let built_in_event_ids: HashSet<_> =
-                ekotrace::EventId::INTERNAL_EVENTS.iter().collect();
+                modality_probe::EventId::INTERNAL_EVENTS.iter().collect();
             for e in found_log_entries {
                 assert_eq!(session_id, e.session_id);
                 assert!(expected_direct_tracer_ids.contains(&e.tracer_id));
@@ -773,10 +773,10 @@ mod tests {
             thread::yield_now();
             assert_eq!(Ok(ServerState::Started), server_state_receiver.recv());
             let mut net = proc_graph::Network::new();
-            let tracer_a_id = ekotrace::TracerId::new(31).unwrap();
-            let tracer_b_id = ekotrace::TracerId::new(41).unwrap();
-            let event_foo = LogEvent::Event(ekotrace::EventId::new(7).unwrap());
-            let event_bar = LogEvent::Event(ekotrace::EventId::new(23).unwrap());
+            let tracer_a_id = modality_probe::TracerId::new(31).unwrap();
+            let tracer_b_id = modality_probe::TracerId::new(41).unwrap();
+            let event_foo = LogEvent::Event(modality_probe::EventId::new(7).unwrap());
+            let event_bar = LogEvent::Event(modality_probe::EventId::new(23).unwrap());
             const NUM_MESSAGES_FROM_A: usize = 11;
 
             let (network_done_sender, network_done_receiver) = crossbeam::bounded(0);
@@ -826,7 +826,7 @@ mod tests {
             assert!(found_log_entries.len() > 0);
             let expected_tracer_ids: HashSet<_> =
                 [tracer_a_id, tracer_b_id].iter().copied().collect();
-            let built_in_event_ids: HashSet<_> = ekotrace::EventId::INTERNAL_EVENTS
+            let built_in_event_ids: HashSet<_> = modality_probe::EventId::INTERNAL_EVENTS
                 .iter()
                 .map(|id| id.get_raw())
                 .collect();
@@ -904,14 +904,14 @@ mod tests {
             thread::yield_now();
             assert_eq!(Ok(ServerState::Started), server_state_receiver.recv());
             let mut net = proc_graph::Network::new();
-            let tracer_a_id = ekotrace::TracerId::new(31).unwrap();
-            let tracer_b_id = ekotrace::TracerId::new(41).unwrap();
+            let tracer_a_id = modality_probe::TracerId::new(31).unwrap();
+            let tracer_b_id = modality_probe::TracerId::new(41).unwrap();
             let foo_payload = 777;
             let event_foo =
-                LogEvent::EventWithPayload(ekotrace::EventId::new(7).unwrap(), foo_payload);
+                LogEvent::EventWithPayload(modality_probe::EventId::new(7).unwrap(), foo_payload);
             let bar_payload = 490;
             let event_bar =
-                LogEvent::EventWithPayload(ekotrace::EventId::new(23).unwrap(), bar_payload);
+                LogEvent::EventWithPayload(modality_probe::EventId::new(23).unwrap(), bar_payload);
 
             const NUM_MESSAGES_FROM_A: usize = 11;
 
@@ -995,7 +995,7 @@ mod tests {
 
     fn make_message_broadcaster_proc(
         proc_name: &'static str,
-        tracer_id: ekotrace::TracerId,
+        tracer_id: modality_probe::TracerId,
         n_messages: usize,
         collector_addr: SocketAddr,
         per_iteration_event: Option<LogEvent>,
@@ -1007,8 +1007,9 @@ mod tests {
            + 'static {
         move |id_to_sender, _receiver| {
             let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer = ekotrace::Ekotrace::new_with_storage(&mut tracer_storage, tracer_id)
-                .expect("Could not make tracer");
+            let mut tracer =
+                modality_probe::ModalityProbe::new_with_storage(&mut tracer_storage, tracer_id)
+                    .expect("Could not make tracer");
             let mut causal_history_blob = vec![0u8; IN_SYSTEM_SNAPSHOT_BYTES_SIZE];
             for _ in 0..n_messages {
                 match per_iteration_event {
@@ -1070,7 +1071,7 @@ mod tests {
 
     fn make_message_relay_proc(
         proc_name: &'static str,
-        tracer_id: ekotrace::TracerId,
+        tracer_id: modality_probe::TracerId,
         stop_relaying_after_receiving_n_messages: usize,
         send_log_report_every_n_messages: Option<SendLogReportEveryFewMessages>,
         per_iteration_event: Option<LogEvent>,
@@ -1082,8 +1083,9 @@ mod tests {
            + 'static {
         move |id_to_sender, receiver| {
             let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer = ekotrace::Ekotrace::new_with_storage(&mut tracer_storage, tracer_id)
-                .expect("Could not make tracer");
+            let mut tracer =
+                modality_probe::ModalityProbe::new_with_storage(&mut tracer_storage, tracer_id)
+                    .expect("Could not make tracer");
 
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
@@ -1165,7 +1167,7 @@ mod tests {
     }
 
     fn make_message_sink_proc(
-        tracer_id: ekotrace::TracerId,
+        tracer_id: modality_probe::TracerId,
         stop_after_receiving_n_messages: usize,
         send_log_report_every_n_messages: SendLogReportEveryFewMessages,
         per_iteration_event: Option<LogEvent>,
@@ -1178,8 +1180,9 @@ mod tests {
            + 'static {
         move |_id_to_sender, receiver| {
             let mut tracer_storage = vec![0u8; TRACER_STORAGE_BYTES_SIZE];
-            let mut tracer = ekotrace::Ekotrace::new_with_storage(&mut tracer_storage, tracer_id)
-                .expect("Could not make tracer");
+            let mut tracer =
+                modality_probe::ModalityProbe::new_with_storage(&mut tracer_storage, tracer_id)
+                    .expect("Could not make tracer");
 
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");

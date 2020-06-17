@@ -1,5 +1,5 @@
 /// Convenience macro that calls
-/// [Ekotrace::initialize_at](struct.Ekotrace.html#method.initialize_at).
+/// [ModalityProbe::initialize_at](struct.ModalityProbe.html#method.initialize_at).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -8,18 +8,18 @@
 #[macro_export]
 macro_rules! initialize_at {
     ($storage:expr, $tracer_id:expr) => {
-        Ekotrace::initialize_at($storage, $tracer_id)
+        ModalityProbe::initialize_at($storage, $tracer_id)
     };
     ($storage:expr, $tracer_id:expr, $desc_or_tags:tt) => {
-        Ekotrace::initialize_at($storage, $tracer_id)
+        ModalityProbe::initialize_at($storage, $tracer_id)
     };
     ($storage:expr, $tracer_id:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
-        Ekotrace::initialize_at($storage, $tracer_id)
+        ModalityProbe::initialize_at($storage, $tracer_id)
     };
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_initialize_at](struct.Ekotrace.html#method.try_initialize_at).
+/// [ModalityProbe::try_initialize_at](struct.ModalityProbe.html#method.try_initialize_at).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -28,18 +28,18 @@ macro_rules! initialize_at {
 #[macro_export]
 macro_rules! try_initialize_at {
     ($storage:expr, $tracer_id:expr) => {
-        Ekotrace::try_initialize_at($storage, $tracer_id)
+        ModalityProbe::try_initialize_at($storage, $tracer_id)
     };
     ($storage:expr, $tracer_id:expr, $desc_or_tags:tt) => {
-        Ekotrace::try_initialize_at($storage, $tracer_id)
+        ModalityProbe::try_initialize_at($storage, $tracer_id)
     };
     ($storage:expr, $tracer_id:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
-        Ekotrace::try_initialize_at($storage, $tracer_id)
+        ModalityProbe::try_initialize_at($storage, $tracer_id)
     };
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::new_with_storage](struct.Ekotrace.html#method.new_with_storage).
+/// [ModalityProbe::new_with_storage](struct.ModalityProbe.html#method.new_with_storage).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -48,18 +48,18 @@ macro_rules! try_initialize_at {
 #[macro_export]
 macro_rules! new_with_storage {
     ($storage:expr, $tracer_id:expr) => {
-        Ekotrace::new_with_storage($storage, $tracer_id)
+        ModalityProbe::new_with_storage($storage, $tracer_id)
     };
     ($storage:expr, $tracer_id:expr, $desc_or_tags:tt) => {
-        Ekotrace::new_with_storage($storage, $tracer_id)
+        ModalityProbe::new_with_storage($storage, $tracer_id)
     };
     ($storage:expr, $tracer_id:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
-        Ekotrace::new_with_storage($storage, $tracer_id)
+        ModalityProbe::new_with_storage($storage, $tracer_id)
     };
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::record_event](struct.Ekotrace.html#method.record_event).
+/// [ModalityProbe::record_event](struct.ModalityProbe.html#method.record_event).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -79,7 +79,7 @@ macro_rules! record {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_record_event](struct.Ekotrace.html#method.try_record_event).
+/// [ModalityProbe::try_record_event](struct.ModalityProbe.html#method.try_record_event).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -99,7 +99,7 @@ macro_rules! try_record {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::record_event_with_payload](struct.Ekotrace.html#method.record_event_with_payload).
+/// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -119,7 +119,7 @@ macro_rules! record_w_i8 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::record_event_with_payload](struct.Ekotrace.html#method.record_event_with_payload).
+/// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -139,7 +139,7 @@ macro_rules! record_w_u8 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::record_event_with_payload](struct.Ekotrace.html#method.record_event_with_payload).
+/// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -159,7 +159,7 @@ macro_rules! record_w_i16 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::record_event_with_payload](struct.Ekotrace.html#method.record_event_with_payload).
+/// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -179,7 +179,7 @@ macro_rules! record_w_u16 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::record_event_with_payload](struct.Ekotrace.html#method.record_event_with_payload).
+/// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -199,7 +199,7 @@ macro_rules! record_w_i32 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::record_event_with_payload](struct.Ekotrace.html#method.record_event_with_payload).
+/// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -219,7 +219,7 @@ macro_rules! record_w_u32 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::record_event_with_payload](struct.Ekotrace.html#method.record_event_with_payload).
+/// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -239,7 +239,7 @@ macro_rules! record_w_bool {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::record_event_with_payload](struct.Ekotrace.html#method.record_event_with_payload).
+/// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -259,7 +259,7 @@ macro_rules! record_w_f32 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_record_event_with_payload](struct.Ekotrace.html#method.try_record_event_with_payload).
+/// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -279,7 +279,7 @@ macro_rules! try_record_w_i8 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_record_event_with_payload](struct.Ekotrace.html#method.try_record_event_with_payload).
+/// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -299,7 +299,7 @@ macro_rules! try_record_w_u8 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_record_event_with_payload](struct.Ekotrace.html#method.try_record_event_with_payload).
+/// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -319,7 +319,7 @@ macro_rules! try_record_w_i16 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_record_event_with_payload](struct.Ekotrace.html#method.try_record_event_with_payload).
+/// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -339,7 +339,7 @@ macro_rules! try_record_w_u16 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_record_event_with_payload](struct.Ekotrace.html#method.try_record_event_with_payload).
+/// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -359,7 +359,7 @@ macro_rules! try_record_w_i32 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_record_event_with_payload](struct.Ekotrace.html#method.try_record_event_with_payload).
+/// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -379,7 +379,7 @@ macro_rules! try_record_w_u32 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_record_event_with_payload](struct.Ekotrace.html#method.try_record_event_with_payload).
+/// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -399,7 +399,7 @@ macro_rules! try_record_w_bool {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_record_event_with_payload](struct.Ekotrace.html#method.try_record_event_with_payload).
+/// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -419,7 +419,7 @@ macro_rules! try_record_w_f32 {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::record_event_with_payload](struct.Ekotrace.html#method.record_event_with_payload).
+/// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -439,7 +439,7 @@ macro_rules! expect {
 }
 
 /// Convenience macro that calls
-/// [Ekotrace::try_record_event_with_payload](struct.Ekotrace.html#method.try_record_event_with_payload).
+/// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
@@ -528,13 +528,13 @@ macro_rules! __payload_as_u32_impls {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Ekotrace, EventId, Tracer, TracerId};
+    use crate::{EventId, ModalityProbe, Tracer, TracerId};
 
     #[test]
     fn event_macro_use() {
         let tracer_id = TracerId::new(1).unwrap();
         let mut storage = [0_u8; 1024];
-        let tracer = Ekotrace::initialize_at(&mut storage, tracer_id).unwrap();
+        let tracer = ModalityProbe::initialize_at(&mut storage, tracer_id).unwrap();
         const EVENT_D: u32 = 1;
         record!(tracer, EventId::new(EVENT_D).unwrap());
         record!(tracer, EventId::new(EVENT_D).unwrap(), "desc");

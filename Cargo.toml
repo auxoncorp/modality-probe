@@ -1,5 +1,5 @@
 [package]
-name = "ekotrace"
+name = "modality-probe"
 version = "0.2.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
@@ -9,7 +9,7 @@ authors = [
 ]
 edition = "2018"
 license = "Apache-2.0"
-repository = "https://github.com/auxoncorp/ekotrace"
+repository = "https://github.com/auxoncorp/modality-probe"
 readme = "README.md"
 build = "build.rs"
 
@@ -19,8 +19,8 @@ std = ["serde", "proptest", "schemars"]
 
 [workspace]
 members = [
-  "ekotrace-cli",
-  "ekotrace-udp-collector",
+  "modality-probe-cli",
+  "modality-probe-udp-collector",
   "util",
   "race-buffer",
 ]
@@ -36,7 +36,7 @@ proptest = { version = "0.9.5", optional = true }
 schemars = { version = "0.6.5", optional = true }
 
 [dev-dependencies]
-ekotrace-udp-collector = { path = "./ekotrace-udp-collector" }
+modality-probe-udp-collector = { path = "./modality-probe-udp-collector" }
 proptest = "0.9.5"
 util = { path = "./util" }
 

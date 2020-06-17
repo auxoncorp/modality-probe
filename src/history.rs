@@ -1,6 +1,6 @@
 use super::{
-    CausalSnapshot, DistributeError, EkotraceInstant, EventId, ExtensionBytes, LogicalClock,
-    MergeError, ReportError, StorageSetupError, TracerId,
+    CausalSnapshot, DistributeError, EventId, ExtensionBytes, LogicalClock, MergeError,
+    ModalityProbeInstant, ReportError, StorageSetupError, TracerId,
 };
 use crate::compact_log::{CompactLogItem, CompactLogVec};
 use crate::report::chunked::ChunkedReportState;
@@ -599,8 +599,8 @@ impl<'a> DynamicHistory<'a> {
         self.record_event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT);
     }
 
-    pub(crate) fn now(&self) -> EkotraceInstant {
-        EkotraceInstant {
+    pub(crate) fn now(&self) -> ModalityProbeInstant {
+        ModalityProbeInstant {
             clock: self.clocks[0],
             event_count: self.event_count,
         }

@@ -3,7 +3,7 @@
 ## Overview
 
 A Rust library that defines a file format for serializing collected
-data from `ekotrace` reports to disk.
+data from `modality-probe` reports to disk.
 
 Furthermore provides several examples of analysis that can be done with
 such trace data.
@@ -23,12 +23,12 @@ of each log-line.
 # Cargo.toml
 
 [dependencies]
-util = { git = "ssh://git@github.com/auxoncorp/ekotrace.git" }
+util = { git = "ssh://git@github.com/auxoncorp/modality-probe.git" }
 ```
 
 ## Usage
 
-See [ekotrace-cli](../ekotrace-cli) for examples of analysis that can be done with trace data.
+See [modality-probe-cli](../modality-probe-cli) for examples of analysis that can be done with trace data.
 
 ## License
 
