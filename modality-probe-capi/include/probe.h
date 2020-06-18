@@ -38,9 +38,9 @@ typedef struct modality_logical_clock {
 
 typedef struct modality_probe_instant {
     /*
-     * The current location's logical clock.
-     * `clock.id` should be equivalent to the id
-     * (a.k.a ProbeId ) of the source `ModalityProbe` instance
+     * The current probe's logical clock.
+     * `clock.id` should be equivalent to the probe id
+     * of the source `ModalityProbe` instance
      */
     modality_logical_clock clock;
     /*
@@ -125,7 +125,7 @@ typedef struct modality_causal_snapshot {
     uint32_t probe_id;
 
     /*
-     * Mapping between probe_ids and event-counts at each location
+     * Mapping between probe_ids and event-counts at each probe
      */
     modality_logical_clock clocks[256];
 
@@ -403,7 +403,7 @@ size_t modality_probe_merge_fixed_size_snapshot(
  *
  * If the pointer to the Modality probe instance (a.k.a. probe) was null,
  * returns an `modality_probe_instant` with its `clock.id` value
- * set to the invalid location id `0`.
+ * set to the invalid probe id `0`.
  */
 modality_probe_instant modality_probe_now(
         modality_probe *probe);
