@@ -9,11 +9,11 @@ pub mod snapshot_lcm {
     pub use in_system::*;
     include!(concat!(env!("OUT_DIR"), "/snapshot.rs"));
 }
-use ekotrace::{LogicalClock, TracerId};
+use modality_probe::{LogicalClock, ProbeId};
 
 #[derive(Debug, PartialEq)]
 pub struct OwnedSnapshot {
-    pub tracer_id: TracerId,
+    pub probe_id: ProbeId,
     pub clocks: Vec<LogicalClock>,
     pub extension_bytes: Vec<u8>,
 }
@@ -63,13 +63,13 @@ impl OwnedSnapshot {
                         }
                     },
                 )?;
-            let w = w.write_tracer_id(self.tracer_id.get_raw() as i32)?;
+            let w = w.write_probe_id(self.probe_id.get_raw() as i32)?;
             let n_clocks = i32::try_from(self.clocks.len())
                 .map_err(|_| InnerSnapshotToLcmError::SnapshotTooBigTooEncode)?;
             let mut w = w.write_n_clocks(n_clocks)?;
             for (item_writer, clock) in (&mut w).zip(&self.clocks) {
                 item_writer.write(|clock_writer| {
-                    let clock_writer = clock_writer.write_tracer_id(clock.id.get_raw() as i32)?;
+                    let clock_writer = clock_writer.write_probe_id(clock.id.get_raw() as i32)?;
                     let clock_writer = clock_writer.write_count(clock.count as i32)?;
                     Ok(clock_writer)
                 })?
@@ -86,7 +86,7 @@ impl OwnedSnapshot {
 
     pub fn from_lcm_bytes(bytes: &[u8]) -> Result<(Self, usize), SnapshotFromLcmError> {
         let mut buffer_reader = rust_lcm_codec::BufferReader::new(bytes);
-        let (tracer_id, clocks, extension_bytes) = {
+        let (probe_id, clocks, extension_bytes) = {
             let r =
                 snapshot_lcm::begin_causal_snapshot_read(&mut buffer_reader).map_err(
                     |e| match e {
@@ -96,10 +96,10 @@ impl OwnedSnapshot {
                         DecodeFingerprintError::ReaderError(e) => e.into(),
                     },
                 )?;
-            let (raw_tracer_id, r) = r.read_tracer_id()?;
-            let tracer_id: TracerId = TracerId::try_from(raw_tracer_id as u32).map_err(|_| {
+            let (raw_probe_id, r) = r.read_probe_id()?;
+            let probe_id: ProbeId = ProbeId::try_from(raw_probe_id as u32).map_err(|_| {
                 SnapshotFromLcmError::SemanticallyIncorrectMessage(
-                    "tracer_id in message was not a valid ekotrace TracerId".to_string(),
+                    "probe_id in message was not a valid modality-probe ProbeId".to_string(),
                 )
             })?;
             let (n_clocks, mut r) = r.read_n_clocks()?;
@@ -114,7 +114,7 @@ impl OwnedSnapshot {
                 let mut maybe_clock_id = None;
                 let mut maybe_clock_count = None;
                 item_reader.read(|clock_reader| {
-                    let (clock_id, clock_reader) = clock_reader.read_tracer_id()?;
+                    let (clock_id, clock_reader) = clock_reader.read_probe_id()?;
                     maybe_clock_id.replace(clock_id);
                     let (clock_count, clock_reader) = clock_reader.read_count()?;
                     maybe_clock_count.replace(clock_count);
@@ -123,9 +123,9 @@ impl OwnedSnapshot {
                 if let (Some(raw_clock_id), Some(raw_clock_count)) =
                     (maybe_clock_id, maybe_clock_count)
                 {
-                    let id = TracerId::try_from(raw_clock_id as u32).map_err(|_| {
+                    let id = ProbeId::try_from(raw_clock_id as u32).map_err(|_| {
                         SnapshotFromLcmError::SemanticallyIncorrectMessage(
-                            "logical clock id in message was not a valid ekotrace TracerId"
+                            "logical clock id in message was not a valid modality-probe ProbeId"
                                 .to_string(),
                         )
                     })?;
@@ -158,12 +158,12 @@ impl OwnedSnapshot {
                 r.extension_bytes_as_slice()?;
             extension_bytes.extend_from_slice(ext_bytes);
 
-            (tracer_id, clocks, extension_bytes)
+            (probe_id, clocks, extension_bytes)
         };
 
         Ok((
             OwnedSnapshot {
-                tracer_id,
+                probe_id,
                 clocks,
                 extension_bytes,
             },
@@ -250,31 +250,31 @@ mod proptest_strategies {
     }
 
     prop_compose! {
-        pub(crate) fn raw_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> u32 {
+        pub(crate) fn raw_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> u32 {
             raw_id
         }
     }
 
     prop_compose! {
-        pub(crate) fn tracer_id()(raw_id in raw_tracer_id()) -> TracerId {
-            TracerId::try_from(raw_id).unwrap()
+        pub(crate) fn probe_id()(raw_id in raw_probe_id()) -> ProbeId {
+            ProbeId::try_from(raw_id).unwrap()
         }
     }
 
     prop_compose! {
-        pub(crate) fn logical_clock()(tracer_id in tracer_id(), count in proptest::num::u32::ANY) -> LogicalClock {
-            LogicalClock { id: tracer_id, count }
+        pub(crate) fn logical_clock()(probe_id in probe_id(), count in proptest::num::u32::ANY) -> LogicalClock {
+            LogicalClock { id: probe_id, count }
         }
     }
 
     prop_compose! {
         pub(crate) fn owned_snapshot(max_clocks: usize, max_ext_bytes: usize)(
-            tracer_id in tracer_id(),
+            probe_id in probe_id(),
             clocks in prop::collection::vec(logical_clock(), 0..max_clocks),
             ext_bytes in extension_bytes(max_ext_bytes)
         ) -> OwnedSnapshot {
             OwnedSnapshot {
-                tracer_id,
+                probe_id,
                 clocks,
                 extension_bytes: ext_bytes,
             }
