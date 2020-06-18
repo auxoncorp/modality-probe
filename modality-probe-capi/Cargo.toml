@@ -1,6 +1,6 @@
 [package]
 name = "modality-probe-capi"
-version = "0.2.0"
+version = "0.3.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
     "Russell Mull <russell@auxon.io>",
@@ -31,18 +31,3 @@ panic = "abort"
 panic = "abort"
 
 [workspace]
-
-[package.metadata.deb]
-name = "modality-probe"
-extended-description = ""
-license-file = ["../LICENSE", "0"]
-maintainer = "Auxon <help@auxon.io>"
-section = "devel"
-priority = "optional"
-triggers-file = "debian/triggers"
-assets = [
-    ["target/release/libmodality_probe.a", "usr/lib/", "644"],
-    ["target/release/libmodality_probe.so", "usr/lib/", "644"],
-    ["include/*.h", "usr/include/modality/", "644"],
-]
-

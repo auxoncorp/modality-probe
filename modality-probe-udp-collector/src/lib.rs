@@ -7,8 +7,10 @@ use util::alloc_log_report::*;
 use util::model::{LogEntry, LogEntryData, SegmentId, SessionId};
 
 mod chunked;
+mod opts;
 
 use chunked::*;
+pub use opts::*;
 
 #[derive(Debug, PartialEq)]
 pub struct Config {

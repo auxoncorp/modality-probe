@@ -11,11 +11,17 @@ cargo clean
 )
 
 (
-    cd examples/
+    cd examples
     rm -f probes.csv events.csv generated_ids/mod.rs
 )
 
 (
-    cd fuzz/
+    cd fuzz
     cargo clean
+)
+
+(
+    cd debian-package
+    cargo clean
+    rm -f Cargo.lock
 )

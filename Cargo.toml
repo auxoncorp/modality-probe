@@ -1,6 +1,6 @@
 [package]
 name = "modality-probe"
-version = "0.2.1"
+version = "0.3.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
     "Russell Mull <russell@auxon.io>",
@@ -25,6 +25,7 @@ members = [
   "util",
   "race-buffer",
 ]
+exclude = ["debian-package"]
 
 [dependencies]
 static_assertions = "1.1.0"

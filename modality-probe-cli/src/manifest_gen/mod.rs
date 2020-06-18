@@ -1,6 +1,7 @@
 use crate::{error::GracefulExit, events::Events, exit_error, lang::Lang, probes::Probes};
 use invocations::{Config, Invocations};
 use std::path::PathBuf;
+use structopt::StructOpt;
 
 pub mod c_parser;
 pub mod event_metadata;
@@ -14,22 +15,48 @@ pub mod rust_parser;
 pub mod source_location;
 pub mod type_hint;
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Opt {
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, StructOpt)]
+pub struct ManifestGen {
+    /// Language (C or Rust), if not specified then guess based on file extensions
+    #[structopt(short, long, parse(try_from_str))]
     pub lang: Option<Lang>,
+
+    /// Event ID offset
+    #[structopt(long)]
     pub event_id_offset: Option<u32>,
+
+    /// Probe ID offset
+    #[structopt(long)]
     pub probe_id_offset: Option<u32>,
+
+    /// Limit the source code searching to files with matching extensions
+    #[structopt(long = "file-extension")]
     pub file_extensions: Option<Vec<String>>,
+
+    /// Event ID manifest CSV file
+    #[structopt(long, parse(from_os_str), default_value = "events.csv")]
     pub events_csv_file: PathBuf,
+
+    /// Probe ID manifest CSV file
+    #[structopt(long, parse(from_os_str), default_value = "probes.csv")]
     pub probes_csv_file: PathBuf,
+
+    /// Omit generating event ID manifest
+    #[structopt(long)]
     pub no_events: bool,
+
+    /// Omit generating probe ID manifest
+    #[structopt(long)]
     pub no_probes: bool,
+
+    /// Source code path to search
+    #[structopt(parse(from_os_str))]
     pub source_path: PathBuf,
 }
 
-impl Default for Opt {
+impl Default for ManifestGen {
     fn default() -> Self {
-        Opt {
+        ManifestGen {
             lang: None,
             event_id_offset: None,
             probe_id_offset: None,
@@ -43,7 +70,7 @@ impl Default for Opt {
     }
 }
 
-impl Opt {
+impl ManifestGen {
     pub fn validate(&self) {
         if !self.source_path.exists() {
             exit_error!(
@@ -56,7 +83,7 @@ impl Opt {
     }
 }
 
-pub fn run(opt: Opt) {
+pub fn run(opt: ManifestGen) {
     opt.validate();
 
     let mut manifest_probes = Probes::from_csv(&opt.probes_csv_file);

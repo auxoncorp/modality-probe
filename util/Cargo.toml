@@ -1,6 +1,6 @@
 [package]
 name = "util"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Zachary Pierce <zack@auxon.io>", "Russell Mull <russell@auxon.io>"]
 edition = "2018"
 license = "Apache-2.0"

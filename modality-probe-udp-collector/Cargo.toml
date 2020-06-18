@@ -1,19 +1,25 @@
 [package]
 name = "modality-probe-udp-collector"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Zachary Pierce <zack@auxon.io>"]
 edition = "2018"
 license = "Apache-2.0"
 repository = "https://github.com/auxoncorp/modality-probe"
 readme = "README.md"
-
-[lib]
-name = "modality_probe_udp_collector"
-path = "src/lib.rs"
+default-run = "modality-probe-udp-collector"
 
 [[bin]]
 name = "modality-probe-udp-collector"
 path = "src/main.rs"
+
+[[bin]]
+name = "modality-probe-udp-collector-completions"
+path = "src/completions.rs"
+test = false
+
+[lib]
+name = "modality_probe_udp_collector"
+path = "src/lib.rs"
 
 [features]
 default = ["cli"]

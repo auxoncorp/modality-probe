@@ -1,6 +1,6 @@
 [package]
 name = "modality-probe-graph"
-version = "0.1.0"
+version = "0.3.0"
 authors = ["dan pittman <dan@auxon.io>"]
 edition = "2018"
 

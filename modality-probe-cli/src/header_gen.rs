@@ -4,6 +4,41 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use structopt::StructOpt;
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, StructOpt)]
+pub struct HeaderGen {
+    /// Events csv file
+    #[structopt(parse(from_os_str))]
+    pub events_csv_file: PathBuf,
+
+    /// Probes csv file
+    #[structopt(parse(from_os_str))]
+    pub probes_csv_file: PathBuf,
+
+    #[structopt(short, long, parse(try_from_str), default_value = "C")]
+    pub lang: Lang,
+
+    /// C header include guard prefix
+    #[structopt(long, default_value = "MODALITY_PROBE")]
+    pub include_guard_prefix: String,
+
+    /// Write output to file (instead of stdout)
+    #[structopt(short = "o", long, parse(from_os_str))]
+    pub output_path: Option<PathBuf>,
+}
+
+impl Default for HeaderGen {
+    fn default() -> Self {
+        HeaderGen {
+            events_csv_file: PathBuf::from("events.csv"),
+            probes_csv_file: PathBuf::from("probes.csv"),
+            lang: Lang::Rust,
+            include_guard_prefix: String::from("MODALITY_PROBE"),
+            output_path: None,
+        }
+    }
+}
 
 trait ConstGenerator {
     fn primitive_value(&self) -> u32;
@@ -92,27 +127,6 @@ fn pad_nonempty(s: &str) -> String {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub struct Opt {
-    pub events_csv_file: PathBuf,
-    pub probes_csv_file: PathBuf,
-    pub lang: Lang,
-    pub include_guard_prefix: String,
-    pub output_path: Option<PathBuf>,
-}
-
-impl Default for Opt {
-    fn default() -> Self {
-        Opt {
-            events_csv_file: PathBuf::from("events.csv"),
-            probes_csv_file: PathBuf::from("probes.csv"),
-            lang: Lang::Rust,
-            include_guard_prefix: String::from("MODALITY_PROBE"),
-            output_path: None,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct UnsupportedLang(String);
 
@@ -135,7 +149,7 @@ impl FromStr for Lang {
     }
 }
 
-impl Opt {
+impl HeaderGen {
     pub fn validate(&self) {
         assert!(
             self.events_csv_file.exists(),
@@ -161,7 +175,7 @@ fn file_sha256(path: &Path) -> String {
 }
 
 pub fn generate_output<W: io::Write>(
-    opt: Opt,
+    opt: HeaderGen,
     mut w: W,
     internal_events: Vec<u32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -244,7 +258,7 @@ pub fn generate_output<W: io::Write>(
     Ok(())
 }
 
-pub fn run(opt: Opt, internal_events: Vec<u32>) {
+pub fn run(opt: HeaderGen, internal_events: Vec<u32>) {
     opt.validate();
 
     let io_out: Box<dyn io::Write> = if let Some(p) = &opt.output_path {

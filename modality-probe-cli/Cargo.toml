@@ -1,6 +1,6 @@
 [package]
 name = "modality-probe-cli"
-version = "0.2.0"
+version = "0.3.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
     "Russell Mull <russell@auxon.io>",
@@ -10,10 +10,16 @@ edition = "2018"
 license = "Apache-2.0"
 repository = "https://github.com/auxoncorp/modality-probe"
 readme = "README.md"
+default-run = "modality-probe"
 
 [[bin]]
 name = "modality-probe"
 path = "src/main.rs"
+
+[[bin]]
+name = "modality-probe-completions"
+path = "src/completions.rs"
+test = false
 
 [lib]
 name = "modality_probe_cli"
