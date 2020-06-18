@@ -21,6 +21,7 @@ std = ["serde", "proptest", "schemars"]
 members = [
   "modality-probe-cli",
   "modality-probe-udp-collector",
+  "ekotrace-graph",
   "util",
   "race-buffer",
 ]
