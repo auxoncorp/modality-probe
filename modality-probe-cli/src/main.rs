@@ -10,8 +10,8 @@ fn main() {
         .collect();
 
     match opts {
-        Opts::ManifestGen(opt) => manifest_gen::run(opt.into()),
-        Opts::HeaderGen(opt) => header_gen::run(opt.into(), internal_events),
+        Opts::ManifestGen(opt) => manifest_gen::run(opt),
+        Opts::HeaderGen(opt) => header_gen::run(opt, internal_events),
         Opts::Export(exp) => {
             if let Err(e) = export::run(exp) {
                 println!("Error: {}", e);

@@ -100,7 +100,7 @@ pub fn run(exp: Export) -> Result<(), String> {
             modality_probe_graph::overlay(&cfg, &mut graph, lrdr.deserialize())
                 .map_err(|e| format!("building the graph failed: {}", e))?;
             println!("{}", graph.to_dot(
-                |n, _| Ok(n.to_string()),
+                |n, _| Ok((*n).to_string()),
                 |n, w| {
                     let event = events_by_name.get(*n).ok_or_else(|| format!("couldn't find an event to match the name {}", n))?;
                     Ok(match event.line {
@@ -139,7 +139,7 @@ pub fn run(exp: Export) -> Result<(), String> {
             println!(
                 "{}",
                 graph.to_dot(
-                    |n, _| Ok(n.to_string()),
+                    |n, _| Ok((*n).to_string()),
                     |n, w| {
                         let probe = probes_by_name.get(*n).ok_or_else(|| format!("couldn't find a probe to match the name {}", n))?;
                         Ok(format!(
