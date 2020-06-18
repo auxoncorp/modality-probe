@@ -528,7 +528,7 @@ macro_rules! __payload_as_u32_impls {
 
 #[cfg(test)]
 mod tests {
-    use crate::{EventId, ModalityProbe, ProbeId, Tracer};
+    use crate::{EventId, ModalityProbe, Probe, ProbeId};
 
     #[test]
     fn event_macro_use() {

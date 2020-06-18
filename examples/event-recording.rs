@@ -23,18 +23,13 @@ fn main() {
     let remote = "127.0.0.1:2718";
 
     let mut storage = [0u8; 1024];
-    let tracer = try_initialize_at!(
-        &mut storage,
-        LOCATION_ID_FOO,
-        "tags=example",
-        "Example location"
-    )
-    .expect("Could not initialize ModalityProbe");
+    let probe = try_initialize_at!(&mut storage, PROBE_ID_FOO, "tags=example", "Example probe")
+        .expect("Could not initialize ModalityProbe");
 
     let mut loop_counter = 0;
     loop {
         try_record!(
-            tracer,
+            probe,
             TOP_OF_THE_LOOP,
             "At the top of the loop",
             "tags=example;my-tag"
@@ -42,7 +37,7 @@ fn main() {
         .expect("Could not record event");
 
         try_expect!(
-            tracer,
+            probe,
             MOD10_CONDITION_EVENT,
             loop_counter % 10 == 0,
             "Loop counter % 10 event",
@@ -51,7 +46,7 @@ fn main() {
         .expect("Could not record event");
 
         if loop_counter % 2 == 0 {
-            try_record!(tracer, LOOP_COUNTER_EVENT, "Loop counter event happened")
+            try_record!(probe, LOOP_COUNTER_EVENT, "Loop counter event happened")
                 .expect("Could not record event");
         }
 
@@ -59,14 +54,14 @@ fn main() {
         if loop_counter % 4 == 0 {
             println!("Sending report to {}", remote);
             let mut report_buffer = [0u8; 1024];
-            let n_report_bytes = tracer
+            let n_report_bytes = probe
                 .report(&mut report_buffer)
                 .expect("Could not produce a report");
             socket
                 .send_to(&report_buffer[..n_report_bytes], remote)
                 .expect("Could not send_to");
             try_record_w_u32!(
-                tracer,
+                probe,
                 REPORT_CREATED,
                 n_report_bytes as u32,
                 "tags=another tag",

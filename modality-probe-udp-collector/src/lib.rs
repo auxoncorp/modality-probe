@@ -313,7 +313,7 @@ mod tests {
 
     use lazy_static::*;
 
-    use modality_probe::{BulkReporter, ChunkedReporter, LogicalClock, Tracer};
+    use modality_probe::{BulkReporter, ChunkedReporter, LogicalClock, Probe};
 
     use super::*;
 

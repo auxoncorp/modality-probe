@@ -18,34 +18,34 @@ impl Buffer {
 }
 
 #[test]
-fn tracer_lifecycle_does_not_panic() -> Result<(), ModalityProbeError> {
+fn probe_lifecycle_does_not_panic() -> Result<(), ModalityProbeError> {
     let probe_id = 1u32.try_into()?;
 
     let mut backend = Buffer::new(1024);
     let mut storage = [0u8; 1024];
-    let tracer = ModalityProbe::initialize_at(&mut storage, probe_id)?;
+    let probe = ModalityProbe::initialize_at(&mut storage, probe_id)?;
 
-    let p = tracer.distribute_fixed_size_snapshot()?;
-    let q = tracer.distribute_fixed_size_snapshot()?;
+    let p = probe.distribute_fixed_size_snapshot()?;
+    let q = probe.distribute_fixed_size_snapshot()?;
 
-    // Snapshotting moves the tracer history forward, so two consecutive snapshots
+    // Snapshotting moves the probe history forward, so two consecutive snapshots
     // are not exactly the same.
     assert_ne!(p, q);
     assert_eq!(1, p.clocks_len);
-    let r = tracer.distribute_fixed_size_snapshot()?;
+    let r = probe.distribute_fixed_size_snapshot()?;
     assert!(q < r);
     assert_ne!(q, r);
-    let s = tracer.distribute_fixed_size_snapshot()?;
+    let s = probe.distribute_fixed_size_snapshot()?;
     assert!(r < s);
     assert_ne!(r, s);
-    let t = tracer.distribute_fixed_size_snapshot()?;
+    let t = probe.distribute_fixed_size_snapshot()?;
     assert!(s < t);
     assert_ne!(s, t);
-    let u = tracer.distribute_fixed_size_snapshot()?;
+    let u = probe.distribute_fixed_size_snapshot()?;
     assert!(t < u);
     assert_ne!(t, u);
-    tracer.report(backend.as_bytes_mut())?;
-    let v = tracer.distribute_fixed_size_snapshot()?;
+    probe.report(backend.as_bytes_mut())?;
+    let v = probe.distribute_fixed_size_snapshot()?;
     // Should write_reporting calls affect the outcome of snapshot_history()?
     assert!(u < v);
     assert_ne!(u, v);
@@ -58,30 +58,30 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
     let probe_id_bar = 2.try_into()?;
 
     let mut storage_foo = [0u8; 1024];
-    let tracer_foo = ModalityProbe::initialize_at(&mut storage_foo, probe_id_foo)?;
-    let snap_foo_a = tracer_foo.distribute_fixed_size_snapshot()?;
+    let probe_foo = ModalityProbe::initialize_at(&mut storage_foo, probe_id_foo)?;
+    let snap_foo_a = probe_foo.distribute_fixed_size_snapshot()?;
 
-    // Re-initialize a tracer with no previous history
+    // Re-initialize a probe with no previous history
     let mut storage_bar = [0u8; 1024];
-    let tracer_bar = ModalityProbe::initialize_at(&mut storage_bar, probe_id_bar)?;
-    assert!(tracer_bar.merge_fixed_size_snapshot(&snap_foo_a).is_ok());
-    let snap_bar_b = tracer_bar.distribute_fixed_size_snapshot()?;
+    let probe_bar = ModalityProbe::initialize_at(&mut storage_bar, probe_id_bar)?;
+    assert!(probe_bar.merge_fixed_size_snapshot(&snap_foo_a).is_ok());
+    let snap_bar_b = probe_bar.distribute_fixed_size_snapshot()?;
 
     assert!(snap_foo_a < snap_bar_b);
 
-    let snap_foo_c = tracer_foo.distribute_fixed_size_snapshot()?;
+    let snap_foo_c = probe_foo.distribute_fixed_size_snapshot()?;
 
     assert!(snap_foo_a < snap_foo_c);
     assert_eq!(None, snap_bar_b.partial_cmp(&snap_foo_c));
 
-    assert!(tracer_bar.merge_fixed_size_snapshot(&snap_foo_c).is_ok());
-    let snap_bar_d = tracer_bar.distribute_fixed_size_snapshot()?;
+    assert!(probe_bar.merge_fixed_size_snapshot(&snap_foo_c).is_ok());
+    let snap_bar_d = probe_bar.distribute_fixed_size_snapshot()?;
     assert!(snap_foo_c < snap_bar_d);
 
-    assert!(tracer_bar.merge_fixed_size_snapshot(&snap_foo_c).is_ok());
+    assert!(probe_bar.merge_fixed_size_snapshot(&snap_foo_c).is_ok());
 
     assert!(
-        &snap_foo_c < &tracer_bar.distribute_fixed_size_snapshot()?,
+        &snap_foo_c < &probe_bar.distribute_fixed_size_snapshot()?,
         "After merging, the bar should be just a bit ahead of foo"
     );
     Ok(())
@@ -91,7 +91,7 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
 fn invalid_neighbor_id_in_fixed_size_merge_produces_error() -> Result<(), ModalityProbeError> {
     let probe_id_foo = 1.try_into()?;
     let mut storage_foo = [0u8; 1024];
-    let tracer_foo = ModalityProbe::initialize_at(&mut storage_foo, probe_id_foo)?;
+    let probe_foo = ModalityProbe::initialize_at(&mut storage_foo, probe_id_foo)?;
 
     let mut clocks = [LogicalClock {
         id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
@@ -104,7 +104,7 @@ fn invalid_neighbor_id_in_fixed_size_merge_produces_error() -> Result<(), Modali
         clocks,
         clocks_len: 1,
     };
-    assert!(tracer_foo.merge_fixed_size_snapshot(&bad_snapshot).is_err());
+    assert!(probe_foo.merge_fixed_size_snapshot(&bad_snapshot).is_err());
     Ok(())
 }
 
@@ -112,9 +112,9 @@ fn invalid_neighbor_id_in_fixed_size_merge_produces_error() -> Result<(), Modali
 fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     let mut storage_foo = [0u8; 1024];
     let probe_id_foo = 123.try_into()?;
-    let mut tracer = ModalityProbe::new_with_storage(&mut storage_foo, probe_id_foo)?;
+    let mut probe = ModalityProbe::new_with_storage(&mut storage_foo, probe_id_foo)?;
     let mut backend = [0u8; 1024];
-    let bytes_written = tracer.report(&mut backend)?;
+    let bytes_written = probe.report(&mut backend)?;
     let log_report = LogReport::try_from_bulk_bytes(&backend[..bytes_written])
         .expect("Could not read from bulk report format bytes");
     assert_eq!(ProbeId::try_from(123).unwrap(), log_report.probe_id);
@@ -130,7 +130,7 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
         .clocks
         .first()
         .expect("Should have 1 clock bucket for own self");
-    assert_eq!(123, clock.id.get_raw(), "clock tracer ids should match");
+    assert_eq!(123, clock.id.get_raw(), "clock probe ids should match");
 
     // Expect no increments; this happens after the data is serialized.
     assert_eq!(0, clock.count, "expect no clock increments");
@@ -180,16 +180,16 @@ fn try_initialize_handles_raw_probe_ids() {
 #[test]
 fn try_record_event_raw_probe_ids() -> Result<(), ModalityProbeError> {
     let mut storage = [0u8; 512];
-    let tracer = ModalityProbe::try_initialize_at(&mut storage, 1)?;
-    assert!(tracer.try_record_event(0).is_err());
-    assert!(tracer.try_record_event(EventId::MAX_USER_ID).is_ok());
+    let probe = ModalityProbe::try_initialize_at(&mut storage, 1)?;
+    assert!(probe.try_record_event(0).is_err());
+    assert!(probe.try_record_event(EventId::MAX_USER_ID).is_ok());
     // Allowed to record internal events
-    assert!(tracer.try_record_event(EventId::MAX_INTERNAL_ID).is_ok());
+    assert!(probe.try_record_event(EventId::MAX_INTERNAL_ID).is_ok());
     // Still can't exceed the valid range
-    assert!(tracer
+    assert!(probe
         .try_record_event(EventId::MAX_INTERNAL_ID + 1)
         .is_err());
-    assert!(tracer.try_record_event(1).is_ok());
+    assert!(probe.try_record_event(1).is_ok());
     Ok(())
 }
 

@@ -53,7 +53,7 @@ pub struct LogicalClock {
 }
 
 /// Interface for the core (post-initialization) operations of `ModalityProbe`
-pub trait Tracer {
+pub trait Probe {
     /// Record that an event occurred. The end user is responsible
     /// for associating meaning with each event_id.
     ///
@@ -312,7 +312,7 @@ impl PartialOrd for ModalityProbeInstant {
 #[derive(Debug)]
 pub struct ExtensionBytes<'a>(pub &'a [u8]);
 
-impl<'a> Tracer for ModalityProbe<'a> {
+impl<'a> Probe for ModalityProbe<'a> {
     #[inline]
     fn record_event(&mut self, event_id: EventId) {
         self.history.record_event(event_id);
