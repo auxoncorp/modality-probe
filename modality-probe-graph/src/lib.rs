@@ -1,6 +1,6 @@
-//! `ekotrace-graph` is a library that builds different types of node
+//! `modality-probe-graph` is a library that builds different types of node
 //! and edge lists from a columnar, unordered collection of log
-//! reports like the one that ekotrace-udp-collector creates.
+//! reports like the one that modality-probe-udp-collector creates.
 use std::{collections::HashMap, hash::Hash};
 
 use err_derive::Error;
@@ -11,7 +11,7 @@ pub mod meta;
 
 use crate::{
     graph_event::{GraphEvent, GraphSegment},
-    meta::{EventMeta, ReportEvent, TracerMeta},
+    meta::{EventMeta, ProbeMeta, ReportEvent},
 };
 
 /// Errors returned by the graph building operations or the exporters.
@@ -69,15 +69,15 @@ pub trait GraphWithWeightsBuilder<'a> {
     ) -> &mut Self::Weight;
 }
 
-/// The metadata mapping event and tracer ids to their names and
+/// The metadata mapping event and probe ids to their names and
 /// descriptions, &c.
 pub struct Cfg {
-    pub tracers: HashMap<u32, TracerMeta>,
+    pub probes: HashMap<u32, ProbeMeta>,
     pub events: HashMap<u32, EventMeta>,
 }
 
 /// `complete` builds a complete causal graph from the given data. The
-/// cross-tracer relationship remains to be segment based, but arrows
+/// cross-probe relationship remains to be segment based, but arrows
 /// are also drawn bewteen intra-segment events. This builder does not
 /// require weights.
 pub fn complete<'a, G, E>(
@@ -105,16 +105,16 @@ where
     // fill in the holes.
     for res in log {
         let event: ReportEvent = res.map_err(|e| Error::ItemError(format!("{}", e)))?;
-        if event.lc_tracer_id.is_none() && event.lc_clock.is_none() {
+        if event.lc_probe_id.is_none() && event.lc_clock.is_none() {
             if let Some(meta_ev) = cfg.events.get(
                 &event
                     .event_id
                     .ok_or_else(|| Error::InconsistentData("missing event id"))?,
             ) {
                 let location = cfg
-                    .tracers
-                    .get(&event.tracer_id)
-                    .ok_or_else(|| Error::InconsistentData("unknown tracer id"))?;
+                    .probes
+                    .get(&event.probe_id)
+                    .ok_or_else(|| Error::InconsistentData("unknown probe id"))?;
                 let node = if let Some((_, clk)) = current_loc_clock {
                     match event.event_payload {
                         Some(payload) => GraphEvent::WithPayload {
@@ -153,23 +153,23 @@ where
                 prev_event = Some(node);
             }
         } else {
-            let tracer = event
-                .lc_tracer_id
-                .ok_or_else(|| Error::InconsistentData("missing tracer id"))?;
+            let probe = event
+                .lc_probe_id
+                .ok_or_else(|| Error::InconsistentData("missing probe id"))?;
             let clock = event
                 .lc_clock
                 .ok_or_else(|| Error::InconsistentData("missing logical clock"))?;
-            if Some(event.segment_id) != last_seg_id && event.tracer_id == tracer {
+            if Some(event.segment_id) != last_seg_id && event.probe_id == probe {
                 if let Some((loc, clock)) = current_loc_clock {
                     if let Some(prev) = prev_event {
                         last_ev_by_loc_clk.insert((loc, clock), prev);
                     }
                 }
-                current_loc_clock = Some((tracer, clock));
+                current_loc_clock = Some((probe, clock));
                 last_seg_id = Some(event.segment_id);
                 first_event = true;
             } else {
-                clock_set.push((tracer, clock));
+                clock_set.push((probe, clock));
             }
         }
     }
@@ -184,7 +184,7 @@ where
 }
 
 /// `segments` builds a graph without events, it instead includes only
-/// segments identified by their ids and their tracer locations.
+/// segments identified by their ids and their probe locations.
 pub fn segments<'a, G, E>(
     cfg: &'a Cfg,
     graph: &mut G,
@@ -202,33 +202,33 @@ where
     for res in log {
         let event: ReportEvent = res.map_err(|e| Error::ItemError(format!("{}", e)))?;
 
-        if event.lc_tracer_id.is_some() && event.lc_clock.is_some() {
-            let tracer_name = match cfg.tracers.get(
+        if event.lc_probe_id.is_some() && event.lc_clock.is_some() {
+            let probe_name = match cfg.probes.get(
                 &event
-                    .lc_tracer_id
-                    .ok_or_else(|| Error::InconsistentData("missing tracer id"))?,
+                    .lc_probe_id
+                    .ok_or_else(|| Error::InconsistentData("missing probe id"))?,
             ) {
                 Some(s) => &s.name,
                 None => "unknown_location",
             };
 
             let node = GraphSegment {
-                name: tracer_name,
+                name: probe_name,
                 clock: event
                     .lc_clock
                     .ok_or_else(|| Error::InconsistentData("missing logical clock"))?,
             };
             let weight = graph.upsert_node(node, 0);
             *weight += 1;
-            if event.tracer_id
+            if event.probe_id
                 == event
-                    .lc_tracer_id
-                    .ok_or_else(|| Error::InconsistentData("missing tracer id"))?
+                    .lc_probe_id
+                    .ok_or_else(|| Error::InconsistentData("missing probe id"))?
             {
                 let this_clock = event
                     .lc_clock
                     .ok_or_else(|| Error::InconsistentData("missing logical clock"))?;
-                let c = self_clocks.entry(tracer_name).or_insert_with(Vec::new);
+                let c = self_clocks.entry(probe_name).or_insert_with(Vec::new);
                 c.push(this_clock);
                 c.sort();
                 self_vertex = node;
@@ -275,7 +275,7 @@ where
     for res in log {
         let event: ReportEvent = res.map_err(|e| Error::ItemError(format!("{}", e)))?;
 
-        if event.lc_tracer_id.is_none() && event.lc_clock.is_none() {
+        if event.lc_probe_id.is_none() && event.lc_clock.is_none() {
             if let Some(meta_ev) = cfg.events.get(
                 &event
                     .event_id
@@ -303,23 +303,23 @@ where
                 prev_event = Some(&meta_ev.name);
             }
         } else {
-            let tracer = event
-                .lc_tracer_id
-                .ok_or_else(|| Error::InconsistentData("missing tracer id"))?;
+            let probe = event
+                .lc_probe_id
+                .ok_or_else(|| Error::InconsistentData("missing probe id"))?;
             let clock = event
                 .lc_clock
                 .ok_or_else(|| Error::InconsistentData("missing logical clock"))?;
-            if Some(event.segment_id) != last_seg_id && event.tracer_id == tracer {
+            if Some(event.segment_id) != last_seg_id && event.probe_id == probe {
                 if let Some((loc, clock)) = current_loc_clock {
                     if let Some(prev) = prev_event {
                         last_ev_by_loc_clk.insert((loc, clock), prev);
                     }
                 }
-                current_loc_clock = Some((tracer, clock));
+                current_loc_clock = Some((probe, clock));
                 last_seg_id = Some(event.segment_id);
                 first_event = true;
             } else {
-                clock_set.push((tracer, clock));
+                clock_set.push((probe, clock));
             }
         }
     }
@@ -334,7 +334,7 @@ where
     Ok(())
 }
 
-/// `topo` isolates tracers by id and draws edges showing which
+/// `topo` isolates probes by id and draws edges showing which
 /// instrumented components in a system are interacting.
 pub fn topo<'a, G, E>(
     cfg: &'a Cfg,
@@ -350,28 +350,28 @@ where
     for res in log {
         let event: ReportEvent = res.map_err(|e| Error::ItemError(format!("{}", e)))?;
 
-        if event.lc_tracer_id.is_some() && event.lc_clock.is_some() {
-            if event.tracer_id
+        if event.lc_probe_id.is_some() && event.lc_clock.is_some() {
+            if event.probe_id
                 == event
-                    .lc_tracer_id
-                    .ok_or_else(|| Error::InconsistentData("missing tracer id"))?
+                    .lc_probe_id
+                    .ok_or_else(|| Error::InconsistentData("missing probe id"))?
             {
                 self_vertex = &cfg
-                    .tracers
-                    .get(&event.tracer_id)
-                    .ok_or_else(|| Error::InconsistentData("unknown tracer_id"))?
+                    .probes
+                    .get(&event.probe_id)
+                    .ok_or_else(|| Error::InconsistentData("unknown probe_id"))?
                     .name;
                 let weight = graph.upsert_node(self_vertex, 0);
                 *weight += 1;
             } else {
                 let weight = graph.upsert_edge(
-                    &cfg.tracers
+                    &cfg.probes
                         .get(
                             &event
-                                .lc_tracer_id
-                                .ok_or_else(|| Error::InconsistentData("missing tracer_id"))?,
+                                .lc_probe_id
+                                .ok_or_else(|| Error::InconsistentData("missing probe_id"))?,
                         )
-                        .ok_or_else(|| Error::InconsistentData("unknown tracer_id"))?
+                        .ok_or_else(|| Error::InconsistentData("unknown probe_id"))?
                         .name,
                     self_vertex,
                     0,
@@ -398,10 +398,10 @@ mod test {
     fn diamond() -> (Cfg, Vec<ReportEvent>) {
         (
             Cfg {
-                tracers: vec![
+                probes: vec![
                     (
                         1,
-                        TracerMeta {
+                        ProbeMeta {
                             id: 1,
                             name: "one".to_string(),
                             description: "one".to_string(),
@@ -411,7 +411,7 @@ mod test {
                     ),
                     (
                         2,
-                        TracerMeta {
+                        ProbeMeta {
                             id: 2,
                             name: "two".to_string(),
                             description: "two".to_string(),
@@ -421,7 +421,7 @@ mod test {
                     ),
                     (
                         3,
-                        TracerMeta {
+                        ProbeMeta {
                             id: 3,
                             name: "three".to_string(),
                             description: "three".to_string(),
@@ -431,7 +431,7 @@ mod test {
                     ),
                     (
                         4,
-                        TracerMeta {
+                        ProbeMeta {
                             id: 4,
                             name: "four".to_string(),
                             description: "four".to_string(),
@@ -500,112 +500,112 @@ mod test {
                 ReportEvent {
                     segment_id: 0,
                     segment_index: 0,
-                    tracer_id: 1,
+                    probe_id: 1,
                     event_id: None,
                     event_payload: None,
-                    lc_tracer_id: Some(1),
+                    lc_probe_id: Some(1),
                     lc_clock: Some(1),
                 },
                 ReportEvent {
                     segment_id: 0,
                     segment_index: 2,
-                    tracer_id: 1,
+                    probe_id: 1,
                     event_id: Some(1),
                     event_payload: None,
-                    lc_tracer_id: None,
+                    lc_probe_id: None,
                     lc_clock: None,
                 },
                 // 2
                 ReportEvent {
                     segment_id: 1,
                     segment_index: 0,
-                    tracer_id: 2,
+                    probe_id: 2,
                     event_id: None,
                     event_payload: None,
-                    lc_tracer_id: Some(2),
+                    lc_probe_id: Some(2),
                     lc_clock: Some(1),
                 },
                 ReportEvent {
                     segment_id: 1,
                     segment_index: 1,
-                    tracer_id: 2,
+                    probe_id: 2,
                     event_id: None,
                     event_payload: None,
-                    lc_tracer_id: Some(1),
+                    lc_probe_id: Some(1),
                     lc_clock: Some(1),
                 },
                 ReportEvent {
                     segment_id: 1,
                     segment_index: 2,
-                    tracer_id: 2,
+                    probe_id: 2,
                     event_id: Some(2),
                     event_payload: None,
-                    lc_tracer_id: None,
+                    lc_probe_id: None,
                     lc_clock: None,
                 },
                 // 3
                 ReportEvent {
                     segment_id: 2,
                     segment_index: 0,
-                    tracer_id: 3,
+                    probe_id: 3,
                     event_id: None,
                     event_payload: None,
-                    lc_tracer_id: Some(3),
+                    lc_probe_id: Some(3),
                     lc_clock: Some(1),
                 },
                 ReportEvent {
                     segment_id: 2,
                     segment_index: 1,
-                    tracer_id: 3,
+                    probe_id: 3,
                     event_id: None,
                     event_payload: None,
-                    lc_tracer_id: Some(1),
+                    lc_probe_id: Some(1),
                     lc_clock: Some(1),
                 },
                 ReportEvent {
                     segment_id: 2,
                     segment_index: 2,
-                    tracer_id: 3,
+                    probe_id: 3,
                     event_id: Some(3),
                     event_payload: None,
-                    lc_tracer_id: None,
+                    lc_probe_id: None,
                     lc_clock: None,
                 },
                 // 4
                 ReportEvent {
                     segment_id: 3,
                     segment_index: 0,
-                    tracer_id: 4,
+                    probe_id: 4,
                     event_id: None,
                     event_payload: None,
-                    lc_tracer_id: Some(4),
+                    lc_probe_id: Some(4),
                     lc_clock: Some(1),
                 },
                 ReportEvent {
                     segment_id: 3,
                     segment_index: 1,
-                    tracer_id: 4,
+                    probe_id: 4,
                     event_id: None,
                     event_payload: None,
-                    lc_tracer_id: Some(2),
+                    lc_probe_id: Some(2),
                     lc_clock: Some(1),
                 },
                 ReportEvent {
                     segment_id: 3,
                     segment_index: 2,
-                    tracer_id: 4,
+                    probe_id: 4,
                     event_id: None,
                     event_payload: None,
-                    lc_tracer_id: Some(3),
+                    lc_probe_id: Some(3),
                     lc_clock: Some(1),
                 },
                 ReportEvent {
                     segment_id: 3,
                     segment_index: 3,
-                    tracer_id: 4,
+                    probe_id: 4,
                     event_id: Some(4),
                     event_payload: None,
-                    lc_tracer_id: None,
+                    lc_probe_id: None,
                     lc_clock: None,
                 },
             ],

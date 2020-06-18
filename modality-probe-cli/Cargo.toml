@@ -27,7 +27,7 @@ itertools = "0.8.2"
 petgraph = "0.5.0"
 sha2 = "0.8"
 nom_locate = "2.0"
-ekotrace-graph = { path = "../ekotrace-graph" }
+modality-probe-graph = { path = "../modality-probe-graph" }
 
 [dependencies.modality-probe]
 path = "../"

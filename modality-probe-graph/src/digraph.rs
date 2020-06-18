@@ -1,4 +1,5 @@
 //! A simple directed graph type that compliles node and edge lists.
+
 use std::{collections::HashMap, fmt::Write, hash::Hash};
 
 use crate::Error;
