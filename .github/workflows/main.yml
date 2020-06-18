@@ -53,12 +53,12 @@ jobs:
 
       - name: Run cargo fmt (capi)
         run: |
-          cd ekotrace-capi
+          cd modality-probe-capi
           cargo fmt -- --check
 
       - name: Run cargo clippy (capi)
         run: |
-          cd ekotrace-capi
+          cd modality-probe-capi
           cargo clippy --all
 
   windows:
@@ -89,7 +89,7 @@ jobs:
         with:
           command: fetch
 
-      # Windows MSVC doesn't like the no-std ekotrace-capi cdylib build
+      # Windows MSVC doesn't like the no-std modality-probe-capi cdylib build
       - name: Test
         shell: bash
         run: ./test.sh windows

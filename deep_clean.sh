@@ -5,12 +5,17 @@ rm -f Cargo.lock
 cargo clean
 
 (
-    cd ekotrace-capi
+    cd modality-probe-capi
     rm -f Cargo.lock
     cargo clean
 )
 
 (
     cd examples/
-    rm -f tracers.csv events.csv tracing_ids/mod.rs
+    rm -f probes.csv events.csv generated_ids/mod.rs
+)
+
+(
+    cd fuzz/
+    cargo clean
 )

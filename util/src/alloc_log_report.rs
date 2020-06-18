@@ -1,37 +1,37 @@
-use ekotrace::compact_log::{CompactLogItem, LogEvent, LogItem};
-use ekotrace::{BulkReporter, ExtensionBytes, ReportError};
+use modality_probe::compact_log::{CompactLogItem, LogEvent, LogItem};
+use modality_probe::{BulkReporter, ExtensionBytes, ReportError};
 
 /// Literal materialization of the log_report LCM structure
 /// with no semantic enrichment.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LogReport {
-    pub tracer_id: ekotrace::TracerId,
+    pub probe_id: modality_probe::ProbeId,
     pub segments: Vec<OwnedLogSegment>,
     pub extension_bytes: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct OwnedLogSegment {
-    pub clocks: Vec<ekotrace::LogicalClock>,
+    pub clocks: Vec<modality_probe::LogicalClock>,
     pub events: Vec<LogEvent>,
 }
 
 impl LogReport {
     #[inline]
     pub fn try_from_log(
-        tracer_id: ekotrace::TracerId,
+        probe_id: modality_probe::ProbeId,
         log: impl Iterator<Item = CompactLogItem>,
         extension_bytes: &[u8],
-    ) -> Result<Self, ekotrace::compact_log::LogItemInterpretationError> {
+    ) -> Result<Self, modality_probe::compact_log::LogItemInterpretationError> {
         let mut segments = Vec::new();
         let mut curr_segment = None;
-        for item_result in ekotrace::compact_log::LogItemIterator::new(log) {
+        for item_result in modality_probe::compact_log::LogItemIterator::new(log) {
             let item = item_result?;
             match item {
                 LogItem::Clock(clock) => {
-                    // Use the source location tracer id to distinguish between contiguous segments
+                    // Use the source probe id to distinguish between contiguous segments
                     // consisting only of clocks
-                    if clock.id == tracer_id {
+                    if clock.id == probe_id {
                         if let Some(prior_segment) = curr_segment.replace(OwnedLogSegment {
                             clocks: vec![clock],
                             events: vec![],
@@ -63,22 +63,22 @@ impl LogReport {
             segments.push(last_segment);
         }
         Ok(LogReport {
-            tracer_id,
+            probe_id,
             segments,
             extension_bytes: Vec::from(extension_bytes),
         })
     }
 
     pub fn try_from_bulk_bytes(bytes: &[u8]) -> Result<Self, ParseBulkReportError> {
-        let (location, log_iter, ext_bytes) =
-            ekotrace::report::bulk::try_bulk_from_wire_bytes(bytes)
+        let (probe, log_iter, ext_bytes) =
+            modality_probe::report::bulk::try_bulk_from_wire_bytes(bytes)
                 .map_err(ParseBulkReportError::ParseBulkFromWire)?;
-        LogReport::try_from_log(location, log_iter, ext_bytes.0)
+        LogReport::try_from_log(probe, log_iter, ext_bytes.0)
             .map_err(ParseBulkReportError::CompactLogInterpretation)
     }
 
     pub fn write_bulk_bytes(&self, destination: &mut [u8]) -> Result<usize, ReportError> {
-        use ekotrace::report::bulk::BulkReportSourceComponents;
+        use modality_probe::report::bulk::BulkReportSourceComponents;
         let mut log = Vec::with_capacity(
             self.segments
                 .iter()
@@ -104,7 +104,7 @@ impl LogReport {
         }
 
         BulkReportSourceComponents {
-            location_id: self.tracer_id,
+            probe_id: self.probe_id,
             log: &log,
         }
         .report_with_extension(destination, ExtensionBytes(&self.extension_bytes))
@@ -113,14 +113,14 @@ impl LogReport {
 
 #[derive(Debug)]
 pub enum ParseBulkReportError {
-    ParseBulkFromWire(ekotrace::report::bulk::ParseBulkFromWireError),
-    CompactLogInterpretation(ekotrace::compact_log::LogItemInterpretationError),
+    ParseBulkFromWire(modality_probe::report::bulk::ParseBulkFromWireError),
+    CompactLogInterpretation(modality_probe::compact_log::LogItemInterpretationError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ekotrace::{EventId, LogicalClock, TracerId};
+    use modality_probe::{EventId, LogicalClock, ProbeId};
     use proptest::prelude::*;
     use std::convert::TryInto;
 
@@ -129,7 +129,7 @@ mod tests {
         let tid_a = 10.try_into().unwrap();
         let tid_b = 15.try_into().unwrap();
         let input_report = LogReport {
-            tracer_id: tid_a,
+            probe_id: tid_a,
             segments: vec![OwnedLogSegment {
                 clocks: vec![
                     LogicalClock {
@@ -166,14 +166,14 @@ mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn gen_raw_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> u32 {
+        pub(crate) fn gen_raw_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> u32 {
             raw_id
         }
     }
 
     prop_compose! {
-        fn gen_clock()(tracer_id in gen_raw_tracer_id(), count in proptest::num::u32::ANY) -> LogicalClock {
-            LogicalClock { id: tracer_id.try_into().unwrap(), count }
+        fn gen_clock()(probe_id in gen_raw_probe_id(), count in proptest::num::u32::ANY) -> LogicalClock {
+            LogicalClock { id: probe_id.try_into().unwrap(), count }
         }
     }
 
@@ -221,30 +221,30 @@ mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn arb_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> TracerId {
-            TracerId::new(raw_id).unwrap()
+        pub(crate) fn arb_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> ProbeId {
+            ProbeId::new(raw_id).unwrap()
         }
     }
 
     prop_compose! {
         fn gen_log_report()
-            (tracer_id in arb_tracer_id(), mut segments in gen_segments(25), extension_bytes in gen_extension_bytes(200)) -> LogReport {
+            (probe_id in arb_probe_id(), mut segments in gen_segments(25), extension_bytes in gen_extension_bytes(200)) -> LogReport {
             let mut fixup_count = 0;
             for segment in segments.iter_mut() {
                 let needs_first_clock_id_fixup = if let Some(first_clock) = segment.clocks.first() {
-                    first_clock.id != tracer_id
+                    first_clock.id != probe_id
                 } else {
                     true
                 };
-                // Our segmentation logic depends on the first clock location of each segment
-                // matching the id of the location where the log report was generated
+                // Our segmentation logic depends on the first clock probe of each segment
+                // matching the id of the probe where the log report was generated
                 if needs_first_clock_id_fixup {
                     fixup_count += 1;
-                    segment.clocks.insert(0, LogicalClock { id: tracer_id, count: fixup_count })
+                    segment.clocks.insert(0, LogicalClock { id: probe_id, count: fixup_count })
                 }
             }
             LogReport {
-                tracer_id,
+                probe_id,
                 segments,
                 extension_bytes,
             }

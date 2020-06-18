@@ -1,10 +1,8 @@
 [package]
 name = "race-buffer"
 version = "0.1.0"
-authors = ["Nicholas Springer <nicholas.m.springer@gmail.com>"]
+authors = ["Nicholas Springer <nspringer@auxon.io>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 crossbeam = {version = "0.7.3", optional = true}

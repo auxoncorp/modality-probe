@@ -1,25 +1,26 @@
-//! Identifiers critical to the Ekotrace system
-use crate::{InvalidEventId, InvalidTracerId};
+//! Identifiers critical to the Modality probe system
+
+use crate::{InvalidEventId, InvalidProbeId};
 use core::convert::{TryFrom, TryInto};
 use core::num::NonZeroU32;
 
-/// Ought to uniquely identify a location for where events occur within a system under test.
+/// Ought to uniquely identify a probe for where events occur within a system under test.
 ///
 /// Typically represents a single thread.
 ///
 /// Must be backed by a value greater than 0 and less than or equal to
-/// TracerId::MAX_ID.
+/// ProbeId::MAX_ID.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 #[cfg_attr(
     feature = "std",
     derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
 )]
-pub struct TracerId(
+pub struct ProbeId(
     /* Never make this inner field truly public */ pub(crate) NonZeroU32,
 );
 
-impl TracerId {
+impl ProbeId {
     /// The largest permissible backing id value
     pub const MAX_ID: u32 = 0b0011_1111_1111_1111_1111_1111_1111_1111;
 
@@ -46,16 +47,16 @@ impl TracerId {
     }
 }
 
-impl From<TracerId> for NonZeroU32 {
+impl From<ProbeId> for NonZeroU32 {
     #[inline]
-    fn from(t: TracerId) -> Self {
+    fn from(t: ProbeId) -> Self {
         t.0
     }
 }
 
-impl From<TracerId> for u32 {
+impl From<ProbeId> for u32 {
     #[inline]
-    fn from(t: TracerId) -> Self {
+    fn from(t: ProbeId) -> Self {
         t.0.get()
     }
 }
@@ -134,18 +135,18 @@ macro_rules! fallible_sizing_try_from_impl_with_internal {
     };
 }
 
-infallible_sizing_try_from_impl!(u8, TracerId, InvalidTracerId, InvalidTracerId);
-infallible_sizing_try_from_impl!(u16, TracerId, InvalidTracerId, InvalidTracerId);
-infallible_sizing_try_from_impl!(u32, TracerId, InvalidTracerId, InvalidTracerId);
-fallible_sizing_try_from_impl!(u64, TracerId, InvalidTracerId, InvalidTracerId);
-fallible_sizing_try_from_impl!(u128, TracerId, InvalidTracerId, InvalidTracerId);
-fallible_sizing_try_from_impl!(usize, TracerId, InvalidTracerId, InvalidTracerId);
-fallible_sizing_try_from_impl!(i8, TracerId, InvalidTracerId, InvalidTracerId);
-fallible_sizing_try_from_impl!(i16, TracerId, InvalidTracerId, InvalidTracerId);
-fallible_sizing_try_from_impl!(i32, TracerId, InvalidTracerId, InvalidTracerId);
-fallible_sizing_try_from_impl!(i64, TracerId, InvalidTracerId, InvalidTracerId);
-fallible_sizing_try_from_impl!(i128, TracerId, InvalidTracerId, InvalidTracerId);
-fallible_sizing_try_from_impl!(isize, TracerId, InvalidTracerId, InvalidTracerId);
+infallible_sizing_try_from_impl!(u8, ProbeId, InvalidProbeId, InvalidProbeId);
+infallible_sizing_try_from_impl!(u16, ProbeId, InvalidProbeId, InvalidProbeId);
+infallible_sizing_try_from_impl!(u32, ProbeId, InvalidProbeId, InvalidProbeId);
+fallible_sizing_try_from_impl!(u64, ProbeId, InvalidProbeId, InvalidProbeId);
+fallible_sizing_try_from_impl!(u128, ProbeId, InvalidProbeId, InvalidProbeId);
+fallible_sizing_try_from_impl!(usize, ProbeId, InvalidProbeId, InvalidProbeId);
+fallible_sizing_try_from_impl!(i8, ProbeId, InvalidProbeId, InvalidProbeId);
+fallible_sizing_try_from_impl!(i16, ProbeId, InvalidProbeId, InvalidProbeId);
+fallible_sizing_try_from_impl!(i32, ProbeId, InvalidProbeId, InvalidProbeId);
+fallible_sizing_try_from_impl!(i64, ProbeId, InvalidProbeId, InvalidProbeId);
+fallible_sizing_try_from_impl!(i128, ProbeId, InvalidProbeId, InvalidProbeId);
+fallible_sizing_try_from_impl!(isize, ProbeId, InvalidProbeId, InvalidProbeId);
 
 infallible_sizing_try_from_impl_with_internal!(u8, EventId, InvalidEventId, InvalidEventId);
 infallible_sizing_try_from_impl_with_internal!(u16, EventId, InvalidEventId, InvalidEventId);
@@ -176,13 +177,13 @@ impl EventId {
     /// support a reserved range of EventIds for protocol use
     pub const MAX_INTERNAL_ID: u32 = 0b0011_1111_1111_1111_1111_1111_1111_1111;
     /// The number of id values that are reserved for use by the
-    /// tracer implementation.
+    /// probe implementation.
     pub const NUM_RESERVED_IDS: u32 = 256;
     /// The maximum-permissible id value for for an Event
     /// defined by end users.
     pub const MAX_USER_ID: u32 = EventId::MAX_INTERNAL_ID - EventId::NUM_RESERVED_IDS;
 
-    /// The tracer produced a log report for transmission to the backend
+    /// The probe produced a log report for transmission to the backend
     /// for external analysis.
     pub const EVENT_PRODUCED_EXTERNAL_REPORT: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 1) });
@@ -192,7 +193,7 @@ impl EventId {
     /// A logical clock's count reached the maximum trackable value
     pub const EVENT_LOGICAL_CLOCK_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 3) });
-    /// The local tracing instance (e.g. Ekotrace) did not have enough memory
+    /// The local instance (e.g. Modality probe) did not have enough memory
     /// reserved to store enough logical clocks to track all of the unique
     /// neighbors that attempt to communicate with it.
     pub const EVENT_NUM_CLOCKS_OVERFLOWED: EventId =
@@ -329,22 +330,22 @@ pub mod prop {
         }
     }
 
-    /// A proptest value tree for tracer ids. It builds off of u32's
+    /// A proptest value tree for probe ids. It builds off of u32's
     /// binary search.
-    pub struct TracerIdBinarySearch(BinarySearch);
+    pub struct ProbeIdBinarySearch(BinarySearch);
 
-    impl TracerIdBinarySearch {
-        fn or_max(x: u32) -> TracerId {
+    impl ProbeIdBinarySearch {
+        fn or_max(x: u32) -> ProbeId {
             let x1: u32 = x.checked_add(1).unwrap_or_else(|| core::u32::MAX);
-            TracerId(unsafe { NonZeroU32::new_unchecked(x1) })
+            ProbeId(unsafe { NonZeroU32::new_unchecked(x1) })
         }
     }
 
-    impl ValueTree for TracerIdBinarySearch {
-        type Value = TracerId;
+    impl ValueTree for ProbeIdBinarySearch {
+        type Value = ProbeId;
 
-        fn current(&self) -> TracerId {
-            TracerIdBinarySearch::or_max(self.0.current())
+        fn current(&self) -> ProbeId {
+            ProbeIdBinarySearch::or_max(self.0.current())
         }
 
         fn simplify(&mut self) -> bool {
@@ -357,26 +358,26 @@ pub mod prop {
     }
 
     #[derive(Debug)]
-    /// A proptest strategy to be used for any valid tracer id.
-    pub struct AnyTracerId;
+    /// A proptest strategy to be used for any valid probe id.
+    pub struct AnyProbeId;
 
-    impl Strategy for AnyTracerId {
-        type Tree = TracerIdBinarySearch;
-        type Value = TracerId;
+    impl Strategy for AnyProbeId {
+        type Tree = ProbeIdBinarySearch;
+        type Value = ProbeId;
 
         fn new_tree(&self, runner: &mut TestRunner) -> NewTree<Self> {
-            Ok(TracerIdBinarySearch(BinarySearch::new(
+            Ok(ProbeIdBinarySearch(BinarySearch::new(
                 runner.rng().next_u32().saturating_add(1),
             )))
         }
     }
 
-    impl Arbitrary for TracerId {
+    impl Arbitrary for ProbeId {
         type Parameters = ();
-        type Strategy = AnyTracerId;
+        type Strategy = AnyProbeId;
 
         fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-            AnyTracerId
+            AnyProbeId
         }
     }
 }
@@ -391,14 +392,14 @@ pub(crate) mod id_tests {
 
     #[test]
     fn new_ids_cannot_have_zero_values() {
-        assert!(TracerId::new(0).is_none());
+        assert!(ProbeId::new(0).is_none());
         assert!(EventId::new(0).is_none());
         assert!(EventId::new_internal(0).is_none());
     }
 
     #[test]
     fn boundary_values() {
-        assert!(TracerId::new(TracerId::MAX_ID).is_some());
+        assert!(ProbeId::new(ProbeId::MAX_ID).is_some());
         assert!(EventId::new(EventId::MAX_USER_ID).is_some());
         assert!(EventId::new_internal(EventId::MAX_INTERNAL_ID).is_some());
 
@@ -407,33 +408,33 @@ pub(crate) mod id_tests {
     }
 
     prop_compose! {
-        pub(crate) fn gen_raw_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> u32 {
+        pub(crate) fn gen_raw_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> u32 {
             raw_id
         }
     }
 
     prop_compose! {
-        pub(crate) fn gen_tracer_id()(raw_id in 1..=TracerId::MAX_ID) -> TracerId {
+        pub(crate) fn gen_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> ProbeId {
             raw_id.try_into().unwrap()
         }
     }
 
     prop_compose! {
-        fn gen_raw_invalid_tracer_id()(raw_id in (TracerId::MAX_ID+1)..core::u32::MAX) -> u32 {
+        fn gen_raw_invalid_probe_id()(raw_id in (ProbeId::MAX_ID+1)..core::u32::MAX) -> u32 {
             raw_id
         }
     }
 
     proptest! {
         #[test]
-        fn valid_tracer_ids_are_accepted(raw_id in gen_raw_tracer_id()) {
-            let t = TracerId::new(raw_id).unwrap();
+        fn valid_probe_ids_are_accepted(raw_id in gen_raw_probe_id()) {
+            let t = ProbeId::new(raw_id).unwrap();
             assert_eq!(t.get_raw(), raw_id);
         }
 
         #[test]
-        fn invalid_tracer_ids_are_rejected(raw_id in gen_raw_invalid_tracer_id()) {
-            assert_eq!(None, TracerId::new(raw_id));
+        fn invalid_probe_ids_are_rejected(raw_id in gen_raw_invalid_probe_id()) {
+            assert_eq!(None, ProbeId::new(raw_id));
         }
     }
 

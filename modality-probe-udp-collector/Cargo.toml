@@ -1,0 +1,42 @@
+[package]
+name = "modality-probe-udp-collector"
+version = "0.2.0"
+authors = ["Zachary Pierce <zack@auxon.io>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/modality-probe"
+readme = "README.md"
+
+[lib]
+name = "modality_probe_udp_collector"
+path = "src/lib.rs"
+
+[[bin]]
+name = "modality-probe-udp-collector"
+path = "src/main.rs"
+
+[features]
+default = ["cli"]
+# We mark some CLI-binary only dependencies as optional
+# to avoid pulling in heavy dependencies when using the
+# library.
+cli = ["structopt"]
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+modality-probe = { path = ".." }
+rust-lcm-codec = "0.2"
+static_assertions = "1.1.0"
+structopt = { version = "0.3", optional = true }
+util = { path = "../util" }
+
+[build-dependencies]
+rust-lcm-codegen = "0.2"
+
+[dev-dependencies]
+crossbeam = "0.7.3"
+lazy_static = "1.4.0"
+proc-graph = "0.1.0"
+proptest = "0.9"
+tempfile = "3"
+modality-probe = { path = ".." }
