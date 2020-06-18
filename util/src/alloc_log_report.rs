@@ -79,7 +79,12 @@ impl LogReport {
 
     pub fn write_bulk_bytes(&self, destination: &mut [u8]) -> Result<usize, ReportError> {
         use modality_probe::report::bulk::BulkReportSourceComponents;
-        let mut log = Vec::new();
+        let mut log = Vec::with_capacity(
+            self.segments
+                .iter()
+                .map(|s| 2 * (s.clocks.len() + s.events.len()))
+                .sum(),
+        );
         for segment in &self.segments {
             for clock in &segment.clocks {
                 let (id, count) = CompactLogItem::clock(*clock);
