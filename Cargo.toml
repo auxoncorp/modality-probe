@@ -1,6 +1,6 @@
 [package]
 name = "modality-probe"
-version = "0.2.0"
+version = "0.2.1"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
     "Russell Mull <russell@auxon.io>",
@@ -29,7 +29,7 @@ members = [
 [dependencies]
 static_assertions = "1.1.0"
 fixed-slice-vec = "0.2"
-rust-lcm-codec = "0.2"
+rust-lcm-codec = "0.2.1"
 
 # Used if the std feature is enabled.
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -42,4 +42,4 @@ proptest = "0.9.5"
 util = { path = "./util" }
 
 [build-dependencies]
-rust-lcm-codegen = "0.2"
+rust-lcm-codegen = "0.2.1"

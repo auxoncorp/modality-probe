@@ -25,13 +25,13 @@ cli = ["structopt"]
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 modality-probe = { path = ".." }
-rust-lcm-codec = "0.2"
+rust-lcm-codec = "0.2.1"
 static_assertions = "1.1.0"
 structopt = { version = "0.3", optional = true }
 util = { path = "../util" }
 
 [build-dependencies]
-rust-lcm-codegen = "0.2"
+rust-lcm-codegen = "0.2.1"
 
 [dev-dependencies]
 crossbeam = "0.7.3"
