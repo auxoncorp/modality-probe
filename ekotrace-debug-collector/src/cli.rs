@@ -211,8 +211,18 @@ fn should_use_big_endian(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::canonicalize;
+    use std::process::Command;
     use std::str::FromStr;
     use std::time::Duration;
+
+    fn compile_symbol_example() {
+        Command::new("cargo")
+            .arg("build")
+            .current_dir(canonicalize("./tests/symbols-example").unwrap())
+            .output()
+            .unwrap();
+    }
 
     fn options_from_str(input: &str) -> CLIOptions {
         CLIOptions::from_iter(input.split(" "))
@@ -339,6 +349,7 @@ mod tests {
     /// Symbol value parsing for little endian ELF
     #[test]
     fn symbol_parsing_le() {
+        compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
                 "ekotrace-debug-collector \
@@ -347,7 +358,8 @@ mod tests {
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
-                --elf ./tests/example-le \
+                --elf \
+                ./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example \
                 v1 v2 v3"
             ))
             .unwrap(),
@@ -358,34 +370,7 @@ mod tests {
                 gdb_addr: None,
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
-                tracer_addrs: vec![0x3c010, 0x3c014, 0x3c018]
-            }
-        )
-    }
-
-    /// Symbol value parsing for big endian ELF
-    #[test]
-    fn symbol_parsing_be() {
-        assert_eq!(
-            config_from_options(options_from_str(
-                "ekotrace-debug-collector \
-                --session-id 0 \
-                --big-endian \
-                --attach stm32 \
-                --interval 1s \
-                --output-file ./out \
-                --elf ./tests/example-be \
-                v1 v2 v3"
-            ))
-            .unwrap(),
-            Config {
-                session_id: 0.into(),
-                big_endian: true,
-                attach_target: Some("stm32".to_string()),
-                gdb_addr: None,
-                interval: Duration::from_millis(1000),
-                output_path: "./out".into(),
-                tracer_addrs: vec![0x90018, 0x9001c, 0x90020]
+                tracer_addrs: vec![0x20000000, 0x20000004, 0x20000008]
             }
         )
     }
@@ -393,6 +378,7 @@ mod tests {
     /// Input both symbols and addresses
     #[test]
     fn sym_addr_mix() {
+        compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
                 "ekotrace-debug-collector \
@@ -401,7 +387,8 @@ mod tests {
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
-                --elf ./tests/example-le \
+                --elf \
+                ./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example \
                 0x1 v1 v2 0x10 v3 0x100"
             ))
             .unwrap(),
@@ -412,7 +399,7 @@ mod tests {
                 gdb_addr: None,
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
-                tracer_addrs: vec![0x1, 0x10, 0x100, 0x3c010, 0x3c014, 0x3c018]
+                tracer_addrs: vec![0x1, 0x10, 0x100, 0x20000000, 0x20000004, 0x20000008]
             }
         )
     }
@@ -437,6 +424,7 @@ mod tests {
     /// Default to little endian if none specified and no ELF given
     #[test]
     fn specify_neither_endianness() {
+        compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
                 "ekotrace-debug-collector \
@@ -462,6 +450,7 @@ mod tests {
     /// Imply endianness from ELF if not specified
     #[test]
     fn imply_endianness() {
+        compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
                 "ekotrace-debug-collector \
@@ -469,7 +458,8 @@ mod tests {
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
-                --elf ./tests/example-le \
+                --elf \
+                ./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example \
                 0x1"
             ))
             .unwrap(),
@@ -490,7 +480,7 @@ mod tests {
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
-                --elf ./tests/example-be \
+                --elf ./tests/example-be-elf \
                 0x1"
             ))
             .unwrap(),
@@ -509,6 +499,7 @@ mod tests {
     /// Use specified endianness even if ELF is opposite
     #[test]
     fn use_specified_endianness() {
+        compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
                 "ekotrace-debug-collector \
@@ -517,7 +508,8 @@ mod tests {
                 --interval 1s \
                 --output-file ./out \
                 --big-endian \
-                --elf ./tests/example-le \
+                --elf \
+                ./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example \
                 0x1"
             ))
             .unwrap(),
@@ -539,7 +531,7 @@ mod tests {
                 --interval 1s \
                 --output-file ./out \
                 --little-endian \
-                --elf ./tests/example-be \
+                --elf ./tests/example-be-elf \
                 0x1"
             ))
             .unwrap(),
