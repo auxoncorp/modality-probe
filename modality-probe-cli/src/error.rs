@@ -2,29 +2,29 @@ use std::{fmt::Display, process::exit};
 
 #[macro_export]
 macro_rules! warn {
-    ($prefix:expr, $tag:expr, $msg:expr) => {{
-        eprintln!("{} {}: warning: {}", $prefix, $tag, $msg);
+    ($tag:expr, $msg:expr) => {{
+        eprintln!("modality-probe {}: warning: {}", $tag, $msg);
     }};
-     ($prefix:expr, $tag:expr, $fmt:expr, $($arg:tt)+) => ({
-        eprint!("{} {}: warning: ", $prefix, $tag);
+     ($tag:expr, $fmt:expr, $($arg:tt)+) => ({
+        eprint!("modality-probe {}: warning: ", $tag);
         eprintln!($fmt, $($arg)*);
     });
 }
 
 #[macro_export]
 macro_rules! exit_error {
-    ($prefix:expr, $tag:expr, $msg:expr) => {{
-        eprintln!("{} {}: error: {}", $prefix, $tag, $msg);
+    ($tag:expr, $msg:expr) => {{
+        eprintln!("modality-probe {}: error: {}", $tag, $msg);
         std::process::exit(1);
     }};
-     ($prefix:expr, $tag:expr, $fmt:expr, $($arg:tt)+) => ({
-        eprint!("{} {}: error: ", $prefix, $tag);
+    ($tag:expr, $fmt:expr, $($arg:tt)+) => ({
+        eprint!("modality-probe {}: error: ", $tag);
         eprintln!($fmt, $($arg)*);
         std::process::exit(1);
     });
 }
 
-pub(crate) trait GracefulExit<T> {
+pub trait GracefulExit<T> {
     fn unwrap_or_exit(self, msg: &str) -> T;
 }
 
@@ -32,6 +32,15 @@ impl<T, E: Display> GracefulExit<T> for Result<T, E> {
     fn unwrap_or_exit(self, msg: &str) -> T {
         self.unwrap_or_else(|e| {
             eprintln!("modality-probe {}: error: {}", msg, e);
+            exit(1);
+        })
+    }
+}
+
+impl<T> GracefulExit<T> for Option<T> {
+    fn unwrap_or_exit(self, msg: &str) -> T {
+        self.unwrap_or_else(|| {
+            eprintln!("modality-probe error: {}", msg);
             exit(1);
         })
     }

@@ -9,21 +9,21 @@ use modality_probe_graph::{digraph::Digraph, meta::*, Cfg};
 
 /// Export a textual representation of a causal graph using the
 /// collected coumnar form as input.
-#[derive(Debug, StructOpt)]
+#[derive(Debug, PartialEq, StructOpt)]
 pub struct Export {
     /// Generate the graph showing only the causal relationships,
     /// eliding the events inbetween.
     #[structopt(long)]
-    interactions_only: bool,
+    pub interactions_only: bool,
     /// The path the probes.csv for a component.
     #[structopt(long)]
-    probes: PathBuf,
+    pub probes: PathBuf,
     /// The path the events.csv for a component.
     #[structopt(long)]
-    events: PathBuf,
+    pub events: PathBuf,
     /// The path to the file containing the collected traces.
     #[structopt(long)]
-    report: PathBuf,
+    pub report: PathBuf,
     /// The type of graph to output.
     ///
     /// This can be either `cyclic` or `acyclic`.
@@ -33,10 +33,10 @@ pub struct Export {
     ///
     /// * An acyclic graph shows the causal history of either all
     /// events or the interactions between traces in the system.
-    graph_type: GraphType,
+    pub graph_type: GraphType,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, PartialEq, StructOpt)]
 pub enum GraphType {
     Cyclic,
     Acyclic,

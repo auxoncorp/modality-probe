@@ -41,20 +41,16 @@ pub enum EventCheckError {
     NameNotUpperCase(InSourceEvent),
 }
 
-pub struct Invocations<'cfg> {
-    pub log_prefix: &'cfg str,
-    pub log_module: &'cfg str,
+pub struct Invocations {
     pub internal_events: Vec<Event>,
     pub probes: Vec<InSourceProbe>,
     pub events: Vec<InSourceEvent>,
 }
 
-impl<'cfg> Default for Invocations<'cfg> {
+impl Default for Invocations {
     fn default() -> Self {
         let config = Config::default();
         Invocations {
-            log_prefix: config.log_prefix,
-            log_module: config.log_module,
             internal_events: config.internal_events,
             probes: Default::default(),
             events: Default::default(),
@@ -63,8 +59,6 @@ impl<'cfg> Default for Invocations<'cfg> {
 }
 
 pub struct Config<'cfg> {
-    pub log_prefix: &'cfg str,
-    pub log_module: &'cfg str,
     pub lang: Option<Lang>,
     pub no_probes: bool,
     pub no_events: bool,
@@ -77,8 +71,6 @@ pub struct Config<'cfg> {
 impl<'cfg> Default for Config<'cfg> {
     fn default() -> Self {
         Config {
-            log_prefix: "modality-probe",
-            log_module: "manifest-gen",
             lang: None,
             no_probes: false,
             no_events: false,
@@ -90,8 +82,8 @@ impl<'cfg> Default for Config<'cfg> {
     }
 }
 
-impl<'cfg> Invocations<'cfg> {
-    pub fn from_path<P: AsRef<Path>>(config: Config<'cfg>, p: P) -> Result<Self, CreationError> {
+impl Invocations {
+    pub fn from_path<P: AsRef<Path>>(config: Config<'_>, p: P) -> Result<Self, CreationError> {
         let mut probes = Vec::new();
         let mut events = Vec::new();
         let mut buffer = String::new();
@@ -139,17 +131,14 @@ impl<'cfg> Invocations<'cfg> {
                                 Some("c") => Box::new(config.c_parser),
                                 Some(ext) => {
                                     warn!(
-                                        config.log_prefix,
-                                        config.log_module,
-                                        "Guessing C parser based on file extension '{}'",
-                                        ext
+                                        "manifest-gen",
+                                        "Guessing C parser based on file extension '{}'", ext
                                     );
                                     Box::new(config.c_parser)
                                 }
                                 None => {
                                     warn!(
-                                        config.log_prefix,
-                                        config.log_module,
+                                        "manifest-gen",
                                         "Guessing C parser based on file extension '{}'",
                                         os_str.to_string_lossy()
                                     );
@@ -158,8 +147,7 @@ impl<'cfg> Invocations<'cfg> {
                             },
                             None => {
                                 warn!(
-                                    config.log_prefix,
-                                    config.log_module,
+                                    "manifest-gen",
                                     "No file extension available, defaulting to using the C parser\n\
                                     {:?}",
                                     entry.path()
@@ -200,8 +188,6 @@ impl<'cfg> Invocations<'cfg> {
             }
         }
         Ok(Invocations {
-            log_prefix: config.log_prefix,
-            log_module: config.log_module,
             internal_events: config.internal_events,
             probes,
             events,
@@ -261,8 +247,7 @@ impl<'cfg> Invocations<'cfg> {
                 .for_each(|t| {
                     if !src_probe.eq(t) {
                         warn!(
-                            self.log_prefix,
-                            self.log_module,
+                            "manifest-gen",
                             "Probe {}, ID {} may have moved\n\
                             Prior location from {}: {}:{}\n\
                             New location in source code: {}:{}:{}",
@@ -329,8 +314,7 @@ impl<'cfg> Invocations<'cfg> {
                 .is_none();
             if missing_probe {
                 warn!(
-                    self.log_prefix,
-                    self.log_module,
+                    "manifest-gen",
                     "Probe {}, ID {} in manifest no longer exists in source",
                     mf_probe.name,
                     mf_probe.id.0
@@ -361,8 +345,7 @@ impl<'cfg> Invocations<'cfg> {
                         .eq(e.line.as_str());
                     if !file_eq || !line_eq {
                         warn!(
-                            self.log_prefix,
-                            self.log_module,
+                            "manifest-gen",
                             "Event {}, ID {} may have moved\n\
                             Prior location from {}: {}:{}\n\
                             New location in source code: {}:{}:{}",
@@ -387,8 +370,7 @@ impl<'cfg> Invocations<'cfg> {
                             .map_or("", |p| p.0.as_str()),
                     ) {
                         warn!(
-                            self.log_prefix,
-                            self.log_module,
+                            "manifest-gen",
                             "Event {}, ID {} has changed its payload type\n\
                             {}:{}:{}\n\
                             Prior payload type from {}: {}\n\
@@ -482,8 +464,7 @@ impl<'cfg> Invocations<'cfg> {
                     .is_none();
                 if missing_event {
                     warn!(
-                        self.log_prefix,
-                        self.log_module,
+                        "manifest-gen",
                         "Event {}, ID {} in manifest no longer exists in source",
                         mf_event.name,
                         mf_event.id.0

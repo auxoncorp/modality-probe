@@ -1,5 +1,4 @@
-mod error;
-
+pub mod error;
 pub mod events;
 pub mod export;
 pub mod header_gen;

@@ -74,7 +74,6 @@ impl ManifestGen {
     pub fn validate(&self) {
         if !self.source_path.exists() {
             exit_error!(
-                "modality-probe",
                 "manifest-gen",
                 "The source path '{}' does not exist",
                 self.source_path.display()
