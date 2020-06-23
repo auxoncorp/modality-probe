@@ -11,7 +11,7 @@ use structopt::StructOpt;
 use goblin::container::Endian;
 use goblin::elf::Elf;
 
-use ekotrace_debug_collector::Config;
+use modality_probe_debug_collector::Config;
 
 /// Error in options processing
 #[derive(Debug)]
@@ -41,7 +41,7 @@ impl Error for OptionsError {
 
 #[derive(Debug, Default, StructOpt)]
 #[structopt(
-    name = "ekotrace-debug-collector",
+    name = "modality-probe-debug-collector",
     about = "Periodically collects logs from microcontrollers over debug interfaces; outputs them to a file."
 )]
 pub struct CLIOptions {
@@ -123,7 +123,7 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
 
     let interval = parse(&options.interval)?;
 
-    Ok(ekotrace_debug_collector::Config {
+    Ok(modality_probe_debug_collector::Config {
         session_id: options.session_id.into(),
         big_endian: should_use_big_endian(&options, elf_endianness)?,
         attach_target: options.attach_target,
@@ -233,7 +233,7 @@ mod tests {
     fn test_basic() {
         assert_eq!(
             config_from_options(options_from_str(
-                "ekotrace-debug-collector \
+                "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --attach stm32 \
@@ -259,7 +259,7 @@ mod tests {
     fn specify_gdb_server() {
         assert_eq!(
             config_from_options(options_from_str(
-                "ekotrace-debug-collector \
+                "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --gdb-server 127.0.0.1:3000 \
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn error_on_multiple_targets() {
         if let Ok(_) = config_from_options(options_from_str(
-            "ekotrace-debug-collector \
+            "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
             --attach stm32 \
@@ -301,7 +301,7 @@ mod tests {
     #[test]
     fn error_on_no_target() {
         if let Ok(_) = config_from_options(options_from_str(
-            "ekotrace-debug-collector \
+            "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
             --interval 1s \
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn error_elf_dne() {
         if let Ok(_) = config_from_options(options_from_str(
-            "ekotrace-debug-collector \
+            "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
             --attach stm32 \
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn error_elf_invalid() {
         if let Ok(_) = config_from_options(options_from_str(
-            "ekotrace-debug-collector \
+            "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
             --attach stm32 \
@@ -352,7 +352,7 @@ mod tests {
         compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
-                "ekotrace-debug-collector \
+                "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --attach stm32 \
@@ -381,7 +381,7 @@ mod tests {
         compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
-                "ekotrace-debug-collector \
+                "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --attach stm32 \
@@ -408,7 +408,7 @@ mod tests {
     #[test]
     fn error_specify_both_endianness() {
         if let Ok(_) = config_from_options(options_from_str(
-            "ekotrace-debug-collector \
+            "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
             --big-endian \
@@ -427,7 +427,7 @@ mod tests {
         compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
-                "ekotrace-debug-collector \
+                "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
@@ -453,7 +453,7 @@ mod tests {
         compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
-                "ekotrace-debug-collector \
+                "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
@@ -475,7 +475,7 @@ mod tests {
         );
         assert_eq!(
             config_from_options(options_from_str(
-                "ekotrace-debug-collector \
+                "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
@@ -502,7 +502,7 @@ mod tests {
         compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
-                "ekotrace-debug-collector \
+                "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
@@ -525,7 +525,7 @@ mod tests {
         );
         assert_eq!(
             config_from_options(options_from_str(
-                "ekotrace-debug-collector \
+                "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \

@@ -1,5 +1,5 @@
 [package]
-name = "ekotrace-debug-collector"
+name = "modality-probe-debug-collector"
 version = "0.1.0"
 authors = ["Nicholas Springer <nspringer@auxon.io>"]
 edition = "2018"
@@ -10,8 +10,8 @@ chrono = { version = "0.4", features = ["serde"] }
 structopt = "0.3"
 parse_duration = "2.1.0"
 
-ekotrace = { path = ".." }
+modality-probe = { path = ".." }
 util = { path = "../util" }
-ekotrace-udp-collector = { path = "../ekotrace-udp-collector" }
+modality-probe-udp-collector = { path = "../modality-probe-udp-collector" }
 race-buffer = { path = "../race-buffer" }
 
