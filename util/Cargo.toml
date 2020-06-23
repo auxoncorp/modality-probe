@@ -1,23 +1,23 @@
 [package]
 name = "util"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Zachary Pierce <zack@auxon.io>", "Russell Mull <russell@auxon.io>"]
 edition = "2018"
 license = "Apache-2.0"
-repository = "https://github.com/auxoncorp/ekotrace"
+repository = "https://github.com/auxoncorp/modality-probe"
 readme = "README.md"
 
 [dependencies]
-ekotrace = { path = ".." }
+modality-probe = { path = ".." }
 serde = { version = "1", features = ["derive"] }
 chrono = { version = "0.4", features = ["serde"] }
 itertools = "0.8"
 petgraph = "0.5"
 csv = "1.1"
-rust-lcm-codec = "0.2"
+rust-lcm-codec = "0.2.1"
 
 [build-dependencies]
-rust-lcm-codegen = "0.2"
+rust-lcm-codegen = "0.2.1"
 
 [dev-dependencies]
 proptest = "0.9"

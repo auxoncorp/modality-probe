@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -ex
+
+./build
+
+./test_static
+
+LD_LIBRARY_PATH=../target/debug ./test_dyn
+
+# This test shouldn't be linked to libmodality_probe
+./test_noop

@@ -1,6 +1,6 @@
 
 [package]
-name = "ekotrace-fuzz"
+name = "modality-probe-fuzz"
 version = "0.0.1"
 authors = ["Automatically generated"]
 publish = false
@@ -12,7 +12,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.3"
 
-[dependencies.ekotrace]
+[dependencies.modality-probe]
 path = ".."
 
 # Prevent this from interfering with workspaces

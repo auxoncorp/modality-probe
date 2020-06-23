@@ -1,0 +1,21 @@
+#!/bin/sh
+
+set -ex
+
+(
+    cd ..
+    cargo clean
+    cargo build
+
+    cd target/debug/
+    ldconfig -Nn .
+)
+
+# Link against the static library
+gcc -DDEBUG -o test_static test.c -ansi -Wall -Wextra -Werror -Wconversion -Wsign-conversion -I../include -L../target/debug -l:libmodality_probe.a
+
+# Link against the dynamic library
+gcc -DDEBUG -o test_dyn test.c -ansi -Wall -Wextra -Werror -Wconversion -Wsign-conversion -I../include -L../target/debug -lmodality_probe
+
+# This test shouldn't be linked to libmodality_probe
+gcc -DDEBUG -o test_noop noop.c -ansi -Wall -Wextra -Werror -Wconversion -Wsign-conversion -I../include

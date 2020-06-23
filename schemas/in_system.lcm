@@ -1,7 +1,7 @@
 package in_system;
 
 struct causal_snapshot {
-    int32_t tracer_id;
+    int32_t probe_id;
     int32_t n_clocks;
     logical_clock clocks[n_clocks];
     int32_t n_extension_bytes;
@@ -9,6 +9,6 @@ struct causal_snapshot {
 }
 
 struct logical_clock {
-    int32_t tracer_id;
+    int32_t probe_id;
     int32_t count; // Semantically cannot be negative - interpret as u32
 }

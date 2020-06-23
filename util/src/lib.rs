@@ -6,6 +6,7 @@ use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
 
 pub mod alloc_log_report;
+pub mod alloc_snapshot;
 pub mod model;
 
 /// Serialization record for CSV storage
@@ -15,10 +16,10 @@ struct LogFileLine {
     segment_id: u32,
     segment_index: u32,
     receive_time: DateTime<Utc>,
-    tracer_id: u32,
+    probe_id: u32,
     event_id: Option<u32>,
     event_payload: Option<u32>,
-    lc_tracer_id: Option<u32>,
+    lc_probe_id: Option<u32>,
     lc_clock: Option<u32>,
 }
 
@@ -28,7 +29,7 @@ impl From<&model::LogEntry> for LogFileLine {
             session_id: e.session_id.0,
             segment_id: e.segment_id.0,
             segment_index: e.segment_index,
-            tracer_id: e.tracer_id.get_raw(),
+            probe_id: e.probe_id.get_raw(),
             event_id: match &e.data {
                 model::LogEntryData::Event(id) => Some(id.get_raw()),
                 model::LogEntryData::EventWithPayload(id, _) => Some(id.get_raw()),
@@ -38,8 +39,8 @@ impl From<&model::LogEntry> for LogFileLine {
                 model::LogEntryData::EventWithPayload(_, payload) => Some(*payload),
                 _ => None,
             },
-            lc_tracer_id: match &e.data {
-                model::LogEntryData::LogicalClock(tracer_id, _) => Some(tracer_id.get_raw()),
+            lc_probe_id: match &e.data {
+                model::LogEntryData::LogicalClock(probe_id, _) => Some(probe_id.get_raw()),
                 _ => None,
             },
             lc_clock: match &e.data {
@@ -60,12 +61,12 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
         let segment_index: u32 = l.segment_index;
 
         let data = if let Some(event_id) = l.event_id {
-            if l.lc_tracer_id.is_some() {
+            if l.lc_probe_id.is_some() {
                 return Err(ReadError::InvalidContent {
                     session_id,
                     segment_id,
                     segment_index,
-                    message: "When event_id is present, lc_tracer_id must be empty",
+                    message: "When event_id is present, lc_probe_id must be empty",
                 });
             } else if l.lc_clock.is_some() {
                 return Err(ReadError::InvalidContent {
@@ -89,29 +90,29 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
             } else {
                 model::LogEntryData::Event(event_id)
             }
-        } else if let Some(lc_tracer_id) = l.lc_tracer_id {
+        } else if let Some(lc_probe_id) = l.lc_probe_id {
             match l.lc_clock {
                 None => {
                     return Err(ReadError::InvalidContent {
                         session_id,
                         segment_id,
                         segment_index,
-                        message: "When lc_tracer_id is present, lc_clock must also be present",
+                        message: "When lc_probe_id is present, lc_clock must also be present",
                     });
                 }
-                Some(lc_clock) => model::LogEntryData::LogicalClock(lc_tracer_id.try_into().map_err(|_e|
+                Some(lc_clock) => model::LogEntryData::LogicalClock(lc_probe_id.try_into().map_err(|_e|
                     ReadError::InvalidContent {
                         session_id,
                         segment_id,
                         segment_index,
-                        message: "When lc_tracer_id is present, it must be a valid ekotrac::TracerId",
+                        message: "When lc_probe_id is present, it must be a valid modality_probe::ProbeId",
                     }
                 )?, lc_clock),
             }
         } else {
             return Err(ReadError::InvalidContent {
                 session_id, segment_id, segment_index,
-                message: "Either event_id must be present, or both lc_tracer_id and lc_clock must both be present",
+                message: "Either event_id must be present, or both lc_probe_id and lc_clock must both be present",
             });
         };
 
@@ -119,14 +120,15 @@ impl TryFrom<&LogFileLine> for model::LogEntry {
             session_id,
             segment_id,
             segment_index,
-            tracer_id: l
-                .tracer_id
+            probe_id: l
+                .probe_id
                 .try_into()
                 .map_err(|_e| ReadError::InvalidContent {
                     session_id,
                     segment_id,
                     segment_index,
-                    message: "When lc_tracer_id is present, it must be a valid ekotrac::TracerId",
+                    message:
+                        "When lc_probe_id is present, it must be a valid modality_probe::ProbeId",
                 })?,
             data,
             receive_time: l.receive_time,
@@ -180,13 +182,13 @@ pub fn read_csv_log_entries<R: Read>(r: &mut R) -> Result<Vec<model::LogEntry>, 
 #[derive(Clone, Debug)]
 struct SegmentMetadata {
     id: model::SegmentId,
-    tracer_id: ekotrace::TracerId,
-    logical_clock: HashMap<ekotrace::TracerId, u32>,
+    probe_id: modality_probe::ProbeId,
+    logical_clock: HashMap<modality_probe::ProbeId, u32>,
 }
 
 impl SegmentMetadata {
     fn local_clock(&self) -> Option<u32> {
-        match self.logical_clock.get(&self.tracer_id) {
+        match self.logical_clock.get(&self.probe_id) {
             Some(c) => Some(*c),
             None => None,
         }
@@ -205,9 +207,9 @@ impl SegmentMetadataIndex {
     }
 }
 
-// source tracer id -> local clock value -> segment id
+// source probe id -> local clock value -> segment id
 #[derive(Debug)]
-struct LCIndex(HashMap<ekotrace::TracerId, BTreeMap<u32, model::SegmentId>>);
+struct LCIndex(HashMap<modality_probe::ProbeId, BTreeMap<u32, model::SegmentId>>);
 
 #[derive(Debug)]
 pub enum LCIndexError {
@@ -223,7 +225,7 @@ impl LCIndex {
         // This should always be true
         if let Some(local_clock) = smd.local_clock() {
             self.0
-                .entry(smd.tracer_id)
+                .entry(smd.probe_id)
                 .or_insert_with(BTreeMap::new)
                 .insert(local_clock, smd.id);
         }
@@ -235,11 +237,11 @@ impl LCIndex {
         smd_index: &SegmentMetadataIndex,
     ) -> Result<HashSet<model::SegmentId>, LCIndexError> {
         let mut segs = HashSet::new();
-        let local_clock = *smd.logical_clock.get(&smd.tracer_id).unwrap();
+        let local_clock = *smd.logical_clock.get(&smd.probe_id).unwrap();
 
         let mut local_ancestors = vec![];
         self.0
-            .get(&smd.tracer_id)
+            .get(&smd.probe_id)
             .unwrap()
             .range(local_clock.saturating_sub(5)..local_clock)
             .rfold((), |_, (_, &sid)| {
@@ -247,14 +249,14 @@ impl LCIndex {
             });
 
         // Then, go through all the other (non-local) clock entries.
-        'other_clock_entry_loop: for (bucket_tracer_id, bucket_clock) in smd.logical_clock.iter() {
-            if *bucket_tracer_id != smd.tracer_id {
+        'other_clock_entry_loop: for (bucket_probe_id, bucket_clock) in smd.logical_clock.iter() {
+            if *bucket_probe_id != smd.probe_id {
                 // check if any direct ancestor (segs from the same source
-                // tracer) already has this same exact clock entry; if so, skip
+                // probe) already has this same exact clock entry; if so, skip
                 // making an edge for this one, since it would be redundant.
 
                 for local_ancestor in local_ancestors.iter() {
-                    if local_ancestor.logical_clock.get(&bucket_tracer_id) == Some(&bucket_clock) {
+                    if local_ancestor.logical_clock.get(&bucket_probe_id) == Some(&bucket_clock) {
                         continue 'other_clock_entry_loop;
                     }
                 }
@@ -262,7 +264,7 @@ impl LCIndex {
 
             if let Some((_, sid)) = self
                 .0
-                .get(&bucket_tracer_id)
+                .get(&bucket_probe_id)
                 .ok_or(LCIndexError::SegmentMissingOwnClock)?
                 .range(0..*bucket_clock)
                 .last()
@@ -287,12 +289,12 @@ pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogE
         .group_by(|e| e.segment_id)
     {
         let mut logical_clock = HashMap::new();
-        let mut tracer_id = None;
+        let mut probe_id = None;
         for e in clock_events {
             // this should be the case every time, because of the filter above
             if let model::LogEntryData::LogicalClock(bucket_id, count) = e.data {
                 logical_clock.insert(bucket_id, count);
-                tracer_id = Some(e.tracer_id);
+                probe_id = Some(e.probe_id);
             }
         }
 
@@ -300,7 +302,7 @@ pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogE
             id: segment_id,
             // since you can't have made a group with nothing in it, we're
             // guaranteed to always get a Some() here.
-            tracer_id: tracer_id.unwrap(),
+            probe_id: probe_id.unwrap(),
             logical_clock,
         });
     }
@@ -325,7 +327,7 @@ pub fn synthesize_cross_segment_links<'a, L: IntoIterator<Item = &'a model::LogE
 }
 
 pub struct SegmentGraphNode {
-    pub tracer_id: ekotrace::TracerId,
+    pub probe_id: modality_probe::ProbeId,
     pub segment_id: model::SegmentId,
     pub event_count: usize,
 }
@@ -337,13 +339,13 @@ pub fn build_segment_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + Cop
     let mut seg_graph = Graph::new();
     let mut node_index_for_segment = HashMap::new();
 
-    for ((tracer_id, segment_id), events) in &log
+    for ((probe_id, segment_id), events) in &log
         .into_iter()
         .filter(|e| e.session_id == session_id)
-        .group_by(|e| (e.tracer_id, e.segment_id))
+        .group_by(|e| (e.probe_id, e.segment_id))
     {
         let node_index = seg_graph.add_node(SegmentGraphNode {
-            tracer_id,
+            probe_id,
             segment_id,
             event_count: events.count(),
         });
@@ -402,7 +404,7 @@ pub fn build_log_entry_graph<'a, L: IntoIterator<Item = &'a model::LogEntry> + C
 #[cfg(test)]
 mod test {
     use super::*;
-    use ekotrace::EventId;
+    use modality_probe::EventId;
     use proptest::prelude::*;
 
     prop_compose! {
@@ -430,17 +432,17 @@ mod test {
                     segment_id,
                     segment_index,
                     receive_time,
-                    tracer_id,
+                    probe_id,
                     event_id,
                     event_payload,
-                    lc_tracer_id,
+                    lc_probe_id,
                     lc_clock,
                 )| LogFileLine {
                     session_id,
                     segment_id,
                     segment_index,
                     receive_time,
-                    tracer_id,
+                    probe_id,
                     event_id,
                     // The event payload can only be set if there's also
                     // an event id.
@@ -449,7 +451,7 @@ mod test {
                     } else {
                         None
                     },
-                    lc_tracer_id,
+                    lc_probe_id,
                     lc_clock,
                 },
             )

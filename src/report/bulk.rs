@@ -1,10 +1,10 @@
-//! A wire protocol for representing ekotrace log reports
+//! A wire protocol for representing Modality probe log reports
 //! that are fragmented into multiple chunks due to sizing
 //! constraints
-//!
+
 use crate::compact_log::CompactLogItem;
 use crate::history::DynamicHistory;
-use crate::{ExtensionBytes, ReportError, TracerId};
+use crate::{ExtensionBytes, ProbeId, ReportError};
 use core::mem::{align_of, size_of};
 use static_assertions::{assert_eq_align, const_assert_eq};
 
@@ -14,7 +14,7 @@ pub trait BulkReporter {
     /// the recorded reporting log to a collection backend,
     /// including arbitrary extension bytes provided.
     ///
-    /// Writes the Tracer's internal state according to the
+    /// Writes the probe's internal state according to the
     /// log reporting schema.
     ///
     /// If the write was successful, returns the number of *bytes* written
@@ -27,7 +27,7 @@ pub trait BulkReporter {
     /// Conduct necessary background activities and write
     /// the recorded reporting log to a collection backend.
     ///
-    /// Writes the Tracer's internal state according to the
+    /// Writes the probe's internal state according to the
     /// bulk log reporting format.
     ///
     /// If the write was successful, returns the number of *bytes* written
@@ -67,7 +67,7 @@ impl<'log> BulkReporter for BulkReportSourceComponents<'log> {
         let (header_bytes, payload_bytes) = destination.split_at_mut(size_of::<WireBulkHeader>());
         let header = unsafe { &mut *(header_bytes.as_mut_ptr() as *mut WireBulkHeader) };
         header.fingerprint = bulk_framing_fingerprint();
-        header.location_id = self.location_id.get_raw().to_le_bytes();
+        header.probe_id = self.probe_id.get_raw().to_le_bytes();
         header.n_log_bytes = (n_log_bytes as u32).to_le_bytes(); // Checked above for range
         header.n_extension_bytes = (n_extension_bytes as u32).to_le_bytes(); // Checked above for range
 
@@ -89,7 +89,7 @@ impl<'log> BulkReporter for BulkReportSourceComponents<'log> {
 /// helper that can be used to make said data.
 pub struct BulkReportSourceComponents<'log> {
     /// Where the log data was created/about
-    pub location_id: TracerId,
+    pub probe_id: ProbeId,
     /// The compact log of events and clocks
     pub log: &'log [CompactLogItem],
 }
@@ -106,7 +106,7 @@ impl<'data> BulkReporter for DynamicHistory<'data> {
         }
         let log = self.compact_log.as_slice();
         let r = BulkReportSourceComponents {
-            location_id: self.tracer_id,
+            probe_id: self.probe_id,
             log,
         }
         .report_with_extension(destination, extension_metadata);
@@ -126,9 +126,9 @@ pub struct WireBulkHeader {
     /// A magical (constant) value used as a hint about the
     /// data encoded in this pile of bytes.
     pub fingerprint: [u8; 4],
-    /// A u32 representing the tracer_id (a.k.a. location id) of the
-    /// ekotrace agent instance producing this report.
-    pub location_id: [u8; 4],
+    /// A u32 representing the probe_id of the
+    /// Modality probe instance producing this report.
+    pub probe_id: [u8; 4],
     /// How many of the payload bytes are populated with log data?
     pub n_log_bytes: [u8; 4],
     /// How many of the payload bytes are populated with extension data?
@@ -140,7 +140,7 @@ const_assert_eq!(16, size_of::<WireBulkHeader>());
 /// Attempt to split a bulk report from its on-the-wire representation
 /// into its constituent parts, without unbounded copying or any allocation.
 ///
-/// Returns the source location id, the log payload, and the extension payload bytes.
+/// Returns the source probe id, the log payload, and the extension payload bytes.
 /// The log payload bytes are expected to be interepreted as little-endian `CompactLogItem`s.
 /// Payload alignment is not addressed.
 #[inline]
@@ -148,7 +148,7 @@ pub fn try_bulk_from_wire_bytes<'b>(
     wire_bytes: &'b [u8],
 ) -> Result<
     (
-        TracerId,
+        ProbeId,
         impl Iterator<Item = CompactLogItem> + 'b,
         ExtensionBytes,
     ),
@@ -167,9 +167,9 @@ pub fn try_bulk_from_wire_bytes<'b>(
     if wire_header.fingerprint != bulk_framing_fingerprint() {
         return Err(ParseBulkFromWireError::InvalidFingerprint);
     }
-    let raw_location_id = u32::from_le_bytes(wire_header.location_id);
-    let location_id = TracerId::new(raw_location_id)
-        .ok_or_else(|| ParseBulkFromWireError::InvalidTracerId(raw_location_id))?;
+    let raw_probe_id = u32::from_le_bytes(wire_header.probe_id);
+    let probe_id = ProbeId::new(raw_probe_id)
+        .ok_or_else(|| ParseBulkFromWireError::InvalidProbeId(raw_probe_id))?;
     let n_log_bytes = u32::from_le_bytes(wire_header.n_log_bytes);
     let n_extension_bytes = u32::from_le_bytes(wire_header.n_extension_bytes);
 
@@ -188,7 +188,7 @@ pub fn try_bulk_from_wire_bytes<'b>(
             item_bytes[3],
         ]))
     });
-    Ok((location_id, log_iter, ExtensionBytes(extension_bytes)))
+    Ok((probe_id, log_iter, ExtensionBytes(extension_bytes)))
 }
 
 /// Everything that can go wrong when attempting to interpret a bulk report
@@ -202,9 +202,9 @@ pub enum ParseBulkFromWireError {
     /// There weren't enough payload bytes (based on
     /// expectations from inspecting the header).
     IncompletePayload,
-    /// The tracer id didn't follow the rules for being
-    /// a valid ekotrace-location-specifying TracerId
-    InvalidTracerId(u32),
+    /// The probe id didn't follow the rules for being
+    /// a valid Modality probe-specifying ProbeId
+    InvalidProbeId(u32),
 }
 
 const BULK_FRAMING_FINGERPRINT_SOURCE: u32 = 0x45_42_4C_4B; // EBLK
@@ -224,15 +224,15 @@ mod tests {
 
     proptest! {
         #[test]
-        fn round_trip_bulk_report(location_id in gen_tracer_id(), log in gen_compact_log(25, 257, 514), ext_bytes in proptest::collection::vec(any::<u8>(), 0..1029)) {
+        fn round_trip_bulk_report(probe_id in gen_probe_id(), log in gen_compact_log(25, 257, 514), ext_bytes in proptest::collection::vec(any::<u8>(), 0..1029)) {
             // Note the max segments, max clocks-per-segment and max events-per-segment values
             // above are pulled completely from a hat and just should try to be small enough to fit
             // in our destination buffer.
             const MEGABYTE: usize = 1024*1024;
             let mut destination = vec![0u8; MEGABYTE];
-            let n_report_bytes = BulkReportSourceComponents { location_id, log: &log }.report_with_extension(&mut destination, ExtensionBytes(&ext_bytes)).unwrap();
+            let n_report_bytes = BulkReportSourceComponents { probe_id, log: &log }.report_with_extension(&mut destination, ExtensionBytes(&ext_bytes)).unwrap();
             let (found_id, found_log_items, found_ext_bytes) = try_bulk_from_wire_bytes(&destination[..n_report_bytes]).unwrap();
-            assert_eq!(found_id, location_id);
+            assert_eq!(found_id, probe_id);
             assert_eq!(found_ext_bytes.0, ext_bytes.as_slice());
             let found_log: Vec<CompactLogItem> = found_log_items.collect();
             assert_eq!(found_log, log);

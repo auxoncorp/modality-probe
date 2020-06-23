@@ -7,6 +7,9 @@ jobs:
     name: Ubuntu Linux
     runs-on: ubuntu-latest
     steps:
+      - name: Install system packages
+        run: sudo apt-get install -y help2man gzip
+
       - name: Checkout sources
         uses: actions/checkout@v2
 
@@ -39,5 +42,5 @@ jobs:
 
       - name: Generate debian package
         run: |
-          cd ekotrace-capi
-          cargo deb
+          cd debian-package
+          ./build.sh

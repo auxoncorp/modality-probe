@@ -1,6 +1,6 @@
 [package]
-name = "ekotrace"
-version = "0.2.0"
+name = "modality-probe"
+version = "0.3.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
     "Russell Mull <russell@auxon.io>",
@@ -9,7 +9,7 @@ authors = [
 ]
 edition = "2018"
 license = "Apache-2.0"
-repository = "https://github.com/auxoncorp/ekotrace"
+repository = "https://github.com/auxoncorp/modality-probe"
 readme = "README.md"
 build = "build.rs"
 
@@ -19,17 +19,19 @@ std = ["serde", "proptest", "schemars"]
 
 [workspace]
 members = [
-  "ekotrace-cli",
-  "ekotrace-udp-collector",
-  "ekotrace-debug-collector",
+  "modality-probe-cli",
+  "modality-probe-udp-collector",
+  "modality-probe-debug-collector",
+  "modality-probe-graph",
   "util",
   "race-buffer",
 ]
+exclude = ["debian-package"]
 
 [dependencies]
 static_assertions = "1.1.0"
 fixed-slice-vec = "0.2"
-rust-lcm-codec = "0.2"
+rust-lcm-codec = "0.2.1"
 
 # Used if the std feature is enabled.
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -37,9 +39,9 @@ proptest = { version = "0.9.5", optional = true }
 schemars = { version = "0.6.5", optional = true }
 
 [dev-dependencies]
-ekotrace-udp-collector = { path = "./ekotrace-udp-collector" }
+modality-probe-udp-collector = { path = "./modality-probe-udp-collector" }
 proptest = "0.9.5"
 util = { path = "./util" }
 
 [build-dependencies]
-rust-lcm-codegen = "0.2"
+rust-lcm-codegen = "0.2.1"

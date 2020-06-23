@@ -1,4 +1,4 @@
-//! ekotrace, a causal history tracing system
+//! Modality probe, a causal history tracing system
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(warnings)]
 #![deny(missing_docs)]
@@ -28,14 +28,13 @@ use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
 /// Fixed-sized snapshot of causal history for transmission around the system
 ///
 /// Note the use of bare integer types rather than the safety-oriented
-/// wrappers (TracerId, NonZero*) for C representation reasons.
+/// wrappers (ProbeId, NonZero*) for C representation reasons.
 #[repr(C)]
 #[derive(Clone)]
 pub struct CausalSnapshot {
-    /// The tracer node at which this history snapshot was created
-    pub tracer_id: u32,
-
-    /// Mapping between tracer_ids and event-counts at each location
+    /// The probe at which this history snapshot was created
+    pub probe_id: u32,
+    /// Mapping between probe_ids and event-counts at each probe
     pub clocks: [LogicalClock; 256],
     /// The number of clocks in the above `clocks` field that
     /// are populated with valid ids and counts
@@ -46,15 +45,15 @@ pub struct CausalSnapshot {
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 #[repr(C)]
 pub struct LogicalClock {
-    /// The tracer node that this clock is tracking
+    /// The probe that this clock is tracking
     /// Equivalent structurally to a u32.
-    pub id: TracerId,
+    pub id: ProbeId,
     /// Clock tick count
     pub count: u32,
 }
 
-/// Interface for the core (post-initialization) operations of `ekotrace`
-pub trait Tracer {
+/// Interface for the core (post-initialization) operations of `ModalityProbe`
+pub trait Probe {
     /// Record that an event occurred. The end user is responsible
     /// for associating meaning with each event_id.
     ///
@@ -70,8 +69,8 @@ pub trait Tracer {
     /// range.
     fn record_event_with_payload(&mut self, event_id: EventId, payload: u32);
 
-    /// Write a summary of this tracer's causal history for use
-    /// by another Tracer elsewhere in the system.
+    /// Write a summary of this probe's causal history for use
+    /// by another probe elsewhere in the system.
     ///
     /// This summary can be treated as an opaque blob of data
     /// that ought to be passed around to be `merge_snapshot`d, though
@@ -84,67 +83,69 @@ pub trait Tracer {
     fn distribute_snapshot(&mut self, destination: &mut [u8]) -> Result<usize, DistributeError>;
 
     /// Consume a causal history summary structure provided
-    /// by some other Tracer via `distribute_snapshot`.
+    /// by some other probe via `distribute_snapshot`.
     fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError>;
 }
 
-/// Reference implementation of an `ekotrace` tracer.
+/// Reference implementation of a `ModalityProbe`.
 ///
-/// In addition to the standard `Tracer` API, it includes conveniences for:
+/// In addition to the standard `Probe` API, it includes conveniences for:
 /// * Recording events from primitive ids with just-in-time validation.
 /// * Initialization with variable-sized memory backing.
 /// * Can distribute and merge transparent fixed-sized snapshots in addition
 /// to the opaque, arbitrarily-sized standard snapshots.
 #[derive(Debug)]
 #[repr(C)]
-pub struct Ekotrace<'a> {
+pub struct ModalityProbe<'a> {
     history: &'a mut DynamicHistory<'a>,
 }
 
-impl<'a> Ekotrace<'a> {
-    /// Initialize tracing for this location.
-    /// `tracer_id` ought to be unique throughout the system,
-    /// and must be greater than 0 and less than TracerId::MAX_ID.
+impl<'a> ModalityProbe<'a> {
+    /// Initialize a probe for this probe id.
+    /// `probe_id` ought to be unique throughout the system,
+    /// and must be greater than 0 and less than ProbeId::MAX_ID.
     ///
-    /// Returns a mutable reference to the tracer instance,
+    /// Returns a mutable reference to the probe instance,
     /// which will be somewhere within the provided `memory`
     /// slice.
     ///
     /// This method is used to support completely opaque
-    /// sizing of the tracer implementation, which simplifies
+    /// sizing of the probe implementation, which simplifies
     /// use in C.
     ///
     /// Use `initialize_at` instead if you're working in Rust
-    /// and want to use pre-validatated tracer ids.
+    /// and want to use pre-validatated probe ids.
     ///
     #[inline]
     pub fn try_initialize_at(
         memory: &'a mut [u8],
-        tracer_id: u32,
-    ) -> Result<&'a mut Ekotrace<'a>, InitializationError> {
-        let tracer_id = TracerId::try_from(tracer_id)
-            .map_err(|_: InvalidTracerId| InitializationError::InvalidTracerId)?;
-        Ekotrace::initialize_at(memory, tracer_id).map_err(InitializationError::StorageSetupError)
+        probe_id: u32,
+    ) -> Result<&'a mut ModalityProbe<'a>, InitializationError> {
+        let probe_id = ProbeId::try_from(probe_id)
+            .map_err(|_: InvalidProbeId| InitializationError::InvalidProbeId)?;
+        ModalityProbe::initialize_at(memory, probe_id)
+            .map_err(InitializationError::StorageSetupError)
     }
-    /// Initialize tracing for this location.
-    /// `tracer_id` ought to be unique throughout the system.
+
+    /// Initialize a probe for this probe id.
+    /// `probe_id` ought to be unique throughout the system.
     ///
-    /// Returns a mutable reference to the tracer instance,
+    /// Returns a mutable reference to the probe instance,
     /// which will be somewhere within the provided `memory`
     /// slice.
     ///
     /// This method is used to support completely opaque
-    /// sizing of the tracer implementation, which simplifies
+    /// sizing of the probe implementation, which simplifies
     /// use in C.
     ///
     /// Use `new_with_storage` instead if you're working in Rust.
     #[inline]
     pub fn initialize_at(
         memory: &'a mut [u8],
-        tracer_id: TracerId,
-    ) -> Result<&'a mut Ekotrace<'a>, StorageSetupError> {
+        probe_id: ProbeId,
+    ) -> Result<&'a mut ModalityProbe<'a>, StorageSetupError> {
         match embed(memory, |history_memory| {
-            Ekotrace::new_with_storage(history_memory, tracer_id)
+            ModalityProbe::new_with_storage(history_memory, probe_id)
         }) {
             Ok(v) => Ok(v),
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
@@ -154,25 +155,25 @@ impl<'a> Ekotrace<'a> {
                 Err(StorageSetupError::UnderMinimumAllowedSize)
             }
             Err(EmbedValueError::SplitUninitError(SplitUninitError::ZeroSizedTypesUnsupported)) => {
-                const_assert!(size_of::<Ekotrace>() > 0);
+                const_assert!(size_of::<ModalityProbe>() > 0);
                 panic!("Static assertions ensure that this structure is not zero sized")
             }
             Err(EmbedValueError::ConstructionError(e)) => Err(e),
         }
     }
 
-    /// Initialize tracing for this location,
+    /// Initialize a probe for this probe id,
     /// using `history_memory` for backing storage while
-    /// returning a tracer instance on the stack.
+    /// returning a probe instance on the stack.
     ///
-    /// `tracer_id` ought to be unique throughout the system.
+    /// `probe_id` ought to be unique throughout the system.
     #[inline]
     pub fn new_with_storage(
         history_memory: &'a mut [u8],
-        tracer_id: TracerId,
-    ) -> Result<Ekotrace<'a>, StorageSetupError> {
-        let t = Ekotrace::<'a> {
-            history: DynamicHistory::new_at(history_memory, tracer_id)?,
+        probe_id: ProbeId,
+    ) -> Result<ModalityProbe<'a>, StorageSetupError> {
+        let t = ModalityProbe::<'a> {
+            history: DynamicHistory::new_at(history_memory, probe_id)?,
         };
         Ok(t)
     }
@@ -216,8 +217,8 @@ impl<'a> Ekotrace<'a> {
         Ok(())
     }
 
-    /// Produce a transmittable summary of this tracer's
-    /// causal history for use by another Tracer elsewhere
+    /// Produce a transmittable summary of this probe's
+    /// causal history for use by another probe elsewhere
     /// in the system.
     ///
     /// Pre-pruned to the causal history of just this node
@@ -228,7 +229,7 @@ impl<'a> Ekotrace<'a> {
     }
 
     /// Consume a fixed-sized causal history summary structure provided
-    /// by some other Tracer.
+    /// by some other probe.
     #[inline]
     pub fn merge_fixed_size_snapshot(
         &mut self,
@@ -237,8 +238,8 @@ impl<'a> Ekotrace<'a> {
         self.history.merge_fixed_size(external_history)
     }
 
-    /// Write a summary of this tracer's causal history, including the
-    /// given opaque extension metadata, for use by another Tracer elsewhere in
+    /// Write a summary of this probe's causal history, including the
+    /// given opaque extension metadata, for use by another probe elsewhere in
     /// the system.
     ///
     /// This summary can be treated as an opaque blob of data that
@@ -259,7 +260,7 @@ impl<'a> Ekotrace<'a> {
             .write_lcm_snapshot_with_metadata(destination, meta)
     }
     /// Consume a causal history summary structure provided
-    /// by some other Tracer via `distribute_snapshot` or
+    /// by some other probe via `distribute_snapshot` or
     /// `distribute_snapshot_with_metadata` and return the extension
     /// metadata bytes for further custom processing.
     pub fn merge_snapshot_with_metadata<'d>(
@@ -271,7 +272,7 @@ impl<'a> Ekotrace<'a> {
 
     /// Capture the current instance's moment in causal time
     /// for correlation with external systems.
-    pub fn now(&self) -> EkotraceInstant {
+    pub fn now(&self) -> ModalityProbeInstant {
         self.history.now()
     }
 }
@@ -279,13 +280,13 @@ impl<'a> Ekotrace<'a> {
 /// A situated moment in causal time.
 ///
 /// Note the use of bare integer types rather than the safety-oriented
-/// wrappers (TracerId, NonZero*) for C representation reasons.
+/// wrappers (ProbeId, NonZero*) for C representation reasons.
 #[derive(Debug, PartialEq, Hash)]
 #[repr(C)]
-pub struct EkotraceInstant {
-    /// The current location's logical clock.
-    /// `clock.id` should be equivalent to the id
-    /// (a.k.a TracerId or location id) of the source `Ekotrace` instance
+pub struct ModalityProbeInstant {
+    /// The current probe's logical clock.
+    /// `clock.id` should be equivalent to the probe id
+    /// of the source `ModalityProbe` instance
     pub clock: LogicalClock,
     /// How many events have been seen since the source instance
     /// reached the associated `clock`'s point in causal
@@ -293,7 +294,7 @@ pub struct EkotraceInstant {
     pub event_count: u32,
 }
 
-impl PartialOrd for EkotraceInstant {
+impl PartialOrd for ModalityProbeInstant {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.clock.id != other.clock.id {
             return None;
@@ -311,7 +312,7 @@ impl PartialOrd for EkotraceInstant {
 #[derive(Debug)]
 pub struct ExtensionBytes<'a>(pub &'a [u8]);
 
-impl<'a> Tracer for Ekotrace<'a> {
+impl<'a> Probe for ModalityProbe<'a> {
     #[inline]
     fn record_event(&mut self, event_id: EventId) {
         self.history.record_event(event_id);
@@ -333,7 +334,7 @@ impl<'a> Tracer for Ekotrace<'a> {
     }
 }
 
-impl<'a> BulkReporter for Ekotrace<'a> {
+impl<'a> BulkReporter for ModalityProbe<'a> {
     fn report_with_extension(
         &mut self,
         destination: &mut [u8],
@@ -344,7 +345,7 @@ impl<'a> BulkReporter for Ekotrace<'a> {
     }
 }
 
-impl<'a> ChunkedReporter for Ekotrace<'a> {
+impl<'a> ChunkedReporter for ModalityProbe<'a> {
     fn start_chunked_report(&mut self) -> Result<ChunkedReportToken, ChunkedReportError> {
         self.history.start_chunked_report()
     }

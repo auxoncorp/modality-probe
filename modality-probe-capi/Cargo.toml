@@ -1,0 +1,33 @@
+[package]
+name = "modality-probe-capi"
+version = "0.3.0"
+authors = [
+    "Zachary Pierce <zack@auxon.io>",
+    "Russell Mull <russell@auxon.io>",
+    "dan pittman <dan@auxon.io>",
+    "Jon Lamb <jon@auxon.io>"
+]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/modality-probe"
+readme = "README.md"
+description = "A distributed causal tracing system suitable for embedded use"
+build = "build.rs"
+
+[lib]
+name = "modality_probe"
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+modality-probe-capi-impl = { path = "./modality-probe-capi-impl" }
+
+[build-dependencies]
+cdylib-link-lines = "0.1"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+
+[workspace]

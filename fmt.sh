@@ -4,6 +4,6 @@ set -ex
 cargo fmt --all
 
 (
-    cd ekotrace-capi
+    cd modality-probe-capi
     cargo fmt
 )

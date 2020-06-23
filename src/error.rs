@@ -1,4 +1,4 @@
-//! Errors exposed in the Ekotrace API.
+//! Errors exposed in the ModalityProbe API.
 //!
 //! In order to be appropriate for embedded
 //! use, these errors should be as tiny
@@ -11,43 +11,43 @@
 #[derive(Debug, Clone, Copy)]
 pub struct InvalidEventId;
 
-/// Error that indicates an invalid tracer id was detected.
+/// Error that indicates an invalid probe id was detected.
 ///
 ///
-/// tracer ids must be greater than 0 and less than TracerId::MAX_ID
+/// probe ids must be greater than 0 and less than ProbeId::MAX_ID
 #[derive(Debug, Clone, Copy)]
-pub struct InvalidTracerId;
+pub struct InvalidProbeId;
 
 /// An error relating to the initialization
-/// of an Ekotrace instance from parts.
+/// of an ModalityProbe instance from parts.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InitializationError {
-    /// A provided primitive, unvalidated tracer id
+    /// A provided primitive, unvalidated probe id
     /// turned out to be invalid.
-    InvalidTracerId,
+    InvalidProbeId,
     /// A problem with the backing memory setup.
     StorageSetupError(StorageSetupError),
 }
 
 /// An error relating to the initialization
-/// of in-memory tracing storage.
+/// of in-memory probe storage.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum StorageSetupError {
     /// The provided storage space was insufficient
-    /// to support a minimally useful tracing
+    /// to support a minimally useful probe
     /// implementation.
     UnderMinimumAllowedSize,
     /// The provided space for clock-buckets and logging
-    /// exceeded the number of units the tracing implementation
+    /// exceeded the number of units the probe implementation
     /// can track.
     ExceededMaximumAddressableSize,
     /// The provided or computed output pointer for
-    /// tracing data storage turned out to be null.
+    /// probe data storage turned out to be null.
     NullDestination,
 }
 
 /// The errors than can occur when distributing (exporting a serialized
-/// version of) a tracer's causal history for use by some other tracer instance.
+/// version of) a probe's causal history for use by some other probe instance.
 ///
 /// Returned in the error cases for the `distribute_snapshot` and
 /// `distribute_fixed_size_snapshot` functions
@@ -62,9 +62,8 @@ pub enum DistributeError {
     /// Indicates a logical error in the implementation of this library
     /// (or its dependencies).
     Encoding,
-    /// The tracer encountered a problem dealing with extension metadata
+    /// The probe encountered a problem dealing with extension metadata
     Extension,
-
     /// A reporting transaction is in progress. Cannot
     /// do mutating operations on the agent until calling
     /// `finish_chunked_report`.
@@ -72,22 +71,22 @@ pub enum DistributeError {
 }
 
 /// The errors than can occur when merging in the causal history from some
-/// other tracer instance.
+/// other probe instance.
 ///
 /// Returned in the error cases for the `merge_snapshot` and
 /// `merge_fixed_size_snapshot` functions.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MergeError {
-    /// The local tracer does not have enough space to track all
+    /// The local probe does not have enough space to track all
     /// of direct neighbors attempting to communicate with it.
     ExceededAvailableClocks,
     /// The the external history we attempted to merge was encoded
     /// in an invalid fashion.
     ExternalHistoryEncoding,
     /// The external history violated a semantic rule of the protocol,
-    /// such as by having a tracer_id out of the allowed value range.
+    /// such as by having a probe_id out of the allowed value range.
     ExternalHistorySemantics,
-    /// The tracer encountered a problem dealing with extension metadata
+    /// The probe encountered a problem dealing with extension metadata
     Extension,
     /// A reporting transaction is in progress. Cannot
     /// do mutating operations on the agent until calling
@@ -107,7 +106,7 @@ pub enum ReportError {
     /// Indicates a logical error in the implementation of this library
     /// (or its dependencies).
     Encoding,
-    /// The tracer encountered a problem dealing with extension metadata
+    /// The probe encountered a problem dealing with extension metadata
     Extension,
     /// A reporting transaction is in progress. Cannot
     /// do mutating operations on the agent until calling
@@ -116,21 +115,21 @@ pub enum ReportError {
 }
 
 /// General purpose error that captures all errors that arise
-/// from using the Ekotrace APIs.
+/// from using the ModalityProbe APIs.
 ///
 /// Not directly returned by any of the public APIs, but provided
 /// as a convenience for catch-all error piping.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EkotraceError {
+pub enum ModalityProbeError {
     /// Error that indicates an invalid event id was detected.
     ///
     /// Event ids must be greater than 0 and less than EventId::MAX_USER_ID
     InvalidEventId,
-    /// Error that indicates an invalid tracer id was detected.
+    /// Error that indicates an invalid probe id was detected.
     ///
-    /// Tracer ids must be greater than 0 and less than TracerId::MAX_ID
-    InvalidTracerId,
-    /// An error relating to the initialization of an Ekotrace instance.
+    /// Probe ids must be greater than 0 and less than ProbeId::MAX_ID
+    InvalidProbeId,
+    /// An error relating to the initialization of an ModalityProbe instance.
     InitializationError(InitializationError),
     /// The errors than can occur when using the `distribute_snapshot`
     /// and `distribute_fixed_size_snapshot` functions.
@@ -143,51 +142,51 @@ pub enum EkotraceError {
     ReportError(ReportError),
 }
 
-impl From<InvalidEventId> for EkotraceError {
+impl From<InvalidEventId> for ModalityProbeError {
     #[inline]
     fn from(_: InvalidEventId) -> Self {
-        EkotraceError::InvalidEventId
+        ModalityProbeError::InvalidEventId
     }
 }
 
-impl From<InvalidTracerId> for EkotraceError {
+impl From<InvalidProbeId> for ModalityProbeError {
     #[inline]
-    fn from(_: InvalidTracerId) -> Self {
-        EkotraceError::InvalidTracerId
+    fn from(_: InvalidProbeId) -> Self {
+        ModalityProbeError::InvalidProbeId
     }
 }
 
-impl From<InitializationError> for EkotraceError {
+impl From<InitializationError> for ModalityProbeError {
     #[inline]
     fn from(e: InitializationError) -> Self {
-        EkotraceError::InitializationError(e)
+        ModalityProbeError::InitializationError(e)
     }
 }
 
-impl From<DistributeError> for EkotraceError {
+impl From<DistributeError> for ModalityProbeError {
     #[inline]
     fn from(e: DistributeError) -> Self {
-        EkotraceError::DistributeError(e)
+        ModalityProbeError::DistributeError(e)
     }
 }
 
-impl From<MergeError> for EkotraceError {
+impl From<MergeError> for ModalityProbeError {
     #[inline]
     fn from(e: MergeError) -> Self {
-        EkotraceError::MergeError(e)
+        ModalityProbeError::MergeError(e)
     }
 }
 
-impl From<ReportError> for EkotraceError {
+impl From<ReportError> for ModalityProbeError {
     #[inline]
     fn from(e: ReportError) -> Self {
-        EkotraceError::ReportError(e)
+        ModalityProbeError::ReportError(e)
     }
 }
 
-impl From<StorageSetupError> for EkotraceError {
+impl From<StorageSetupError> for ModalityProbeError {
     #[inline]
     fn from(e: StorageSetupError) -> Self {
-        EkotraceError::InitializationError(InitializationError::StorageSetupError(e))
+        ModalityProbeError::InitializationError(InitializationError::StorageSetupError(e))
     }
 }

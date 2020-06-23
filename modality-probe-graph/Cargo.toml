@@ -1,0 +1,11 @@
+[package]
+name = "modality-probe-graph"
+version = "0.3.0"
+authors = ["dan pittman <dan@auxon.io>"]
+edition = "2018"
+
+[dependencies]
+csv = "1.1"
+serde = { version = "1", features = ["derive"] }
+petgraph = "0.5.1"
+err-derive = "0.2.4"
