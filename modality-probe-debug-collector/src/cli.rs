@@ -217,18 +217,13 @@ mod tests {
     use std::time::Duration;
 
     fn compile_symbol_example() {
-        println!("\n CARGO BUILD OUTPUT \n");
         Command::new("cargo")
             .arg("build")
             .current_dir(canonicalize("./tests/symbols-example").unwrap())
-            .spawn().unwrap().wait().unwrap();
-
-        /*println!("\n LS OUTPUT \n");
-        Command::new("ls")
-            .arg("-R")
-            .current_dir(canonicalize("./tests/symbols-example").unwrap())
             .spawn()
-            .unwrap().wait();*/
+            .unwrap()
+            .wait()
+            .unwrap();
     }
 
     fn options_from_str(input: &str) -> CLIOptions {
