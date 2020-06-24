@@ -222,6 +222,12 @@ mod tests {
             .current_dir(canonicalize("./tests/symbols-example").unwrap())
             .output()
             .unwrap();
+        let output = Command::new("ls")
+            .arg("-R")
+            .current_dir(canonicalize("./tests/symbols-example").unwrap())
+            .output()
+            .unwrap();
+        println!("{}", std::str::from_utf8(&output.stdout[..]).unwrap());
     }
 
     fn options_from_str(input: &str) -> CLIOptions {
@@ -346,9 +352,9 @@ mod tests {
         }
     }
 
-    /// Symbol value parsing for little endian ELF
+    /// Symbol value parsing
     #[test]
-    fn symbol_parsing_le() {
+    fn symbol_parsing() {
         compile_symbol_example();
         assert_eq!(
             config_from_options(options_from_str(
