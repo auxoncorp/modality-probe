@@ -395,7 +395,8 @@ mod tests {
                 --interval 1s \
                 --output-file ./out \
                 --elf {} \
-                0x1 v1 v2 0x10 v3 0x100", LE_SYMBOLS_BIN_PATH
+                0x1 v1 v2 0x10 v3 0x100",
+                LE_SYMBOLS_BIN_PATH
             )))
             .unwrap(),
             Config {
