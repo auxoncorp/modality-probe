@@ -10,10 +10,6 @@ cortex-m = "0.6.0"
 cortex-m-rt = "0.6.10"
 panic-halt = "0.2.0"
 
-[dependencies.race-buffer]
-path = "/home/nicholas/auxon/nick-demo/race-buffer"
-default-features = false
-
 [[bin]]
 name = "symbols-example"
 test = false
