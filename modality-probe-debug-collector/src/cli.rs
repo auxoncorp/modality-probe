@@ -211,10 +211,15 @@ fn should_use_big_endian(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::format;
     use std::fs::canonicalize;
     use std::process::Command;
     use std::str::FromStr;
     use std::time::Duration;
+
+    const LE_SYMBOLS_BIN_PATH: &str =
+        "./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example";
+    const BE_BIN_PATH: &str = "./tests/example-be-elf";
 
     fn compile_symbol_example() {
         Command::new("cargo")
@@ -353,17 +358,17 @@ mod tests {
     fn symbol_parsing() {
         compile_symbol_example();
         assert_eq!(
-            config_from_options(options_from_str(
+            config_from_options(options_from_str(&format!(
                 "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
-                --elf \
-                ./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example \
-                v1 v2 v3"
-            ))
+                --elf {} \
+                v1 v2 v3",
+                LE_SYMBOLS_BIN_PATH
+            )))
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -382,17 +387,16 @@ mod tests {
     fn sym_addr_mix() {
         compile_symbol_example();
         assert_eq!(
-            config_from_options(options_from_str(
+            config_from_options(options_from_str(&format!(
                 "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
-                --elf \
-                ./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example \
-                0x1 v1 v2 0x10 v3 0x100"
-            ))
+                --elf {} \
+                0x1 v1 v2 0x10 v3 0x100", LE_SYMBOLS_BIN_PATH
+            )))
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -454,16 +458,16 @@ mod tests {
     fn imply_endianness() {
         compile_symbol_example();
         assert_eq!(
-            config_from_options(options_from_str(
+            config_from_options(options_from_str(&format!(
                 "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
-                --elf \
-                ./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example \
-                0x1"
-            ))
+                --elf {} \
+                0x1",
+                LE_SYMBOLS_BIN_PATH
+            )))
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -476,15 +480,16 @@ mod tests {
             }
         );
         assert_eq!(
-            config_from_options(options_from_str(
+            config_from_options(options_from_str(&format!(
                 "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
-                --elf ./tests/example-be-elf \
-                0x1"
-            ))
+                --elf {} \
+                0x1",
+                BE_BIN_PATH
+            )))
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -503,17 +508,17 @@ mod tests {
     fn use_specified_endianness() {
         compile_symbol_example();
         assert_eq!(
-            config_from_options(options_from_str(
+            config_from_options(options_from_str(&format!(
                 "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
                 --big-endian \
-                --elf \
-                ./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example \
-                0x1"
-            ))
+                --elf {} \
+                0x1",
+                LE_SYMBOLS_BIN_PATH
+            )))
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -526,16 +531,17 @@ mod tests {
             }
         );
         assert_eq!(
-            config_from_options(options_from_str(
+            config_from_options(options_from_str(&format!(
                 "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
                 --little-endian \
-                --elf ./tests/example-be-elf \
-                0x1"
-            ))
+                --elf {} \
+                0x1",
+                BE_BIN_PATH
+            )))
             .unwrap(),
             Config {
                 session_id: 0.into(),
