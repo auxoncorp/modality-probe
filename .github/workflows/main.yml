@@ -26,6 +26,14 @@ jobs:
           override: true
           components: rustfmt, clippy
 
+      # Used by debug-collector tests to generate binaries
+      - name: Install thumbv7em-none-eabihf target
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: thumbv7em-none-eabihf
+          override: true
+
       - name: Fetch dependencies
         uses: actions-rs/cargo@v1
         with:
@@ -83,6 +91,14 @@ jobs:
           toolchain: nightly
           override: true
           components: rustfmt, clippy
+
+      # Used by debug-collector tests to generate binaries
+      - name: Install thumbv7em-none-eabihf target
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: thumbv7em-none-eabihf
+          override: true
 
       - name: Fetch dependencies
         uses: actions-rs/cargo@v1
