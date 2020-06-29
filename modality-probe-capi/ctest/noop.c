@@ -16,7 +16,7 @@ static uint8_t g_storage[DEFAULT_PROBE_SIZE];
 
 int main(void) {
     size_t err;
-    err = MODALITY_INITIALIZE(
+    err = MODALITY_PROBE_INIT(
             &g_storage[0],
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
@@ -25,41 +25,41 @@ int main(void) {
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    err = MODALITY_RECORD(
+    err = MODALITY_PROBE_RECORD(
             g_probe,
             EVENT_A,
             "tags=network;file-system;other-tags",
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD(
+    err = MODALITY_PROBE_RECORD(
             g_probe,
             EVENT_A,
             "tags=network;file-system;other-tags");
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD(
+    err = MODALITY_PROBE_RECORD(
             g_probe,
             EVENT_A,
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD(g_probe, EVENT_A);
+    err = MODALITY_PROBE_RECORD(g_probe, EVENT_A);
     assert(err == MODALITY_PROBE_ERROR_OK);
 
     const uint8_t my_data = 12;
-    err = MODALITY_RECORD_W_U8(g_probe, EVENT_A, my_data);
+    err = MODALITY_PROBE_RECORD_W_U8(g_probe, EVENT_A, my_data);
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD_W_U8(
+    err = MODALITY_PROBE_RECORD_W_U8(
             g_probe,
             EVENT_A,
             my_data,
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD_W_U8(
+    err = MODALITY_PROBE_RECORD_W_U8(
             g_probe,
             EVENT_A,
             my_data,
             "tags=thing1;thing2");
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD_W_U8(
+    err = MODALITY_PROBE_RECORD_W_U8(
             g_probe,
             EVENT_A,
             my_data,
@@ -67,22 +67,22 @@ int main(void) {
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    err = MODALITY_RECORD_W_I8(g_probe, EVENT_A, 0);
+    err = MODALITY_PROBE_RECORD_W_I8(g_probe, EVENT_A, 0);
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD_W_I16(g_probe, EVENT_A, 0);
+    err = MODALITY_PROBE_RECORD_W_I16(g_probe, EVENT_A, 0);
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD_W_U16(g_probe, EVENT_A, 0);
+    err = MODALITY_PROBE_RECORD_W_U16(g_probe, EVENT_A, 0);
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD_W_I32(g_probe, EVENT_A, 0);
+    err = MODALITY_PROBE_RECORD_W_I32(g_probe, EVENT_A, 0);
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD_W_U32(g_probe, EVENT_A, 0);
+    err = MODALITY_PROBE_RECORD_W_U32(g_probe, EVENT_A, 0);
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD_W_BOOL(g_probe, EVENT_A, false);
+    err = MODALITY_PROBE_RECORD_W_BOOL(g_probe, EVENT_A, false);
     assert(err == MODALITY_PROBE_ERROR_OK);
-    err = MODALITY_RECORD_W_F32(g_probe, EVENT_A, 0.0f);
+    err = MODALITY_PROBE_RECORD_W_F32(g_probe, EVENT_A, 0.0f);
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    err = MODALITY_EXPECT(g_probe, EVENT_A, 1 == 0);
+    err = MODALITY_PROBE_EXPECT(g_probe, EVENT_A, 1 == 0);
     assert(err == MODALITY_PROBE_ERROR_OK);
 
     return 0;

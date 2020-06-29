@@ -28,7 +28,9 @@ pub struct CParser<'a> {
 impl<'a> Default for CParser<'a> {
     fn default() -> Self {
         CParser {
-            config: ParserConfig { prefix: "MODALITY" },
+            config: ParserConfig {
+                prefix: "MODALITY_PROBE",
+            },
         }
     }
 }
@@ -357,7 +359,7 @@ fn variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
 
 fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
     let prefix = input.extra.as_ref().unwrap().prefix;
-    let tag_string = format!("{}_INITIALIZE", prefix);
+    let tag_string = format!("{}_INIT", prefix);
     let (input, _) = comments_and_spacing(input)?;
     let (input, pos) = position(input)?;
     let (input, _) = tag(tag_string.as_str())(input)?;
@@ -591,36 +593,36 @@ mod tests {
 
     const MIXED_PROBE_ID_INPUT: &'static str = r#"
     /* C/C++ style */
-    modality_probe_error result = MODALITY_INITIALIZE(
+    modality_probe_error result = MODALITY_PROBE_INIT(
         destination,
         DEFAULT_PROBE_SIZE,
         DEFAULT_PROBE_ID,
         &t);
 
     // One line
-    MODALITY_INITIALIZE(dest,PROBE_SIZE,MY_PROBE_ID,&t);
+    MODALITY_PROBE_INIT(dest,PROBE_SIZE,MY_PROBE_ID,&t);
 
-    const size_t err = MODALITY_INITIALIZE(     dest,  PROBE_SIZE,
+    const size_t err = MODALITY_PROBE_INIT(     dest,  PROBE_SIZE,
     PROBE_ID_FOO,      &t);
 
     const size_t err =
-        MODALITY_INITIALIZE(
+        MODALITY_PROBE_INIT(
         // stuff
         dest, // more stuff
         PROBE_SIZE, /* comment */
     PROBE_ID_BAR,   /* things */   &t);
 
-    MODALITY_INITIALIZE(
+    MODALITY_PROBE_INIT(
         dest, /* more docs */ PROBE_SIZE , /* docs */ MY_OTHER_PROBE_ID, /* docs */ &t, "desc");
 
     /* things in comments
      * are
      * ignored
      *
-     * MODALITY_INITIALIZE(dest,PROBE_SIZE,ANOTHER_ID,&t);
+     * MODALITY_PROBE_INIT(dest,PROBE_SIZE,ANOTHER_ID,&t);
      *
      */
-    size_t err = MODALITY_INITIALIZE(
+    size_t err = MODALITY_PROBE_INIT(
             &g_agent_storage[0],
             STORAGE_SIZE,
             PROBE_ID_FOO,
@@ -629,55 +631,55 @@ mod tests {
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    MODALITY_INITIALIZE(storage, size, ID_BAR, t, "tags=my tag");
+    MODALITY_PROBE_INIT(storage, size, ID_BAR, t, "tags=my tag");
 "#;
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
     /* The user writes this line: */
-    const size_t err = MODALITY_RECORD(g_probe, EVENT_READ1);
+    const size_t err = MODALITY_PROBE_RECORD(g_probe, EVENT_READ1);
 
     assert(err == MODALITY_PROBE_ERROR_OK);
 
     /*
      * Comments */
-    const size_t err = MODALITY_RECORD(g_probe, EVENT_READ2, "my docs");
+    const size_t err = MODALITY_PROBE_RECORD(g_probe, EVENT_READ2, "my docs");
 
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    MODALITY_RECORD(
+    MODALITY_PROBE_RECORD(
             probe, /* comments */
             EVENT_WRITE1,
             "tags=network"); // more comments
 
-    MODALITY_RECORD(  probe, /* comments */ EVENT_WRITE2, "tags=network;file-system", "docs"); // more comments
+    MODALITY_PROBE_RECORD(  probe, /* comments */ EVENT_WRITE2, "tags=network;file-system", "docs"); // more comments
 
     uint8_t status;
-    const size_t err = MODALITY_RECORD_W_U8(probe, EVENT_A, status);
+    const size_t err = MODALITY_PROBE_RECORD_W_U8(probe, EVENT_A, status);
 
-    const size_t err = MODALITY_RECORD_W_U8(
+    const size_t err = MODALITY_PROBE_RECORD_W_U8(
         probe, // stuff
         EVENT_B, /* here */
         status,
         "desc text here"); // The end
 
     /* stuff
-     * MODALITY_RECORD_W_U8(probe, SOME_EVENT, status);
+     * MODALITY_PROBE_RECORD_W_U8(probe, SOME_EVENT, status);
      */
-    const size_t err = MODALITY_RECORD_W_I16(probe, EVENT_C, (int16_t) data);
+    const size_t err = MODALITY_PROBE_RECORD_W_I16(probe, EVENT_C, (int16_t) data);
 
-    const size_t err = MODALITY_RECORD_W_I16(probe, EVENT_D, (int16_t) data, "docs");
+    const size_t err = MODALITY_PROBE_RECORD_W_I16(probe, EVENT_D, (int16_t) data, "docs");
 
-    const size_t err = MODALITY_RECORD_W_I8(probe, EVENT_E,
+    const size_t err = MODALITY_PROBE_RECORD_W_I8(probe, EVENT_E,
     (int8_t) *((uint8_t*) &mydata));
 
-    const size_t err = MODALITY_RECORD_W_U16(
+    const size_t err = MODALITY_PROBE_RECORD_W_U16(
         probe,
         EVENT_F,
     (uint16_t) *((uint16_t*) &mydata),
     "tags=my tag"
     );
 
-    const size_t err = MODALITY_RECORD_W_U16(
+    const size_t err = MODALITY_PROBE_RECORD_W_U16(
         probe,
         EVENT_G,
     (uint16_t) *((uint16_t*) &mydata),
@@ -685,7 +687,7 @@ mod tests {
     "tags=thing1;thing2;my::namespace;tag with spaces" //docs
     );
 
-    err = MODALITY_EXPECT(
+    err = MODALITY_PROBE_EXPECT(
             probe,
             EVENT_H,
             1 == 0, /* Arbitrary expression, evaluates to 0 (failure) or 1 (success) */
@@ -693,10 +695,10 @@ mod tests {
             "Some description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    MODALITY_EXPECT(probe, EVENT_I, *foo != (1 + bar), "tags=expectation;severity.2;network");
+    MODALITY_PROBE_EXPECT(probe, EVENT_I, *foo != (1 + bar), "tags=expectation;severity.2;network");
 
     /* Special "expectation" tag is inserted"
-    MODALITY_EXPECT(probe, EVENT_J, 0 == 0);
+    MODALITY_PROBE_EXPECT(probe, EVENT_J, 0 == 0);
 "#;
 
     #[test]
@@ -773,7 +775,7 @@ mod tests {
                     payload: None,
                     description: Some("my docs".to_string()),
                     tags: None,
-                    location: (195, 9, 24).into(),
+                    location: (201, 9, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_WRITE1".to_string(),
@@ -781,7 +783,7 @@ mod tests {
                     payload: None,
                     description: None,
                     tags: Some("network".to_string()),
-                    location: (295, 13, 5).into(),
+                    location: (307, 13, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_WRITE2".to_string(),
@@ -789,7 +791,7 @@ mod tests {
                     payload: None,
                     description: Some("docs".to_string()),
                     tags: Some("network;file-system".to_string()),
-                    location: (423, 18, 5).into(),
+                    location: (441, 18, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_A".to_string(),
@@ -797,7 +799,7 @@ mod tests {
                     payload: Some((TypeHint::U8, "status").into()),
                     description: None,
                     tags: None,
-                    location: (575, 21, 24).into(),
+                    location: (599, 21, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_B".to_string(),
@@ -805,7 +807,7 @@ mod tests {
                     payload: Some((TypeHint::U8, "status").into()),
                     description: Some("desc text here".to_string()),
                     tags: None,
-                    location: (645, 23, 24).into(),
+                    location: (675, 23, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_C".to_string(),
@@ -813,7 +815,7 @@ mod tests {
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: None,
                     tags: None,
-                    location: (874, 32, 24).into(),
+                    location: (916, 32, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_D".to_string(),
@@ -821,7 +823,7 @@ mod tests {
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: Some("docs".to_string()),
                     tags: None,
-                    location: (953, 34, 24).into(),
+                    location: (1001, 34, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_E".to_string(),
@@ -829,7 +831,7 @@ mod tests {
                     payload: Some((TypeHint::I8, "(int8_t) *((uint8_t*) &mydata)").into()),
                     description: None,
                     tags: None,
-                    location: (1040, 36, 24).into(),
+                    location: (1094, 36, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_F".to_string(),
@@ -837,7 +839,7 @@ mod tests {
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: None,
                     tags: Some("my tag".to_string()),
-                    location: (1138, 39, 24).into(),
+                    location: (1198, 39, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_G".to_string(),
@@ -845,7 +847,7 @@ mod tests {
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: Some("docs".to_string()),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
-                    location: (1281, 46, 24).into(),
+                    location: (1347, 46, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_H".to_string(),
@@ -853,7 +855,7 @@ mod tests {
                     payload: Some((TypeHint::U32, "1 == 0").into()),
                     description: Some("Some description".to_string()),
                     tags: Some("expectation;severity.1;another tag".to_string()),
-                    location: (1513, 54, 11).into(),
+                    location: (1585, 54, 11).into(),
                 },
                 EventMetadata {
                     name: "EVENT_I".to_string(),
@@ -861,7 +863,7 @@ mod tests {
                     payload: Some((TypeHint::U32, "*foo != (1 + bar)").into()),
                     description: None,
                     tags: Some("expectation;severity.2;network".to_string()),
-                    location: (1783, 62, 5).into(),
+                    location: (1861, 62, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_J".to_string(),
@@ -869,7 +871,7 @@ mod tests {
                     payload: Some((TypeHint::U32, "0 == 0").into()),
                     description: None,
                     tags: Some("expectation".to_string()),
-                    location: (1925, 65, 5).into(),
+                    location: (2009, 65, 5).into(),
                 },
             ])
         );
@@ -879,18 +881,18 @@ mod tests {
     fn missing_semicolon_errors() {
         let parser = CParser::default();
         let input = r#"
-const size_t err = MODALITY_RECORD(g_probe, EVENT_READ)
+const size_t err = MODALITY_PROBE_RECORD(g_probe, EVENT_READ)
 assert(err == MODALITY_PROBE_ERROR_OK);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((20, 2, 20).into())));
-        let input = "const size_t err = MODALITY_RECORD(g_probe, EVENT_READ)";
+        let input = "const size_t err = MODALITY_PROBE_RECORD(g_probe, EVENT_READ)";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((19, 1, 20).into())));
-        let input = "MODALITY_RECORD_W_I16(probe, E0, data)";
+        let input = "MODALITY_PROBE_RECORD_W_I16(probe, E0, data)";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
-        let input = "MODALITY_INITIALIZE(storage, size, ID_BAR, t)";
+        let input = "MODALITY_PROBE_INIT(storage, size, ID_BAR, t)";
         let tokens = parser.parse_probe_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
     }
@@ -899,12 +901,12 @@ assert(err == MODALITY_PROBE_ERROR_OK);
     fn syntax_errors() {
         let parser = CParser::default();
         let input = r#"
-const size_t err = MODALITY_RECORD_W_U8(g_probe, EVENT_READ, (uint8_t) (( ))))status);
+const size_t err = MODALITY_PROBE_RECORD_W_U8(g_probe, EVENT_READ, (uint8_t) (( ))))status);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((20, 2, 20).into())));
         let input = r#"
-const size_t err = MODALITY_RECORD_W_U8(g_probe, EVENT_READ, (uint8_t) status)
+const size_t err = MODALITY_PROBE_RECORD_W_U8(g_probe, EVENT_READ, (uint8_t) status)
 assert(err == MODALITY_PROBE_ERROR_OK);
 "#;
         let tokens = parser.parse_event_md(input);
@@ -913,7 +915,7 @@ assert(err == MODALITY_PROBE_ERROR_OK);
             Err(Error::PayloadArgumentSpansManyLines((20, 2, 20).into()))
         );
         let input = r#"
-err = MODALITY_RECORD_W_U8(
+err = MODALITY_PROBE_RECORD_W_U8(
         g_probe,
         EVENT_READ_STATUS2,
         (uint8_t) status,
@@ -922,7 +924,7 @@ assert(err == MODALITY_PROBE_ERROR_OK);
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::Syntax((7, 2, 7).into())));
         let input = r#"
-err = MODALITY_RECORD(
+err = MODALITY_PROBE_RECORD(
         g_probe,
         EVENT_READ_STATUS2,
 assert(err == MODALITY_PROBE_ERROR_OK);
@@ -934,7 +936,7 @@ assert(err == MODALITY_PROBE_ERROR_OK);
     #[test]
     fn event_payload_type_hint_errors() {
         let parser = CParser::default();
-        let input = "MODALITY_RECORD_W_I12(probe, E0, data);";
+        let input = "MODALITY_PROBE_RECORD_W_I12(probe, E0, data);";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::UnrecognizedTypeHint((0, 1, 1).into())));
     }
@@ -942,7 +944,7 @@ assert(err == MODALITY_PROBE_ERROR_OK);
     #[test]
     fn event_payload_casing_errors() {
         let parser = CParser::default();
-        let input = "MODALITY_RECORD_W_i8(probe, EVENT_A, status);";
+        let input = "MODALITY_PROBE_RECORD_W_i8(probe, EVENT_A, status);";
         let tokens = parser.parse_event_md(input);
         assert_eq!(
             tokens,
@@ -953,13 +955,13 @@ assert(err == MODALITY_PROBE_ERROR_OK);
     #[test]
     fn empty_event_tags_errors() {
         let parser = CParser::default();
-        let input = r#"MODALITY_RECORD(probe, EVENT_A, "tags=", "desc");"#;
+        let input = r#"MODALITY_PROBE_RECORD(probe, EVENT_A, "tags=", "desc");"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
-        let input = r#"MODALITY_RECORD(probe, EVENT_A, "tags=");"#;
+        let input = r#"MODALITY_PROBE_RECORD(probe, EVENT_A, "tags=");"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
-        let input = r#"MODALITY_RECORD_W_U32(probe, EVENT_A, 123, "desc", "tags=");"#;
+        let input = r#"MODALITY_PROBE_RECORD_W_U32(probe, EVENT_A, 123, "desc", "tags=");"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
     }
