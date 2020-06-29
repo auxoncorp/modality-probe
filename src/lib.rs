@@ -43,9 +43,9 @@ pub struct CausalSnapshot {
 
 impl CausalSnapshot {
     /// Construct a causal snapshot from a sequence of little endian bytes
-    pub fn from_le_bytes(words: [u32; 3]) -> Result<Self, ModalityProbeError> {
+    pub fn from_le_bytes(words: [u32; 3]) -> Result<Self, InvalidProbeId> {
         match ProbeId::new(words[0]) {
-            None => Err(ModalityProbeError::InvalidProbeId),
+            None => Err(InvalidProbeId),
             Some(probe_id) => {
                 let res_lsb = words[2] & core::u16::MAX as u32;
                 let res_msb = (words[2] >> 16) & core::u16::MAX as u32;
@@ -373,7 +373,7 @@ mod tests {
 
         assert_eq!(
             CausalSnapshot::from_le_bytes([0, 0xBBBB_BBBB, 0xDDDD_CCCC]),
-            Err(ModalityProbeError::InvalidProbeId)
+            Err(InvalidProbeId)
         );
     }
 }

@@ -8,14 +8,14 @@
 ///
 ///
 /// event ids must be greater than 0 and less than EventId::MAX_USER_ID
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InvalidEventId;
 
 /// Error that indicates an invalid probe id was detected.
 ///
 ///
 /// probe ids must be greater than 0 and less than ProbeId::MAX_ID
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InvalidProbeId;
 
 /// An error relating to the initialization
