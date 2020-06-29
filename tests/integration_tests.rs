@@ -80,28 +80,6 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
 }
 
 #[test]
-fn invalid_neighbor_id_in_fixed_size_merge_produces_error() -> Result<(), ModalityProbeError> {
-    let probe_id_foo = 1.try_into()?;
-    let mut storage_foo = [0u8; 1024];
-    let probe_foo = ModalityProbe::initialize_at(&mut storage_foo, probe_id_foo)?;
-
-    let mut clocks = [LogicalClock {
-        id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-        count: 0,
-    }; 256];
-    clocks[0].id = 200.try_into().unwrap();
-    clocks[0].count = 200;
-    let bad_snapshot = CausalSnapshot {
-        probe_id: 0, // An invalid value technically permissable in the C representation of this struct
-        clock: 200,
-        reserved_0: 0,
-        reserved_1: 0,
-    };
-    assert!(probe_foo.merge_snapshot(&bad_snapshot).is_err());
-    Ok(())
-}
-
-#[test]
 fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     let mut storage_foo = [0u8; 1024];
     let probe_id_foo = 123.try_into()?;

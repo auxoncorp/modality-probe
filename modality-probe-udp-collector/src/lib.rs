@@ -315,9 +315,26 @@ mod tests {
 
     use lazy_static::*;
 
-    use modality_probe::{BulkReporter, CausalSnapshot, ChunkedReporter, LogicalClock, Probe};
+    use modality_probe::{
+        BulkReporter, CausalSnapshot, ChunkedReporter, LogicalClock, Probe, ProbeId,
+    };
 
     use super::*;
+
+    struct DefaultableCausalSnapshot(CausalSnapshot);
+
+    impl Default for DefaultableCausalSnapshot {
+        fn default() -> Self {
+            DefaultableCausalSnapshot(CausalSnapshot {
+                clock: LogicalClock {
+                    id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
+                    count: 0,
+                },
+                reserved_0: 0,
+                reserved_1: 0,
+            })
+        }
+    }
 
     fn dummy_report(raw_main_probe_id: u32) -> LogReport {
         LogReport {
@@ -1000,8 +1017,8 @@ mod tests {
         per_iteration_event: Option<LogEvent>,
         use_chunked_reporting: bool,
     ) -> impl Fn(
-        HashMap<String, std::sync::mpsc::Sender<(String, CausalSnapshot)>>,
-        std::sync::mpsc::Receiver<(String, CausalSnapshot)>,
+        HashMap<String, std::sync::mpsc::Sender<(String, DefaultableCausalSnapshot)>>,
+        std::sync::mpsc::Receiver<(String, DefaultableCausalSnapshot)>,
     ) + Send
            + 'static {
         move |id_to_sender, _receiver| {
@@ -1022,7 +1039,7 @@ mod tests {
                     .expect("Could not write history to share with other in-system member");
 
                 for destination in id_to_sender.values() {
-                    let history_copy = causal_history.clone();
+                    let history_copy = DefaultableCausalSnapshot(causal_history.clone());
                     destination
                         .send((proc_name.to_string(), history_copy))
                         .expect("Could not send message to other process");
@@ -1075,8 +1092,8 @@ mod tests {
         per_iteration_event: Option<LogEvent>,
         use_chunked_reporting: bool,
     ) -> impl Fn(
-        HashMap<String, std::sync::mpsc::Sender<(String, CausalSnapshot)>>,
-        std::sync::mpsc::Receiver<(String, CausalSnapshot)>,
+        HashMap<String, std::sync::mpsc::Sender<(String, DefaultableCausalSnapshot)>>,
+        std::sync::mpsc::Receiver<(String, DefaultableCausalSnapshot)>,
     ) + Send
            + 'static {
         move |id_to_sender, receiver| {
@@ -1105,7 +1122,7 @@ mod tests {
                     _ => (),
                 }
                 probe
-                    .merge_snapshot(&message)
+                    .merge_snapshot(&message.0)
                     .expect("Could not merge in history");
 
                 if messages_received > stop_relaying_after_receiving_n_messages {
@@ -1116,7 +1133,7 @@ mod tests {
                     .expect("Could not write history to share with other in-system member");
 
                 for destination in id_to_sender.values() {
-                    let history_copy = causal_history.clone();
+                    let history_copy = DefaultableCausalSnapshot(causal_history.clone());
                     destination
                         .send((proc_name.to_string(), history_copy))
                         .expect("Could not send message to other process");
@@ -1171,8 +1188,8 @@ mod tests {
         stopped_sender: crossbeam::Sender<()>,
         use_chunked_reporting: bool,
     ) -> impl Fn(
-        HashMap<String, std::sync::mpsc::Sender<(String, CausalSnapshot)>>,
-        std::sync::mpsc::Receiver<(String, CausalSnapshot)>,
+        HashMap<String, std::sync::mpsc::Sender<(String, DefaultableCausalSnapshot)>>,
+        std::sync::mpsc::Receiver<(String, DefaultableCausalSnapshot)>,
     ) + Send
            + 'static {
         move |_id_to_sender, receiver| {
@@ -1194,7 +1211,7 @@ mod tests {
                     }
                 };
                 probe
-                    .merge_snapshot(&message)
+                    .merge_snapshot(&message.0)
                     .expect("Could not merge in history");
                 match per_iteration_event {
                     Some(LogEvent::Event(e)) => probe.record_event(e),

@@ -32,10 +32,9 @@ use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
 #[repr(C)]
 #[derive(Clone)]
 pub struct CausalSnapshot {
-    /// The probe at which this history snapshot was created
-    pub probe_id: u32,
-    /// Logical clock tick count
-    pub clock: u32,
+    /// Probe id and tick-count at the probe which this history snapshot
+    /// was created from
+    pub clock: LogicalClock,
     /// Reserved field
     pub reserved_0: u16,
     /// Reserved field
@@ -44,14 +43,21 @@ pub struct CausalSnapshot {
 
 impl CausalSnapshot {
     /// Construct a causal snapshot from a sequence of little endian bytes
-    pub fn from_le_bytes(words: [u32; 3]) -> Self {
-        let res_lsb = words[2] & core::u16::MAX as u32;
-        let res_msb = (words[2] >> 16) & core::u16::MAX as u32;
-        CausalSnapshot {
-            probe_id: words[0],
-            clock: words[1],
-            reserved_0: res_lsb as u16,
-            reserved_1: res_msb as u16,
+    pub fn from_le_bytes(words: [u32; 3]) -> Result<Self, ModalityProbeError> {
+        match ProbeId::new(words[0]) {
+            None => Err(ModalityProbeError::InvalidProbeId),
+            Some(probe_id) => {
+                let res_lsb = words[2] & core::u16::MAX as u32;
+                let res_msb = (words[2] >> 16) & core::u16::MAX as u32;
+                Ok(CausalSnapshot {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        count: words[1],
+                    },
+                    reserved_0: res_lsb as u16,
+                    reserved_1: res_msb as u16,
+                })
+            }
         }
     }
 
@@ -59,7 +65,11 @@ impl CausalSnapshot {
     pub fn to_le_bytes(&self) -> [u32; 3] {
         let res_lsb = self.reserved_0 as u32;
         let res_msb = self.reserved_1 as u32;
-        [self.probe_id, self.clock, res_lsb | (res_msb << 16)]
+        [
+            self.clock.id.get_raw(),
+            self.clock.count,
+            res_lsb | (res_msb << 16),
+        ]
     }
 }
 
@@ -337,21 +347,33 @@ mod tests {
     #[test]
     fn causal_snapshot_bytes() {
         let snap = CausalSnapshot {
-            probe_id: 0x1111_1111,
-            clock: 0x2222_2222,
+            clock: LogicalClock {
+                id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
+                count: 0x2222_2222,
+            },
             reserved_0: 0x3333,
             reserved_1: 0x4444,
         };
-        assert_eq!(snap.to_le_bytes(), [0x1111_1111, 0x2222_2222, 0x4444_3333]);
+        assert_eq!(
+            snap.to_le_bytes(),
+            [ProbeId::MAX_ID, 0x2222_2222, 0x4444_3333]
+        );
 
         assert_eq!(
-            CausalSnapshot::from_le_bytes([0xAAAA_AAAA, 0xBBBB_BBBB, 0xDDDD_CCCC]),
-            CausalSnapshot {
-                probe_id: 0xAAAA_AAAA,
-                clock: 0xBBBB_BBBB,
+            CausalSnapshot::from_le_bytes([ProbeId::MAX_ID, 0xBBBB_BBBB, 0xDDDD_CCCC]),
+            Ok(CausalSnapshot {
+                clock: LogicalClock {
+                    id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
+                    count: 0xBBBB_BBBB,
+                },
                 reserved_0: 0xCCCC,
                 reserved_1: 0xDDDD,
-            }
+            })
+        );
+
+        assert_eq!(
+            CausalSnapshot::from_le_bytes([0, 0xBBBB_BBBB, 0xDDDD_CCCC]),
+            Err(ModalityProbeError::InvalidProbeId)
         );
     }
 }

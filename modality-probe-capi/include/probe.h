@@ -53,13 +53,10 @@ typedef struct modality_probe_instant {
 
 typedef struct modality_causal_snapshot {
     /*
-     * What probe instance produced this history snapshot.
+     * Probe id and tick-count at the probe which this history snapshot
+     * was created from
      */
-    uint32_t probe_id;
-    /*
-     * Clock tick count
-     */
-    uint32_t count;
+    modality_logical_clock clock;
     /*
      * Reserved field.
      */

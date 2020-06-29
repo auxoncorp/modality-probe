@@ -15,8 +15,8 @@ impl core::fmt::Debug for CausalSnapshot {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         write!(
             f,
-            "CausalSnapshot {{ probe_id: {}, clock: {} }}",
-            self.probe_id, self.clock,
+            "CausalSnapshot {{ id: {:?}, count: {} }}",
+            self.clock.id, self.clock.count,
         )
     }
 }
@@ -30,21 +30,10 @@ impl PartialEq for CausalSnapshot {
 
 impl PartialOrd for CausalSnapshot {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.probe_id != other.probe_id {
+        if self.clock.id != other.clock.id {
             None
         } else {
-            self.clock.partial_cmp(&other.clock)
-        }
-    }
-}
-
-impl Default for CausalSnapshot {
-    fn default() -> Self {
-        CausalSnapshot {
-            probe_id: 0,
-            clock: 0,
-            reserved_0: 0,
-            reserved_1: 0,
+            self.clock.count.partial_cmp(&other.clock.count)
         }
     }
 }
@@ -262,8 +251,7 @@ impl<'a> DynamicHistory<'a> {
         self.increment_local_clock_count();
         self.write_current_clocks_to_log();
         Ok(CausalSnapshot {
-            probe_id: self.probe_id.get_raw(),
-            clock: self.clocks[0].count,
+            clock: self.clocks[0],
             reserved_0: 0,
             reserved_1: 0,
         })
@@ -278,19 +266,15 @@ impl<'a> DynamicHistory<'a> {
         if self.chunked_report_state.is_report_in_progress() {
             return Err(MergeError::ReportLockConflict);
         }
-        self.merge_internal(external_history.probe_id, external_history.clock)
+        self.merge_internal(external_history.clock.id, external_history.clock.count)
     }
 
     #[inline]
     fn merge_internal(
         &mut self,
-        raw_neighbor_id: u32,
+        external_id: ProbeId,
         external_clock: u32,
     ) -> Result<(), MergeError> {
-        let external_id = match ProbeId::new(raw_neighbor_id) {
-            Some(id) => id,
-            None => return Err(MergeError::ExternalHistorySemantics),
-        };
         // Ensure that there is a clock for the neighbor that sent the snapshot
         if !self.clocks.as_slice().iter().any(|b| b.id == external_id)
             && self

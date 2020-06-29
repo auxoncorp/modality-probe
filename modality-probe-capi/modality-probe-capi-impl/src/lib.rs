@@ -243,9 +243,14 @@ pub unsafe fn modality_probe_merge_snapshot(
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match probe.merge_snapshot(&*snapshot) {
-        Ok(_) => MODALITY_PROBE_ERROR_OK,
-        Err(e) => merge_error_to_modality_probe_error(e),
+    let snapshot = &*snapshot;
+    if ProbeId::new(snapshot.clock.id.get_raw()).is_none() {
+        MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS
+    } else {
+        match probe.merge_snapshot(snapshot) {
+            Ok(_) => MODALITY_PROBE_ERROR_OK,
+            Err(e) => merge_error_to_modality_probe_error(e),
+        }
     }
 }
 
@@ -446,7 +451,7 @@ mod tests {
         assert_eq!(MODALITY_PROBE_ERROR_OK, result);
         let probe = unsafe { probe.assume_init() };
         let snap_empty = stack_snapshot(probe);
-        assert_eq!(snap_empty.probe_id, probe_id);
+        assert_eq!(snap_empty.clock.id.get_raw(), probe_id);
         unsafe {
             modality_probe_record_event(probe, 100);
         }
@@ -500,7 +505,7 @@ mod tests {
             remote_snap_pre_merge.partial_cmp(&snap_b_neighborhood)
         );
         assert!(!(snap_b_neighborhood < remote_snap_pre_merge));
-        assert_eq!(remote_snap_pre_merge.probe_id, remote_probe_id);
+        assert_eq!(remote_snap_pre_merge.clock.id.get_raw(), remote_probe_id);
 
         unsafe {
             modality_probe_merge_snapshot(

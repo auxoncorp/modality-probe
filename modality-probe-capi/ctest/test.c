@@ -72,7 +72,7 @@ bool test_event_recording(void) {
     modality_causal_snapshot snap_a;
     result = modality_probe_distribute_snapshot(t, &snap_a);
     ERROR_CHECK(result, passed);
-    if (snap_a.probe_id != DEFAULT_PROBE_ID) {
+    if (snap_a.clock.id != DEFAULT_PROBE_ID) {
         passed = false;
     }
     result = modality_probe_record_event(t, EVENT_A);
@@ -125,7 +125,7 @@ bool test_merge(void) {
     modality_causal_snapshot snap_a;
     result = modality_probe_distribute_snapshot(probe_a, &snap_a);
     ERROR_CHECK(result, passed);
-    if (snap_a.probe_id != DEFAULT_PROBE_ID) {
+    if (snap_a.clock.id != DEFAULT_PROBE_ID) {
         passed = false;
     }
     result = modality_probe_merge_snapshot(probe_b, &snap_a);
@@ -133,7 +133,7 @@ bool test_merge(void) {
     modality_causal_snapshot snap_b;
     result = modality_probe_distribute_snapshot(probe_b, &snap_b);
     ERROR_CHECK(result, passed);
-    if (snap_b.probe_id != probe_b_id) {
+    if (snap_b.clock.id != probe_b_id) {
         passed = false;
     }
     result = modality_probe_record_event(probe_b, EVENT_A);
@@ -141,7 +141,15 @@ bool test_merge(void) {
     modality_causal_snapshot snap_c;
     result = modality_probe_distribute_snapshot(probe_b, &snap_c);
     ERROR_CHECK(result, passed);
-    if (snap_c.probe_id != probe_b_id) {
+    if (snap_c.clock.id != probe_b_id) {
+        passed = false;
+    }
+
+    /* Invalid neighbor id in history merge produces an error */
+    snap_c.clock.id = 0;
+    result = modality_probe_merge_snapshot(probe_a, &snap_c);
+    if(result != MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS)
+    {
         passed = false;
     }
 
