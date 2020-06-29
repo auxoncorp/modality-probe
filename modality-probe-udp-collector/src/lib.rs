@@ -315,9 +315,26 @@ mod tests {
 
     use lazy_static::*;
 
-    use modality_probe::{BulkReporter, ChunkedReporter, LogicalClock, Probe};
+    use modality_probe::{
+        BulkReporter, CausalSnapshot, ChunkedReporter, LogicalClock, Probe, ProbeId,
+    };
 
     use super::*;
+
+    struct DefaultableCausalSnapshot(CausalSnapshot);
+
+    impl Default for DefaultableCausalSnapshot {
+        fn default() -> Self {
+            DefaultableCausalSnapshot(CausalSnapshot {
+                clock: LogicalClock {
+                    id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
+                    count: 0,
+                },
+                reserved_0: 0,
+                reserved_1: 0,
+            })
+        }
+    }
 
     fn dummy_report(raw_main_probe_id: u32) -> LogReport {
         LogReport {
@@ -572,7 +589,6 @@ mod tests {
         h.join().expect("Couldn't join server handler thread");
     }
     const PROBE_STORAGE_BYTES_SIZE: usize = 256;
-    const IN_SYSTEM_SNAPSHOT_BYTES_SIZE: usize = 256;
     const LOG_REPORT_BYTES_SIZE: usize = 512;
 
     trait HasEventId {
@@ -1001,8 +1017,8 @@ mod tests {
         per_iteration_event: Option<LogEvent>,
         use_chunked_reporting: bool,
     ) -> impl Fn(
-        HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
-        std::sync::mpsc::Receiver<(String, Vec<u8>)>,
+        HashMap<String, std::sync::mpsc::Sender<(String, DefaultableCausalSnapshot)>>,
+        std::sync::mpsc::Receiver<(String, DefaultableCausalSnapshot)>,
     ) + Send
            + 'static {
         move |id_to_sender, _receiver| {
@@ -1010,7 +1026,6 @@ mod tests {
             let mut probe =
                 modality_probe::ModalityProbe::new_with_storage(&mut probe_storage, probe_id)
                     .expect("Could not make probe");
-            let mut causal_history_blob = vec![0u8; IN_SYSTEM_SNAPSHOT_BYTES_SIZE];
             for _ in 0..n_messages {
                 match per_iteration_event {
                     Some(LogEvent::Event(e)) => probe.record_event(e),
@@ -1019,12 +1034,12 @@ mod tests {
                     }
                     _ => (),
                 }
-                let causal_history_bytes = probe
-                    .distribute_snapshot(&mut causal_history_blob)
+                let causal_history = probe
+                    .distribute_snapshot()
                     .expect("Could not write history to share with other in-system member");
 
                 for destination in id_to_sender.values() {
-                    let history_copy = Vec::from(&causal_history_blob[..causal_history_bytes]);
+                    let history_copy = DefaultableCausalSnapshot(causal_history.clone());
                     destination
                         .send((proc_name.to_string(), history_copy))
                         .expect("Could not send message to other process");
@@ -1077,8 +1092,8 @@ mod tests {
         per_iteration_event: Option<LogEvent>,
         use_chunked_reporting: bool,
     ) -> impl Fn(
-        HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
-        std::sync::mpsc::Receiver<(String, Vec<u8>)>,
+        HashMap<String, std::sync::mpsc::Sender<(String, DefaultableCausalSnapshot)>>,
+        std::sync::mpsc::Receiver<(String, DefaultableCausalSnapshot)>,
     ) + Send
            + 'static {
         move |id_to_sender, receiver| {
@@ -1091,7 +1106,6 @@ mod tests {
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
             let mut log_report_storage = vec![0u8; LOG_REPORT_BYTES_SIZE];
 
-            let mut causal_history_blob = vec![0u8; IN_SYSTEM_SNAPSHOT_BYTES_SIZE];
             let mut messages_received = 0;
             loop {
                 let (_msg_source, message) = match receiver.recv() {
@@ -1108,18 +1122,18 @@ mod tests {
                     _ => (),
                 }
                 probe
-                    .merge_snapshot(&message)
+                    .merge_snapshot(&message.0)
                     .expect("Could not merge in history");
 
                 if messages_received > stop_relaying_after_receiving_n_messages {
                     continue;
                 }
-                let causal_history_bytes = probe
-                    .distribute_snapshot(&mut causal_history_blob)
+                let causal_history = probe
+                    .distribute_snapshot()
                     .expect("Could not write history to share with other in-system member");
 
                 for destination in id_to_sender.values() {
-                    let history_copy = Vec::from(&causal_history_blob[..causal_history_bytes]);
+                    let history_copy = DefaultableCausalSnapshot(causal_history.clone());
                     destination
                         .send((proc_name.to_string(), history_copy))
                         .expect("Could not send message to other process");
@@ -1174,8 +1188,8 @@ mod tests {
         stopped_sender: crossbeam::Sender<()>,
         use_chunked_reporting: bool,
     ) -> impl Fn(
-        HashMap<String, std::sync::mpsc::Sender<(String, Vec<u8>)>>,
-        std::sync::mpsc::Receiver<(String, Vec<u8>)>,
+        HashMap<String, std::sync::mpsc::Sender<(String, DefaultableCausalSnapshot)>>,
+        std::sync::mpsc::Receiver<(String, DefaultableCausalSnapshot)>,
     ) + Send
            + 'static {
         move |_id_to_sender, receiver| {
@@ -1197,7 +1211,7 @@ mod tests {
                     }
                 };
                 probe
-                    .merge_snapshot(&message)
+                    .merge_snapshot(&message.0)
                     .expect("Could not merge in history");
                 match per_iteration_event {
                     Some(LogEvent::Event(e)) => probe.record_event(e),
