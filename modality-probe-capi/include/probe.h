@@ -145,7 +145,7 @@ typedef enum {
  * - A string for the probe description
  *
  */
-#define MODALITY_INITIALIZE(dest, dest_size, id, probe, ...) \
+#define MODALITY_PROBE_INIT(dest, dest_size, id, probe, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_initialize(dest, dest_size, id, probe) : MODALITY_PROBE_ERROR_OK)
 
 /*
@@ -160,7 +160,7 @@ typedef enum {
  * - A string for the event description
  *
  */
-#define MODALITY_RECORD(probe, event, ...) \
+#define MODALITY_PROBE_RECORD(probe, event, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event(probe, event) : MODALITY_PROBE_ERROR_OK)
 
 /*
@@ -175,42 +175,42 @@ typedef enum {
  * - A string for the event description
  *
  */
-#define MODALITY_RECORD_W_I8(probe, event, payload, ...) \
+#define MODALITY_PROBE_RECORD_W_I8(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_i8(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
-#define MODALITY_RECORD_W_U8(probe, event, payload, ...) \
+#define MODALITY_PROBE_RECORD_W_U8(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u8(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
-#define MODALITY_RECORD_W_I16(probe, event, payload, ...) \
+#define MODALITY_PROBE_RECORD_W_I16(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_i16(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
-#define MODALITY_RECORD_W_U16(probe, event, payload, ...) \
+#define MODALITY_PROBE_RECORD_W_U16(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u16(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
-#define MODALITY_RECORD_W_I32(probe, event, payload, ...) \
+#define MODALITY_PROBE_RECORD_W_I32(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_i32(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
-#define MODALITY_RECORD_W_U32(probe, event, payload, ...) \
+#define MODALITY_PROBE_RECORD_W_U32(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u32(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
-#define MODALITY_RECORD_W_BOOL(probe, event, payload, ...) \
+#define MODALITY_PROBE_RECORD_W_BOOL(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_bool(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
-#define MODALITY_RECORD_W_F32(probe, event, payload, ...) \
+#define MODALITY_PROBE_RECORD_W_F32(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_f32(\
             probe, \
             event, \
@@ -228,7 +228,7 @@ typedef enum {
  * - A string for the event description
  *
  */
-#define MODALITY_EXPECT(probe, event, expr, ...) \
+#define MODALITY_PROBE_EXPECT(probe, event, expr, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u32(\
             probe, \
             event, \
