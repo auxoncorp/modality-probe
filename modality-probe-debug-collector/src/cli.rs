@@ -50,8 +50,9 @@ pub struct CLIOptions {
     session_id: u32,
 
     /// Specifies little endian architecture of target system
-    #[structopt(short = "l", long = "little-endian")]
+    #[structopt(short = "l", long = "little-endian", conflicts_with = "big-endian")]
     little_endian: bool,
+
     /// Specifies big endian architecture of target system
     #[structopt(short = "b", long = "big-endian")]
     big_endian: bool,
@@ -61,14 +62,19 @@ pub struct CLIOptions {
     elf_path: Option<PathBuf>,
 
     /// Chip type of target system to attach to
-    #[structopt(short = "a", long = "attach")]
+    #[structopt(
+        short = "a",
+        long = "attach",
+        conflicts_with = "gdb-addr",
+        required_unless = "gdb-addr"
+    )]
     attach_target: Option<String>,
 
     /// Address of gdb server to connect to
-    #[structopt(short = "g", long = "gdb-server")]
+    #[structopt(short = "g", long = "gdb-addr", required_unless = "attach-target")]
     gdb_addr: Option<SocketAddrV4>,
 
-    /// Interval between log collections
+    /// Interval between log collections. Ex: "2 min 15 sec 500 milli 250 micro"
     #[structopt(short = "i", long = "interval")]
     interval: String,
 
@@ -127,15 +133,6 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
         )));
     }
 
-    // Check that one of attach target and gdb server specified
-    if (options.attach_target == None && options.gdb_addr == None)
-        || (options.attach_target != None && options.gdb_addr != None)
-    {
-        return Err(Box::new(OptionsError::new(
-            "Must specify exactly one of attach target and gdb server address",
-        )));
-    }
-
     let interval = parse(&options.interval)?;
 
     Ok(modality_probe_debug_collector::Config {
@@ -179,11 +176,7 @@ fn should_use_big_endian(
     o: &CLIOptions,
     elf_endianness_opt: Option<goblin::error::Result<Endian>>,
 ) -> Result<bool, OptionsError> {
-    if o.little_endian && o.big_endian {
-        Err(OptionsError::new(
-            "Both little-endian and big-endian were specified",
-        ))
-    } else if !o.little_endian && !o.big_endian {
+    if !o.little_endian && !o.big_endian {
         // Imply endianness from ELF
         if let Some(elf_endianness) = elf_endianness_opt {
             match elf_endianness {
@@ -231,10 +224,10 @@ mod tests {
     use std::process::Command;
     use std::str::FromStr;
     use std::time::Duration;
+    use tempfile::{NamedTempFile, TempPath};
 
     const LE_SYMBOLS_BIN_PATH: &str =
         "./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example";
-    const BE_BIN_PATH: &str = "./tmp/be-example-bin";
     const BE_BIN_RAW: [u8; 616] = [
         0x7f, 0x45, 0x4c, 0x46, 0x01, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x02, 0x00, 0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -288,14 +281,14 @@ mod tests {
             .unwrap();
     }
 
-    fn output_be_example() {
-        std::fs::create_dir_all("./tmp").unwrap();
-        let mut file = File::create(BE_BIN_PATH).unwrap();
-        file.write(&BE_BIN_RAW).unwrap();
+    fn create_be_example() -> TempPath {
+        let mut file = NamedTempFile::new().unwrap();
+        file.as_file_mut().write(&BE_BIN_RAW).unwrap();
+        file.into_temp_path()
     }
 
     fn options_from_str(input: &str) -> CLIOptions {
-        CLIOptions::from_iter(input.split(" "))
+        CLIOptions::from_iter_safe(input.split(" ")).unwrap()
     }
 
     /// Test basic parsing
@@ -332,7 +325,7 @@ mod tests {
                 "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
-                --gdb-server 127.0.0.1:3000 \
+                --gdb-addr 127.0.0.1:3000 \
                 --interval 1s \
                 --output-file ./out \
                 0x100"
@@ -352,8 +345,9 @@ mod tests {
 
     /// Should error if both attach target and gdb server specified
     #[test]
+    #[should_panic]
     fn error_on_multiple_targets() {
-        if let Ok(_) = config_from_options(options_from_str(
+        config_from_options(options_from_str(
             "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
@@ -362,13 +356,13 @@ mod tests {
             --interval 1s \
             --output-file ./out \
             0x100",
-        )) {
-            panic!("No error when both gdb server and attach target specified")
-        }
+        ))
+        .unwrap();
     }
 
     /// Should error if neither attach target nor gdb server specified
     #[test]
+    #[should_panic]
     fn error_on_no_target() {
         if let Ok(_) = config_from_options(options_from_str(
             "modality-probe-debug-collector \
@@ -395,7 +389,7 @@ mod tests {
             --output-file ./out \
             0x100",
         )) {
-            panic!("No error when non-existent")
+            panic!("No error when elf non-existent")
         }
     }
 
@@ -487,8 +481,9 @@ mod tests {
 
     /// Should error if both big and little endian specified
     #[test]
+    #[should_panic]
     fn error_specify_both_endianness() {
-        if let Ok(_) = config_from_options(options_from_str(
+        config_from_options(options_from_str(
             "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
@@ -497,9 +492,8 @@ mod tests {
             --interval 1s \
             --output-file ./out \
             0x100",
-        )) {
-            panic!("No error when specified both big and little endian")
-        }
+        ))
+        .unwrap();
     }
 
     /// Default to little endian if none specified and no ELF given
@@ -555,7 +549,7 @@ mod tests {
             }
         );
 
-        output_be_example();
+        let be_example_path = create_be_example();
         assert_eq!(
             config_from_options(options_from_str(&format!(
                 "modality-probe-debug-collector \
@@ -565,7 +559,7 @@ mod tests {
                 --output-file ./out \
                 --elf {} \
                 0x1",
-                BE_BIN_PATH
+                be_example_path.to_str().unwrap()
             )))
             .unwrap(),
             Config {
@@ -608,7 +602,7 @@ mod tests {
             }
         );
 
-        output_be_example();
+        let be_example_path = create_be_example();
         assert_eq!(
             config_from_options(options_from_str(&format!(
                 "modality-probe-debug-collector \
@@ -619,7 +613,7 @@ mod tests {
                 --little-endian \
                 --elf {} \
                 0x1",
-                BE_BIN_PATH
+                be_example_path.to_str().unwrap()
             )))
             .unwrap(),
             Config {

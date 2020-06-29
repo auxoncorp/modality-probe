@@ -27,9 +27,6 @@ const PROBE_ID_OFFSET: u32 = 0x0;
 const BUF_ADDR_OFFSET: u32 = 0x4;
 const BUF_CAP_OFFSET: u32 = 0x8;
 const WCURS_OFFSET: u32 = 0xc;
-//const _EVENT_COUNT_OFFSET: u32 = 0x0;
-//const _CLOCKS_ADDR_OFFSET: u32 = 0x0;
-//const _CLOCKS_LEN_OFFSET: u32 = 0x0;
 
 /// Configuration for running collector
 #[derive(Debug, PartialEq)]

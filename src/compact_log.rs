@@ -64,19 +64,19 @@ impl CompactLogItem {
         )
     }
 
-    /// prototype
+    /// Return true if the log item has its clock bit set
     #[inline]
     pub fn has_clock_bit_set(self) -> bool {
         (self.0 & CLOCK_MASK) == CLOCK_MASK
     }
 
-    /// prototype
+    /// Return true if the log item has its 'event with payload' bit set
     #[inline]
     pub fn has_event_with_payload_bit_set(self) -> bool {
         (self.0 & EVENT_WITH_PAYLOAD_MASK) == EVENT_WITH_PAYLOAD_MASK
     }
 
-    /// prototype
+    /// Get the u32 representation of the log item
     #[inline]
     pub fn raw(self) -> u32 {
         self.0
