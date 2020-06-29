@@ -6,6 +6,12 @@
 
 #include "probe.h"
 
+#define STATIC_SIZE(t, s) typedef char t##_size_check_struct[1-2*!!(sizeof(t)!=(s))]
+STATIC_SIZE(modality_logical_clock, sizeof(uint64_t));
+STATIC_SIZE(modality_probe_instant, 12);
+STATIC_SIZE(modality_causal_snapshot, 12);
+STATIC_SIZE(modality_chunked_report_token, sizeof(uint16_t));
+
 static size_t DEFAULT_PROBE_SIZE = 7000;
 static size_t DEFAULT_LOG_STORAGE = 4096;
 static size_t MAX_REPORT_CHUNK_SIZE = 256;
@@ -64,12 +70,9 @@ bool test_event_recording(void) {
     ERROR_CHECK(result, passed);
 
     modality_causal_snapshot snap_a;
-    result = modality_probe_distribute_fixed_size_snapshot(t, &snap_a);
+    result = modality_probe_distribute_snapshot(t, &snap_a);
     ERROR_CHECK(result, passed);
     if (snap_a.probe_id != DEFAULT_PROBE_ID) {
-        passed = false;
-    }
-    if (snap_a.clocks_len != 1) {
         passed = false;
     }
     result = modality_probe_record_event(t, EVENT_A);
@@ -99,11 +102,8 @@ bool test_event_recording(void) {
     result = MODALITY_EXPECT(t, EVENT_A, 1 == 0, "my docs", "tags=severity.10");
     ERROR_CHECK(result, passed);
     modality_causal_snapshot snap_b;
-    result = modality_probe_distribute_fixed_size_snapshot(t, &snap_b);
+    result = modality_probe_distribute_snapshot(t, &snap_b);
     ERROR_CHECK(result, passed);
-    if (snap_b.clocks_len != 1) {
-        passed = false;
-    }
 
     free(t);
     return passed;
@@ -123,28 +123,25 @@ bool test_merge(void) {
     result = modality_probe_record_event(probe_a, EVENT_A);
     ERROR_CHECK(result, passed);
     modality_causal_snapshot snap_a;
-    result = modality_probe_distribute_fixed_size_snapshot(probe_a, &snap_a);
+    result = modality_probe_distribute_snapshot(probe_a, &snap_a);
     ERROR_CHECK(result, passed);
-    if (snap_a.clocks_len != 1) {
+    if (snap_a.probe_id != DEFAULT_PROBE_ID) {
         passed = false;
     }
-    if (snap_a.clocks[0].id != DEFAULT_PROBE_ID) {
-        passed = false;
-    }
-    result = modality_probe_merge_fixed_size_snapshot(probe_b, &snap_a);
+    result = modality_probe_merge_snapshot(probe_b, &snap_a);
     ERROR_CHECK(result, passed);
     modality_causal_snapshot snap_b;
-    result = modality_probe_distribute_fixed_size_snapshot(probe_b, &snap_b);
+    result = modality_probe_distribute_snapshot(probe_b, &snap_b);
     ERROR_CHECK(result, passed);
-    if (snap_b.clocks_len != 2 || snap_b.clocks[0].id != probe_b_id || snap_b.clocks[1].id != DEFAULT_PROBE_ID) {
+    if (snap_b.probe_id != probe_b_id) {
         passed = false;
     }
     result = modality_probe_record_event(probe_b, EVENT_A);
     ERROR_CHECK(result, passed);
     modality_causal_snapshot snap_c;
-    result = modality_probe_distribute_fixed_size_snapshot(probe_b, &snap_c);
+    result = modality_probe_distribute_snapshot(probe_b, &snap_c);
     ERROR_CHECK(result, passed);
-    if (snap_c.clocks_len != 2 || snap_c.clocks[0].id != probe_b_id || snap_c.clocks[1].id != DEFAULT_PROBE_ID) {
+    if (snap_c.probe_id != probe_b_id) {
         passed = false;
     }
 
@@ -186,7 +183,7 @@ bool test_now(void) {
         passed = false;
     }
     modality_causal_snapshot snap_a;
-    result = modality_probe_distribute_fixed_size_snapshot(probe_a, &snap_a);
+    result = modality_probe_distribute_snapshot(probe_a, &snap_a);
     ERROR_CHECK(result, passed);
     /*
      * When the logical clock ticks up, here because we distributed a snapshot
@@ -201,13 +198,13 @@ bool test_now(void) {
     if (instant_b.clock.id != probe_b_id || instant_b.clock.count != 0 || instant_b.event_count != 0) {
         passed = false;
     }
-    modality_probe_merge_fixed_size_snapshot(probe_b, &snap_a);
+    modality_probe_merge_snapshot(probe_b, &snap_a);
     instant_b = modality_probe_now(probe_b);
     if (instant_b.clock.id != probe_b_id || instant_b.clock.count != 1 || instant_b.event_count != 0) {
         passed = false;
     }
     modality_causal_snapshot snap_b;
-    result = modality_probe_distribute_fixed_size_snapshot(probe_b, &snap_b);
+    result = modality_probe_distribute_snapshot(probe_b, &snap_b);
     ERROR_CHECK(result, passed);
     instant_b = modality_probe_now(probe_b);
     if (instant_b.clock.id != probe_b_id || instant_b.clock.count != 2 || instant_b.event_count != 0) {

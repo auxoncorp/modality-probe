@@ -6,7 +6,6 @@ use std::convert::{TryFrom, TryInto};
 use std::io::{Read, Write};
 
 pub mod alloc_log_report;
-pub mod alloc_snapshot;
 pub mod model;
 
 /// Serialization record for CSV storage

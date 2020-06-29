@@ -177,54 +177,19 @@ pub extern "C" fn modality_probe_report(
 #[no_mangle]
 pub extern "C" fn modality_probe_distribute_snapshot(
     probe: *mut ModalityProbe<'static>,
-    history_destination: *mut u8,
-    history_destination_bytes: usize,
-    out_written_bytes: *mut usize,
-) -> ModalityProbeError {
-    unsafe {
-        modality_probe_capi_impl::modality_probe_distribute_snapshot(
-            probe,
-            history_destination,
-            history_destination_bytes,
-            out_written_bytes,
-        )
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn modality_probe_distribute_fixed_size_snapshot(
-    probe: *mut ModalityProbe<'static>,
     destination_snapshot: *mut CausalSnapshot,
 ) -> ModalityProbeError {
     unsafe {
-        modality_probe_capi_impl::modality_probe_distribute_fixed_size_snapshot(
-            probe,
-            destination_snapshot,
-        )
+        modality_probe_capi_impl::modality_probe_distribute_snapshot(probe, destination_snapshot)
     }
 }
 
 #[no_mangle]
 pub extern "C" fn modality_probe_merge_snapshot(
     probe: *mut ModalityProbe<'static>,
-    history_source: *const u8,
-    history_source_bytes: usize,
-) -> ModalityProbeError {
-    unsafe {
-        modality_probe_capi_impl::modality_probe_merge_snapshot(
-            probe,
-            history_source,
-            history_source_bytes,
-        )
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn modality_probe_merge_fixed_size_snapshot(
-    probe: *mut ModalityProbe<'static>,
     snapshot: *const CausalSnapshot,
 ) -> ModalityProbeError {
-    unsafe { modality_probe_capi_impl::modality_probe_merge_fixed_size_snapshot(probe, snapshot) }
+    unsafe { modality_probe_capi_impl::modality_probe_merge_snapshot(probe, snapshot) }
 }
 #[no_mangle]
 pub extern "C" fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> ModalityProbeInstant {

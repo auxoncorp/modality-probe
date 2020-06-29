@@ -25,7 +25,7 @@ use core::convert::TryFrom;
 use core::mem::size_of;
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
 
-/// Fixed-sized snapshot of causal history for transmission around the system
+/// Snapshot of causal history for transmission around the system.
 ///
 /// Note the use of bare integer types rather than the safety-oriented
 /// wrappers (ProbeId, NonZero*) for C representation reasons.
@@ -34,11 +34,33 @@ use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
 pub struct CausalSnapshot {
     /// The probe at which this history snapshot was created
     pub probe_id: u32,
-    /// Mapping between probe_ids and event-counts at each probe
-    pub clocks: [LogicalClock; 256],
-    /// The number of clocks in the above `clocks` field that
-    /// are populated with valid ids and counts
-    pub clocks_len: u8,
+    /// Logical clock tick count
+    pub clock: u32,
+    /// Reserved field
+    pub reserved_0: u16,
+    /// Reserved field
+    pub reserved_1: u16,
+}
+
+impl CausalSnapshot {
+    /// Construct a causal snapshot from a sequence of little endian bytes
+    pub fn from_le_bytes(words: [u32; 3]) -> Self {
+        let res_lsb = words[2] & core::u16::MAX as u32;
+        let res_msb = (words[2] >> 16) & core::u16::MAX as u32;
+        CausalSnapshot {
+            probe_id: words[0],
+            clock: words[1],
+            reserved_0: res_lsb as u16,
+            reserved_1: res_msb as u16,
+        }
+    }
+
+    /// Return a causal snapshot as a sequence of little endian bytes
+    pub fn to_le_bytes(&self) -> [u32; 3] {
+        let res_lsb = self.reserved_0 as u32;
+        let res_msb = self.reserved_1 as u32;
+        [self.probe_id, self.clock, res_lsb | (res_msb << 16)]
+    }
 }
 
 /// A single logical clock, usable as an entry in a vector clock
@@ -76,15 +98,12 @@ pub trait Probe {
     /// that ought to be passed around to be `merge_snapshot`d, though
     /// it will conform to an internal schema for the interested.
     ///
-    /// Pre-pruned to the causal history of just this node
-    ///  and its immediate inbound neighbors.
-    ///
     /// If the write was successful, returns the number of bytes written
-    fn distribute_snapshot(&mut self, destination: &mut [u8]) -> Result<usize, DistributeError>;
+    fn distribute_snapshot(&mut self) -> Result<CausalSnapshot, DistributeError>;
 
     /// Consume a causal history summary structure provided
     /// by some other probe via `distribute_snapshot`.
-    fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError>;
+    fn merge_snapshot(&mut self, external_history: &CausalSnapshot) -> Result<(), MergeError>;
 }
 
 /// Reference implementation of a `ModalityProbe`.
@@ -92,8 +111,7 @@ pub trait Probe {
 /// In addition to the standard `Probe` API, it includes conveniences for:
 /// * Recording events from primitive ids with just-in-time validation.
 /// * Initialization with variable-sized memory backing.
-/// * Can distribute and merge transparent fixed-sized snapshots in addition
-/// to the opaque, arbitrarily-sized standard snapshots.
+/// * Can distribute and merge transparent snapshots
 #[derive(Debug)]
 #[repr(C)]
 pub struct ModalityProbe<'a> {
@@ -217,59 +235,6 @@ impl<'a> ModalityProbe<'a> {
         Ok(())
     }
 
-    /// Produce a transmittable summary of this probe's
-    /// causal history for use by another probe elsewhere
-    /// in the system.
-    ///
-    /// Pre-pruned to the causal history of just this node
-    ///  and its immediate inbound neighbors.
-    #[inline]
-    pub fn distribute_fixed_size_snapshot(&mut self) -> Result<CausalSnapshot, DistributeError> {
-        self.history.write_fixed_size_snapshot()
-    }
-
-    /// Consume a fixed-sized causal history summary structure provided
-    /// by some other probe.
-    #[inline]
-    pub fn merge_fixed_size_snapshot(
-        &mut self,
-        external_history: &CausalSnapshot,
-    ) -> Result<(), MergeError> {
-        self.history.merge_fixed_size(external_history)
-    }
-
-    /// Write a summary of this probe's causal history, including the
-    /// given opaque extension metadata, for use by another probe elsewhere in
-    /// the system.
-    ///
-    /// This summary can be treated as an opaque blob of data that
-    /// ought to be passed around to be `merge_snapshot`d, though it
-    /// will conform to an internal schema for the interested.
-    ///
-    /// Pre-pruned to the causal history of just this node and its
-    /// immediate inbound neighbors.
-    ///
-    /// If the write was successful, returns the number of bytes
-    /// written
-    pub fn distribute_snapshot_with_metadata(
-        &mut self,
-        destination: &mut [u8],
-        meta: ExtensionBytes<'_>,
-    ) -> Result<usize, DistributeError> {
-        self.history
-            .write_lcm_snapshot_with_metadata(destination, meta)
-    }
-    /// Consume a causal history summary structure provided
-    /// by some other probe via `distribute_snapshot` or
-    /// `distribute_snapshot_with_metadata` and return the extension
-    /// metadata bytes for further custom processing.
-    pub fn merge_snapshot_with_metadata<'d>(
-        &mut self,
-        source: &'d [u8],
-    ) -> Result<ExtensionBytes<'d>, MergeError> {
-        self.history.merge_from_lcm_snapshot_bytes(source)
-    }
-
     /// Capture the current instance's moment in causal time
     /// for correlation with external systems.
     pub fn now(&self) -> ModalityProbeInstant {
@@ -307,8 +272,7 @@ impl PartialOrd for ModalityProbeInstant {
 }
 
 /// Raw bytes related to extension metadata stored alongside
-/// the messages transmitted in this system (snapshots or
-/// reports).
+/// the messages transmitted in this system (reports).
 #[derive(Debug)]
 pub struct ExtensionBytes<'a>(pub &'a [u8]);
 
@@ -318,19 +282,19 @@ impl<'a> Probe for ModalityProbe<'a> {
         self.history.record_event(event_id);
     }
 
+    #[inline]
     fn record_event_with_payload(&mut self, event_id: EventId, payload: u32) {
         self.history.record_event_with_payload(event_id, payload)
     }
 
     #[inline]
-    fn distribute_snapshot(&mut self, destination: &mut [u8]) -> Result<usize, DistributeError> {
-        self.distribute_snapshot_with_metadata(destination, ExtensionBytes(&[]))
+    fn distribute_snapshot(&mut self) -> Result<CausalSnapshot, DistributeError> {
+        self.history.write_fixed_size_snapshot()
     }
 
     #[inline]
-    fn merge_snapshot(&mut self, source: &[u8]) -> Result<(), MergeError> {
-        let _extension_bytes = self.merge_snapshot_with_metadata(source)?;
-        Ok(())
+    fn merge_snapshot(&mut self, external_history: &CausalSnapshot) -> Result<(), MergeError> {
+        self.history.merge_fixed_size(external_history)
     }
 }
 
@@ -363,5 +327,31 @@ impl<'a> ChunkedReporter for ModalityProbe<'a> {
         token: ChunkedReportToken,
     ) -> Result<(), ChunkedReportError> {
         self.history.finish_chunked_report(token)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn causal_snapshot_bytes() {
+        let snap = CausalSnapshot {
+            probe_id: 0x1111_1111,
+            clock: 0x2222_2222,
+            reserved_0: 0x3333,
+            reserved_1: 0x4444,
+        };
+        assert_eq!(snap.to_le_bytes(), [0x1111_1111, 0x2222_2222, 0x4444_3333]);
+
+        assert_eq!(
+            CausalSnapshot::from_le_bytes([0xAAAA_AAAA, 0xBBBB_BBBB, 0xDDDD_CCCC]),
+            CausalSnapshot {
+                probe_id: 0xAAAA_AAAA,
+                clock: 0xBBBB_BBBB,
+                reserved_0: 0xCCCC,
+                reserved_1: 0xDDDD,
+            }
+        );
     }
 }

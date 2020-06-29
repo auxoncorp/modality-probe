@@ -62,8 +62,6 @@ pub enum DistributeError {
     /// Indicates a logical error in the implementation of this library
     /// (or its dependencies).
     Encoding,
-    /// The probe encountered a problem dealing with extension metadata
-    Extension,
     /// A reporting transaction is in progress. Cannot
     /// do mutating operations on the agent until calling
     /// `finish_chunked_report`.
@@ -86,8 +84,6 @@ pub enum MergeError {
     /// The external history violated a semantic rule of the protocol,
     /// such as by having a probe_id out of the allowed value range.
     ExternalHistorySemantics,
-    /// The probe encountered a problem dealing with extension metadata
-    Extension,
     /// A reporting transaction is in progress. Cannot
     /// do mutating operations on the agent until calling
     /// `finish_chunked_report`.

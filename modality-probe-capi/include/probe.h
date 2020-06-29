@@ -51,6 +51,25 @@ typedef struct modality_probe_instant {
     uint32_t event_count;
 } modality_probe_instant;
 
+typedef struct modality_causal_snapshot {
+    /*
+     * What probe instance produced this history snapshot.
+     */
+    uint32_t probe_id;
+    /*
+     * Clock tick count
+     */
+    uint32_t count;
+    /*
+     * Reserved field.
+     */
+    uint16_t reserved_0;
+    /*
+     * Reserved field.
+     */
+    uint16_t reserved_1;
+} modality_causal_snapshot;
+
 typedef uint16_t modality_chunked_report_token;
 
 typedef enum {
@@ -116,24 +135,6 @@ typedef enum {
      */
     MODALITY_PROBE_ERROR_NO_CHUNKED_REPORT_IN_PROGRESS = 12,
 } modality_probe_error;
-
-typedef struct modality_causal_snapshot {
-    /*
-     * What Modality probe instance produced this history snapshot.
-     * Not included in causal ordering evaluation.
-     */
-    uint32_t probe_id;
-
-    /*
-     * Mapping between probe_ids and event-counts at each probe
-     */
-    modality_logical_clock clocks[256];
-
-    /*
-     * How many of those clocks are actually populated
-     */
-    uint8_t clocks_len;
-} modality_causal_snapshot;
 
 /*
  * Modality probe instance initializer macro.
@@ -357,43 +358,19 @@ size_t modality_probe_report(
         size_t *out_written_bytes);
 
 /*
- * Produce a transmittable opaque blob of this Modality probe's
- * causal history for use by another Modality probe elsewhere
- * in the system, filtered down to just the history
- * of this node and its immediate inbound neighbors.
- *
- * Populates the number of bytes written in out_written_bytes.
- */
-size_t modality_probe_distribute_snapshot(
-        modality_probe *probe,
-        uint8_t *history_destination,
-        size_t history_destination_bytes,
-        size_t *out_written_bytes);
-
-/*
  * Produce a transmittable summary of this Modality probe's
  * causal history for use by another Modality probe elsewhere
- * in the system, filtered down to just the history
- * of this node and its immediate inbound neighbors.
+ * in the system.
  */
-size_t modality_probe_distribute_fixed_size_snapshot(
+size_t modality_probe_distribute_snapshot(
         modality_probe *probe,
         modality_causal_snapshot *snapshot);
 
 /*
- * Consume an opaque causal history snapshot blob provided
- * by some other Modality probe instance via modality_probe_distribute_snapshot.
- */
-size_t modality_probe_merge_snapshot(
-        modality_probe *probe,
-        const uint8_t *history_source,
-        size_t history_source_bytes);
-
-/*
- * Consume a fixed-size causal history summary structure provided
+ * Consume a causal history summary structure provided
  * by some other Modality probe.
  */
-size_t modality_probe_merge_fixed_size_snapshot(
+size_t modality_probe_merge_snapshot(
         modality_probe *probe,
         const modality_causal_snapshot *snapshot);
 

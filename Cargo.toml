@@ -11,7 +11,6 @@ edition = "2018"
 license = "Apache-2.0"
 repository = "https://github.com/auxoncorp/modality-probe"
 readme = "README.md"
-build = "build.rs"
 
 [features]
 default = []
@@ -30,7 +29,6 @@ exclude = ["debian-package"]
 [dependencies]
 static_assertions = "1.1.0"
 fixed-slice-vec = "0.2"
-rust-lcm-codec = "0.2.1"
 
 # Used if the std feature is enabled.
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -41,6 +39,3 @@ schemars = { version = "0.6.5", optional = true }
 modality-probe-udp-collector = { path = "./modality-probe-udp-collector" }
 proptest = "0.9.5"
 util = { path = "./util" }
-
-[build-dependencies]
-rust-lcm-codegen = "0.2.1"

@@ -16,7 +16,7 @@ cargo test --workspace
 
 (
     cd modality-probe-capi
-    cargo test
+    cargo test --workspace
 )
 
 # Windows MSVC doesn't like the no-std modality-probe-capi cdylib build

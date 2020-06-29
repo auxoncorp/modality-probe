@@ -181,34 +181,6 @@ fn report_error_to_modality_probe_error(report_error: ReportError) -> ModalityPr
     }
 }
 
-/// # Safety
-///
-/// The ModalityProbe instance pointer must be non-null and point
-/// to an initialized instance operating in a single-threaded
-/// fashion.
-#[cfg_attr(feature = "no_mangle", no_mangle)]
-pub unsafe fn modality_probe_distribute_snapshot(
-    probe: *mut ModalityProbe<'static>,
-    history_destination: *mut u8,
-    history_destination_bytes: usize,
-    out_written_bytes: *mut usize,
-) -> ModalityProbeError {
-    let probe = match probe.as_mut() {
-        Some(t) => t,
-        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
-    };
-    match probe.distribute_snapshot(core::slice::from_raw_parts_mut(
-        history_destination,
-        history_destination_bytes,
-    )) {
-        Ok(written_bytes) => {
-            *out_written_bytes = written_bytes;
-            MODALITY_PROBE_ERROR_OK
-        }
-        Err(e) => distribute_error_to_modality_probe_error(e),
-    }
-}
-
 fn distribute_error_to_modality_probe_error(
     distribute_error: DistributeError,
 ) -> ModalityProbeError {
@@ -217,7 +189,6 @@ fn distribute_error_to_modality_probe_error(
             MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES
         }
         DistributeError::Encoding => MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR,
-        DistributeError::Extension => MODALITY_PROBE_ERROR_EXTENSION_ERROR,
         DistributeError::ReportLockConflict => MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
@@ -228,7 +199,7 @@ fn distribute_error_to_modality_probe_error(
 /// to an initialized instance operating in a single-threaded
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
-pub unsafe fn modality_probe_distribute_fixed_size_snapshot(
+pub unsafe fn modality_probe_distribute_snapshot(
     probe: *mut ModalityProbe<'static>,
     destination_snapshot: *mut CausalSnapshot,
 ) -> ModalityProbeError {
@@ -236,36 +207,12 @@ pub unsafe fn modality_probe_distribute_fixed_size_snapshot(
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match probe.distribute_fixed_size_snapshot() {
+    match probe.distribute_snapshot() {
         Ok(snapshot) => {
             *destination_snapshot = snapshot;
             MODALITY_PROBE_ERROR_OK
         }
         Err(e) => distribute_error_to_modality_probe_error(e),
-    }
-}
-
-/// # Safety
-///
-/// The ModalityProbe instance pointer must be non-null and point
-/// to an initialized instance operating in a single-threaded
-/// fashion.
-#[cfg_attr(feature = "no_mangle", no_mangle)]
-pub unsafe fn modality_probe_merge_snapshot(
-    probe: *mut ModalityProbe<'static>,
-    history_source: *const u8,
-    history_source_bytes: usize,
-) -> ModalityProbeError {
-    let probe = match probe.as_mut() {
-        Some(t) => t,
-        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
-    };
-    match probe.merge_snapshot(core::slice::from_raw_parts(
-        history_source,
-        history_source_bytes,
-    )) {
-        Ok(_) => MODALITY_PROBE_ERROR_OK,
-        Err(e) => merge_error_to_modality_probe_error(e),
     }
 }
 
@@ -278,7 +225,6 @@ fn merge_error_to_modality_probe_error(merge_error: MergeError) -> ModalityProbe
         MergeError::ExternalHistorySemantics => {
             MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS
         }
-        MergeError::Extension => MODALITY_PROBE_ERROR_EXTENSION_ERROR,
         MergeError::ReportLockConflict => MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
@@ -289,7 +235,7 @@ fn merge_error_to_modality_probe_error(merge_error: MergeError) -> ModalityProbe
 /// to an initialized instance operating in a single-threaded
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
-pub unsafe fn modality_probe_merge_fixed_size_snapshot(
+pub unsafe fn modality_probe_merge_snapshot(
     probe: *mut ModalityProbe<'static>,
     snapshot: *const CausalSnapshot,
 ) -> ModalityProbeError {
@@ -297,7 +243,7 @@ pub unsafe fn modality_probe_merge_fixed_size_snapshot(
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match probe.merge_fixed_size_snapshot(&*snapshot) {
+    match probe.merge_snapshot(&*snapshot) {
         Ok(_) => MODALITY_PROBE_ERROR_OK,
         Err(e) => merge_error_to_modality_probe_error(e),
     }
@@ -471,13 +417,12 @@ pub unsafe fn modality_probe_finish_chunked_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::cmp::Ordering;
     use core::mem::MaybeUninit;
 
     fn stack_snapshot(probe: *mut ModalityProbe<'static>) -> CausalSnapshot {
         let mut snap = MaybeUninit::uninit();
         assert_eq!(MODALITY_PROBE_ERROR_OK, unsafe {
-            modality_probe_distribute_fixed_size_snapshot(probe, snap.as_mut_ptr())
+            modality_probe_distribute_snapshot(probe, snap.as_mut_ptr())
         });
         unsafe { snap.assume_init() }
     }
@@ -502,14 +447,12 @@ mod tests {
         let probe = unsafe { probe.assume_init() };
         let snap_empty = stack_snapshot(probe);
         assert_eq!(snap_empty.probe_id, probe_id);
-        assert_eq!(1, snap_empty.clocks_len);
         unsafe {
             modality_probe_record_event(probe, 100);
         }
         let snap_a = stack_snapshot(probe);
         assert!(snap_empty < snap_a);
         assert!(!(snap_a < snap_empty));
-        assert_eq!(1, snap_a.clocks_len);
 
         assert!(&backend.iter().all(|b| *b == 0));
         let mut bytes_written: usize = 0;
@@ -530,7 +473,6 @@ mod tests {
         assert!(snap_a < snap_b);
         assert!(!(snap_b < snap_a));
         let snap_b_neighborhood = stack_snapshot(probe);
-        assert_eq!(1, snap_b_neighborhood.clocks_len);
         assert!(snap_b < snap_b_neighborhood);
 
         // Share that snapshot with another component in the system, pretend it lives on
@@ -559,25 +501,15 @@ mod tests {
         );
         assert!(!(snap_b_neighborhood < remote_snap_pre_merge));
         assert_eq!(remote_snap_pre_merge.probe_id, remote_probe_id);
-        assert_eq!(1, remote_snap_pre_merge.clocks_len);
 
         unsafe {
-            modality_probe_merge_fixed_size_snapshot(
+            modality_probe_merge_snapshot(
                 remote_probe,
                 &snap_b_neighborhood as *const CausalSnapshot,
             )
         };
 
         let remote_snap_post_merge = stack_snapshot(remote_probe);
-        assert_eq!(
-            Some(Ordering::Greater),
-            remote_snap_post_merge.partial_cmp(&snap_b_neighborhood)
-        );
-        assert_eq!(
-            Some(Ordering::Less),
-            snap_b_neighborhood.partial_cmp(&remote_snap_post_merge)
-        );
-        assert!(snap_b_neighborhood < remote_snap_post_merge);
         assert!(!(remote_snap_post_merge < snap_b_neighborhood));
 
         let snap_c = stack_snapshot(probe);
