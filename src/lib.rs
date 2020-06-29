@@ -343,9 +343,11 @@ impl<'a> ChunkedReporter for ModalityProbe<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compact_log::log_tests::*;
+    use proptest::prelude::*;
 
     #[test]
-    fn causal_snapshot_bytes() {
+    fn causal_snapshot_bytes_conversion() {
         let snap = CausalSnapshot {
             clock: LogicalClock {
                 id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
@@ -375,5 +377,24 @@ mod tests {
             CausalSnapshot::from_le_bytes([0, 0xBBBB_BBBB, 0xDDDD_CCCC]),
             Err(InvalidProbeId)
         );
+    }
+
+    proptest! {
+        #[test]
+        fn round_trip_causal_snapshot(
+            clock in gen_clock(),
+            reserved_0 in proptest::num::u16::ANY,
+            reserved_1 in proptest::num::u16::ANY) {
+            let snap_in = CausalSnapshot {
+                clock,
+                reserved_0,
+                reserved_1,
+            };
+            let bytes = snap_in.to_le_bytes();
+            let snap_out = CausalSnapshot::from_le_bytes(bytes).unwrap();
+            assert_eq!(snap_in.clock, snap_out.clock);
+            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
+            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
+        }
     }
 }

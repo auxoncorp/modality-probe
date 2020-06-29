@@ -616,7 +616,7 @@ pub(crate) mod log_tests {
     }
 
     prop_compose! {
-        fn gen_clock()(id in gen_probe_id(), count in proptest::num::u32::ANY) -> LogicalClock {
+        pub(crate) fn gen_clock()(id in gen_probe_id(), count in proptest::num::u32::ANY) -> LogicalClock {
             LogicalClock { id, count }
         }
     }
