@@ -191,16 +191,6 @@ impl ChunkHandler {
 }
 
 pub fn matches_chunk_fingerprint(message_bytes: &[u8]) -> bool {
-    if message_bytes.len()
-        >= std::mem::size_of::<modality_probe::report::chunked::WireChunkHeader>()
-    {
-        [
-            message_bytes[0],
-            message_bytes[1],
-            message_bytes[2],
-            message_bytes[3],
-        ] == modality_probe::report::chunked::chunk_framing_fingerprint()
-    } else {
-        false
-    }
+    let report = modality_probe::wire::ChunkedReport::new_unchecked(&message_bytes[..]);
+    report.check_len().is_ok() && report.check_fingerprint().is_ok()
 }

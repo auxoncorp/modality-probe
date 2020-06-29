@@ -144,7 +144,7 @@ pub fn start_receiving_from_socket<W: Write>(
 
         if matches_chunk_fingerprint(&buf[..bytes_read]) {
             chunk_handler.add_incoming_chunk(
-                &buf[..modality_probe::report::chunked::MAX_CHUNK_BYTES],
+                &buf[..modality_probe::wire::chunked_report::ChunkedReport::<&[u8]>::MAX_CHUNK_BYTES],
                 receive_time,
             );
             let owned_reports = chunk_handler.materialize_completed_reports();

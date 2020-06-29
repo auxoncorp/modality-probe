@@ -12,6 +12,7 @@ mod history;
 mod id;
 mod macros;
 pub mod report;
+pub mod wire;
 
 pub use error::*;
 use history::DynamicHistory;
