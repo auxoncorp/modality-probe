@@ -250,6 +250,11 @@ impl<'a> ModalityProbe<'a> {
     pub fn now(&self) -> ModalityProbeInstant {
         self.history.now()
     }
+
+    /// Retrieve this probe's ID
+    pub fn probe_id(&self) -> ProbeId {
+        self.history.probe_id
+    }
 }
 
 /// A situated moment in causal time.

@@ -191,9 +191,15 @@ pub extern "C" fn modality_probe_merge_snapshot(
 ) -> ModalityProbeError {
     unsafe { modality_probe_capi_impl::modality_probe_merge_snapshot(probe, snapshot) }
 }
+
 #[no_mangle]
 pub extern "C" fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> ModalityProbeInstant {
     unsafe { modality_probe_capi_impl::modality_probe_now(probe) }
+}
+
+#[no_mangle]
+pub extern "C" fn modality_probe_get_probe_id(probe: *const ModalityProbe<'static>) -> u32 {
+    unsafe { modality_probe_capi_impl::modality_probe_get_probe_id(probe) }
 }
 
 #[no_mangle]

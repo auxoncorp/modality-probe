@@ -375,12 +375,21 @@ size_t modality_probe_merge_snapshot(
  * Capture the Modality probe instance's moment in causal time
  * for correlation with external systems.
  *
- * If the pointer to the Modality probe instance (a.k.a. probe) was null,
+ * If the pointer to the Modality probe instance was null,
  * returns an `modality_probe_instant` with its `clock.id` value
  * set to the invalid probe id `0`.
  */
 modality_probe_instant modality_probe_now(
         modality_probe *probe);
+
+/*
+ * Retrieve this probe's ID.
+ *
+ * If the pointer to the Modality probe instance was null,
+ * returns the invalid probe id `0`.
+ */
+uint32_t modality_probe_get_probe_id(
+        const modality_probe *probe);
 
 /*
  * Prepare to write a chunked report.

@@ -24,6 +24,7 @@ fn probe_lifecycle_does_not_panic() -> Result<(), ModalityProbeError> {
     let mut backend = Buffer::new(1024);
     let mut storage = [0u8; 1024];
     let probe = ModalityProbe::initialize_at(&mut storage, probe_id)?;
+    assert_eq!(probe.probe_id(), probe_id);
 
     let p = probe.distribute_snapshot()?;
     let q = probe.distribute_snapshot()?;
@@ -58,11 +59,13 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
 
     let mut storage_foo = [0u8; 1024];
     let probe_foo = ModalityProbe::initialize_at(&mut storage_foo, probe_id_foo)?;
+    assert_eq!(probe_foo.probe_id(), probe_id_foo);
     let snap_foo_a = probe_foo.distribute_snapshot()?;
 
     // Re-initialize a probe with no previous history
     let mut storage_bar = [0u8; 1024];
     let probe_bar = ModalityProbe::initialize_at(&mut storage_bar, probe_id_bar)?;
+    assert_eq!(probe_bar.probe_id(), probe_id_bar);
     assert!(probe_bar.merge_snapshot(&snap_foo_a).is_ok());
     let snap_bar_b = probe_bar.distribute_snapshot()?;
 

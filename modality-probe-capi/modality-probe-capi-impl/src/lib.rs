@@ -286,6 +286,24 @@ pub unsafe fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> Modality
     probe.now()
 }
 
+/// Retrieve this probe's ID.
+///
+/// If the pointer to the ModalityProbe instance was null,
+/// returns the invalid probe id `0`.
+///
+/// # Safety
+///
+/// The ModalityProbe instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_get_probe_id(probe: *const ModalityProbe<'static>) -> u32 {
+    match probe.as_ref() {
+        Some(t) => t.probe_id().get_raw(),
+        None => return 0,
+    }
+}
+
 // ChunkedReportToken is expressed as a uint16_t in probe.h,
 // so let's be extra sure that the sizes and alignment match up
 use static_assertions::{assert_eq_align, assert_eq_size};
@@ -450,6 +468,8 @@ mod tests {
         };
         assert_eq!(MODALITY_PROBE_ERROR_OK, result);
         let probe = unsafe { probe.assume_init() };
+        let returned_probe_id = unsafe { modality_probe_get_probe_id(probe) };
+        assert_eq!(returned_probe_id, probe_id);
         let snap_empty = stack_snapshot(probe);
         assert_eq!(snap_empty.clock.id.get_raw(), probe_id);
         unsafe {

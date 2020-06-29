@@ -249,6 +249,30 @@ bool test_now(void) {
     return passed;
 }
 
+bool test_get_id(void) {
+    bool passed = true;
+    uint32_t returned_probe_id = modality_probe_get_probe_id(NULL);
+    if(returned_probe_id != 0)
+    {
+        passed = false;
+    }
+    uint8_t *destination = (uint8_t*) malloc(DEFAULT_PROBE_SIZE);
+    modality_probe * probe;
+    modality_probe_error result = modality_probe_initialize(
+            destination,
+            DEFAULT_PROBE_SIZE,
+            DEFAULT_PROBE_ID,
+            &probe);
+    ERROR_CHECK(result, passed);
+    returned_probe_id = modality_probe_get_probe_id(probe);
+    if(returned_probe_id != DEFAULT_PROBE_ID)
+    {
+        passed = false;
+    }
+    free(destination);
+    return passed;
+}
+
 bool test_chunked_reporting(void) {
     bool passed = true;
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
@@ -309,6 +333,7 @@ int main(void) {
     run_test(test_event_recording, "test_event_recording", &passed);
     run_test(test_merge, "test_merge", &passed);
     run_test(test_now, "test_now", &passed);
+    run_test(test_get_id, "test_get_id", &passed);
     run_test(test_chunked_reporting, "test_chunked_reporting", &passed);
     if (!passed) {
         fprintf(stderr, "FAILED c test suite\n");
