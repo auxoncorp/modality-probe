@@ -198,6 +198,8 @@ impl EventId {
     /// neighbors that attempt to communicate with it.
     pub const EVENT_NUM_CLOCKS_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 4) });
+    /// Raw nil value used by RaceBuffer. Must not be used as an event id elsewhere
+    pub const EVENT_NIL_VALUE_RAW: u32 = EventId::MAX_INTERNAL_ID - 5;
 
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[

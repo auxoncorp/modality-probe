@@ -1,0 +1,23 @@
+[package]
+name = "modality-probe-debug-collector"
+version = "0.1.0"
+authors = ["Nicholas Springer <nspringer@auxon.io>"]
+edition = "2018"
+
+[dependencies]
+goblin = "0.2.3"
+chrono = { version = "0.4", features = ["serde"] }
+structopt = "0.3"
+parse_duration = "2.1.0"
+probe-rs = "0.7.1"
+maplit = "1.0.2"
+
+modality-probe = { path = ".." }
+util = { path = "../util" }
+modality-probe-udp-collector = { path = "../modality-probe-udp-collector" }
+
+[dependencies.race-buffer]
+path = "../race-buffer"
+features = ["std"]
+
+

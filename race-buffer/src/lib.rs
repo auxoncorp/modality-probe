@@ -2,8 +2,6 @@
 
 use core::cmp::PartialEq;
 use core::marker::Copy;
-#[cfg(feature = "std")]
-use core::marker::PhantomData;
 
 #[cfg(not(feature = "std"))]
 use core::fmt;
@@ -13,14 +11,6 @@ use std::fmt;
 pub trait Entry: Copy + PartialEq {
     const NIL_VAL: Self;
     fn is_prefix(&self) -> bool;
-}
-
-pub trait Snapper<E>
-where
-    E: Entry,
-{
-    fn snap_wcurs(&self) -> usize;
-    fn snap_storage(&self, index: usize) -> E;
 }
 
 pub struct SizeError();
@@ -100,118 +90,135 @@ where
 }
 
 #[cfg(feature = "std")]
-/// Struct used to read from a RaceBuffer asynchronously
-pub struct RaceBufferReader<E, S>
-where
-    E: Entry,
-    S: Snapper<E>,
-{
-    /// Struct for reading writer state
-    snapper: S,
-    /// Reader's cursor
-    rcurs: usize,
-    /// Capacity of backing storage
-    storage_cap: usize,
-    phantom: PhantomData<E>,
-}
+pub mod reader {
 
-#[cfg(feature = "std")]
-impl<E, S> RaceBufferReader<E, S>
-where
-    E: Copy + PartialEq + Entry,
-    S: Snapper<E>,
-{
-    /// Create new RaceBufferReader
-    pub fn new(snapper: S, storage_cap: usize) -> RaceBufferReader<E, S> {
-        RaceBufferReader {
-            snapper,
-            rcurs: 0,
-            storage_cap,
-            phantom: PhantomData,
-        }
+    use super::*;
+    use core::marker::PhantomData;
+    use std::error::Error;
+
+    type Result<T> = std::result::Result<T, Box<dyn Error>>;
+    pub trait Snapper<E>
+    where
+        E: Entry,
+    {
+        fn snap_wcurs(&self) -> Result<usize>;
+        fn snap_storage(&self, index: usize) -> Result<E>;
     }
 
-    /// Attempt to read all new entries in race buffer into given read buffer
-    pub fn read(&mut self, rbuf: &mut Vec<E>) {
-        let pre_wcurs = self.snapper.snap_wcurs();
-        if pre_wcurs > self.storage_cap + self.rcurs {
-            // If writer has overwritten unread entries, store nils and correct rcurs
-            let num_missed = pre_wcurs - (self.rcurs + self.storage_cap);
-            self.store_nil(num_missed, rbuf);
-            self.rcurs = pre_wcurs - self.storage_cap;
-        }
-
-        // Perform reads into snapshot buffer
-        let first_read = self.rcurs;
-        let mut buf_snapshot: Vec<E> = Vec::new();
-        while self.rcurs < pre_wcurs {
-            let storage_index = get_cursor_index(self.storage_cap, self.rcurs);
-            buf_snapshot.push(self.snapper.snap_storage(storage_index));
-            self.rcurs += 1;
-        }
-
-        // Calculate number of entries in snapshot buffer that may have been overwritten
-        let post_wcurs = self.snapper.snap_wcurs();
-        let overlap = if post_wcurs > self.storage_cap + first_read {
-            (post_wcurs - self.storage_cap) - first_read
-        } else {
-            0
-        };
-        if overlap >= buf_snapshot.len() {
-            // All entries may have been overwritten, return
-            self.store_nil(buf_snapshot.len(), rbuf);
-            return;
-        }
-        self.store_nil(overlap, rbuf);
-        let mut valid_snapshot = &mut buf_snapshot[overlap..];
-
-        let last_index = valid_snapshot.len() - 1;
-        if valid_snapshot.len() >= 2 && valid_snapshot[last_index - 1] == E::NIL_VAL {
-            // Writer was possibly not finished writing last two entries, roll
-            // back read by 2
-            valid_snapshot = &mut valid_snapshot[..last_index - 1];
-            self.rcurs -= 2;
-        } else if valid_snapshot[last_index] == E::NIL_VAL {
-            // Writer was possibly not finished writing last entry,
-            // roll back read by 1
-            valid_snapshot = &mut valid_snapshot[..last_index];
-            self.rcurs -= 1;
-        }
-
-        // Store valid entries in read buffer
-        for entry in valid_snapshot {
-            self.store(*entry, rbuf);
-        }
+    /// Struct used to read from a RaceBuffer asynchronously
+    pub struct RaceBufferReader<E, S>
+    where
+        E: Entry,
+        S: Snapper<E>,
+    {
+        /// Struct for reading writer state
+        snapper: S,
+        /// Reader's cursor
+        rcurs: usize,
+        /// Capacity of backing storage
+        storage_cap: usize,
+        phantom: PhantomData<E>,
     }
 
-    /// Store given entry in given read buffer,
-    /// replacing stored prefixes with nil if suffix is nil
-    fn store(&mut self, entry: E, rbuf: &mut Vec<E>) {
-        if entry == E::NIL_VAL {
-            let last_entry_opt = rbuf.pop();
-            match last_entry_opt {
-                None => rbuf.push(E::NIL_VAL),
-                Some(last_entry) => {
-                    if last_entry.is_prefix() {
-                        // Suffix lost, replace prefix with nil
-                        rbuf.push(E::NIL_VAL);
-                        rbuf.push(E::NIL_VAL);
-                    } else {
-                        rbuf.push(last_entry);
-                        rbuf.push(E::NIL_VAL);
+    #[cfg(feature = "std")]
+    impl<E, S> RaceBufferReader<E, S>
+    where
+        E: Copy + PartialEq + Entry,
+        S: Snapper<E>,
+    {
+        /// Create new RaceBufferReader
+        pub fn new(snapper: S, storage_cap: usize) -> RaceBufferReader<E, S> {
+            RaceBufferReader {
+                snapper,
+                rcurs: 0,
+                storage_cap,
+                phantom: PhantomData,
+            }
+        }
+
+        /// Attempt to read all new entries in race buffer into given read buffer
+        pub fn read(&mut self, rbuf: &mut Vec<E>) -> Result<()> {
+            let pre_wcurs = self.snapper.snap_wcurs()?;
+            if pre_wcurs > self.storage_cap + self.rcurs {
+                // If writer has overwritten unread entries, store nils and correct rcurs
+                let num_missed = pre_wcurs - (self.rcurs + self.storage_cap);
+                self.store_nil(num_missed, rbuf);
+                self.rcurs = pre_wcurs - self.storage_cap;
+            }
+
+            // Perform reads into snapshot buffer
+            let first_read = self.rcurs;
+            let mut buf_snapshot: Vec<E> = Vec::new();
+            while self.rcurs < pre_wcurs {
+                let storage_index = get_cursor_index(self.storage_cap, self.rcurs);
+                buf_snapshot.push(self.snapper.snap_storage(storage_index)?);
+                self.rcurs += 1;
+            }
+
+            // Calculate number of entries in snapshot buffer that may have been overwritten
+            let post_wcurs = self.snapper.snap_wcurs()?;
+            let overlap = if post_wcurs > self.storage_cap + first_read {
+                (post_wcurs - self.storage_cap) - first_read
+            } else {
+                0
+            };
+            if overlap >= buf_snapshot.len() {
+                // All entries may have been overwritten, return
+                self.store_nil(buf_snapshot.len(), rbuf);
+                return Ok(());
+            }
+            self.store_nil(overlap, rbuf);
+            let mut valid_snapshot = &mut buf_snapshot[overlap..];
+
+            let last_index = valid_snapshot.len() - 1;
+            if valid_snapshot.len() >= 2 && valid_snapshot[last_index - 1] == E::NIL_VAL {
+                // Writer was possibly not finished writing last two entries, roll
+                // back read by 2
+                valid_snapshot = &mut valid_snapshot[..last_index - 1];
+                self.rcurs -= 2;
+            } else if valid_snapshot[last_index] == E::NIL_VAL {
+                // Writer was possibly not finished writing last entry,
+                // roll back read by 1
+                valid_snapshot = &mut valid_snapshot[..last_index];
+                self.rcurs -= 1;
+            }
+
+            // Store valid entries in read buffer
+            for entry in valid_snapshot {
+                self.store(*entry, rbuf);
+            }
+            Ok(())
+        }
+
+        /// Store given entry in given read buffer,
+        /// replacing stored prefixes with nil if suffix is nil
+        fn store(&mut self, entry: E, rbuf: &mut Vec<E>) {
+            if entry == E::NIL_VAL {
+                let last_entry_opt = rbuf.pop();
+                match last_entry_opt {
+                    None => rbuf.push(E::NIL_VAL),
+                    Some(last_entry) => {
+                        if last_entry.is_prefix() {
+                            // Suffix lost, replace prefix with nil
+                            rbuf.push(E::NIL_VAL);
+                            rbuf.push(E::NIL_VAL);
+                        } else {
+                            rbuf.push(last_entry);
+                            rbuf.push(E::NIL_VAL);
+                        }
                     }
                 }
+            } else {
+                rbuf.push(entry);
             }
-        } else {
-            rbuf.push(entry);
         }
-    }
 
-    #[inline]
-    /// Store given number of nil entries in given read buffer
-    fn store_nil(&mut self, num: usize, rbuf: &mut Vec<E>) {
-        for _ in 0..num {
-            self.store(E::NIL_VAL, rbuf);
+        #[inline]
+        /// Store given number of nil entries in given read buffer
+        fn store_nil(&mut self, num: usize, rbuf: &mut Vec<E>) {
+            for _ in 0..num {
+                self.store(E::NIL_VAL, rbuf);
+            }
         }
     }
 }
@@ -223,6 +230,7 @@ pub mod tests {
 
     use crossbeam;
     use rand::Rng;
+    use std::error::Error;
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;
@@ -298,13 +306,13 @@ pub mod tests {
 
     pub struct RawPtrSnapper<'a>(*const RaceBuffer<'a, OrderedEntry>);
 
-    impl Snapper<OrderedEntry> for RawPtrSnapper<'_> {
-        fn snap_wcurs(&self) -> usize {
-            unsafe { self.0.as_ref().unwrap().read_wcurs() }
+    impl reader::Snapper<OrderedEntry> for RawPtrSnapper<'_> {
+        fn snap_wcurs(&self) -> Result<usize, Box<dyn Error>> {
+            unsafe { Ok(self.0.as_ref().unwrap().read_wcurs()) }
         }
 
-        fn snap_storage(&self, index: usize) -> OrderedEntry {
-            unsafe { self.0.as_ref().unwrap().read_storage(index) }
+        fn snap_storage(&self, index: usize) -> Result<OrderedEntry, Box<dyn Error>> {
+            unsafe { Ok(self.0.as_ref().unwrap().read_storage(index)) }
         }
     }
 
@@ -336,14 +344,14 @@ pub mod tests {
                 let buf_ptr = ptr_r.recv().unwrap() as *const RaceBuffer<'_, OrderedEntry>;
                 let snapper = RawPtrSnapper(buf_ptr);
                 let mut rbuf = Vec::new();
-                let mut reader = RaceBufferReader::new(snapper, STORAGE_CAP);
+                let mut buf_reader = reader::RaceBufferReader::new(snapper, STORAGE_CAP);
 
                 while rbuf.len() < NUM_WRITES as usize {
-                    reader.read(&mut rbuf);
+                    buf_reader.read(&mut rbuf).unwrap();
                     thread::sleep(Duration::from_millis(10));
                 }
                 thread::sleep(Duration::from_millis(100));
-                reader.read(&mut rbuf);
+                buf_reader.read(&mut rbuf).unwrap();
                 assert_eq!(rbuf.len(), NUM_WRITES as usize);
                 assert!(OrderedEntry::entries_correct_index(&rbuf[..]));
                 barr_w.wait();
@@ -395,16 +403,16 @@ pub mod tests {
                 let snapper = RawPtrSnapper(buf_ptr);
 
                 let mut rbuf = Vec::new();
-                let mut reader = RaceBufferReader::new(snapper, STORAGE_CAP);
+                let mut buf_reader = reader::RaceBufferReader::new(snapper, STORAGE_CAP);
 
                 let mut rng = rand::thread_rng();
                 while rbuf.len() < NUM_WRITES as usize {
-                    reader.read(&mut rbuf);
+                    buf_reader.read(&mut rbuf).unwrap();
                     let sleep_time: u64 = rng.gen::<u64>() % 3000;
                     std::thread::sleep(Duration::from_nanos(sleep_time));
                 }
                 thread::sleep(Duration::from_millis(100));
-                reader.read(&mut rbuf);
+                buf_reader.read(&mut rbuf).unwrap();
                 assert_eq!(rbuf.len(), NUM_WRITES as usize);
                 assert!(OrderedEntry::entries_correct_index(&rbuf[..]));
                 assert!(OrderedEntry::double_entries_consistent(&rbuf[..]));

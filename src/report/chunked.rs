@@ -194,6 +194,7 @@ pub trait ChunkedReporter {
 }
 
 #[derive(Debug)]
+#[repr(C)]
 pub(crate) struct ChunkedReportState {
     /// Use the `false` value to indicate "no chunked report in progress"
     is_report_in_progress: bool,

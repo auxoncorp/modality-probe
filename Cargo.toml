@@ -21,6 +21,7 @@ std = ["serde", "proptest", "schemars"]
 members = [
   "modality-probe-cli",
   "modality-probe-udp-collector",
+  "modality-probe-debug-collector",
   "modality-probe-graph",
   "util",
   "race-buffer",
@@ -31,6 +32,7 @@ exclude = ["debian-package"]
 static_assertions = "1.1.0"
 fixed-slice-vec = "0.2"
 rust-lcm-codec = "0.2.1"
+race-buffer = { path = "./race-buffer" }
 
 # Used if the std feature is enabled.
 serde = { version = "1.0", features = ["derive"], optional = true }

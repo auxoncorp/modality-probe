@@ -64,18 +64,21 @@ impl CompactLogItem {
         )
     }
 
+    /// prototype
     #[inline]
-    pub(crate) fn has_clock_bit_set(self) -> bool {
+    pub fn has_clock_bit_set(self) -> bool {
         (self.0 & CLOCK_MASK) == CLOCK_MASK
     }
 
+    /// prototype
     #[inline]
-    pub(crate) fn has_event_with_payload_bit_set(self) -> bool {
+    pub fn has_event_with_payload_bit_set(self) -> bool {
         (self.0 & EVENT_WITH_PAYLOAD_MASK) == EVENT_WITH_PAYLOAD_MASK
     }
 
+    /// prototype
     #[inline]
-    pub(crate) fn raw(self) -> u32 {
+    pub fn raw(self) -> u32 {
         self.0
     }
 
@@ -91,7 +94,7 @@ impl CompactLogItem {
 
     /// Unset that top bit to get the original probe id back out
     #[inline]
-    pub(crate) fn interpret_as_logical_clock_probe_id(self) -> u32 {
+    pub fn interpret_as_logical_clock_probe_id(self) -> u32 {
         self.0 & !CLOCK_MASK
     }
 }
@@ -99,6 +102,14 @@ impl core::fmt::Debug for CompactLogItem {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         f.write_fmt(format_args!("CompactLogItem({})", self.0))
+    }
+}
+
+impl race_buffer::Entry for CompactLogItem {
+    const NIL_VAL: Self = CompactLogItem(EventId::EVENT_NIL_VALUE_RAW);
+
+    fn is_prefix(&self) -> bool {
+        self.has_clock_bit_set() || self.has_event_with_payload_bit_set()
     }
 }
 
