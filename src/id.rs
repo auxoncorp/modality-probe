@@ -199,7 +199,8 @@ impl EventId {
     pub const EVENT_NUM_CLOCKS_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 4) });
     /// Raw nil value used by RaceBuffer. Must not be used as an event id elsewhere
-    pub const EVENT_NIL_VALUE_RAW: u32 = EventId::MAX_INTERNAL_ID - 5;
+    pub const EVENT_NIL_VALUE: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 5) });
 
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[
@@ -207,6 +208,7 @@ impl EventId {
         EventId::EVENT_LOG_OVERFLOWED,
         EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
         EventId::EVENT_NUM_CLOCKS_OVERFLOWED,
+        EventId::EVENT_NIL_VALUE,
     ];
 
     /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
@@ -239,7 +241,7 @@ impl EventId {
 
     /// Get the underlying value as a convenient primitive
     #[inline]
-    pub fn get_raw(self) -> u32 {
+    pub const fn get_raw(self) -> u32 {
         self.0.get()
     }
 

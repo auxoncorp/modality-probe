@@ -38,7 +38,7 @@ impl CompactLogItem {
     /// Create a single event `CompactLogItem` with no payload
     #[must_use]
     #[inline]
-    pub fn event(event_id: EventId) -> Self {
+    pub const fn event(event_id: EventId) -> Self {
         // The construction checks for EventId should prevent the top bit from being set
         CompactLogItem(event_id.get_raw())
     }
@@ -106,7 +106,7 @@ impl core::fmt::Debug for CompactLogItem {
 }
 
 impl race_buffer::Entry for CompactLogItem {
-    const NIL_VAL: Self = CompactLogItem(EventId::EVENT_NIL_VALUE_RAW);
+    const NIL_VAL: Self = CompactLogItem::event(EventId::EVENT_NIL_VALUE);
 
     fn is_prefix(&self) -> bool {
         self.has_clock_bit_set() || self.has_event_with_payload_bit_set()
