@@ -1,5 +1,6 @@
 //! A wire protocol for representing Modality probe log reports in bulk form
 
+use crate::ProbeId;
 use byteorder::{ByteOrder, LittleEndian};
 
 /// Everything that can go wrong when attempting to interpret a bulk report
@@ -13,6 +14,9 @@ pub enum BulkReportWireError {
     /// There weren't enough payload bytes (based on
     /// expectations from inspecting the header).
     IncompletePayload,
+    /// The probe id didn't follow the rules for being
+    /// a valid Modality probe-specifying ProbeId
+    InvalidProbeId(u32),
 }
 
 /// A read/write wrapper around a bulk report buffer
@@ -57,7 +61,7 @@ impl<T: AsRef<[u8]>> BulkReport<T> {
     /// * [check_len](struct.BulkReport.html#method.check_len)
     /// * [check_fingerprint](struct.BulkReport.html#method.check_fingerprint)
     /// * [check_payload_len](struct.BulkReport.html#method.check_payload_len)
-    pub fn new_checked(buffer: T) -> Result<BulkReport<T>, BulkReportWireError> {
+    pub fn new(buffer: T) -> Result<BulkReport<T>, BulkReportWireError> {
         let r = Self::new_unchecked(buffer);
         r.check_len()?;
         r.check_fingerprint()?;
@@ -138,9 +142,13 @@ impl<T: AsRef<[u8]>> BulkReport<T> {
 
     /// Return the `probe_id` field
     #[inline]
-    pub fn probe_id(&self) -> u32 {
+    pub fn probe_id(&self) -> Result<ProbeId, BulkReportWireError> {
         let data = self.buffer.as_ref();
-        LittleEndian::read_u32(&data[field::PROBE_ID])
+        let raw_probe_id = LittleEndian::read_u32(&data[field::PROBE_ID]);
+        match ProbeId::new(raw_probe_id) {
+            Some(id) => Ok(id),
+            None => Err(BulkReportWireError::InvalidProbeId(raw_probe_id)),
+        }
     }
 
     /// Return the `n_log_bytes` field
@@ -168,18 +176,19 @@ impl<'a, T: AsRef<[u8]> + ?Sized> BulkReport<&'a T> {
 }
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> BulkReport<T> {
-    /// Set the `fingerprint` field
+    /// Set the `fingerprint` field to
+    /// [Self::FINGERPRINT](struct.BulkReport.html#associatedconstant.FINGERPRINT)
     #[inline]
-    pub fn set_fingerprint(&mut self, value: u32) {
+    pub fn set_fingerprint(&mut self) {
         let data = self.buffer.as_mut();
-        LittleEndian::write_u32(&mut data[field::FINGERPRINT], value);
+        LittleEndian::write_u32(&mut data[field::FINGERPRINT], Self::FINGERPRINT);
     }
 
     /// Set the `probe_id` field
     #[inline]
-    pub fn set_probe_id(&mut self, value: u32) {
+    pub fn set_probe_id(&mut self, value: ProbeId) {
         let data = self.buffer.as_mut();
-        LittleEndian::write_u32(&mut data[field::PROBE_ID], value);
+        LittleEndian::write_u32(&mut data[field::PROBE_ID], value.get_raw());
     }
 
     /// Set the `n_log_bytes` field
@@ -207,12 +216,6 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> BulkReport<T> {
 impl<T: AsRef<[u8]>> AsRef<[u8]> for BulkReport<T> {
     fn as_ref(&self) -> &[u8] {
         self.buffer.as_ref()
-    }
-}
-
-impl<T: AsRef<[u8]> + AsMut<[u8]>> AsMut<[u8]> for BulkReport<T> {
-    fn as_mut(&mut self) -> &mut [u8] {
-        self.buffer.as_mut()
     }
 }
 
@@ -259,8 +262,8 @@ mod tests {
         let mut bytes = [0xFF; 28];
         let mut r = BulkReport::new_unchecked(&mut bytes[..]);
         assert_eq!(r.check_len(), Ok(()));
-        r.set_fingerprint(BulkReport::<&[u8]>::FINGERPRINT);
-        r.set_probe_id(1);
+        r.set_fingerprint();
+        r.set_probe_id(ProbeId::new(1).unwrap());
         r.set_n_log_bytes(8);
         r.set_n_extension_bytes(4);
         r.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
@@ -275,8 +278,8 @@ mod tests {
         let mut bytes = [0xFF; 28 + EXTRA_JUNK_SIZE];
         let mut r = BulkReport::new_unchecked(&mut bytes[..]);
         assert_eq!(r.check_len(), Ok(()));
-        r.set_fingerprint(BulkReport::<&[u8]>::FINGERPRINT);
-        r.set_probe_id(1);
+        r.set_fingerprint();
+        r.set_probe_id(ProbeId::new(1).unwrap());
         r.set_n_log_bytes(8);
         r.set_n_extension_bytes(4);
         assert_eq!(r.payload_len(), 8 + 4);
@@ -291,9 +294,9 @@ mod tests {
 
     #[test]
     fn deconstruct() {
-        let r = BulkReport::new_checked(&MSG_BYTES[..]).unwrap();
+        let r = BulkReport::new(&MSG_BYTES[..]).unwrap();
         assert_eq!(r.fingerprint(), BulkReport::<&[u8]>::FINGERPRINT);
-        assert_eq!(r.probe_id(), 1);
+        assert_eq!(r.probe_id().unwrap().get_raw(), 1);
         assert_eq!(r.n_log_bytes(), 8);
         assert_eq!(r.n_extension_bytes(), 4);
         assert_eq!(r.payload_len(), 8 + 4);
@@ -310,9 +313,9 @@ mod tests {
         let mut bytes = [0xFF; 28 + EXTRA_JUNK_SIZE];
         assert_eq!(bytes.len(), MSG_BYTES.len() + EXTRA_JUNK_SIZE);
         (&mut bytes[..28]).copy_from_slice(&MSG_BYTES[..]);
-        let r = BulkReport::new_checked(&bytes[..]).unwrap();
+        let r = BulkReport::new(&bytes[..]).unwrap();
         assert_eq!(r.fingerprint(), BulkReport::<&[u8]>::FINGERPRINT);
-        assert_eq!(r.probe_id(), 1);
+        assert_eq!(r.probe_id().unwrap().get_raw(), 1);
         assert_eq!(r.n_log_bytes(), 8);
         assert_eq!(r.n_extension_bytes(), 4);
         assert_eq!(r.payload_len(), 8 + 4);
@@ -324,7 +327,7 @@ mod tests {
     #[test]
     fn invalid_fingerprint() {
         let bytes = [0xFF; 16];
-        let r = BulkReport::new_checked(&bytes[..]);
+        let r = BulkReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), BulkReportWireError::InvalidFingerprint);
     }
 
@@ -332,18 +335,18 @@ mod tests {
     fn missing_header() {
         let bytes = [0xFF; 16 - 1];
         assert_eq!(bytes.len(), BulkReport::<&[u8]>::header_len() - 1);
-        let r = BulkReport::new_checked(&bytes[..]);
+        let r = BulkReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), BulkReportWireError::MissingHeader);
     }
 
     #[test]
     fn incomplete_payload() {
         let mut bytes = MSG_BYTES.clone();
-        let mut r = BulkReport::new_checked(&mut bytes[..]).unwrap();
+        let mut r = BulkReport::new(&mut bytes[..]).unwrap();
         r.set_n_log_bytes(8 + 1);
         r.set_n_extension_bytes(4 + 1);
         let bytes = r.into_inner();
-        let r = BulkReport::new_checked(&bytes[..]);
+        let r = BulkReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), BulkReportWireError::IncompletePayload);
     }
 }

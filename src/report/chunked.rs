@@ -4,12 +4,11 @@
 
 use crate::compact_log::CompactLogItem;
 use crate::history::DynamicHistory;
-use crate::wire::{ChunkedReport, ChunkedReportWireError};
+use crate::wire::{ChunkPayloadDataType, ChunkedReport, ChunkedReportWireError};
 use crate::ProbeId;
 use crate::ReportError;
 use core::borrow::Borrow;
 use core::mem::{size_of, MaybeUninit};
-use static_assertions::const_assert_ne;
 
 /// The size of a chunk in u32s, the 4-byte pieces we align these messages to.
 pub const MAX_CHUNK_U32_WORDS: usize = 256 / size_of::<u32>();
@@ -17,28 +16,6 @@ pub const MAX_CHUNK_U32_WORDS: usize = 256 / size_of::<u32>();
 /// that could fit in a chunk.
 pub const MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK: usize =
     ChunkedReport::<&[u8]>::MAX_PAYLOAD_BYTES_PER_CHUNK / size_of::<CompactLogItem>();
-
-const DATA_TYPE_LOG: u8 = 0b0001;
-const DATA_TYPE_EXTENSION: u8 = 0b0010;
-const_assert_ne!(DATA_TYPE_LOG, DATA_TYPE_EXTENSION);
-
-/// Chunked reports carry payloads, but we need a hint to figure out how to interpret it.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum ChunkPayloadDataType {
-    /// Compact log data. An order-sensitive slice of (little-endian) u32s.
-    Log,
-    /// Extension data. Opaque bytes.
-    Extension,
-}
-
-impl ChunkPayloadDataType {
-    fn data_type_le_byte(self) -> u8 {
-        match self {
-            ChunkPayloadDataType::Log => DATA_TYPE_LOG.to_le(),
-            ChunkPayloadDataType::Extension => DATA_TYPE_EXTENSION.to_le(),
-        }
-    }
-}
 
 /// The slice input was an incorrect length.
 #[derive(Debug, PartialEq, Eq)]
@@ -191,12 +168,12 @@ impl<'data> ChunkedReporter for DynamicHistory<'data> {
             &self.compact_log.as_slice()[log_index..log_index + items_for_current_chunk];
 
         let mut report = ChunkedReport::new_unchecked(&mut destination[..]);
-        report.set_fingerprint(ChunkedReport::<&[u8]>::FINGERPRINT);
-        report.set_probe_id(self.probe_id.get_raw());
+        report.set_fingerprint();
+        report.set_probe_id(self.probe_id);
         report.set_chunk_group_id(token.group_id);
         report.set_chunk_index(current_chunk_index);
-        report.set_payload_data_type(ChunkPayloadDataType::Log.data_type_le_byte());
-        report.set_is_last_chunk(u8::from(is_last_chunk));
+        report.set_payload_data_type(ChunkPayloadDataType::Log);
+        report.set_is_last_chunk(is_last_chunk);
         report.set_reserved(0);
         report.set_n_chunk_payload_bytes(n_chunk_payload_bytes as u8);
 
@@ -276,20 +253,18 @@ impl NativeChunk {
     /// from the barely-structured on-the-wire representation
     pub fn from_wire_bytes<B: Borrow<[u8]>>(
         borrow_wire_bytes: B,
-    ) -> Result<NativeChunk, ParseChunkFromWireError> {
+    ) -> Result<NativeChunk, ChunkedReportWireError> {
         let wire_bytes = borrow_wire_bytes.borrow();
 
-        let report = ChunkedReport::new_checked(&wire_bytes[..])?;
+        let report = ChunkedReport::new(&wire_bytes[..])?;
 
-        let raw_probe_id = report.probe_id();
+        let probe_id = report.probe_id()?;
         let chunk_group_id = report.chunk_group_id();
         let chunk_index = report.chunk_index();
-        let probe_id = ProbeId::new(raw_probe_id)
-            .ok_or_else(|| ParseChunkFromWireError::InvalidProbeId(raw_probe_id))?;
-        let is_last_chunk = report.is_last_chunk() != 0;
+        let is_last_chunk = report.is_last_chunk();
         let reserved = report.reserved();
         let n_payload_bytes = report.n_chunk_payload_bytes();
-        let data_type_byte = report.payload_data_type();
+        let data_type = report.payload_data_type()?;
 
         let header = NativeChunkHeader {
             probe_id,
@@ -299,8 +274,8 @@ impl NativeChunk {
             reserved,
         };
         let payload_bytes = &report.payload()[..usize::from(n_payload_bytes)];
-        Ok(match data_type_byte {
-            DATA_TYPE_LOG => {
+        Ok(match data_type {
+            ChunkPayloadDataType::Log => {
                 // Assuming init is always safe when initializing an array of MaybeUninit values
                 let mut payload: [MaybeUninit<CompactLogItem>;
                     MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK] =
@@ -324,7 +299,7 @@ impl NativeChunk {
                     },
                 }
             }
-            DATA_TYPE_EXTENSION => {
+            ChunkPayloadDataType::Extension => {
                 // Assuming init is always safe when initializing an array of MaybeUninit values
                 let mut payload: [MaybeUninit<u8>;
                     ChunkedReport::<&[u8]>::MAX_PAYLOAD_BYTES_PER_CHUNK] =
@@ -340,29 +315,7 @@ impl NativeChunk {
                     },
                 }
             }
-            data_type_byte => {
-                return Err(ParseChunkFromWireError::UnsupportedDataType(data_type_byte))
-            }
         })
-    }
-}
-
-/// Everything that can go wrong converting bytes off the wire to a NativeChunk
-#[derive(Debug, PartialEq, Eq)]
-pub enum ParseChunkFromWireError {
-    /// Wire error
-    /// There was an error attempting to interpret the wire representation
-    Wire(ChunkedReportWireError),
-    /// The data type was not one of the supported varieties
-    UnsupportedDataType(u8),
-    /// The probe id didn't follow the rules for being
-    /// a valid Modality probe-specifying ProbeId
-    InvalidProbeId(u32),
-}
-
-impl From<ChunkedReportWireError> for ParseChunkFromWireError {
-    fn from(e: ChunkedReportWireError) -> Self {
-        ParseChunkFromWireError::Wire(e)
     }
 }
 

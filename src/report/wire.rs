@@ -2,7 +2,8 @@
 //! serialization and deserialization.
 use crate::{
     compact_log::{CompactLogItem, LogEvent, LogItem, LogItemInterpretationError, LogItemIterator},
-    report::bulk::{self, BulkReportSourceComponents, BulkReporter, ParseBulkFromWireError},
+    report::bulk::{self, BulkReportSourceComponents, BulkReporter},
+    wire::BulkReportWireError,
     ExtensionBytes, LogicalClock, ProbeId, ReportError,
 };
 
@@ -130,7 +131,7 @@ impl LogReport {
 #[derive(Debug)]
 pub enum ParseBulkReportError {
     /// Parsing the wire format failed.
-    ParseBulkFromWire(ParseBulkFromWireError),
+    ParseBulkFromWire(BulkReportWireError),
     /// Parsing was successful, but the resulting report was broken.
     CompactLogInterpretation(LogItemInterpretationError),
 }

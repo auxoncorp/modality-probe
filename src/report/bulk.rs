@@ -60,8 +60,8 @@ impl<'log> BulkReporter for BulkReportSourceComponents<'log> {
         }
 
         let mut report = BulkReport::new_unchecked(&mut destination[..]);
-        report.set_fingerprint(BulkReport::<&[u8]>::FINGERPRINT);
-        report.set_probe_id(self.probe_id.get_raw());
+        report.set_fingerprint();
+        report.set_probe_id(self.probe_id);
         report.set_n_log_bytes(n_log_bytes as u32); // Checked above for range
         report.set_n_extension_bytes(n_extension_bytes as u32); // Checked above for range
         let payload_bytes = report.payload_mut();
@@ -130,15 +130,12 @@ pub fn try_bulk_from_wire_bytes<'b>(
         impl Iterator<Item = CompactLogItem> + 'b,
         ExtensionBytes,
     ),
-    ParseBulkFromWireError,
+    BulkReportWireError,
 > {
-    let report = BulkReport::new_checked(&wire_bytes[..])?;
+    let report = BulkReport::new(&wire_bytes[..])?;
     let payload_bytes = report.payload();
 
-    let raw_probe_id = report.probe_id();
-    let probe_id = ProbeId::new(raw_probe_id)
-        .ok_or_else(|| ParseBulkFromWireError::InvalidProbeId(raw_probe_id))?;
-
+    let probe_id = report.probe_id()?;
     let n_log_bytes = report.n_log_bytes();
     let (log_bytes, extension_bytes) = payload_bytes.split_at(n_log_bytes as usize);
     let log_iter = log_bytes.chunks_exact(4).map(|item_bytes| {
@@ -150,31 +147,6 @@ pub fn try_bulk_from_wire_bytes<'b>(
         ]))
     });
     Ok((probe_id, log_iter, ExtensionBytes(extension_bytes)))
-}
-
-/// Everything that can go wrong when attempting to interpret a bulk report
-/// from the wire representation
-#[derive(Debug, PartialEq, Eq)]
-pub enum ParseBulkFromWireError {
-    /// Wire error
-    /// There was an error attempting to interpret the wire representation
-    Wire(BulkReportWireError),
-    /// The probe id didn't follow the rules for being
-    /// a valid Modality probe-specifying ProbeId
-    InvalidProbeId(u32),
-}
-
-impl From<BulkReportWireError> for ParseBulkFromWireError {
-    fn from(e: BulkReportWireError) -> Self {
-        ParseBulkFromWireError::Wire(e)
-    }
-}
-
-const BULK_FRAMING_FINGERPRINT_SOURCE: u32 = 0x45_42_4C_4B; // EBLK
-/// Little endian representation of the chunk format's chunk message
-/// fingerprint.
-pub fn bulk_framing_fingerprint() -> [u8; 4] {
-    BULK_FRAMING_FINGERPRINT_SOURCE.to_le_bytes()
 }
 
 #[cfg(test)]
