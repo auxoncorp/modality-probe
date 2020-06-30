@@ -25,27 +25,26 @@ fn probe_lifecycle_does_not_panic() -> Result<(), ModalityProbeError> {
     let mut storage = [0u8; 1024];
     let probe = ModalityProbe::initialize_at(&mut storage, probe_id)?;
 
-    let p = probe.distribute_fixed_size_snapshot()?;
-    let q = probe.distribute_fixed_size_snapshot()?;
+    let p = probe.distribute_snapshot()?;
+    let q = probe.distribute_snapshot()?;
 
     // Snapshotting moves the probe history forward, so two consecutive snapshots
     // are not exactly the same.
     assert_ne!(p, q);
-    assert_eq!(1, p.clocks_len);
-    let r = probe.distribute_fixed_size_snapshot()?;
+    let r = probe.distribute_snapshot()?;
     assert!(q < r);
     assert_ne!(q, r);
-    let s = probe.distribute_fixed_size_snapshot()?;
+    let s = probe.distribute_snapshot()?;
     assert!(r < s);
     assert_ne!(r, s);
-    let t = probe.distribute_fixed_size_snapshot()?;
+    let t = probe.distribute_snapshot()?;
     assert!(s < t);
     assert_ne!(s, t);
-    let u = probe.distribute_fixed_size_snapshot()?;
+    let u = probe.distribute_snapshot()?;
     assert!(t < u);
     assert_ne!(t, u);
     probe.report(backend.as_bytes_mut())?;
-    let v = probe.distribute_fixed_size_snapshot()?;
+    let v = probe.distribute_snapshot()?;
     // Should write_reporting calls affect the outcome of snapshot_history()?
     assert!(u < v);
     assert_ne!(u, v);
@@ -59,52 +58,24 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
 
     let mut storage_foo = [0u8; 1024];
     let probe_foo = ModalityProbe::initialize_at(&mut storage_foo, probe_id_foo)?;
-    let snap_foo_a = probe_foo.distribute_fixed_size_snapshot()?;
+    let snap_foo_a = probe_foo.distribute_snapshot()?;
 
     // Re-initialize a probe with no previous history
     let mut storage_bar = [0u8; 1024];
     let probe_bar = ModalityProbe::initialize_at(&mut storage_bar, probe_id_bar)?;
-    assert!(probe_bar.merge_fixed_size_snapshot(&snap_foo_a).is_ok());
-    let snap_bar_b = probe_bar.distribute_fixed_size_snapshot()?;
+    assert!(probe_bar.merge_snapshot(&snap_foo_a).is_ok());
+    let snap_bar_b = probe_bar.distribute_snapshot()?;
 
-    assert!(snap_foo_a < snap_bar_b);
-
-    let snap_foo_c = probe_foo.distribute_fixed_size_snapshot()?;
+    let snap_foo_c = probe_foo.distribute_snapshot()?;
 
     assert!(snap_foo_a < snap_foo_c);
     assert_eq!(None, snap_bar_b.partial_cmp(&snap_foo_c));
 
-    assert!(probe_bar.merge_fixed_size_snapshot(&snap_foo_c).is_ok());
-    let snap_bar_d = probe_bar.distribute_fixed_size_snapshot()?;
-    assert!(snap_foo_c < snap_bar_d);
+    assert!(probe_bar.merge_snapshot(&snap_foo_c).is_ok());
+    let _snap_bar_d = probe_bar.distribute_snapshot()?;
 
-    assert!(probe_bar.merge_fixed_size_snapshot(&snap_foo_c).is_ok());
+    assert!(probe_bar.merge_snapshot(&snap_foo_c).is_ok());
 
-    assert!(
-        &snap_foo_c < &probe_bar.distribute_fixed_size_snapshot()?,
-        "After merging, the bar should be just a bit ahead of foo"
-    );
-    Ok(())
-}
-
-#[test]
-fn invalid_neighbor_id_in_fixed_size_merge_produces_error() -> Result<(), ModalityProbeError> {
-    let probe_id_foo = 1.try_into()?;
-    let mut storage_foo = [0u8; 1024];
-    let probe_foo = ModalityProbe::initialize_at(&mut storage_foo, probe_id_foo)?;
-
-    let mut clocks = [LogicalClock {
-        id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-        count: 0,
-    }; 256];
-    clocks[0].id = 200.try_into().unwrap();
-    clocks[0].count = 200;
-    let bad_snapshot = CausalSnapshot {
-        probe_id: 0, // An invalid value technically permissable in the C representation of this struct
-        clocks,
-        clocks_len: 1,
-    };
-    assert!(probe_foo.merge_fixed_size_snapshot(&bad_snapshot).is_err());
     Ok(())
 }
 
@@ -190,27 +161,6 @@ fn try_record_event_raw_probe_ids() -> Result<(), ModalityProbeError> {
         .try_record_event(EventId::MAX_INTERNAL_ID + 1)
         .is_err());
     assert!(probe.try_record_event(1).is_ok());
-    Ok(())
-}
-
-#[test]
-fn snapshot_extension_data_smuggling() -> Result<(), ModalityProbeError> {
-    let mut storage_foo = [0u8; 1024];
-    let probe_id_foo = 123.try_into()?;
-    let mut foo = ModalityProbe::new_with_storage(&mut storage_foo, probe_id_foo)?;
-
-    let mut storage_bar = [0u8; 1024];
-    let probe_id_bar = 456.try_into()?;
-    let mut bar = ModalityProbe::new_with_storage(&mut storage_bar, probe_id_bar)?;
-
-    let mut snapshot_buffer = [0u8; 512];
-    let extension = [3u8, 1, 4, 1, 5, 9];
-
-    let bytes_written =
-        foo.distribute_snapshot_with_metadata(&mut snapshot_buffer, ExtensionBytes(&extension))?;
-
-    let found_ext = bar.merge_snapshot_with_metadata(&snapshot_buffer[..bytes_written])?;
-    assert_eq!([3u8, 1, 4, 1, 5, 9], found_ext.0);
     Ok(())
 }
 

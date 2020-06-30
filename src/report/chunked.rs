@@ -686,10 +686,7 @@ mod tests {
         let mut storage_bar = [0u8; 4096];
         let mut eko_bar = ModalityProbe::new_with_storage(&mut storage_bar, probe_id_bar)
             .expect("Could not initialize Modality probe");
-        let bar_snapshot_len = eko_bar
-            .distribute_snapshot(&mut other_transmission_buffer)
-            .unwrap();
-        let bar_fixed_snapshot = eko_bar.distribute_fixed_size_snapshot().unwrap();
+        let bar_fixed_snapshot = eko_bar.distribute_snapshot().unwrap();
 
         let token = eko_foo
             .start_chunked_report()
@@ -697,41 +694,12 @@ mod tests {
 
         assert_eq!(
             MergeError::ReportLockConflict,
-            eko_foo
-                .merge_snapshot(&other_transmission_buffer[..bar_snapshot_len])
-                .unwrap_err()
-        );
-        assert_eq!(
-            MergeError::ReportLockConflict,
-            eko_foo
-                .merge_snapshot_with_metadata(&other_transmission_buffer[..bar_snapshot_len])
-                .unwrap_err()
-        );
-        assert_eq!(
-            MergeError::ReportLockConflict,
-            eko_foo
-                .merge_fixed_size_snapshot(&bar_fixed_snapshot)
-                .unwrap_err()
+            eko_foo.merge_snapshot(&bar_fixed_snapshot).unwrap_err()
         );
 
         assert_eq!(
             DistributeError::ReportLockConflict,
-            eko_foo.distribute_fixed_size_snapshot().unwrap_err()
-        );
-        assert_eq!(
-            DistributeError::ReportLockConflict,
-            eko_foo
-                .distribute_snapshot(&mut other_transmission_buffer)
-                .unwrap_err()
-        );
-        assert_eq!(
-            DistributeError::ReportLockConflict,
-            eko_foo
-                .distribute_snapshot_with_metadata(
-                    &mut other_transmission_buffer,
-                    ExtensionBytes(&[])
-                )
-                .unwrap_err()
+            eko_foo.distribute_snapshot().unwrap_err()
         );
 
         assert_eq!(
@@ -764,25 +732,9 @@ mod tests {
             .expect("Could not finish chunked report");
 
         // Everything works again after the reporting is done
-        assert_eq!(
-            Ok(()),
-            eko_foo.merge_snapshot(&other_transmission_buffer[..bar_snapshot_len])
-        );
-        assert!(eko_foo
-            .merge_snapshot_with_metadata(&other_transmission_buffer[..bar_snapshot_len])
-            .is_ok());
-        assert_eq!(
-            Ok(()),
-            eko_foo.merge_fixed_size_snapshot(&bar_fixed_snapshot)
-        );
+        assert_eq!(Ok(()), eko_foo.merge_snapshot(&bar_fixed_snapshot));
 
-        assert!(eko_foo.distribute_fixed_size_snapshot().is_ok());
-        assert!(eko_foo
-            .distribute_snapshot(&mut other_transmission_buffer)
-            .is_ok());
-        assert!(eko_foo
-            .distribute_snapshot_with_metadata(&mut other_transmission_buffer, ExtensionBytes(&[]))
-            .is_ok());
+        assert!(eko_foo.distribute_snapshot().is_ok());
 
         assert!(eko_foo.report(&mut other_transmission_buffer).is_ok());
         assert!(eko_foo
