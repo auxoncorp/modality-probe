@@ -38,10 +38,6 @@ sha3 = "0.9"
 hex = "0.4"
 derivative = "2.1"
 
-modality-probe-graph = { path = "../modality-probe-graph" }
-modality-probe = { path = "../" }
-util = { path = "../util" }
-
 [dependencies.serde]
 version = "1"
 features = ["derive"]

@@ -1,31 +1,45 @@
-use modality_probe::compact_log::{CompactLogItem, LogEvent, LogItem};
-use modality_probe::{BulkReporter, ExtensionBytes, ReportError};
+//! This module contains the on-the-wire model for reports and its
+//! serialization and deserialization.
+use crate::{
+    compact_log::{CompactLogItem, LogEvent, LogItem, LogItemInterpretationError, LogItemIterator},
+    report::bulk::{self, BulkReportSourceComponents, BulkReporter, ParseBulkFromWireError},
+    ExtensionBytes, LogicalClock, ProbeId, ReportError,
+};
 
-/// Literal materialization of the log_report LCM structure
-/// with no semantic enrichment.
+/// An on-the-wire log report.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LogReport {
-    pub probe_id: modality_probe::ProbeId,
+    /// The id of the probe that sent this report.
+    pub probe_id: ProbeId,
+    /// The segements contained in this report.
     pub segments: Vec<OwnedLogSegment>,
+    /// Opaque to include aribtrary context with a report.
     pub extension_bytes: Vec<u8>,
 }
 
+/// A segment is an ordered chunk of events marked by a specific
+/// (local) clock value.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct OwnedLogSegment {
-    pub clocks: Vec<modality_probe::LogicalClock>,
+    /// The local clock and any probes' clocks that were involved in
+    /// interactions with the local probe.
+    pub clocks: Vec<LogicalClock>,
+    /// The ordered events that were recorded with the local probe
+    /// while the clocks had the values above.
     pub events: Vec<LogEvent>,
 }
 
 impl LogReport {
     #[inline]
+    /// Build a report from the compact representation.
     pub fn try_from_log(
-        probe_id: modality_probe::ProbeId,
+        probe_id: ProbeId,
         log: impl Iterator<Item = CompactLogItem>,
         extension_bytes: &[u8],
-    ) -> Result<Self, modality_probe::compact_log::LogItemInterpretationError> {
+    ) -> Result<Self, LogItemInterpretationError> {
         let mut segments = Vec::new();
         let mut curr_segment = None;
-        for item_result in modality_probe::compact_log::LogItemIterator::new(log) {
+        for item_result in LogItemIterator::new(log) {
             let item = item_result?;
             match item {
                 LogItem::Clock(clock) => {
@@ -69,16 +83,16 @@ impl LogReport {
         })
     }
 
+    /// Hydrate a report from wire-based bytes.
     pub fn try_from_bulk_bytes(bytes: &[u8]) -> Result<Self, ParseBulkReportError> {
-        let (probe, log_iter, ext_bytes) =
-            modality_probe::report::bulk::try_bulk_from_wire_bytes(bytes)
-                .map_err(ParseBulkReportError::ParseBulkFromWire)?;
+        let (probe, log_iter, ext_bytes) = bulk::try_bulk_from_wire_bytes(bytes)
+            .map_err(ParseBulkReportError::ParseBulkFromWire)?;
         LogReport::try_from_log(probe, log_iter, ext_bytes.0)
             .map_err(ParseBulkReportError::CompactLogInterpretation)
     }
 
+    /// Write the report as bytes to `destination`.
     pub fn write_bulk_bytes(&self, destination: &mut [u8]) -> Result<usize, ReportError> {
-        use modality_probe::report::bulk::BulkReportSourceComponents;
         let mut log = Vec::with_capacity(
             self.segments
                 .iter()
@@ -111,16 +125,20 @@ impl LogReport {
     }
 }
 
+/// The error returned when deserializing a wire-formatted report to a
+/// `LogReport`.
 #[derive(Debug)]
 pub enum ParseBulkReportError {
-    ParseBulkFromWire(modality_probe::report::bulk::ParseBulkFromWireError),
-    CompactLogInterpretation(modality_probe::compact_log::LogItemInterpretationError),
+    /// Parsing the wire format failed.
+    ParseBulkFromWire(ParseBulkFromWireError),
+    /// Parsing was successful, but the resulting report was broken.
+    CompactLogInterpretation(LogItemInterpretationError),
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use modality_probe::{EventId, LogicalClock, ProbeId};
+    use crate::{EventId, LogicalClock, ProbeId};
     use proptest::prelude::*;
     use std::convert::TryInto;
 

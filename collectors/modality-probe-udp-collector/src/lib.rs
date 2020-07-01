@@ -1,10 +1,14 @@
-use chrono::{DateTime, Utc};
-use modality_probe::compact_log::LogEvent;
-use std::io::{Error as IoError, Write};
-use std::net::{SocketAddr, UdpSocket};
-use std::path::PathBuf;
-use util::alloc_log_report::*;
-use util::model::{LogEntry, LogEntryData, SegmentId, SessionId};
+use std::{
+    io::{Error as IoError, Write},
+    net::{SocketAddr, UdpSocket},
+    path::PathBuf,
+};
+
+use chrono::Utc;
+
+use modality_probe::report::wire::LogReport;
+
+use modality_probe_collector_common::{self as common, csv, LogEntry, SessionId};
 
 mod chunked;
 mod opts;
@@ -27,6 +31,7 @@ pub struct ShutdownSignalSender {
 const OS_PICK_ADDR_HINT: &str = "0.0.0.0:0";
 
 pub type ShutdownSignalReceiver = std::sync::mpsc::Receiver<()>;
+
 impl ShutdownSignalSender {
     pub fn new(server_addr: SocketAddr) -> (ShutdownSignalSender, ShutdownSignalReceiver) {
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -144,7 +149,7 @@ pub fn start_receiving_from_socket<W: Write>(
             );
             let owned_reports = chunk_handler.materialize_completed_reports();
             for (owned_report, recv_time) in owned_reports {
-                next_segment_id = add_owned_report_to_entries(
+                next_segment_id = common::add_owned_report_to_entries(
                     owned_report,
                     session_id,
                     next_segment_id.into(),
@@ -156,7 +161,7 @@ pub fn start_receiving_from_socket<W: Write>(
         } else {
             match LogReport::try_from_bulk_bytes(&buf[..bytes_read]) {
                 Ok(log_report) => {
-                    next_segment_id = add_log_report_to_entries(
+                    next_segment_id = common::add_log_report_to_entries(
                         &log_report,
                         session_id,
                         next_segment_id.into(),
@@ -172,7 +177,7 @@ pub fn start_receiving_from_socket<W: Write>(
         }
 
         if let Err(e) =
-            util::write_csv_log_entries(log_output_writer, &log_entries_buffer, needs_csv_headers)
+            csv::write_log_entries(log_output_writer, &log_entries_buffer, needs_csv_headers)
         {
             eprintln!("Error writing log entries: {}", e);
         } else {
@@ -180,124 +185,6 @@ pub fn start_receiving_from_socket<W: Write>(
         }
         let _ = log_output_writer.flush();
     }
-}
-
-/// Returns the smallest available segment id
-fn add_log_report_to_entries(
-    log_report: &LogReport,
-    session_id: SessionId,
-    initial_segment_id: SegmentId,
-    receive_time: DateTime<Utc>,
-    log_entries_buffer: &mut Vec<LogEntry>,
-) -> u32 {
-    let mut next_segment_id = initial_segment_id.0;
-    let probe_id = log_report.probe_id;
-    for segment in &log_report.segments {
-        let mut segment_index = 0;
-
-        for clock_bucket in &segment.clocks {
-            log_entries_buffer.push(LogEntry {
-                session_id,
-                segment_id: next_segment_id.into(),
-                segment_index,
-                probe_id,
-                data: LogEntryData::LogicalClock(clock_bucket.id, clock_bucket.count),
-                receive_time,
-            });
-
-            segment_index += 1;
-        }
-
-        for event in &segment.events {
-            match event {
-                LogEvent::Event(ev) => {
-                    log_entries_buffer.push(LogEntry {
-                        session_id,
-                        segment_id: next_segment_id.into(),
-                        segment_index,
-                        probe_id,
-                        data: LogEntryData::Event(*ev),
-                        receive_time,
-                    });
-                }
-                LogEvent::EventWithPayload(ev, payload) => {
-                    log_entries_buffer.push(LogEntry {
-                        session_id,
-                        segment_id: next_segment_id.into(),
-                        segment_index,
-                        probe_id,
-                        data: LogEntryData::EventWithPayload(*ev, *payload),
-                        receive_time,
-                    });
-                }
-            }
-
-            segment_index += 1;
-        }
-
-        next_segment_id += 1;
-    }
-
-    next_segment_id
-}
-
-/// Returns the smallest available segment id
-fn add_owned_report_to_entries(
-    report: LogReport,
-    session_id: SessionId,
-    initial_segment_id: SegmentId,
-    receive_time: DateTime<Utc>,
-    log_entries_buffer: &mut Vec<LogEntry>,
-) -> u32 {
-    let mut next_segment_id = initial_segment_id.0;
-    let probe_id = report.probe_id;
-    for segment in report.segments {
-        let mut segment_index = 0;
-
-        for clock_bucket in segment.clocks {
-            log_entries_buffer.push(LogEntry {
-                session_id,
-                segment_id: next_segment_id.into(),
-                segment_index,
-                probe_id,
-                data: LogEntryData::LogicalClock(clock_bucket.id, clock_bucket.count as u32),
-                receive_time,
-            });
-
-            segment_index += 1;
-        }
-
-        for event in &segment.events {
-            match event {
-                modality_probe::compact_log::LogEvent::Event(ev) => {
-                    log_entries_buffer.push(LogEntry {
-                        session_id,
-                        segment_id: next_segment_id.into(),
-                        segment_index,
-                        probe_id,
-                        data: LogEntryData::Event(*ev),
-                        receive_time,
-                    });
-                }
-                modality_probe::compact_log::LogEvent::EventWithPayload(ev, payload) => {
-                    log_entries_buffer.push(LogEntry {
-                        session_id,
-                        segment_id: next_segment_id.into(),
-                        segment_index,
-                        probe_id,
-                        data: LogEntryData::EventWithPayload(*ev, *payload),
-                        receive_time,
-                    });
-                }
-            }
-
-            segment_index += 1;
-        }
-
-        next_segment_id += 1;
-    }
-
-    next_segment_id
 }
 
 #[cfg(test)]
@@ -313,11 +200,15 @@ mod tests {
         thread,
     };
 
+    use chrono::DateTime;
     use lazy_static::*;
 
     use modality_probe::{
-        BulkReporter, CausalSnapshot, ChunkedReporter, LogicalClock, Probe, ProbeId,
+        compact_log::LogEvent, report::wire::OwnedLogSegment, BulkReporter, CausalSnapshot,
+        ChunkedReporter, LogicalClock, Probe, ProbeId,
     };
+
+    use modality_probe_collector_common::*;
 
     use super::*;
 
@@ -371,7 +262,7 @@ mod tests {
     fn report_and_matching_entries(
         raw_main_probe_id: u32,
         session_id: SessionId,
-        start_segment_id: util::model::SegmentId,
+        start_segment_id: SegmentId,
         receive_time: DateTime<Utc>,
     ) -> (LogReport, Vec<LogEntry>) {
         let main_probe_id = raw_main_probe_id.try_into().unwrap();
@@ -562,7 +453,7 @@ mod tests {
         }
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = util::read_csv_log_entries(&mut file_reader)
+        let found_log_entries = csv::read_log_entries(&mut file_reader)
             .expect("Could not read output file as csv log entries");
 
         let expected_entries: usize = log_report
@@ -705,7 +596,7 @@ mod tests {
 
             let mut file_reader = std::fs::File::open(&output_file_path)
                 .expect("Could not open output file for reading");
-            let found_log_entries = util::read_csv_log_entries(&mut file_reader)
+            let found_log_entries = csv::read_log_entries(&mut file_reader)
                 .expect("Could not read output file as csv log entries");
 
             assert!(found_log_entries.len() > 0);
@@ -838,7 +729,7 @@ mod tests {
 
             let mut file_reader = std::fs::File::open(&output_file_path)
                 .expect("Could not open output file for reading");
-            let found_log_entries = util::read_csv_log_entries(&mut file_reader)
+            let found_log_entries = csv::read_log_entries(&mut file_reader)
                 .expect("Could not read output file as csv log entries");
 
             assert!(found_log_entries.len() > 0);
@@ -973,7 +864,7 @@ mod tests {
 
             let mut file_reader = std::fs::File::open(&output_file_path)
                 .expect("Could not open output file for reading");
-            let found_log_entries = util::read_csv_log_entries(&mut file_reader)
+            let found_log_entries = csv::read_log_entries(&mut file_reader)
                 .expect("Could not read output file as csv log entries");
 
             assert!(found_log_entries.len() > 0);

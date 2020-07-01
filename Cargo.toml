@@ -19,11 +19,12 @@ std = ["serde", "proptest", "schemars"]
 [workspace]
 members = [
   "modality-probe-cli",
-  "modality-probe-udp-collector",
+  "collectors/modality-probe-udp-collector",
+  "collectors/modality-probe-collector-common",
   "modality-probe-graph",
-  "util",
+  "race-buffer",
 ]
-exclude = ["debian-package"]
+exclude = ["debian-package", "./collectors"]
 
 [dependencies]
 static_assertions = "1.1.0"
@@ -35,6 +36,5 @@ proptest = { version = "0.9.5", optional = true }
 schemars = { version = "0.6.5", optional = true }
 
 [dev-dependencies]
-modality-probe-udp-collector = { path = "./modality-probe-udp-collector" }
+modality-probe-udp-collector = { path = "./collectors/modality-probe-udp-collector" }
 proptest = "0.9.5"
-util = { path = "./util" }

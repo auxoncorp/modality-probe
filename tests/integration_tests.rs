@@ -1,6 +1,6 @@
-use modality_probe::*;
 use std::convert::{TryFrom, TryInto};
-use util::alloc_log_report::*;
+
+use modality_probe::{report::wire::*, *};
 
 struct Buffer {
     buffer: Vec<u8>,
