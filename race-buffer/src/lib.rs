@@ -8,8 +8,12 @@ use core::fmt;
 #[cfg(feature = "std")]
 use std::fmt;
 
+/// Entry that can be stored in a RaceBuffer
 pub trait Entry: Copy + PartialEq {
+    /// Nil value reserved for use by RaceBuffer. Represents a missed entry when it occurs in the reader's buffer
     const NIL_VAL: Self;
+    /// Return true when called on the first entry of a double-entry pair. Should return false when given NIL_VAL.
+    /// This function is never called on suffixes, entries occuring directly after a prefix.
     fn is_prefix(&self) -> bool;
 }
 
@@ -65,7 +69,7 @@ where
             }
         }
 
-        if self.storage[write_offset] != E::NIL_VAL && self.storage[write_offset].is_prefix() {
+        if self.storage[write_offset].is_prefix() {
             // Overwriting double entry, must first overwrite suffix
             let suffix_offset = get_cursor_index(self.storage.len(), self.wcurs + 1);
             self.storage[suffix_offset] = E::NIL_VAL;
@@ -97,11 +101,16 @@ pub mod reader {
     use std::error::Error;
 
     type Result<T> = std::result::Result<T, Box<dyn Error>>;
+    /// Used to "snap" observations of the RaceBuffer's write cursor
+    /// or entries in the RaceBuffer's backing storage. Each Snapper access
+    /// should have sequential consistency with the memory access of the RaceBuffer writer
     pub trait Snapper<E>
     where
         E: Entry,
     {
+        /// Take a snapshot of the write cursor of the RaceBuffer
         fn snap_wcurs(&self) -> Result<usize>;
+        /// Take a snapshot of the RaceBuffer's backing storage at the given index
         fn snap_storage(&self, index: usize) -> Result<E>;
     }
 
@@ -117,6 +126,8 @@ pub mod reader {
         rcurs: usize,
         /// Capacity of backing storage
         storage_cap: usize,
+        /// Cached prefix, not put into buffer until suffix is successfully read
+        cached_prefix: Option<E>,
         phantom: PhantomData<E>,
     }
 
@@ -132,6 +143,7 @@ pub mod reader {
                 snapper,
                 rcurs: 0,
                 storage_cap,
+                cached_prefix: None,
                 phantom: PhantomData,
             }
         }
@@ -190,26 +202,28 @@ pub mod reader {
             Ok(())
         }
 
-        /// Store given entry in given read buffer,
-        /// replacing stored prefixes with nil if suffix is nil
+        /// Store given entry in given read buffer
         fn store(&mut self, entry: E, rbuf: &mut Vec<E>) {
-            if entry == E::NIL_VAL {
-                let last_entry_opt = rbuf.pop();
-                match last_entry_opt {
-                    None => rbuf.push(E::NIL_VAL),
-                    Some(last_entry) => {
-                        if last_entry.is_prefix() {
-                            // Suffix lost, replace prefix with nil
-                            rbuf.push(E::NIL_VAL);
-                            rbuf.push(E::NIL_VAL);
-                        } else {
-                            rbuf.push(last_entry);
-                            rbuf.push(E::NIL_VAL);
-                        }
+            match self.cached_prefix {
+                None => {
+                    if entry.is_prefix() {
+                        self.cached_prefix = Some(entry);
+                    } else {
+                        rbuf.push(entry);
                     }
                 }
-            } else {
-                rbuf.push(entry);
+                Some(prefix) => {
+                    if entry == E::NIL_VAL {
+                        // Suffix lost, replace prefix with nil
+                        rbuf.push(E::NIL_VAL);
+                        rbuf.push(E::NIL_VAL);
+                    } else {
+                        // Suffix successfully read, push double entry
+                        rbuf.push(prefix);
+                        rbuf.push(entry);
+                    }
+                    self.cached_prefix = None;
+                }
             }
         }
 
@@ -243,7 +257,8 @@ pub mod tests {
         const NIL_VAL: OrderedEntry = OrderedEntry(0);
 
         fn is_prefix(&self) -> bool {
-            self.0 > Self::PREFIX_TAG
+            assert!(!self.is_suffix());
+            self.is_prefix_unchecked()
         }
     }
 
@@ -276,6 +291,10 @@ pub mod tests {
             OrderedEntry(i + Self::SUFFIX_TAG)
         }
 
+        pub(crate) fn is_prefix_unchecked(&self) -> bool {
+            self.0 > Self::PREFIX_TAG
+        }
+
         pub(crate) fn is_suffix(&self) -> bool {
             self.0 >= Self::SUFFIX_TAG && self.0 < Self::PREFIX_TAG
         }
@@ -292,10 +311,14 @@ pub mod tests {
 
         // Invariant: Check if entries all have correct index
         fn double_entries_consistent(rbuf: &[OrderedEntry]) -> bool {
+            if rbuf[0].is_suffix() {
+
+            }
             for i in 0..(rbuf.len() - 1) {
                 let cur = &rbuf[i];
                 let next = &rbuf[i + 1];
-                if (cur.is_prefix() && !next.is_suffix()) || (!cur.is_prefix() && next.is_suffix())
+                if (cur.is_prefix_unchecked() && !next.is_suffix())
+                    || (!cur.is_prefix_unchecked() && next.is_suffix())
                 {
                     return false;
                 }
