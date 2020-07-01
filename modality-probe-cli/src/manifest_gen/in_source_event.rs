@@ -89,7 +89,7 @@ mod tests {
             },
             metadata: EventMetadata {
                 name: "EVENT_A".to_string(),
-                agent_instance: "probe".to_string(),
+                probe_instance: "probe".to_string(),
                 payload: Some((TypeHint::U8, "mydata").into()),
                 description: None,
                 tags: None,

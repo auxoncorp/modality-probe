@@ -151,7 +151,7 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let (args, agent_instance) = variable_call_exp_arg(args)?;
+    let (args, probe_instance) = variable_call_exp_arg(args)?;
     let (args, name) = variable_call_exp_arg(args)?;
     if !event_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
@@ -188,7 +188,7 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         input,
         EventMetadata {
             name,
-            agent_instance,
+            probe_instance,
             payload: Some((TypeHint::U32, expr).into()),
             description,
             tags,
@@ -209,7 +209,7 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let (args, agent_instance) = variable_call_exp_arg(args)?;
+    let (args, probe_instance) = variable_call_exp_arg(args)?;
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
     let (args, name) = if expect_tags_or_desc {
         variable_call_exp_arg(args)?
@@ -243,7 +243,7 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         input,
         EventMetadata {
             name,
-            agent_instance,
+            probe_instance,
             payload: None,
             description,
             tags,
@@ -273,7 +273,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let (args, agent_instance) = variable_call_exp_arg(args)?;
+    let (args, probe_instance) = variable_call_exp_arg(args)?;
     let (args, name) = variable_call_exp_arg(args)?;
     if !event_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
@@ -321,7 +321,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         input,
         EventMetadata {
             name,
-            agent_instance,
+            probe_instance,
             payload: Some((type_hint, payload).into()),
             description,
             tags,
@@ -387,7 +387,7 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
-    let (args, _agent_instance) = if expect_tags_or_desc {
+    let (args, _probe_instance) = if expect_tags_or_desc {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
     } else {
         rest_string(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
@@ -800,7 +800,7 @@ mod tests {
             Ok(vec![
                 EventMetadata {
                     name: "EVENT_READ1".to_string(),
-                    agent_instance: "g_probe".to_string(),
+                    probe_instance: "g_probe".to_string(),
                     payload: None,
                     description: None,
                     tags: None,
@@ -808,7 +808,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_READ2".to_string(),
-                    agent_instance: "g_probe".to_string(),
+                    probe_instance: "g_probe".to_string(),
                     payload: None,
                     description: Some("my docs".to_string()),
                     tags: None,
@@ -816,7 +816,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_WRITE1".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: None,
                     description: None,
                     tags: Some("network".to_string()),
@@ -824,7 +824,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_WRITE2".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: None,
                     description: Some("docs".to_string()),
                     tags: Some("network;file-system".to_string()),
@@ -832,7 +832,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_A".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
                     description: None,
                     tags: None,
@@ -840,7 +840,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_B".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
                     description: Some("desc text here".to_string()),
                     tags: None,
@@ -848,7 +848,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_C".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: None,
                     tags: None,
@@ -856,7 +856,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_D".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: Some("docs".to_string()),
                     tags: None,
@@ -864,7 +864,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_E".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::I8, "(int8_t) *((uint8_t*) &mydata)").into()),
                     description: None,
                     tags: None,
@@ -872,7 +872,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_F".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: None,
                     tags: Some("my tag".to_string()),
@@ -880,7 +880,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_G".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: Some("docs".to_string()),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
@@ -888,7 +888,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_H".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "1 == 0").into()),
                     description: Some("Some description".to_string()),
                     tags: Some("EXPECTATION;SEVERITY_1;another tag".to_string()),
@@ -896,7 +896,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_I".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "*foo != (1 + bar)").into()),
                     description: None,
                     tags: Some("EXPECTATION;SEVERITY_2;network".to_string()),
@@ -904,7 +904,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_J".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "0 == 0").into()),
                     description: None,
                     tags: Some("EXPECTATION".to_string()),
