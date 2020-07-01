@@ -82,7 +82,10 @@ pub struct CLIOptions {
     #[structopt(short = "o", long = "output-file", parse(from_os_str))]
     output_path: PathBuf,
 
-    /// Symbols and/or addresses of probes or probe pointers
+    /// Symbols and/or raw addresses of probes or probe pointers.
+    /// Raw addresses should be in hex format, prefixed with '0x' or '0X'
+    /// Probe pointer addresses and symbols should be prefixed with `*`.
+    /// Ex: *0X100 0x104 symbol1 *symbol2 0X108 *0x10c
     probe_syms: Vec<String>,
 }
 
@@ -91,20 +94,15 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
     let mut probe_addrs = Vec::new();
     let mut symbols = Vec::new();
     // Separate probe/probe pointer addresses and probe symbols
-    for addr_str in options.probe_syms.iter().filter(|s| s.starts_with("0x")) {
-        let addr = u32::from_str_radix(addr_str.trim_start_matches("0x"), 16)?;
-        probe_addrs.push(ProbeAddr::Addr(addr));
+    for addr_str in options
+        .probe_syms.iter()
+    {
+        match parse_probe_address(addr_str)? {
+            None => symbols.push(addr_str),
+            Some(probe_addr) => probe_addrs.push(probe_addr)
+        }
     }
-    for addr_str in options.probe_syms.iter().filter(|s| s.starts_with("*0x")) {
-        let addr = u32::from_str_radix(addr_str.trim_start_matches("*0x"), 16)?;
-        probe_addrs.push(ProbeAddr::PtrAddr(addr));
-    }
-    symbols.extend(
-        options
-            .probe_syms
-            .iter()
-            .filter(|s| !s.starts_with("0x") && !s.starts_with("*0x")),
-    );
+    
     let mut elf_endianness = None;
     if let Some(elf_path) = options.elf_path.as_ref() {
         let mut elf_buf = Vec::new();
@@ -126,7 +124,7 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
                 ))));
             }
         }
-        elf_endianness = Some(elf_file.as_ref().header.endianness());
+        elf_endianness = Some(elf_file.header.endianness());
     } else if !symbols.is_empty() {
         return Err(Box::new(OptionsError::new(
             "Must specify memory locations of probes or an ELF file to recover symbol values",
@@ -137,7 +135,7 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
 
     Ok(modality_probe_debug_collector::Config {
         session_id: options.session_id.into(),
-        big_endian: should_use_big_endian(&options, elf_endianness)?,
+        big_endian: should_use_big_endian(&options, elf_endianness),
         attach_target: options.attach_target,
         gdb_addr: options.gdb_addr,
         interval,
@@ -146,12 +144,25 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
     })
 }
 
+/// Parse a probe address from a given argument, or return none in case of a symbol
+fn parse_probe_address(input: &str) -> Result<Option<ProbeAddr>, Box<dyn Error>> {
+    if input.starts_with("*0x") || input.starts_with("*0X") {
+        let addr = u32::from_str_radix(input.trim_start_matches("*0x").trim_start_matches("*0X"), 16)?;
+        Ok(Some(ProbeAddr::PtrAddr(addr)))
+    } else if input.starts_with("0x") || input.starts_with("0X") {
+        let addr = u32::from_str_radix(input.trim_start_matches("0x").trim_start_matches("0X"), 16)?;
+        Ok(Some(ProbeAddr::Addr(addr)))
+    } else {
+        Ok(None)
+    }
+}
+
 /// Open elf file for parsing
-fn open_elf<'a>(path: &PathBuf, elf_buf: &'a mut Vec<u8>) -> Result<Box<Elf<'a>>, Box<dyn Error>> {
+fn open_elf<'a>(path: &PathBuf, elf_buf: &'a mut Vec<u8>) -> Result<Elf<'a>, Box<dyn Error>> {
     let mut file = File::open(path)?;
     file.read_to_end(elf_buf)?;
     match Elf::parse(elf_buf) {
-        Ok(elf) => Ok(Box::new(elf)),
+        Ok(elf) => Ok(elf),
         Err(err) => Err(Box::new(err)),
     }
 }
@@ -160,12 +171,11 @@ fn open_elf<'a>(path: &PathBuf, elf_buf: &'a mut Vec<u8>) -> Result<Box<Elf<'a>>
 fn parse_symbol_info(elf_file: &Elf, symbol_name: &str) -> Option<(u32, u32)> {
     let log_sym = elf_file.syms.iter().find(|sym| -> bool {
         let name_opt = elf_file.strtab.get(sym.st_name);
-        if let Some(name_res) = name_opt {
-            if let Ok(name) = name_res {
-                return name == symbol_name;
-            }
+        if let Some(Ok(name)) = name_opt {
+            name == symbol_name
+        } else {
+            false
         }
-        false
     })?;
     Some((log_sym.st_value as u32, log_sym.st_size as u32))
 }
@@ -174,45 +184,39 @@ fn parse_symbol_info(elf_file: &Elf, symbol_name: &str) -> Option<(u32, u32)> {
 /// and ELF endianness
 fn should_use_big_endian(
     o: &CLIOptions,
-    elf_endianness_opt: Option<goblin::error::Result<Endian>>,
-) -> Result<bool, OptionsError> {
+    elf_endianness: Option<goblin::error::Result<Endian>>,
+) -> bool {
     if !o.little_endian && !o.big_endian {
         // Imply endianness from ELF
-        if let Some(elf_endianness) = elf_endianness_opt {
-            match elf_endianness {
-                Ok(Endian::Little) => Ok(false),
-                Ok(Endian::Big) => Ok(true),
+        if let Some(endianness) = elf_endianness {
+            match endianness {
+                Ok(Endian::Little) => false,
+                Ok(Endian::Big) => true,
                 Err(_) => {
                     // Default to little endian with warning
                     println!(
                         "Warning: Endianness could not be parsed from ELF, using little endian"
                     );
-                    Ok(false)
+                    false
                 }
             }
         } else {
             // Default to little endian with warning
             println!("Warning: Endianness not specified, using little endian");
-            Ok(false)
+            false
         }
     } else if o.little_endian {
-        if let Some(elf_endianness) = elf_endianness_opt {
-            if let Ok(endianness) = elf_endianness {
-                if endianness == Endian::Big {
-                    println!("Warning: Little endian specified, but ELF is big endian. Using little endian.");
-                }
-            }
+        if let Some(Ok(Endian::Big)) = elf_endianness {
+            println!(
+                "Warning: Little endian specified, but ELF is big endian. Using little endian."
+            );
         }
-        Ok(false)
+        false
     } else {
-        if let Some(elf_endianness) = elf_endianness_opt {
-            if let Ok(endianness) = elf_endianness {
-                if endianness == Endian::Little {
-                    println!("Warning: Big endian specified, but ELF is little endian. Using big endian.");
-                }
-            }
+        if let Some(Ok(Endian::Little)) = elf_endianness {
+            println!("Warning: Big endian specified, but ELF is little endian. Using big endian.");
         }
-        Ok(true)
+        true
     }
 }
 
@@ -287,23 +291,26 @@ mod tests {
         file.into_temp_path()
     }
 
-    fn options_from_str(input: &str) -> CLIOptions {
-        CLIOptions::from_iter_safe(input.split(" ")).unwrap()
+    fn options_from_str(input: &str) -> Result<CLIOptions, structopt::clap::Error> {
+        CLIOptions::from_iter_safe(input.split(" "))
     }
 
     /// Test basic parsing
     #[test]
     fn test_basic() {
         assert_eq!(
-            config_from_options(options_from_str(
-                "modality-probe-debug-collector \
+            config_from_options(
+                options_from_str(
+                    "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
                 0x100"
-            ))
+                )
+                .unwrap()
+            )
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -321,15 +328,18 @@ mod tests {
     #[test]
     fn specify_gdb_server() {
         assert_eq!(
-            config_from_options(options_from_str(
-                "modality-probe-debug-collector \
+            config_from_options(
+                options_from_str(
+                    "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --gdb-addr 127.0.0.1:3000 \
                 --interval 1s \
                 --output-file ./out \
                 0x100"
-            ))
+                )
+                .unwrap()
+            )
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -345,9 +355,8 @@ mod tests {
 
     /// Should error if both attach target and gdb server specified
     #[test]
-    #[should_panic]
     fn error_on_multiple_targets() {
-        config_from_options(options_from_str(
+        assert!(options_from_str(
             "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
@@ -356,31 +365,30 @@ mod tests {
             --interval 1s \
             --output-file ./out \
             0x100",
-        ))
-        .unwrap();
+        )
+        .is_err());
     }
 
     /// Should error if neither attach target nor gdb server specified
     #[test]
-    #[should_panic]
     fn error_on_no_target() {
-        if let Ok(_) = config_from_options(options_from_str(
+        assert!(options_from_str(
             "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
             --interval 1s \
             --output-file ./out \
             0x100",
-        )) {
-            panic!("No error when neither gdb server or attach target specified")
-        }
+        )
+        .is_err());
     }
 
     /// Should error if given ELF path does not exist
     #[test]
     fn error_elf_dne() {
-        if let Ok(_) = config_from_options(options_from_str(
-            "modality-probe-debug-collector \
+        assert!(config_from_options(
+            options_from_str(
+                "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
             --attach stm32 \
@@ -388,16 +396,18 @@ mod tests {
             --interval 1s \
             --output-file ./out \
             0x100",
-        )) {
-            panic!("No error when elf non-existent")
-        }
+            )
+            .unwrap()
+        )
+        .is_err());
     }
 
     /// Should error if given ELF path is not valid ELF file
     #[test]
     fn error_elf_invalid() {
-        if let Ok(_) = config_from_options(options_from_str(
-            "modality-probe-debug-collector \
+        assert!(config_from_options(
+            options_from_str(
+                "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
             --attach stm32 \
@@ -405,9 +415,10 @@ mod tests {
             --interval 1s \
             --output-file ./out \
             0x100",
-        )) {
-            panic!("No error when invalid elf specified")
-        }
+            )
+            .unwrap()
+        )
+        .is_err());
     }
 
     /// Symbol value parsing
@@ -415,8 +426,9 @@ mod tests {
     fn symbol_parsing() {
         compile_symbol_example();
         assert_eq!(
-            config_from_options(options_from_str(&format!(
-                "modality-probe-debug-collector \
+            config_from_options(
+                options_from_str(&format!(
+                    "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --attach stm32 \
@@ -424,8 +436,10 @@ mod tests {
                 --output-file ./out \
                 --elf {} \
                 v1 v2 v3",
-                LE_SYMBOLS_BIN_PATH
-            )))
+                    LE_SYMBOLS_BIN_PATH
+                ))
+                .unwrap()
+            )
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -448,17 +462,20 @@ mod tests {
     fn sym_addr_mix() {
         compile_symbol_example();
         assert_eq!(
-            config_from_options(options_from_str(&format!(
-                "modality-probe-debug-collector \
+            config_from_options(
+                options_from_str(&format!(
+                    "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
                 --elf {} \
-                0x1 v1 v2 0x10 v3 0x100",
-                LE_SYMBOLS_BIN_PATH
-            )))
+                0X1 v1 v2 0x10 v3 0X100",
+                    LE_SYMBOLS_BIN_PATH
+                ))
+                .unwrap()
+            )
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -481,9 +498,8 @@ mod tests {
 
     /// Should error if both big and little endian specified
     #[test]
-    #[should_panic]
     fn error_specify_both_endianness() {
-        config_from_options(options_from_str(
+        assert!(options_from_str(
             "modality-probe-debug-collector \
             --session-id 0 \
             --little-endian \
@@ -492,8 +508,8 @@ mod tests {
             --interval 1s \
             --output-file ./out \
             0x100",
-        ))
-        .unwrap();
+        )
+        .is_err());
     }
 
     /// Default to little endian if none specified and no ELF given
@@ -501,14 +517,17 @@ mod tests {
     fn specify_neither_endianness() {
         compile_symbol_example();
         assert_eq!(
-            config_from_options(options_from_str(
-                "modality-probe-debug-collector \
+            config_from_options(
+                options_from_str(
+                    "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
                 0x1"
-            ))
+                )
+                .unwrap()
+            )
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -527,16 +546,19 @@ mod tests {
     fn imply_endianness() {
         compile_symbol_example();
         assert_eq!(
-            config_from_options(options_from_str(&format!(
-                "modality-probe-debug-collector \
+            config_from_options(
+                options_from_str(&format!(
+                    "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
                 --elf {} \
                 0x1",
-                LE_SYMBOLS_BIN_PATH
-            )))
+                    LE_SYMBOLS_BIN_PATH
+                ))
+                .unwrap()
+            )
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -551,16 +573,19 @@ mod tests {
 
         let be_example_path = create_be_example();
         assert_eq!(
-            config_from_options(options_from_str(&format!(
-                "modality-probe-debug-collector \
+            config_from_options(
+                options_from_str(&format!(
+                    "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
                 --elf {} \
                 0x1",
-                be_example_path.to_str().unwrap()
-            )))
+                    be_example_path.to_str().unwrap()
+                ))
+                .unwrap()
+            )
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -579,8 +604,9 @@ mod tests {
     fn use_specified_endianness() {
         compile_symbol_example();
         assert_eq!(
-            config_from_options(options_from_str(&format!(
-                "modality-probe-debug-collector \
+            config_from_options(
+                options_from_str(&format!(
+                    "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
@@ -588,8 +614,10 @@ mod tests {
                 --big-endian \
                 --elf {} \
                 0x1",
-                LE_SYMBOLS_BIN_PATH
-            )))
+                    LE_SYMBOLS_BIN_PATH
+                ))
+                .unwrap()
+            )
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -604,8 +632,9 @@ mod tests {
 
         let be_example_path = create_be_example();
         assert_eq!(
-            config_from_options(options_from_str(&format!(
-                "modality-probe-debug-collector \
+            config_from_options(
+                options_from_str(&format!(
+                    "modality-probe-debug-collector \
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
@@ -613,8 +642,10 @@ mod tests {
                 --little-endian \
                 --elf {} \
                 0x1",
-                be_example_path.to_str().unwrap()
-            )))
+                    be_example_path.to_str().unwrap()
+                ))
+                .unwrap()
+            )
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -633,17 +664,20 @@ mod tests {
     fn specify_probe_pointers() {
         compile_symbol_example();
         assert_eq!(
-            config_from_options(options_from_str(&format!(
-                "modality-probe-debug-collector \
+            config_from_options(
+                options_from_str(&format!(
+                    "modality-probe-debug-collector \
                 --session-id 0 \
                 --little-endian \
                 --attach stm32 \
                 --interval 1s \
                 --output-file ./out \
                 --elf {} \
-                *0x1 v1 *v2 *0x10 *v3 0x100",
-                LE_SYMBOLS_BIN_PATH
-            )))
+                *0X1 v1 *v2 *0x10 *v3 0x100",
+                    LE_SYMBOLS_BIN_PATH
+                ))
+                .unwrap()
+            )
             .unwrap(),
             Config {
                 session_id: 0.into(),
@@ -653,9 +687,9 @@ mod tests {
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
                 probe_addrs: vec![
-                    ProbeAddr::Addr(0x100),
                     ProbeAddr::PtrAddr(0x1),
                     ProbeAddr::PtrAddr(0x10),
+                    ProbeAddr::Addr(0x100),
                     ProbeAddr::Addr(0x20000000),
                     ProbeAddr::PtrAddr(0x20000004),
                     ProbeAddr::PtrAddr(0x20000008)

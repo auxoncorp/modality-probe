@@ -9,6 +9,7 @@ use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::thread::sleep;
 use std::time::Duration;
+use std::mem::size_of;
 
 use probe_rs::{MemoryInterface, Session};
 
@@ -22,7 +23,9 @@ use util::model::{LogEntry, SegmentId, SessionId};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
+
 // NOTE: These may be changed once RaceBuffer is implemented into ekt
+// Address offsets of each needed field of the DynamicHistory struct, which is located in modality-probe/src/history.rs
 const PROBE_ID_OFFSET: u32 = 0x0;
 const BUF_ADDR_OFFSET: u32 = 0x4;
 const BUF_CAP_OFFSET: u32 = 0x8;
@@ -82,7 +85,7 @@ impl Snapper<CompactLogItem> for MemorySnapper {
         let raw: u32 = self
             .mem_reader
             .borrow_mut()
-            .read32(self.storage_addr + 4 * (index as u32))?;
+            .read32(self.storage_addr + ((size_of::<CompactLogItem>() * index) as u32))?;
         Ok(CompactLogItem::from_raw(raw))
     }
 }
