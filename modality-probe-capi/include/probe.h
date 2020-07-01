@@ -134,6 +134,23 @@ typedef enum {
 } modality_probe_error;
 
 /*
+ * Modality probe tags specifying macro.
+ *
+ * This is a no-op macro used to expose tags to the CLI tooling.
+ *
+ * Note that tag strings must not contain any `(` or `)` characters.
+ *
+ * Example use:
+ * ```c
+ * MODALITY_TAGS(some tag)
+ *
+ * MODALITY_TAGS(tag-1, tag 2, "tag 3")
+ * ```
+ *
+ */
+#define MODALITY_TAGS(...)
+
+/*
  * Modality probe instance initializer macro.
  *
  * Used to expose probe information to the CLI tooling.
@@ -141,7 +158,7 @@ typedef enum {
  * Expands to call `modality_probe_initialize(dest, dest_size, id, probe)`.
  *
  * The trailing variadic macro arguments accept (in any order):
- * - A string for declaring tags: "tags=<tag>[;<tag>]"
+ * - Tags: MODALITY_TAGS(<tag>[,<tag>])
  * - A string for the probe description
  *
  */
@@ -156,7 +173,7 @@ typedef enum {
  * Expands to call `modality_probe_record_event(probe, event)`.
  *
  * The trailing variadic macro arguments accept (in any order):
- * - A string for declaring tags: "tags=<tag>[;<tag>]"
+ * - Tags: MODALITY_TAGS(<tag>[,<tag>])
  * - A string for the event description
  *
  */
@@ -171,7 +188,7 @@ typedef enum {
  * Expands to call `modality_probe_record_event_with_payload_<type>(probe, event)`.
  *
  * The trailing variadic macro arguments accept (in any order):
- * - A string for declaring tags: "tags=<tag>[;<tag>]"
+ * - Tags: MODALITY_TAGS(<tag>[,<tag>])
  * - A string for the event description
  *
  */
@@ -224,7 +241,7 @@ typedef enum {
  * Expands to call `modality_probe_record_event_with_payload_u32(probe, event, expression_outcome)`.
  *
  * The trailing variadic macro arguments accept (in any order):
- * - A string for declaring tags: "tags=<tag>[;<tag>]"
+ * - Tags: MODALITY_TAGS(<tag>[,<tag>])
  * - A string for the event description
  *
  */

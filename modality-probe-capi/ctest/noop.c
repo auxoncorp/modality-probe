@@ -21,20 +21,20 @@ int main(void) {
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
             &g_probe,
-            "tags=my-tags;more tags",
+            MODALITY_TAGS("my-tags", "more tags"),
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
     err = MODALITY_PROBE_RECORD(
             g_probe,
             EVENT_A,
-            "tags=network;file-system;other-tags",
+            MODALITY_TAGS(network, file-system, "other-tags"),
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
     err = MODALITY_PROBE_RECORD(
             g_probe,
             EVENT_A,
-            "tags=network;file-system;other-tags");
+            MODALITY_TAGS(network, file-system, "other-tags"));
     assert(err == MODALITY_PROBE_ERROR_OK);
     err = MODALITY_PROBE_RECORD(
             g_probe,
@@ -57,13 +57,13 @@ int main(void) {
             g_probe,
             EVENT_A,
             my_data,
-            "tags=thing1;thing2");
+            MODALITY_TAGS("thing1", "thing2"));
     assert(err == MODALITY_PROBE_ERROR_OK);
     err = MODALITY_PROBE_RECORD_W_U8(
             g_probe,
             EVENT_A,
             my_data,
-            "tags=thing1;thing2",
+            MODALITY_TAGS("thing1", "thing2"),
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 

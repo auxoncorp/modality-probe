@@ -1,19 +1,27 @@
+/// No-op macro used to specify one or more tags to be picked up
+/// by the CLI.
+///
+/// Note that tag strings must not contain any `(` or `)` characters.
+#[macro_export]
+macro_rules! tags {
+    ($tag:tt) => {};
+    ($tag:tt, $($more_tags:tt)+) => {};
+}
+
 /// Convenience macro that calls
 /// [ModalityProbe::initialize_at](struct.ModalityProbe.html#method.initialize_at).
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export]
 macro_rules! initialize_at {
     ($storage:expr, $probe_id:expr) => {
         ModalityProbe::initialize_at($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:tt) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr) => {
         ModalityProbe::initialize_at($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
         ModalityProbe::initialize_at($storage, $probe_id)
     };
 }
@@ -23,17 +31,15 @@ macro_rules! initialize_at {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export]
 macro_rules! try_initialize_at {
     ($storage:expr, $probe_id:expr) => {
         ModalityProbe::try_initialize_at($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:tt) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr) => {
         ModalityProbe::try_initialize_at($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
         ModalityProbe::try_initialize_at($storage, $probe_id)
     };
 }
@@ -43,17 +49,15 @@ macro_rules! try_initialize_at {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export]
 macro_rules! new_with_storage {
     ($storage:expr, $probe_id:expr) => {
         ModalityProbe::new_with_storage($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:tt) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr) => {
         ModalityProbe::new_with_storage($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
         ModalityProbe::new_with_storage($storage, $probe_id)
     };
 }
@@ -63,17 +67,15 @@ macro_rules! new_with_storage {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export]
 macro_rules! record {
     ($probe:expr, $event:expr) => {
         $probe.record_event($event)
     };
-    ($probe:expr, $event:expr, $desc_or_tags:tt) => {
+    ($probe:expr, $event:expr, $desc_or_tags:expr) => {
         $probe.record_event($event)
     };
-    ($probe:expr, $event:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
+    ($probe:expr, $event:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
         $probe.record_event($event)
     };
 }
@@ -83,17 +85,15 @@ macro_rules! record {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export]
 macro_rules! try_record {
     ($probe:expr, $event:expr) => {
         $probe.try_record_event($event)
     };
-    ($probe:expr, $event:expr, $desc_or_tags:tt) => {
+    ($probe:expr, $event:expr, $desc_or_tags:expr) => {
         $probe.try_record_event($event)
     };
-    ($probe:expr, $event:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {
+    ($probe:expr, $event:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
         $probe.try_record_event($event)
     };
 }
@@ -103,17 +103,15 @@ macro_rules! try_record {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i8 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
 }
@@ -123,17 +121,15 @@ macro_rules! record_w_i8 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u8 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
 }
@@ -143,17 +139,15 @@ macro_rules! record_w_u8 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i16 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
 }
@@ -163,17 +157,15 @@ macro_rules! record_w_i16 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u16 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
 }
@@ -183,17 +175,15 @@ macro_rules! record_w_u16 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
 }
@@ -203,17 +193,15 @@ macro_rules! record_w_i32 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
 }
@@ -223,17 +211,15 @@ macro_rules! record_w_u32 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_bool {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
 }
@@ -243,17 +229,15 @@ macro_rules! record_w_bool {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_f32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __record_with!($probe, $event, $payload)
     }};
 }
@@ -263,17 +247,15 @@ macro_rules! record_w_f32 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i8 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
 }
@@ -283,17 +265,15 @@ macro_rules! try_record_w_i8 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u8 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
 }
@@ -303,17 +283,15 @@ macro_rules! try_record_w_u8 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i16 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
 }
@@ -323,17 +301,15 @@ macro_rules! try_record_w_i16 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u16 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
 }
@@ -343,17 +319,15 @@ macro_rules! try_record_w_u16 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
 }
@@ -363,17 +337,15 @@ macro_rules! try_record_w_i32 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
 }
@@ -383,17 +355,15 @@ macro_rules! try_record_w_u32 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_bool {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
 }
@@ -403,17 +373,15 @@ macro_rules! try_record_w_bool {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_f32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
-    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $payload:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __try_record_with!($probe, $event, $payload)
     }};
 }
@@ -423,17 +391,15 @@ macro_rules! try_record_w_f32 {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! expect {
     ($probe:expr, $event:expr, $expression:expr) => {{
         __record_with!($probe, $event, $expression)
     }};
-    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:expr) => {{
         __record_with!($probe, $event, $expression)
     }};
-    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __record_with!($probe, $event, $expression)
     }};
 }
@@ -443,17 +409,15 @@ macro_rules! expect {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
-///
-/// The format for the tags string is: `"tags=<tag>[;<tag>]"`
 #[macro_export(local_inner_macros)]
 macro_rules! try_expect {
     ($probe:expr, $event:expr, $expression:expr) => {{
         __try_record_with!($probe, $event, $expression)
     }};
-    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:tt) => {{
+    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:expr) => {{
         __try_record_with!($probe, $event, $expression)
     }};
-    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:tt, $tags_or_desc:tt) => {{
+    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
         __try_record_with!($probe, $event, $expression)
     }};
 }
@@ -541,7 +505,7 @@ mod tests {
         record!(
             probe,
             EventId::new(EVENT_D).unwrap(),
-            "tags=some-tag",
+            tags!("some-tag", "another tag"),
             "desc"
         );
 
@@ -549,53 +513,53 @@ mod tests {
             probe,
             EventId::new(EVENT_D).unwrap(),
             0,
-            "tags=some-tag",
+            tags!("some-tag"),
             "desc"
         );
         record_w_u8!(probe, EventId::new(EVENT_D).unwrap(), 0);
         record_w_i16!(probe, EventId::new(EVENT_D).unwrap(), 0, "desc");
-        record_w_u16!(probe, EventId::new(EVENT_D).unwrap(), 0, "tags=some-tag");
+        record_w_u16!(probe, EventId::new(EVENT_D).unwrap(), 0, tags!("some-tag"));
         record_w_i32!(
             probe,
             EventId::new(EVENT_D).unwrap(),
             0,
-            "tags=some-tag",
+            tags!("some-tag"),
             "desc"
         );
         record_w_u32!(
             probe,
             EventId::new(EVENT_D).unwrap(),
             0,
-            "tags=some-tag",
+            tags!("some-tag"),
             "desc"
         );
         record_w_bool!(
             probe,
             EventId::new(EVENT_D).unwrap(),
             true,
-            "tags=some-tag",
+            tags!("some-tag"),
             "desc"
         );
         record_w_f32!(
             probe,
             EventId::new(EVENT_D).unwrap(),
             0.0,
-            "tags=some-tag",
+            tags!("some-tag"),
             "desc"
         );
 
         try_record!(probe, EVENT_D).unwrap();
         try_record!(probe, EVENT_D, "desc").unwrap();
-        try_record!(probe, EVENT_D, "tags=some-tag", "desc").unwrap();
+        try_record!(probe, EVENT_D, tags!("some-tag"), "desc").unwrap();
 
         try_record_w_i8!(probe, EVENT_D, 0).unwrap();
         try_record_w_u8!(probe, EVENT_D, 0, "desc").unwrap();
-        try_record_w_i16!(probe, EVENT_D, 0, "tags=some-tag").unwrap();
-        try_record_w_u16!(probe, EVENT_D, 0, "tags=some-tag", "desc").unwrap();
-        try_record_w_i32!(probe, EVENT_D, 0, "tags=some-tag", "desc").unwrap();
-        try_record_w_u32!(probe, EVENT_D, 0, "tags=some-tag", "desc").unwrap();
-        try_record_w_bool!(probe, EVENT_D, false, "tags=some-tag", "desc").unwrap();
-        try_record_w_f32!(probe, EVENT_D, 0.0, "tags=some-tag", "desc").unwrap();
+        try_record_w_i16!(probe, EVENT_D, 0, tags!("some-tag")).unwrap();
+        try_record_w_u16!(probe, EVENT_D, 0, tags!("some-tag"), "desc").unwrap();
+        try_record_w_i32!(probe, EVENT_D, 0, tags!("some-tag"), "desc").unwrap();
+        try_record_w_u32!(probe, EVENT_D, 0, tags!("some-tag"), "desc").unwrap();
+        try_record_w_bool!(probe, EVENT_D, false, tags!("some-tag"), "desc").unwrap();
+        try_record_w_f32!(probe, EVENT_D, 0.0, tags!("some-tag"), "desc").unwrap();
 
         expect!(probe, EventId::new(EVENT_D).unwrap(), 1 == 0);
         expect!(probe, EventId::new(EVENT_D).unwrap(), 1_i8 == 0_i8, "desc");
@@ -603,7 +567,7 @@ mod tests {
             probe,
             EventId::new(EVENT_D).unwrap(),
             "s1" != "s2",
-            "tags=severity.1",
+            tags!("SEVERITY_1"),
             "desc"
         );
 
@@ -611,7 +575,7 @@ mod tests {
         try_expect!(probe, EVENT_D, 1 == (2 - 1), "desc").unwrap();
         let a = 1;
         let b = 2;
-        try_expect!(probe, EVENT_D, a != b, "desc", "tags=my expectation").unwrap();
+        try_expect!(probe, EVENT_D, a != b, "desc", tags!("my expect tag")).unwrap();
     }
 
     #[test]
@@ -620,12 +584,12 @@ mod tests {
         let mut storage = [0_u8; 1024];
         let _probe = initialize_at!(&mut storage, probe_id).unwrap();
         let _probe = initialize_at!(&mut storage, probe_id, "desc").unwrap();
-        let _probe = initialize_at!(&mut storage, probe_id, "desc", "tags=some-tag").unwrap();
+        let _probe = initialize_at!(&mut storage, probe_id, "desc", tags!("some-tag")).unwrap();
         let _probe = try_initialize_at!(&mut storage, 1).unwrap();
-        let _probe = try_initialize_at!(&mut storage, 1, "tags=some-tag").unwrap();
-        let _probe = try_initialize_at!(&mut storage, 1, "tags=some-tag", "desc").unwrap();
+        let _probe = try_initialize_at!(&mut storage, 1, tags!("some-tag", "another tag")).unwrap();
+        let _probe = try_initialize_at!(&mut storage, 1, tags!("some-tag"), "desc").unwrap();
         let _probe = new_with_storage!(&mut storage, probe_id).unwrap();
         let _probe = new_with_storage!(&mut storage, probe_id, "desc").unwrap();
-        let _probe = new_with_storage!(&mut storage, probe_id, "tags=some-tag", "desc").unwrap();
+        let _probe = new_with_storage!(&mut storage, probe_id, tags!("some-tag"), "desc").unwrap();
     }
 }

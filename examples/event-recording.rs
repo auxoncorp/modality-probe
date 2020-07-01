@@ -23,8 +23,13 @@ fn main() {
     let remote = "127.0.0.1:2718";
 
     let mut storage = [0u8; 1024];
-    let probe = try_initialize_at!(&mut storage, PROBE_ID_FOO, "tags=example", "Example probe")
-        .expect("Could not initialize ModalityProbe");
+    let probe = try_initialize_at!(
+        &mut storage,
+        PROBE_ID_FOO,
+        tags!("example"),
+        "Example probe"
+    )
+    .expect("Could not initialize ModalityProbe");
 
     let mut loop_counter = 0;
     loop {
@@ -32,7 +37,7 @@ fn main() {
             probe,
             TOP_OF_THE_LOOP,
             "At the top of the loop",
-            "tags=example;my-tag"
+            tags!("example", "my-tag")
         )
         .expect("Could not record event");
 
@@ -41,7 +46,7 @@ fn main() {
             MOD10_CONDITION_EVENT,
             loop_counter % 10 == 0,
             "Loop counter % 10 event",
-            "tags=example"
+            tags!("example")
         )
         .expect("Could not record event");
 
@@ -64,7 +69,7 @@ fn main() {
                 probe,
                 REPORT_CREATED,
                 n_report_bytes as u32,
-                "tags=another tag",
+                tags!("another tag"),
                 "Report created"
             )
             .expect("could not record event with metadata");
