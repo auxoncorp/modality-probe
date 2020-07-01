@@ -177,11 +177,11 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
-        if !t.contains("expectation") {
-            t.insert_str(0, "expectation;");
+        if !t.contains("EXPECTATION") {
+            t.insert_str(0, "EXPECTATION;");
         }
     } else {
-        tags = Some(String::from("expectation"));
+        tags = Some(String::from("EXPECTATION"));
     }
     let description = tags_and_desc.pop();
     Ok((
@@ -732,9 +732,9 @@ mod tests {
             "Some description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    MODALITY_PROBE_EXPECT(probe, EVENT_I, *foo != (1 + bar), MODALITY_TAGS(expectation, SEVERITY_2, network));
+    MODALITY_PROBE_EXPECT(probe, EVENT_I, *foo != (1 + bar), MODALITY_TAGS(EXPECTATION, SEVERITY_2, network));
 
-    /* Special "expectation" tag is inserted"
+    /* Special "EXPECTATION" tag is inserted"
     MODALITY_PROBE_EXPECT(probe, EVENT_J, 0 == 0);
 "#;
 
@@ -891,7 +891,7 @@ mod tests {
                     agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "1 == 0").into()),
                     description: Some("Some description".to_string()),
-                    tags: Some("expectation;SEVERITY_1;another tag".to_string()),
+                    tags: Some("EXPECTATION;SEVERITY_1;another tag".to_string()),
                     location: (1624, 54, 11).into(),
                 },
                 EventMetadata {
@@ -899,7 +899,7 @@ mod tests {
                     agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "*foo != (1 + bar)").into()),
                     description: None,
-                    tags: Some("expectation;SEVERITY_2;network".to_string()),
+                    tags: Some("EXPECTATION;SEVERITY_2;network".to_string()),
                     location: (1909, 62, 5).into(),
                 },
                 EventMetadata {
@@ -907,7 +907,7 @@ mod tests {
                     agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "0 == 0").into()),
                     description: None,
-                    tags: Some("expectation".to_string()),
+                    tags: Some("EXPECTATION".to_string()),
                     location: (2067, 65, 5).into(),
                 },
             ])

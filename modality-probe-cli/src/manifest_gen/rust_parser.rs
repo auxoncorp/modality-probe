@@ -197,11 +197,11 @@ fn expect_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
-        if !t.contains("expectation") {
-            t.insert_str(0, "expectation;");
+        if !t.contains("EXPECTATION") {
+            t.insert_str(0, "EXPECTATION;");
         }
     } else {
-        tags = Some(String::from("expectation"));
+        tags = Some(String::from("EXPECTATION"));
     }
     let description = tags_and_desc.pop();
     Ok((
@@ -273,11 +273,11 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
-        if !t.contains("expectation") {
-            t.insert_str(0, "expectation;");
+        if !t.contains("EXPECTATION") {
+            t.insert_str(0, "EXPECTATION;");
         }
     } else {
-        tags = Some(String::from("expectation"));
+        tags = Some(String::from("EXPECTATION"));
     }
     let description = tags_and_desc.pop();
     Ok((
@@ -1014,9 +1014,9 @@ mod tests {
         "Some description",
     );
 
-    try_expect!(probe, EVENT_K, foo != bar, tags!("expectation", "SEVERITY_2", "network")).unwrap();
+    try_expect!(probe, EVENT_K, foo != bar, tags!("EXPECTATION", "SEVERITY_2", "network")).unwrap();
 
-    /* Special "expectation" tag is inserted" */
+    /* Special "EXPECTATION" tag is inserted" */
     modality_probe::expect!(probe, EVENT_K.try_into()?, foo != bar);
 
     try_record!(
@@ -1192,7 +1192,7 @@ mod tests {
                     agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "14 == (10 + 4)").into()),
                     description: Some("Some description".to_string()),
-                    tags: Some("expectation;SEVERITY_1;another tag".to_string()),
+                    tags: Some("EXPECTATION;SEVERITY_1;another tag".to_string()),
                     location: (1270, 46, 5).into(),
                 },
                 EventMetadata {
@@ -1200,7 +1200,7 @@ mod tests {
                     agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "foo != bar").into()),
                     description: None,
-                    tags: Some("expectation;SEVERITY_2;network".to_string()),
+                    tags: Some("EXPECTATION;SEVERITY_2;network".to_string()),
                     location: (1447, 54, 5).into(),
                 },
                 EventMetadata {
@@ -1208,7 +1208,7 @@ mod tests {
                     agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "foo != bar").into()),
                     description: None,
-                    tags: Some("expectation".to_string()),
+                    tags: Some("EXPECTATION".to_string()),
                     location: (1614, 57, 21).into(),
                 },
                 EventMetadata {
@@ -1224,7 +1224,7 @@ mod tests {
                     agent_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "loop_counter % 10 == 0").into()),
                     description: Some("Loop counter % 10 event".to_string()),
-                    tags: Some("expectation;example".to_string()),
+                    tags: Some("EXPECTATION;example".to_string()),
                     location: (1840, 67, 5).into(),
                 },
             ])
