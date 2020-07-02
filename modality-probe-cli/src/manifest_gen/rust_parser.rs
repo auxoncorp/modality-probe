@@ -240,8 +240,6 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     }
     let mut arg_vec: Vec<String> = Vec::new();
     let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
-    //iter.for_each(|s| arg_vec.push(s));
-    //TODO
     iter.for_each(|s| {
         if !s.is_empty() {
             arg_vec.push(s)
@@ -391,8 +389,6 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     }
     let mut arg_vec: Vec<String> = Vec::new();
     let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
-    //iter.for_each(|s| arg_vec.push(s));
-    // TODO
     iter.for_each(|s| {
         if !s.is_empty() {
             arg_vec.push(s)
@@ -453,8 +449,6 @@ fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetad
     }
     let mut arg_vec: Vec<String> = Vec::new();
     let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
-    //iter.for_each(|s| arg_vec.push(s));
-    //TODO
     iter.for_each(|s| {
         if !s.is_empty() {
             arg_vec.push(s)
@@ -690,8 +684,6 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
     }
     let mut tags_and_desc: Vec<String> = Vec::new();
     let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
-    //iter.for_each(|s| tags_and_desc.push(s));
-    //TODO
     iter.for_each(|s| {
         if !s.is_empty() {
             tags_and_desc.push(s)
