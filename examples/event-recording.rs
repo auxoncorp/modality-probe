@@ -5,7 +5,7 @@
 //! ```
 //! modality-probe manifest-gen --output-path . ./
 //!
-//! modality-probe header-gen --lang Rust events.csv probes.csv --output-path generated_ids/mod.rs
+//! modality-probe header-gen --lang Rust --probes probes.csv --events events.csv --output-path generated_ids/mod.rs
 //! ```
 
 // The generated identifiers

@@ -8,13 +8,13 @@ use structopt::StructOpt;
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, StructOpt)]
 pub struct HeaderGen {
-    /// Events csv file
-    #[structopt(parse(from_os_str))]
-    pub events_csv_file: PathBuf,
+    /// The path the probes.csv for a component
+    #[structopt(long)]
+    pub probes: PathBuf,
 
-    /// Probes csv file
-    #[structopt(parse(from_os_str))]
-    pub probes_csv_file: PathBuf,
+    /// The path the events.csv for a component
+    #[structopt(long)]
+    pub events: PathBuf,
 
     #[structopt(short, long, parse(try_from_str), default_value = "C")]
     pub lang: Lang,
@@ -31,8 +31,8 @@ pub struct HeaderGen {
 impl Default for HeaderGen {
     fn default() -> Self {
         HeaderGen {
-            events_csv_file: PathBuf::from("events.csv"),
-            probes_csv_file: PathBuf::from("probes.csv"),
+            events: PathBuf::from("events.csv"),
+            probes: PathBuf::from("probes.csv"),
             lang: Lang::Rust,
             include_guard_prefix: String::from("MODALITY_PROBE"),
             output_path: None,
@@ -152,15 +152,15 @@ impl FromStr for Lang {
 impl HeaderGen {
     pub fn validate(&self) {
         assert!(
-            self.events_csv_file.exists(),
+            self.events.exists(),
             "Events csv file \"{}\" does not exist",
-            self.events_csv_file.display()
+            self.events.display()
         );
 
         assert!(
-            self.probes_csv_file.exists(),
+            self.probes.exists(),
             "Probes csv file \"{}\" does not exist",
-            self.probes_csv_file.display()
+            self.probes.display()
         );
     }
 }
@@ -179,16 +179,14 @@ pub fn generate_output<W: io::Write>(
     mut w: W,
     internal_events: Vec<u32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let probes_csv_hash = file_sha256(&opt.probes_csv_file);
-    let events_csv_hash = file_sha256(&opt.events_csv_file);
+    let probes_csv_hash = file_sha256(&opt.probes);
+    let events_csv_hash = file_sha256(&opt.events);
 
-    let mut probes_reader = csv::Reader::from_reader(
-        File::open(&opt.probes_csv_file).expect("Can't open probes csv file"),
-    );
+    let mut probes_reader =
+        csv::Reader::from_reader(File::open(&opt.probes).expect("Can't open probes csv file"));
 
-    let mut events_reader = csv::Reader::from_reader(
-        File::open(&opt.events_csv_file).expect("Can't open events csv file"),
-    );
+    let mut events_reader =
+        csv::Reader::from_reader(File::open(&opt.events).expect("Can't open events csv file"));
 
     writeln!(w, "/*")?;
     writeln!(w, " * GENERATED CODE, DO NOT EDIT")?;

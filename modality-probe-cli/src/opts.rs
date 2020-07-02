@@ -81,14 +81,16 @@ mod test {
                     "header-gen",
                     "--lang",
                     "Rust",
-                    "events.csv",
-                    "probes.csv"
+                    "--probes",
+                    "probes.csv",
+                    "--events",
+                    "events.csv"
                 ]
                 .iter()
             ),
             Opts::HeaderGen(HeaderGen {
-                events_csv_file: PathBuf::from("events.csv"),
-                probes_csv_file: PathBuf::from("probes.csv"),
+                probes: PathBuf::from("probes.csv"),
+                events: PathBuf::from("events.csv"),
                 lang: Lang::Rust,
                 include_guard_prefix: "MODALITY_PROBE".to_string(),
                 output_path: None,
@@ -101,16 +103,18 @@ mod test {
                     "header-gen",
                     "--lang",
                     "C",
-                    "events.csv",
+                    "--probes",
                     "probes.csv",
+                    "--events",
+                    "events.csv",
                     "--output-path",
                     "my_dir"
                 ]
                 .iter()
             ),
             Opts::HeaderGen(HeaderGen {
-                events_csv_file: PathBuf::from("events.csv"),
-                probes_csv_file: PathBuf::from("probes.csv"),
+                probes: PathBuf::from("probes.csv"),
+                events: PathBuf::from("events.csv"),
                 lang: Lang::C,
                 include_guard_prefix: "MODALITY_PROBE".to_string(),
                 output_path: Some(PathBuf::from("my_dir")),
