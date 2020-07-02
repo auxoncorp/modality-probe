@@ -1,4 +1,5 @@
 use crate::{
+    component::ComponentUuId,
     manifest_gen::{file_path::FilePath, probe_metadata::ProbeMetadata},
     probes::{Probe, ProbeId},
 };
@@ -20,6 +21,7 @@ impl InSourceProbe {
 
     pub fn to_probe(&self, id: ProbeId) -> Probe {
         Probe {
+            uuid: ComponentUuId::nil(),
             id,
             name: self.canonical_name(),
             description: self
@@ -87,6 +89,7 @@ mod tests {
             },
         };
         let in_mf_probe = Probe {
+            uuid: ComponentUuId::nil(),
             id: ProbeId(1),
             name: "PROBE_ID_A".to_string(),
             description: String::from("not in src"),

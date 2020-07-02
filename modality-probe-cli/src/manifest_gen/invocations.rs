@@ -7,6 +7,7 @@ use crate::manifest_gen::{
     rust_parser::RustParser,
 };
 use crate::{
+    component::{ComponentHash, ComponentHasher, ComponentHasherExt},
     events::{Event, EventId, Events},
     lang::Lang,
     probes::{ProbeId, Probes},
@@ -42,9 +43,10 @@ pub enum EventCheckError {
 }
 
 pub struct Invocations {
-    pub internal_events: Vec<Event>,
-    pub probes: Vec<InSourceProbe>,
-    pub events: Vec<InSourceEvent>,
+    internal_events: Vec<Event>,
+    probes: Vec<InSourceProbe>,
+    events: Vec<InSourceEvent>,
+    code_hash: ComponentHash,
 }
 
 impl Default for Invocations {
@@ -54,14 +56,13 @@ impl Default for Invocations {
             internal_events: config.internal_events,
             probes: Default::default(),
             events: Default::default(),
+            code_hash: ComponentHash([0; 32]),
         }
     }
 }
 
 pub struct Config<'cfg> {
     pub lang: Option<Lang>,
-    pub no_probes: bool,
-    pub no_events: bool,
     pub c_parser: CParser<'cfg>,
     pub rust_parser: RustParser<'cfg>,
     pub file_extensions: Option<Vec<String>>,
@@ -72,8 +73,6 @@ impl<'cfg> Default for Config<'cfg> {
     fn default() -> Self {
         Config {
             lang: None,
-            no_probes: false,
-            no_events: false,
             c_parser: CParser::default(),
             rust_parser: RustParser::default(),
             file_extensions: None,
@@ -87,6 +86,7 @@ impl Invocations {
         let mut probes = Vec::new();
         let mut events = Vec::new();
         let mut buffer = String::new();
+        let mut code_hasher = ComponentHasher::new();
         for entry in WalkDir::new(&p)
             .into_iter()
             .filter_entry(|e| !is_hidden(e))
@@ -100,9 +100,9 @@ impl Invocations {
             if should_consider {
                 let mut f = File::open(entry.path())
                     .map_err(|e| CreationError::Io(entry.path().to_path_buf(), e))?;
-                buffer.clear();
 
                 // Skips binary/invalid data
+                buffer.clear();
                 if f.read_to_string(&mut buffer).is_ok() {
                     if !entry.path().exists() {
                         return Err(CreationError::FileDoesNotExist(entry.path().to_path_buf()));
@@ -157,41 +157,46 @@ impl Invocations {
                         },
                     };
 
-                    if !config.no_probes {
-                        let probe_metadata = parser
-                            .parse_probes(&buffer)
-                            .map_err(|e| CreationError::Parser(file_path.path.clone(), e))?;
-                        let mut probes_in_file: Vec<InSourceProbe> = probe_metadata
-                            .into_iter()
-                            .map(|md| InSourceProbe {
-                                file: file_path.clone(),
-                                metadata: md,
-                            })
-                            .collect();
-                        probes.append(&mut probes_in_file);
-                    }
+                    code_hasher.update(buffer.as_bytes());
 
-                    if !config.no_events {
-                        let event_metadata = parser
-                            .parse_events(&buffer)
-                            .map_err(|e| CreationError::Parser(file_path.path.clone(), e))?;
-                        let mut events_in_file: Vec<InSourceEvent> = event_metadata
-                            .into_iter()
-                            .map(|md| InSourceEvent {
-                                file: file_path.clone(),
-                                metadata: md,
-                            })
-                            .collect();
-                        events.append(&mut events_in_file);
-                    }
+                    let probe_metadata = parser
+                        .parse_probes(&buffer)
+                        .map_err(|e| CreationError::Parser(file_path.path.clone(), e))?;
+                    let mut probes_in_file: Vec<InSourceProbe> = probe_metadata
+                        .into_iter()
+                        .map(|md| InSourceProbe {
+                            file: file_path.clone(),
+                            metadata: md,
+                        })
+                        .collect();
+                    probes.append(&mut probes_in_file);
+
+                    let event_metadata = parser
+                        .parse_events(&buffer)
+                        .map_err(|e| CreationError::Parser(file_path.path.clone(), e))?;
+                    let mut events_in_file: Vec<InSourceEvent> = event_metadata
+                        .into_iter()
+                        .map(|md| InSourceEvent {
+                            file: file_path.clone(),
+                            metadata: md,
+                        })
+                        .collect();
+                    events.append(&mut events_in_file);
                 }
             }
         }
+
+        let code_hash_bytes: [u8; 32] = *(code_hasher.finalize().as_ref());
         Ok(Invocations {
             internal_events: config.internal_events,
             probes,
             events,
+            code_hash: code_hash_bytes.into(),
         })
+    }
+
+    pub fn code_hash(&self) -> ComponentHash {
+        self.code_hash
     }
 
     pub fn check_probes(&self) -> Result<(), ProbeCheckError> {
@@ -581,6 +586,7 @@ impl From<file_path::Error> for CreationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::component::ComponentUuId;
     use crate::events::Event;
     use crate::manifest_gen::event_metadata::EventMetadata;
     use crate::manifest_gen::probe_metadata::ProbeMetadata;
@@ -714,6 +720,7 @@ mod tests {
             },
         };
         let in_mf_probe = Probe {
+            uuid: ComponentUuId::nil(),
             id: ProbeId(1),
             name: "location_a".to_string(),
             description: String::new(),
@@ -734,6 +741,7 @@ mod tests {
         assert_eq!(
             mf_probes.probes,
             vec![Probe {
+                uuid: ComponentUuId::nil(),
                 id: ProbeId(1),
                 name: "location_a".to_string(),
                 description: String::new(),
@@ -759,6 +767,7 @@ mod tests {
             },
         };
         let in_mf_probe = Probe {
+            uuid: ComponentUuId::nil(),
             id: ProbeId(1),
             name: "location_a".to_string(),
             description: String::new(),
@@ -779,6 +788,7 @@ mod tests {
         assert_eq!(
             mf_probes.probes,
             vec![Probe {
+                uuid: ComponentUuId::nil(),
                 id: ProbeId(1),
                 name: "location_a".to_string(),
                 description: "desc".to_string(),
@@ -874,6 +884,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
+            uuid: ComponentUuId::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -894,6 +905,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
+            uuid: ComponentUuId::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -922,6 +934,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
+            uuid: ComponentUuId::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -942,6 +955,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
+            uuid: ComponentUuId::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -970,6 +984,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
+            uuid: ComponentUuId::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -990,6 +1005,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
+            uuid: ComponentUuId::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -1018,6 +1034,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
+            uuid: ComponentUuId::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -1038,6 +1055,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
+            uuid: ComponentUuId::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: "desc".to_string(),

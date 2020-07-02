@@ -3,7 +3,7 @@
 //! Before building this example, run:
 //!
 //! ```
-//! modality-probe manifest-gen --events-csv-file events.csv --probes-csv-file probes.csv ./
+//! modality-probe manifest-gen --output-path . ./
 //!
 //! modality-probe header-gen --lang Rust events.csv probes.csv --output-path generated_ids/mod.rs
 //! ```
