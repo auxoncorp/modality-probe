@@ -72,6 +72,36 @@ impl CausalSnapshot {
             res_lsb | (res_msb << 16),
         ]
     }
+
+    /// Writes a causal snapshot into a slice of little endian bytes
+    pub fn write_into_le_bytes(
+        &self,
+        bytes: &mut [u8],
+    ) -> Result<(), wire::CausalSnapshotWireError> {
+        let mut wire = wire::CausalSnapshot::new_unchecked(bytes);
+        wire.check_len()?;
+        wire.set_probe_id(self.clock.id);
+        wire.set_count(self.clock.count);
+        wire.set_reserved_0(self.reserved_0);
+        wire.set_reserved_1(self.reserved_1);
+        Ok(())
+    }
+}
+
+impl TryFrom<&[u8]> for CausalSnapshot {
+    type Error = wire::CausalSnapshotWireError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+        let snapshot = wire::CausalSnapshot::new(bytes)?;
+        Ok(CausalSnapshot {
+            clock: LogicalClock {
+                id: snapshot.probe_id()?,
+                count: snapshot.count(),
+            },
+            reserved_0: snapshot.reserved_0(),
+            reserved_1: snapshot.reserved_1(),
+        })
+    }
 }
 
 /// A single logical clock, usable as an entry in a vector clock
@@ -391,8 +421,16 @@ mod tests {
                 reserved_0,
                 reserved_1,
             };
+
             let bytes = snap_in.to_le_bytes();
             let snap_out = CausalSnapshot::from_le_bytes(bytes).unwrap();
+            assert_eq!(snap_in.clock, snap_out.clock);
+            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
+            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
+
+            let mut bytes = [0xFF; 12];
+            snap_in.write_into_le_bytes(&mut bytes[..]).unwrap();
+            let snap_out = CausalSnapshot::try_from(&bytes[..]).unwrap();
             assert_eq!(snap_in.clock, snap_out.clock);
             assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
             assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
