@@ -88,6 +88,7 @@ impl Invocations {
         let mut buffer = String::new();
         let mut code_hasher = ComponentHasher::new();
         for entry in WalkDir::new(&p)
+            .sort_by(|a, b| a.file_name().cmp(b.file_name()))
             .into_iter()
             .filter_entry(|e| !is_hidden(e))
             .filter_map(Result::ok)

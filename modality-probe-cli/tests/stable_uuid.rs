@@ -53,6 +53,7 @@ fn stable_uuid() {
         output_path.to_str().unwrap(),
         src_path.to_str().unwrap(),
     ]);
+    println!("{:?}", out);
     assert!(out.status.success());
 
     assert!(component_path.exists());
@@ -61,7 +62,7 @@ fn stable_uuid() {
 
     // Hashes should be added, UUID is stable
     let component_content = fs::read_to_string(&component_path).unwrap();
-    println!("\n{}\n", component_content);
+    println!("{}", component_content);
     assert_eq!(component_content, COMPONENT_TOML);
 
     let out = run_cli(&vec![
@@ -80,14 +81,14 @@ fn stable_uuid() {
 
     // Nothing changes on successive runs
     let component_content = fs::read_to_string(&component_path).unwrap();
-    println!("\n{}\n", component_content);
+    println!("{}", component_content);
     assert_eq!(component_content, COMPONENT_TOML);
 }
 
 const COMPONENT_TOML: &'static str = r#"name = "my-component"
 uuid = "fa46ca95-c6fd-4020-b6a7-4323cfa084be"
-code_hash = "02265025b1ca3709f32f53a4b61fcc90d3a422bb888de316493d1c944bc1e202"
-instrumentation_hash = "bca64f05649ed0f0228bb4c17adf070e9d727852ee1f1c8c97dacf33cb618585"
+code_hash = "f4d29eefe0ec8137637fdc5e586539371d9784274aa3874b9c1b06ed3f2697cc"
+instrumentation_hash = "415871cc51857eb34fcce398a920fb5b3b43aa5a4a067d458938fe2f9ba7892a"
 "#;
 
 const COMPONENT_TOML_WO_HASHES: &'static str = r#"name = "my-component"
