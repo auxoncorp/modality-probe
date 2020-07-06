@@ -1,5 +1,5 @@
 use crate::{
-    component::ComponentUuId,
+    component::ComponentUuid,
     events::{Event, EventId},
     manifest_gen::{event_metadata::EventMetadata, file_path::FilePath},
 };
@@ -21,7 +21,7 @@ impl InSourceEvent {
 
     pub fn to_event(&self, id: EventId) -> Event {
         Event {
-            uuid: ComponentUuId::nil(),
+            uuid: ComponentUuid::nil(),
             id,
             name: self.canonical_name(),
             description: self
@@ -100,7 +100,7 @@ mod tests {
         };
 
         let in_mf_event = Event {
-            uuid: ComponentUuId::nil(),
+            uuid: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::from("stuff not in the src"),

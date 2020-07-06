@@ -1,5 +1,5 @@
 use crate::{
-    component::{ComponentHasherExt, ComponentUuId},
+    component::{ComponentHasherExt, ComponentUuid},
     error::GracefulExit,
     exit_error,
 };
@@ -19,7 +19,7 @@ pub struct EventId(pub u32);
 #[derivative(PartialEq, Hash, PartialOrd)]
 pub struct Event {
     #[derivative(PartialEq = "ignore", PartialOrd = "ignore", Hash = "ignore")]
-    pub uuid: ComponentUuId,
+    pub uuid: ComponentUuid,
     pub id: EventId,
     pub name: String,
     pub description: String,
@@ -39,7 +39,7 @@ impl Event {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Hash, Debug)]
 pub struct Events {
     pub path: PathBuf,
     pub events: Vec<Event>,
@@ -48,7 +48,7 @@ pub struct Events {
 impl Events {
     /// The events reserved for internal use
     pub fn internal_events() -> Vec<Event> {
-        let uuid = ComponentUuId::nil();
+        let uuid = ComponentUuid::nil();
         vec![
             Event {
                 uuid,

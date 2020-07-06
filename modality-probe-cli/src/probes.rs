@@ -1,5 +1,5 @@
 use crate::{
-    component::{ComponentHasherExt, ComponentUuId},
+    component::{ComponentHasherExt, ComponentUuid},
     error::GracefulExit,
     exit_error,
 };
@@ -19,7 +19,7 @@ pub struct ProbeId(pub u32);
 #[derivative(PartialEq, Hash, PartialOrd)]
 pub struct Probe {
     #[derivative(PartialEq = "ignore", PartialOrd = "ignore", Hash = "ignore")]
-    pub uuid: ComponentUuId,
+    pub uuid: ComponentUuid,
     pub id: ProbeId,
     pub name: String,
     pub description: String,
@@ -37,7 +37,7 @@ impl Probe {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Hash, Debug)]
 pub struct Probes {
     pub path: PathBuf,
     pub probes: Vec<Probe>,

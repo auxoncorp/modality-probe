@@ -1,5 +1,6 @@
 use crate::{
-    component::{Component, ComponentHasher, ComponentHasherExt, ComponentUuId},
+    component::{Component, ComponentHasher, ComponentHasherExt, ComponentUuid},
+    component_dir::ComponentDir,
     error::GracefulExit,
     events::Events,
     exit_error,
@@ -41,16 +42,11 @@ pub struct ManifestGen {
     #[structopt(long = "file-extension")]
     pub file_extensions: Option<Vec<String>>,
 
-    /// Component name used when generating a component manifest and
-    /// containing directory
-    #[structopt(long, default_value = "component")]
-    pub component_name: String,
-
-    /// Output path where component, event and probe manifests are generated
-    #[structopt(short = "-o", long, parse(from_os_str), default_value = "component")]
+    /// Output path where component directories are generated
+    #[structopt(short = "-o", long, parse(from_os_str), default_value = "components")]
     pub output_path: PathBuf,
 
-    /// Regenerate the component UUID instead of using an existing one (if present)
+    /// Regenerate the component UUIDs instead of using existing UUIDs (if present)
     #[structopt(long)]
     pub regen_component_uuid: bool,
 
@@ -66,7 +62,6 @@ impl Default for ManifestGen {
             event_id_offset: None,
             probe_id_offset: None,
             file_extensions: None,
-            component_name: String::from("component"),
             output_path: PathBuf::from("."),
             regen_component_uuid: false,
             source_path: PathBuf::from("."),
@@ -89,21 +84,18 @@ impl ManifestGen {
 pub fn run(opt: ManifestGen) {
     opt.validate();
 
-    let component_manifest_dir = opt.output_path;
-    let component_manifest_path = component_manifest_dir.join("Component.toml");
-    let probes_manifest_path = component_manifest_dir.join("probes.csv");
-    let events_manifest_path = component_manifest_dir.join("events.csv");
+    let components_path = opt.output_path;
+    let mut components = ComponentDir::collect_from_path(&components_path);
 
-    let mut probes_manifest = Probes::from_csv(&probes_manifest_path);
-    let mut events_manifest = Events::from_csv(&events_manifest_path);
+    for component in components.iter() {
+        component.probes.validate_ids();
+        component.probes.validate_unique_ids();
+        component.probes.validate_unique_names();
 
-    probes_manifest.validate_ids();
-    probes_manifest.validate_unique_ids();
-    probes_manifest.validate_unique_names();
-
-    events_manifest.validate_ids();
-    events_manifest.validate_unique_ids();
-    events_manifest.validate_unique_names();
+        component.events.validate_ids();
+        component.events.validate_unique_ids();
+        component.events.validate_unique_names();
+    }
 
     let config = Config {
         lang: opt.lang,
@@ -117,50 +109,65 @@ pub fn run(opt: ManifestGen) {
     invocations.check_probes().unwrap_or_exit("manifest-gen");
     invocations.check_events().unwrap_or_exit("manifest-gen");
 
-    invocations.merge_probes_into(opt.probe_id_offset, &mut probes_manifest);
-    invocations.merge_events_into(opt.event_id_offset, &mut events_manifest);
+    let parsed_component_names = invocations.component_names();
 
-    let instrumentation_hash = {
-        let mut hasher = ComponentHasher::new();
-        for p in probes_manifest.probes.iter() {
-            p.instrumentation_hash(&mut hasher);
+    for comp_name in parsed_component_names.iter() {
+        let is_present = components
+            .iter()
+            .any(|c| c.component.name == comp_name.as_str());
+        if !is_present {
+            let comp_dir = components_path.join(comp_name);
+            components.push(ComponentDir {
+                directory: comp_dir.to_path_buf(),
+                component: Component {
+                    name: comp_name.to_string(),
+                    uuid: ComponentUuid::nil(),
+                    code_hash: None,
+                    instrumentation_hash: None,
+                },
+                probes: Probes::from_csv(ComponentDir::probes_manifest_path(&comp_dir)),
+                events: Events::from_csv(ComponentDir::events_manifest_path(&comp_dir)),
+            });
         }
-        for e in events_manifest.events.iter() {
-            e.instrumentation_hash(&mut hasher);
-        }
-        let hash_bytes: [u8; 32] = *(hasher.finalize().as_ref());
-        hash_bytes.into()
-    };
-
-    let mut component_manifest = if component_manifest_path.exists() {
-        let mut c = Component::from_toml(&component_manifest_path);
-        c.code_hash = Some(invocations.code_hash());
-        c.instrumentation_hash = Some(instrumentation_hash);
-        c
-    } else {
-        Component {
-            name: opt.component_name,
-            uuid: ComponentUuId::new(),
-            code_hash: Some(invocations.code_hash()),
-            instrumentation_hash: Some(instrumentation_hash),
-        }
-    };
-
-    if opt.regen_component_uuid {
-        component_manifest.uuid = ComponentUuId::new();
     }
 
-    for p in probes_manifest.probes.iter_mut() {
-        p.uuid = component_manifest.uuid;
-    }
-    for e in events_manifest.events.iter_mut() {
-        e.uuid = component_manifest.uuid;
-    }
+    invocations.merge_components_into(opt.probe_id_offset, opt.event_id_offset, &mut components);
 
-    fs::create_dir_all(&component_manifest_dir)
-        .unwrap_or_exit("Can't create component manifest path");
+    for comp in components.iter_mut() {
+        let instrumentation_hash = {
+            let mut hasher = ComponentHasher::new();
+            for p in comp.probes.probes.iter() {
+                p.instrumentation_hash(&mut hasher);
+            }
+            for e in comp.events.events.iter() {
+                e.instrumentation_hash(&mut hasher);
+            }
+            let hash_bytes: [u8; 32] = *(hasher.finalize().as_ref());
+            hash_bytes.into()
+        };
 
-    component_manifest.write_toml(&component_manifest_path);
-    events_manifest.write_csv(&events_manifest_path);
-    probes_manifest.write_csv(&probes_manifest_path);
+        comp.component.code_hash = Some(invocations.code_hash());
+        comp.component.instrumentation_hash = Some(instrumentation_hash);
+
+        let component_manifest_path = ComponentDir::component_manifest_path(&comp.directory);
+
+        let needs_uuid = opt.regen_component_uuid
+            || comp.component.uuid == ComponentUuid::nil()
+            || !component_manifest_path.exists();
+
+        if needs_uuid {
+            comp.component.uuid = ComponentUuid::new();
+        }
+
+        for p in comp.probes.probes.iter_mut() {
+            p.uuid = comp.component.uuid;
+        }
+        for e in comp.events.events.iter_mut() {
+            e.uuid = comp.component.uuid;
+        }
+
+        fs::create_dir_all(&comp.directory).unwrap_or_exit("Can't create component directory");
+
+        comp.write_manifest_files();
+    }
 }

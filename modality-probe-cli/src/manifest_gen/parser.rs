@@ -101,3 +101,7 @@ pub(crate) fn event_name_valid(s: &str) -> bool {
 pub(crate) fn probe_name_valid(s: &str) -> bool {
     s.chars().all(|c| c.is_alphanumeric() || c == '_')
 }
+
+pub(crate) fn component_name_valid(s: &str) -> bool {
+    s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}

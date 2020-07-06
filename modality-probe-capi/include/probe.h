@@ -155,15 +155,15 @@ typedef enum {
  *
  * Used to expose probe information to the CLI tooling.
  *
- * Expands to call `modality_probe_initialize(dest, dest_size, id, probe)`.
+ * Expands to call `modality_probe_initialize(dest, dest_size, probe_id, probe)`.
  *
  * The trailing variadic macro arguments accept (in any order):
  * - Tags: MODALITY_TAGS(<tag>[,<tag>])
  * - A string for the probe description
  *
  */
-#define MODALITY_PROBE_INIT(dest, dest_size, id, probe, ...) \
-    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_initialize(dest, dest_size, id, probe) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_INIT(dest, dest_size, probe_id, component_name, probe, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_initialize(dest, dest_size, probe_id, probe) : MODALITY_PROBE_ERROR_OK)
 
 /*
  * Modality probe event recording macro.

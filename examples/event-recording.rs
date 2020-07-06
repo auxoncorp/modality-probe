@@ -5,7 +5,7 @@
 //! ```
 //! modality-probe manifest-gen --output-path . ./
 //!
-//! modality-probe header-gen --lang Rust --probes probes.csv --events events.csv --output-path generated_ids/mod.rs
+//! modality-probe header-gen --lang Rust --probes example-component/probes.csv --events example-component/events.csv --output-path generated_ids/mod.rs
 //! ```
 
 // The generated identifiers
@@ -26,6 +26,7 @@ fn main() {
     let probe = try_initialize_at!(
         &mut storage,
         PROBE_ID_FOO,
+        EXAMPLE_COMPONENT,
         tags!("example"),
         "Example probe"
     )

@@ -13,7 +13,7 @@ pub type ComponentHasher = Sha3_256;
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Deserialize, Serialize)]
 pub struct Component {
     pub name: String,
-    pub uuid: ComponentUuId,
+    pub uuid: ComponentUuid,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "serde_hex")]
     pub code_hash: Option<ComponentHash>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "serde_hex")]
@@ -34,21 +34,27 @@ impl Component {
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Deserialize, Serialize)]
-pub struct ComponentUuId(pub Uuid);
+pub struct ComponentUuid(pub Uuid);
 
-impl ComponentUuId {
+impl ComponentUuid {
     pub fn new() -> Self {
-        ComponentUuId(Uuid::new_v4())
+        ComponentUuid(Uuid::new_v4())
     }
 
     pub fn nil() -> Self {
-        ComponentUuId(Uuid::nil())
+        ComponentUuid(Uuid::nil())
     }
 }
 
-impl Default for ComponentUuId {
+impl Default for ComponentUuid {
     fn default() -> Self {
-        ComponentUuId::nil()
+        ComponentUuid::nil()
+    }
+}
+
+impl fmt::Display for ComponentUuid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
     }
 }
 
