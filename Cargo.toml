@@ -21,7 +21,6 @@ members = [
   "modality-probe-cli",
   "collectors/modality-probe-udp-collector",
   "collectors/modality-probe-collector-common",
-  "modality-probe-graph",
   "race-buffer",
 ]
 exclude = ["debian-package", "./collectors"]

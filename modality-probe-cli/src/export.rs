@@ -1,11 +1,11 @@
 //! Export a textual representation of a causal graph using the
-//! collected coumnar form as input.
+//! collected columnar form as input.
 
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
 use structopt::StructOpt;
 
-use modality_probe_graph::{digraph::Digraph, meta::*, Cfg};
+use crate::graph::{self, digraph::Digraph, meta::*, Cfg};
 
 /// Export a textual representation of a causal graph using the
 /// collected coumnar form as input.
@@ -97,7 +97,7 @@ pub fn run(exp: Export) -> Result<(), String> {
     match (exp.graph_type, exp.interactions_only) {
         (GraphType::Cyclic, false) => {
             let mut graph = Digraph::new();
-            modality_probe_graph::overlay(&cfg, &mut graph, lrdr.deserialize())
+            graph::overlay(&cfg, &mut graph, lrdr.deserialize())
                 .map_err(|e| format!("building the graph failed: {}", e))?;
             println!("{}", graph.to_dot(
                 |n, _| Ok((*n).to_string()),
@@ -134,7 +134,7 @@ pub fn run(exp: Export) -> Result<(), String> {
         }
         (GraphType::Cyclic, true) => {
             let mut graph = Digraph::new();
-            modality_probe_graph::topo(&cfg, &mut graph, lrdr.deserialize())
+            graph::topo(&cfg, &mut graph, lrdr.deserialize())
                 .map_err(|e| format!("building the graph failed: {}", e))?;
             println!(
                 "{}",
@@ -153,7 +153,7 @@ pub fn run(exp: Export) -> Result<(), String> {
         }
         (GraphType::Acyclic, false) => {
             let mut graph = Digraph::new();
-            modality_probe_graph::complete(&cfg, &mut graph, lrdr.deserialize())
+            graph::complete(&cfg, &mut graph, lrdr.deserialize())
                 .map_err(|e| format!("building the graph failed: {}", e))?;
             println!(
                 "{}",
@@ -253,7 +253,7 @@ pub fn run(exp: Export) -> Result<(), String> {
         }
         (GraphType::Acyclic, true) => {
             let mut graph = Digraph::new();
-            modality_probe_graph::segments(&cfg, &mut graph, lrdr.deserialize())
+            graph::segments(&cfg, &mut graph, lrdr.deserialize())
                 .map_err(|e| format!("building the graph failed: {}", e))?;
             println!(
                 "{}",

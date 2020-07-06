@@ -29,14 +29,16 @@ path = "src/lib.rs"
 csv = "1.1"
 structopt = "0.3"
 walkdir = "2.3"
-itertools = "0.8.2"
-petgraph = "0.5.0"
 sha2 = "0.8"
 nom_locate = "2.0"
 toml = "0.5"
 sha3 = "0.9"
 hex = "0.4"
 derivative = "2.1"
+err-derive = "0.2.4"
+
+[dependencies.modality-probe]
+path = "../"
 
 [dependencies.serde]
 version = "1"

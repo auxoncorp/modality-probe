@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, fmt::Write, hash::Hash};
 
-use crate::Error;
+use crate::graph::Error;
 
 #[derive(Debug, PartialEq, Eq, Default)]
 pub struct Digraph<N, W>
@@ -61,12 +61,12 @@ where
             )
             .map_err(|e| Error::Io(e.to_string()))?;
         }
-        writeln!(out, "}}").map_err(|e| crate::Error::Io(e.to_string()))?;
+        writeln!(out, "}}").map_err(|e| Error::Io(e.to_string()))?;
         Ok(out)
     }
 }
 
-impl<'a, N> crate::GraphBuilder<'a> for Digraph<N, ()>
+impl<'a, N> crate::graph::GraphBuilder<'a> for Digraph<N, ()>
 where
     N: Eq + Hash + Clone + Copy,
 {
@@ -81,7 +81,7 @@ where
     }
 }
 
-impl<'a, N, W> crate::GraphWithWeightsBuilder<'a> for Digraph<N, W>
+impl<'a, N, W> crate::graph::GraphWithWeightsBuilder<'a> for Digraph<N, W>
 where
     N: Eq + Hash + Clone + Copy,
     W: Eq + Clone + Copy,
