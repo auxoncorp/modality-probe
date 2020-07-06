@@ -21,7 +21,6 @@ members = [
   "modality-probe-cli",
   "collectors/modality-probe-udp-collector",
   "collectors/modality-probe-collector-common",
-  "race-buffer",
 ]
 exclude = ["debian-package", "./collectors"]
 
@@ -33,7 +32,3 @@ fixed-slice-vec = "0.2"
 serde = { version = "1.0", features = ["derive"], optional = true }
 proptest = { version = "0.9.5", optional = true }
 schemars = { version = "0.6.5", optional = true }
-
-[dev-dependencies]
-modality-probe-udp-collector = { path = "./collectors/modality-probe-udp-collector" }
-proptest = "0.9.5"

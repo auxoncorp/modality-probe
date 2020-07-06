@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -ex
 
 (
     cd ../
@@ -9,6 +9,14 @@ set -e
 
     strip --strip-unneeded target/release/modality-probe
     strip --strip-unneeded target/release/modality-probe-udp-collector
+)
+
+(
+    cd ../modality-probe-capi
+    cargo build --release
+
+    strip --strip-unneeded target/release/libmodality_probe.so
+    strip --strip-debug target/release/libmodality_probe.a
 )
 
 rm -rf target/man1
@@ -32,4 +40,4 @@ mkdir -p target/completions
 mv ../modality-probe.bash target/completions/
 mv ../modality-probe-udp-collector.bash target/completions/
 
-cargo deb
+cargo deb --no-build
