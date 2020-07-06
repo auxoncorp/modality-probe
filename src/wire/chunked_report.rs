@@ -2,8 +2,7 @@
 //! that are fragmented into multiple chunks due to sizing
 //! constraints
 
-use crate::ProbeId;
-use byteorder::{ByteOrder, LittleEndian};
+use crate::{wire::le_bytes, ProbeId};
 use static_assertions::const_assert_ne;
 
 /// Everything that can go wrong when attempting to interpret a chunked report
@@ -198,14 +197,14 @@ impl<T: AsRef<[u8]>> ChunkedReport<T> {
     #[inline]
     pub fn fingerprint(&self) -> u32 {
         let data = self.buffer.as_ref();
-        LittleEndian::read_u32(&data[field::FINGERPRINT])
+        le_bytes::read_u32(&data[field::FINGERPRINT])
     }
 
     /// Return the `probe_id` field
     #[inline]
     pub fn probe_id(&self) -> Result<ProbeId, ChunkedReportWireError> {
         let data = self.buffer.as_ref();
-        let raw_probe_id = LittleEndian::read_u32(&data[field::PROBE_ID]);
+        let raw_probe_id = le_bytes::read_u32(&data[field::PROBE_ID]);
         match ProbeId::new(raw_probe_id) {
             Some(id) => Ok(id),
             None => Err(ChunkedReportWireError::InvalidProbeId(raw_probe_id)),
@@ -216,14 +215,14 @@ impl<T: AsRef<[u8]>> ChunkedReport<T> {
     #[inline]
     pub fn chunk_group_id(&self) -> u16 {
         let data = self.buffer.as_ref();
-        LittleEndian::read_u16(&data[field::CHUNK_GROUP_ID])
+        le_bytes::read_u16(&data[field::CHUNK_GROUP_ID])
     }
 
     /// Return the `chunk_index` field
     #[inline]
     pub fn chunk_index(&self) -> u16 {
         let data = self.buffer.as_ref();
-        LittleEndian::read_u16(&data[field::CHUNK_INDEX])
+        le_bytes::read_u16(&data[field::CHUNK_INDEX])
     }
 
     /// Return the `payload_data_type` field
@@ -274,28 +273,28 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ChunkedReport<T> {
     #[inline]
     pub fn set_fingerprint(&mut self) {
         let data = self.buffer.as_mut();
-        LittleEndian::write_u32(&mut data[field::FINGERPRINT], Self::FINGERPRINT);
+        le_bytes::write_u32(&mut data[field::FINGERPRINT], Self::FINGERPRINT);
     }
 
     /// Set the `probe_id` field
     #[inline]
     pub fn set_probe_id(&mut self, value: ProbeId) {
         let data = self.buffer.as_mut();
-        LittleEndian::write_u32(&mut data[field::PROBE_ID], value.get_raw());
+        le_bytes::write_u32(&mut data[field::PROBE_ID], value.get_raw());
     }
 
     /// Set the `chunk_group_id` field
     #[inline]
     pub fn set_chunk_group_id(&mut self, value: u16) {
         let data = self.buffer.as_mut();
-        LittleEndian::write_u16(&mut data[field::CHUNK_GROUP_ID], value);
+        le_bytes::write_u16(&mut data[field::CHUNK_GROUP_ID], value);
     }
 
     /// Set the `chunk_index` field
     #[inline]
     pub fn set_chunk_index(&mut self, value: u16) {
         let data = self.buffer.as_mut();
-        LittleEndian::write_u16(&mut data[field::CHUNK_INDEX], value);
+        le_bytes::write_u16(&mut data[field::CHUNK_INDEX], value);
     }
 
     /// Set the `payload_data_type` field

@@ -1,7 +1,6 @@
 //! A wire protocol for representing Modality probe log reports in bulk form
 
-use crate::ProbeId;
-use byteorder::{ByteOrder, LittleEndian};
+use crate::{wire::le_bytes, ProbeId};
 
 /// Everything that can go wrong when attempting to interpret a bulk report
 /// from the wire representation
@@ -137,14 +136,14 @@ impl<T: AsRef<[u8]>> BulkReport<T> {
     #[inline]
     pub fn fingerprint(&self) -> u32 {
         let data = self.buffer.as_ref();
-        LittleEndian::read_u32(&data[field::FINGERPRINT])
+        le_bytes::read_u32(&data[field::FINGERPRINT])
     }
 
     /// Return the `probe_id` field
     #[inline]
     pub fn probe_id(&self) -> Result<ProbeId, BulkReportWireError> {
         let data = self.buffer.as_ref();
-        let raw_probe_id = LittleEndian::read_u32(&data[field::PROBE_ID]);
+        let raw_probe_id = le_bytes::read_u32(&data[field::PROBE_ID]);
         match ProbeId::new(raw_probe_id) {
             Some(id) => Ok(id),
             None => Err(BulkReportWireError::InvalidProbeId(raw_probe_id)),
@@ -155,14 +154,14 @@ impl<T: AsRef<[u8]>> BulkReport<T> {
     #[inline]
     pub fn n_log_bytes(&self) -> u32 {
         let data = self.buffer.as_ref();
-        LittleEndian::read_u32(&data[field::N_LOG_BYTES])
+        le_bytes::read_u32(&data[field::N_LOG_BYTES])
     }
 
     /// Return the `n_extension_bytes` field
     #[inline]
     pub fn n_extension_bytes(&self) -> u32 {
         let data = self.buffer.as_ref();
-        LittleEndian::read_u32(&data[field::N_EXT_BYTES])
+        le_bytes::read_u32(&data[field::N_EXT_BYTES])
     }
 }
 
@@ -181,28 +180,28 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> BulkReport<T> {
     #[inline]
     pub fn set_fingerprint(&mut self) {
         let data = self.buffer.as_mut();
-        LittleEndian::write_u32(&mut data[field::FINGERPRINT], Self::FINGERPRINT);
+        le_bytes::write_u32(&mut data[field::FINGERPRINT], Self::FINGERPRINT);
     }
 
     /// Set the `probe_id` field
     #[inline]
     pub fn set_probe_id(&mut self, value: ProbeId) {
         let data = self.buffer.as_mut();
-        LittleEndian::write_u32(&mut data[field::PROBE_ID], value.get_raw());
+        le_bytes::write_u32(&mut data[field::PROBE_ID], value.get_raw());
     }
 
     /// Set the `n_log_bytes` field
     #[inline]
     pub fn set_n_log_bytes(&mut self, value: u32) {
         let data = self.buffer.as_mut();
-        LittleEndian::write_u32(&mut data[field::N_LOG_BYTES], value);
+        le_bytes::write_u32(&mut data[field::N_LOG_BYTES], value);
     }
 
     /// Set the `n_extension_bytes` field
     #[inline]
     pub fn set_n_extension_bytes(&mut self, value: u32) {
         let data = self.buffer.as_mut();
-        LittleEndian::write_u32(&mut data[field::N_EXT_BYTES], value);
+        le_bytes::write_u32(&mut data[field::N_EXT_BYTES], value);
     }
 
     /// Return a mutable pointer to the payload
