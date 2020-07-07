@@ -20,7 +20,9 @@ pub enum Opts {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::manifest_gen::id_gen::NonZeroIdRange;
     use crate::{export::GraphType, lang::Lang};
+    use core::num::NonZeroU32;
     use pretty_assertions::assert_eq;
     use std::path::PathBuf;
 
@@ -30,11 +32,11 @@ mod test {
             Opts::from_iter(["modality-probe", "manifest-gen", "/path",].iter()),
             Opts::ManifestGen(ManifestGen {
                 lang: None,
-                event_id_offset: None,
-                probe_id_offset: None,
                 file_extensions: None,
-                output_path: PathBuf::from("components"),
+                event_id_offset: None,
+                probe_id_range: None,
                 regen_component_uuid: false,
+                output_path: PathBuf::from("components"),
                 source_path: PathBuf::from("/path"),
             })
         );
@@ -50,6 +52,7 @@ mod test {
                     "--file-extension=c",
                     "--regen-component-uuid",
                     "--file-extension=cpp",
+                    "--probe-id-range=1..=12",
                     "--output-path",
                     "/out",
                     "/path",
@@ -59,8 +62,11 @@ mod test {
             Opts::ManifestGen(ManifestGen {
                 lang: Some(Lang::C),
                 event_id_offset: Some(10),
-                probe_id_offset: None,
                 file_extensions: Some(vec!["c".to_string(), "cpp".to_string()]),
+                probe_id_range: Some(
+                    NonZeroIdRange::new(NonZeroU32::new(1).unwrap(), NonZeroU32::new(12).unwrap())
+                        .unwrap()
+                ),
                 output_path: PathBuf::from("/out"),
                 regen_component_uuid: true,
                 source_path: PathBuf::from("/path"),

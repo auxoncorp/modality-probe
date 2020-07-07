@@ -79,16 +79,6 @@ impl Probes {
         writer.flush().unwrap_or_exit("Can't flush probes writer");
     }
 
-    pub fn next_available_probe_id(&self) -> u32 {
-        // Probe IDs are NonZeroU32, and therefore start at 1
-        1 + self
-            .probes
-            .iter()
-            .map(|probe| probe.id.0)
-            .max()
-            .unwrap_or(0)
-    }
-
     pub fn validate_ids(&self) {
         self.probes.iter().for_each(|probe| {
             if modality_probe::ProbeId::new(probe.id.0).is_none() {

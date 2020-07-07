@@ -1,6 +1,7 @@
 use crate::manifest_gen::{
     c_parser::CParser,
     file_path::{self, FilePath},
+    id_gen::IdGen,
     in_source_event::InSourceEvent,
     in_source_probe::InSourceProbe,
     parser::{self, Parser},
@@ -10,6 +11,7 @@ use crate::{
     component::{ComponentHash, ComponentHasher, ComponentHasherExt},
     component_dir::ComponentDir,
     events::{Event, EventId, Events},
+    exit_error,
     lang::Lang,
     probes::{ProbeId, Probes},
     warn,
@@ -242,16 +244,21 @@ impl Invocations {
 
     pub fn merge_components_into(
         &self,
-        probe_id_offset: Option<u32>,
         event_id_offset: Option<u32>,
+        probe_id_gen: &mut IdGen,
         mf_components: &mut Vec<ComponentDir>,
     ) {
-        let mut next_available_probe_id =
-            Self::next_available_global_probe_id(probe_id_offset, mf_components);
+        let mut existing_probe_ids: Vec<u32> = mf_components
+            .iter()
+            .flat_map(|c| c.probes.probes.iter())
+            .map(|p| p.id.0)
+            .collect();
+
         for comp in mf_components.iter_mut() {
             self.merge_probes_into(
                 &comp.component.name,
-                &mut next_available_probe_id,
+                probe_id_gen,
+                &mut existing_probe_ids,
                 &mut comp.probes,
             );
 
@@ -263,7 +270,8 @@ impl Invocations {
     fn merge_probes_into(
         &self,
         component_name: &str,
-        next_available_probe_id: &mut u32,
+        probe_id_gen: &mut IdGen,
+        existing_probe_ids: &mut Vec<u32>,
         mf_probes: &mut Probes,
     ) {
         let mf_path = mf_probes.path.clone();
@@ -317,8 +325,14 @@ impl Invocations {
             .iter()
             .filter(|p| component_name.eq_ignore_ascii_case(&p.canonical_component_name()))
             .for_each(|src_probe| {
+                let next_probe_id = Self::generate_probe_id(
+                    probe_id_gen,
+                    src_probe.canonical_name().as_str(),
+                    existing_probe_ids,
+                );
+
                 if mf_probes.probes.iter().find(|t| src_probe.eq(t)).is_none() {
-                    let probe = src_probe.to_probe(ProbeId(*next_available_probe_id));
+                    let probe = src_probe.to_probe(next_probe_id);
                     println!(
                         "Adding probe {}, ID {} to {}",
                         probe.name,
@@ -326,7 +340,6 @@ impl Invocations {
                         mf_path.display(),
                     );
                     mf_probes.probes.push(probe);
-                    *next_available_probe_id += 1;
                 }
             });
 
@@ -513,21 +526,28 @@ impl Invocations {
         names
     }
 
-    fn next_available_global_probe_id(
-        probe_id_offset: Option<u32>,
-        components: &[ComponentDir],
-    ) -> u32 {
-        let probe_id_offset = probe_id_offset.unwrap_or(0);
+    fn generate_probe_id(
+        gen: &mut IdGen,
+        probe_name: &str,
+        existing_probe_ids: &mut Vec<u32>,
+    ) -> ProbeId {
+        let mut max_tries = std::u16::MAX;
+        loop {
+            let next_id = gen.hashed_id(probe_name);
 
-        let next_id = components
-            .iter()
-            .map(|c| c.probes.next_available_probe_id())
-            .max()
-            .unwrap_or(1);
+            let id_already_taken = existing_probe_ids.iter().any(|&id| id == next_id.get());
+            let is_valid_probe_id = modality_probe::ProbeId::new(next_id.get()).is_some();
 
-        match next_id {
-            id if probe_id_offset > id => probe_id_offset,
-            id => id,
+            if !id_already_taken && is_valid_probe_id {
+                existing_probe_ids.push(next_id.get());
+                return ProbeId(next_id.get());
+            }
+
+            // Escape hatch
+            max_tries = max_tries.saturating_sub(1);
+            if max_tries == 0 {
+                exit_error!("manifest-gen", "Exceeded the ProbeId hashing retry limit");
+            }
         }
     }
 }
@@ -642,9 +662,11 @@ mod tests {
     use crate::component::ComponentUuid;
     use crate::events::Event;
     use crate::manifest_gen::event_metadata::EventMetadata;
+    use crate::manifest_gen::id_gen::NonZeroIdRange;
     use crate::manifest_gen::probe_metadata::ProbeMetadata;
     use crate::manifest_gen::type_hint::TypeHint;
     use crate::probes::Probe;
+    use core::num::NonZeroU32;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -797,7 +819,20 @@ mod tests {
             path: PathBuf::new(),
             probes: vec![in_mf_probe.clone()],
         };
-        invcs.merge_probes_into("component", &mut 1, &mut mf_probes);
+        let probe_id_range = NonZeroIdRange::new(
+            NonZeroU32::new(1).unwrap(),
+            NonZeroU32::new(modality_probe::ProbeId::MAX_ID).unwrap(),
+        )
+        .unwrap();
+        let mut probe_id_gen = IdGen::new(probe_id_range);
+        let mut existing_probe_ids: Vec<u32> = Vec::new();
+        invcs.merge_probes_into(
+            "component",
+            &mut probe_id_gen,
+            &mut existing_probe_ids,
+            &mut mf_probes,
+        );
+        assert_eq!(existing_probe_ids.len(), 1);
         assert_eq!(
             mf_probes.probes,
             vec![Probe {
@@ -845,7 +880,20 @@ mod tests {
             path: PathBuf::new(),
             probes: vec![in_mf_probe.clone()],
         };
-        invcs.merge_probes_into("component", &mut 1, &mut mf_probes);
+        let probe_id_range = NonZeroIdRange::new(
+            NonZeroU32::new(1).unwrap(),
+            NonZeroU32::new(modality_probe::ProbeId::MAX_ID).unwrap(),
+        )
+        .unwrap();
+        let mut probe_id_gen = IdGen::new(probe_id_range);
+        let mut existing_probe_ids: Vec<u32> = Vec::new();
+        invcs.merge_probes_into(
+            "component",
+            &mut probe_id_gen,
+            &mut existing_probe_ids,
+            &mut mf_probes,
+        );
+        assert_eq!(existing_probe_ids.len(), 1);
         assert_eq!(
             mf_probes.probes,
             vec![Probe {

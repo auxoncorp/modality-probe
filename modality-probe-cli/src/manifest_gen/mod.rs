@@ -7,14 +7,18 @@ use crate::{
     lang::Lang,
     probes::Probes,
 };
+use core::num::NonZeroU32;
+use id_gen::{IdGen, NonZeroIdRange};
 use invocations::{Config, Invocations};
 use std::fs;
 use std::path::PathBuf;
+use std::str::FromStr;
 use structopt::StructOpt;
 
 pub mod c_parser;
 pub mod event_metadata;
 pub mod file_path;
+pub mod id_gen;
 pub mod in_source_event;
 pub mod in_source_probe;
 pub mod invocations;
@@ -30,25 +34,30 @@ pub struct ManifestGen {
     #[structopt(short, long, parse(try_from_str))]
     pub lang: Option<Lang>,
 
-    /// Event ID offset
-    #[structopt(long)]
-    pub event_id_offset: Option<u32>,
-
-    /// Probe ID offset
-    #[structopt(long)]
-    pub probe_id_offset: Option<u32>,
-
     /// Limit the source code searching to files with matching extensions
     #[structopt(long = "file-extension")]
     pub file_extensions: Option<Vec<String>>,
 
-    /// Output path where component directories are generated
-    #[structopt(short = "-o", long, parse(from_os_str), default_value = "components")]
-    pub output_path: PathBuf,
+    /// Event ID offset, starts at 1 if not specified
+    #[structopt(long)]
+    pub event_id_offset: Option<u32>,
+
+    /// Constrain the generated probe ID to an specific range.
+    ///
+    /// This can be either `<inclusive_start>..<exclusive_end>`
+    /// or `<inclusive_start>..=<inclusive_end>`.
+    ///
+    /// The range values are unsigned 32-bit integers and must be non-zero.
+    #[structopt(long, parse(try_from_str = NonZeroIdRange::from_str))]
+    pub probe_id_range: Option<NonZeroIdRange>,
 
     /// Regenerate the component UUIDs instead of using existing UUIDs (if present)
     #[structopt(long)]
     pub regen_component_uuid: bool,
+
+    /// Output path where component directories are generated
+    #[structopt(short = "-o", long, parse(from_os_str), default_value = "components")]
+    pub output_path: PathBuf,
 
     /// Source code path to search
     #[structopt(parse(from_os_str))]
@@ -59,11 +68,11 @@ impl Default for ManifestGen {
     fn default() -> Self {
         ManifestGen {
             lang: None,
-            event_id_offset: None,
-            probe_id_offset: None,
             file_extensions: None,
-            output_path: PathBuf::from("."),
+            event_id_offset: None,
+            probe_id_range: None,
             regen_component_uuid: false,
+            output_path: PathBuf::from("."),
             source_path: PathBuf::from("."),
         }
     }
@@ -131,7 +140,16 @@ pub fn run(opt: ManifestGen) {
         }
     }
 
-    invocations.merge_components_into(opt.probe_id_offset, opt.event_id_offset, &mut components);
+    let probe_id_range = opt.probe_id_range.unwrap_or_else(|| {
+        NonZeroIdRange::new(
+            NonZeroU32::new(1).unwrap(),
+            NonZeroU32::new(modality_probe::ProbeId::MAX_ID)
+                .unwrap_or_exit("Can't make a NonZeroU32 from ProbeId::MAX_ID"),
+        )
+        .unwrap_or_exit("Can't make a NonZeroIdRange from the given inclusive start and end values")
+    });
+    let mut probe_id_gen = IdGen::new(probe_id_range);
+    invocations.merge_components_into(opt.event_id_offset, &mut probe_id_gen, &mut components);
 
     for comp in components.iter_mut() {
         let instrumentation_hash = {
