@@ -183,25 +183,22 @@ impl EventId {
     /// defined by end users.
     pub const MAX_USER_ID: u32 = EventId::MAX_INTERNAL_ID - EventId::NUM_RESERVED_IDS;
 
-    /// Raw nil value used by RaceBuffer. Must not be used as an event id elsewhere
-    pub const EVENT_NIL_VALUE: EventId =
-        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 1) });
     /// The probe produced a log report for transmission to the backend
     /// for external analysis.
     pub const EVENT_PRODUCED_EXTERNAL_REPORT: EventId =
-        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 2) });
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 1) });
+    // Note - this will be changed to "EVENT_LOG_ITEMS_MISSED" once RaceBuffer is used for log storage
     /// There was not sufficient room in memory to store all desired events or clock data
     pub const EVENT_LOG_OVERFLOWED: EventId =
-        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 3) });
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 2) });
     /// A logical clock's count reached the maximum trackable value
     pub const EVENT_LOGICAL_CLOCK_OVERFLOWED: EventId =
-        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 4) });
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 3) });
     /// The local instance (e.g. Modality probe) did not have enough memory
     /// reserved to store enough logical clocks to track all of the unique
     /// neighbors that attempt to communicate with it.
     pub const EVENT_NUM_CLOCKS_OVERFLOWED: EventId =
-        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 5) });
-    
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 4) });
 
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[

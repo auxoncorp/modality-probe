@@ -106,8 +106,6 @@ impl core::fmt::Debug for CompactLogItem {
 }
 
 impl race_buffer::Entry for CompactLogItem {
-    const NIL_VAL: Self = CompactLogItem::event(EventId::EVENT_NIL_VALUE);
-
     fn is_prefix(&self) -> bool {
         self.has_clock_bit_set() || self.has_event_with_payload_bit_set()
     }
