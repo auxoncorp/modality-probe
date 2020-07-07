@@ -6,7 +6,7 @@ CONSTANTS
 
   NumWrites  (* Number of writes to execute *)
 
-ASSUME Assumption == BufCapacity \in Nat\*(Nat \ 0..2) (* Buffer capacity is at least 3 *)
+ASSUME Assumption == BufCapacity \in (Nat \ 0..2) (* Buffer capacity is at least 3 *)
 
 -----------------------------------------------------------------------------
 
@@ -294,7 +294,7 @@ InvStoredPrefixNotSuffix ==
   storedPrefix.type = "NONE" \/ storedPrefix.type = "PREFIX"
 
 (* Check that every non-nil entry is at the correct index in the read buffer *)
-InvCorrectIndeces == 
+InvCorrectIndices == 
   IF Size(rbuf) > 0 
   THEN \A i \in 0..(Size(rbuf)-1): rbuf[i].index = i \/ rbuf[i].type = "MISSED"
   ELSE TRUE
