@@ -1,6 +1,8 @@
-use chrono::{DateTime, Utc};
 use std::collections::{BTreeMap, HashMap};
-use util::alloc_log_report::LogReport;
+
+use chrono::{DateTime, Utc};
+
+use modality_probe::report::wire::LogReport;
 
 pub struct ChunkHandlingConfig {
     pub max_total_open_time: chrono::Duration,

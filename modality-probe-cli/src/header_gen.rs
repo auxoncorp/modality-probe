@@ -16,6 +16,7 @@ pub struct HeaderGen {
     #[structopt(long)]
     pub events: PathBuf,
 
+    /// The language to output the source in. Either `c' or `rust'.
     #[structopt(short, long, parse(try_from_str), default_value = "C")]
     pub lang: Lang,
 

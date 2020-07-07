@@ -9,7 +9,7 @@ pub mod digraph;
 pub mod graph_event;
 pub mod meta;
 
-use crate::{
+use crate::graph::{
     graph_event::{GraphEvent, GraphSegment},
     meta::{EventMeta, ProbeMeta, ReportEvent},
 };
@@ -386,7 +386,7 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{digraph::Digraph, graph_event::*, meta::*};
+    use crate::graph::{digraph::Digraph, graph_event::*, meta::*};
 
     use super::{Cfg, Error};
 

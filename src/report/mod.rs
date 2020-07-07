@@ -11,6 +11,9 @@ use static_assertions::{assert_eq_align, assert_eq_size};
 pub mod bulk;
 pub mod chunked;
 
+#[cfg(feature = "std")]
+pub mod wire;
+
 /// Returns an error if the provided log could not fit into the destination bytes
 pub(crate) fn write_log_as_little_endian_bytes(
     destination: &mut [u8],
