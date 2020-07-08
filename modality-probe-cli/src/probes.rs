@@ -109,6 +109,10 @@ impl Probes {
             p.instrumentation_hash(state);
         }
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Probe> {
+        self.probes.iter()
+    }
 }
 
 fn has_unique_elements<T>(iter: T) -> bool

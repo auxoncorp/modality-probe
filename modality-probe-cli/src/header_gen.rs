@@ -1,20 +1,17 @@
-use crate::{events::Event, lang::Lang, probes::Probe};
-use sha2::{Digest, Sha256};
+use crate::{component_dir::ComponentDir, events::Event, lang::Lang, probes::Probe};
 use std::fs::File;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use structopt::StructOpt;
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, StructOpt)]
 pub struct HeaderGen {
-    /// The path the probes.csv for a component
-    #[structopt(long)]
-    pub probes: PathBuf,
-
-    /// The path the events.csv for a component
-    #[structopt(long)]
-    pub events: PathBuf,
+    /// Component paths.
+    ///
+    /// All provided components will be combined into a single header file.
+    #[structopt(long, required = true)]
+    pub components: Vec<PathBuf>,
 
     /// The language to output the source in. Either `c' or `rust'.
     #[structopt(short, long, parse(try_from_str), default_value = "C")]
@@ -32,8 +29,7 @@ pub struct HeaderGen {
 impl Default for HeaderGen {
     fn default() -> Self {
         HeaderGen {
-            events: PathBuf::from("events.csv"),
-            probes: PathBuf::from("probes.csv"),
+            components: Vec::new(),
             lang: Lang::Rust,
             include_guard_prefix: String::from("MODALITY_PROBE"),
             output_path: None,
@@ -68,17 +64,19 @@ impl ConstGenerator for Probe {
     fn doc_comment(&self, lang: Lang) -> String {
         match lang {
             Lang::C => format!(
-                "/*\n * Name: {}\n * Description:{}\n * Tags:{}\n * Location: {}:{}\n */",
+                "/*\n * Name: {}\n * Description:{}\n * Component UUID: {}\n * Tags:{}\n * Location: {}:{}\n */",
                 self.name,
                 pad_nonempty(&self.description),
+                self.uuid,
                 pad_nonempty(&self.tags),
                 self.file,
                 self.line
             ),
             Lang::Rust => format!(
-                "/// Name: {}\n/// Description:{}\n/// Tags:{}\n/// Location: {}:{}",
+                "/// Name: {}\n/// Description:{}\n/// Component UUID: {}\n/// Tags:{}\n/// Location: {}:{}",
                 self.name,
                 pad_nonempty(&self.description),
+                self.uuid,
                 pad_nonempty(&self.tags),
                 self.file,
                 self.line
@@ -99,18 +97,20 @@ impl ConstGenerator for Event {
     fn doc_comment(&self, lang: Lang) -> String {
         match lang {
             Lang::C => format!(
-                "/*\n * Name: {}\n * Description:{}\n * Tags:{}\n * Payload type:{}\n * Location: {}:{}\n */",
+                "/*\n * Name: {}\n * Description:{}\n * Component UUID: {}\n * Tags:{}\n * Payload type:{}\n * Location: {}:{}\n */",
                 self.name,
                 pad_nonempty(&self.description),
+                self.uuid,
                 pad_nonempty(&self.tags),
                 pad_nonempty(&self.type_hint),
                 self.file,
                 self.line
             ),
             Lang::Rust => format!(
-                "/// Name: {}\n/// Description:{}\n/// Tags:{}\n/// Payload type:{}\n/// Location: {}:{}",
+                "/// Name: {}\n/// Description:{}\n/// Component UUID: {}\n/// Tags:{}\n/// Payload type:{}\n/// Location: {}:{}",
                 self.name,
                 pad_nonempty(&self.description),
+                self.uuid,
                 pad_nonempty(&self.tags),
                 pad_nonempty(&self.type_hint),
                 self.file,
@@ -150,51 +150,50 @@ impl FromStr for Lang {
     }
 }
 
-impl HeaderGen {
-    pub fn validate(&self) {
-        assert!(
-            self.events.exists(),
-            "Events csv file \"{}\" does not exist",
-            self.events.display()
-        );
-
-        assert!(
-            self.probes.exists(),
-            "Probes csv file \"{}\" does not exist",
-            self.probes.display()
-        );
-    }
-}
-
-fn file_sha256(path: &Path) -> String {
-    let mut file = File::open(path)
-        .unwrap_or_else(|e| panic!("Can't open file {} for hashing: {}", path.display(), e));
-    let mut sha256 = Sha256::new();
-    io::copy(&mut file, &mut sha256)
-        .unwrap_or_else(|e| panic!("Error hashing file {}: {}", path.display(), e));
-    format!("{:x}", sha256.result())
-}
-
 pub fn generate_output<W: io::Write>(
     opt: HeaderGen,
     mut w: W,
     internal_events: Vec<u32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let probes_csv_hash = file_sha256(&opt.probes);
-    let events_csv_hash = file_sha256(&opt.events);
+    let components: Vec<ComponentDir> = opt
+        .components
+        .iter()
+        .flat_map(ComponentDir::collect_from_path)
+        .collect();
 
-    let mut probes_reader =
-        csv::Reader::from_reader(File::open(&opt.probes).expect("Can't open probes csv file"));
-
-    let mut events_reader =
-        csv::Reader::from_reader(File::open(&opt.events).expect("Can't open events csv file"));
+    // Events are dup'd across logically organized
+    // components that were generated from the same
+    // source tree / manifest-gen scan
+    let mut unique_events: Vec<Event> = components
+        .iter()
+        .flat_map(|comp_dir| comp_dir.events.iter())
+        .cloned()
+        .collect();
+    unique_events.sort_by(|a, b| a.id.cmp(&b.id));
+    unique_events.dedup();
 
     writeln!(w, "/*")?;
     writeln!(w, " * GENERATED CODE, DO NOT EDIT")?;
+    for comp_dir in components.iter() {
+        writeln!(w, " *")?;
+        writeln!(w, " * Component:")?;
+        writeln!(w, " *   Name: {}", comp_dir.component.name)?;
+        writeln!(w, " *   UUID: {}", comp_dir.component.uuid)?;
+        write!(w, " *   Code hash: ")?;
+        match comp_dir.component.code_hash {
+            Some(hash) => writeln!(w, "{}", hash)?,
+            None => writeln!(w, "None")?,
+        }
+        write!(w, " *   Instrumentation hash: ")?;
+        match comp_dir.component.instrumentation_hash {
+            Some(hash) => writeln!(w, "{}", hash)?,
+            None => writeln!(w, "None")?,
+        }
+    }
     writeln!(w, " */")?;
-    writeln!(w)?;
 
     if opt.lang == Lang::C {
+        writeln!(w)?;
         writeln!(
             w,
             "#ifndef {}_GENERATED_IDENTIFIERS_H",
@@ -209,35 +208,34 @@ pub fn generate_output<W: io::Write>(
         writeln!(w, "#ifdef __cplusplus")?;
         writeln!(w, "extern \"C\" {{")?;
         writeln!(w, "#endif")?;
-        writeln!(w)?;
-    }
-
-    writeln!(w, "/*")?;
-    writeln!(w, " * Probes (csv sha256sum {})", probes_csv_hash)?;
-    writeln!(w, " */")?;
-
-    for maybe_probe in probes_reader.deserialize() {
-        let t: Probe = maybe_probe.expect("Can't deserialize probe");
-
-        writeln!(w)?;
-        writeln!(w, "{}", t.doc_comment(opt.lang))?;
-        writeln!(w, "{}", t.generate_const_definition(opt.lang))?;
     }
 
     writeln!(w)?;
     writeln!(w, "/*")?;
-    writeln!(w, " * Events (csv sha256sum {})", events_csv_hash)?;
+    writeln!(w, " * Probes")?;
     writeln!(w, " */")?;
 
-    for maybe_event in events_reader.deserialize() {
-        let e: Event = maybe_event.expect("Can't deserialize event");
-        if internal_events.contains(&e.id.0) {
+    for comp_dir in components.iter() {
+        for probe in comp_dir.probes.iter() {
+            writeln!(w)?;
+            writeln!(w, "{}", probe.doc_comment(opt.lang))?;
+            writeln!(w, "{}", probe.generate_const_definition(opt.lang))?;
+        }
+    }
+
+    writeln!(w)?;
+    writeln!(w, "/*")?;
+    writeln!(w, " * Events")?;
+    writeln!(w, " */")?;
+
+    for event in unique_events.iter() {
+        if internal_events.contains(&event.id.0) {
             continue;
         }
 
         writeln!(w)?;
-        writeln!(w, "{}", e.doc_comment(opt.lang))?;
-        writeln!(w, "{}", e.generate_const_definition(opt.lang))?;
+        writeln!(w, "{}", event.doc_comment(opt.lang))?;
+        writeln!(w, "{}", event.generate_const_definition(opt.lang))?;
     }
 
     if opt.lang == Lang::C {
@@ -251,15 +249,12 @@ pub fn generate_output<W: io::Write>(
             "#endif /* {}_GENERATED_IDENTIFIERS_H */",
             opt.include_guard_prefix
         )?;
-        writeln!(w)?;
     }
 
     Ok(())
 }
 
 pub fn run(opt: HeaderGen, internal_events: Vec<u32>) {
-    opt.validate();
-
     let io_out: Box<dyn io::Write> = if let Some(p) = &opt.output_path {
         Box::new(File::create(p).unwrap())
     } else {

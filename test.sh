@@ -7,7 +7,7 @@ set -ex
     rm -f events.csv probes.csv
     mkdir -p generated_ids/
     cargo run -p modality-probe-cli -- manifest-gen --file-extension="rs" --output-path . ./
-    cargo run -p modality-probe-cli -- header-gen --lang Rust --probes example-component/probes.csv --events example-component/events.csv --output-path generated_ids/mod.rs
+    cargo run -p modality-probe-cli -- header-gen --lang Rust --components example-component --output-path generated_ids/mod.rs
 )
 
 cargo build --all
