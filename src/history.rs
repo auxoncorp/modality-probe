@@ -248,13 +248,14 @@ impl<'a> DynamicHistory<'a> {
         if self.chunked_report_state.is_report_in_progress() {
             return Err(DistributeError::ReportLockConflict);
         }
-        self.increment_local_clock_count();
-        self.write_current_clocks_to_log();
-        Ok(CausalSnapshot {
+        let snap = CausalSnapshot {
             clock: self.clocks[0],
             reserved_0: 0,
             reserved_1: 0,
-        })
+        };
+        self.increment_local_clock_count();
+        DynamicHistory::write_clocks_to_log(&mut self.compact_log, &[self.clocks[0]]);
+        Ok(snap)
     }
 
     /// Merge a publicly-transmittable causal history into our specialized local in-memory storage
@@ -304,7 +305,16 @@ impl<'a> DynamicHistory<'a> {
             }
         }
         self.increment_local_clock_count();
-        self.write_current_clocks_to_log();
+        DynamicHistory::write_clocks_to_log(
+            &mut self.compact_log,
+            &[
+                self.clocks[0],
+                LogicalClock {
+                    id: external_id,
+                    count: external_clock,
+                },
+            ],
+        );
         Ok(())
     }
 
