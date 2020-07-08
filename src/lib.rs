@@ -131,16 +131,10 @@ pub trait Probe {
 
     /// Write a summary of this probe's causal history for use
     /// by another probe elsewhere in the system.
-    ///
-    /// This summary can be treated as an opaque blob of data
-    /// that ought to be passed around to be `merge_snapshot`d, though
-    /// it will conform to an internal schema for the interested.
-    ///
-    /// If the write was successful, returns the number of bytes written
-    fn distribute_snapshot(&mut self) -> Result<CausalSnapshot, DistributeError>;
+    fn produce_snapshot(&mut self) -> Result<CausalSnapshot, ProduceError>;
 
     /// Consume a causal history summary structure provided
-    /// by some other probe via `distribute_snapshot`.
+    /// by some other probe via `produce_snapshot`.
     fn merge_snapshot(&mut self, external_history: &CausalSnapshot) -> Result<(), MergeError>;
 }
 
@@ -149,7 +143,7 @@ pub trait Probe {
 /// In addition to the standard `Probe` API, it includes conveniences for:
 /// * Recording events from primitive ids with just-in-time validation.
 /// * Initialization with variable-sized memory backing.
-/// * Can distribute and merge transparent snapshots
+/// * Can produce and merge transparent snapshots
 #[derive(Debug)]
 #[repr(C)]
 pub struct ModalityProbe<'a> {
@@ -326,13 +320,13 @@ impl<'a> Probe for ModalityProbe<'a> {
     }
 
     #[inline]
-    fn distribute_snapshot(&mut self) -> Result<CausalSnapshot, DistributeError> {
-        self.history.write_fixed_size_snapshot()
+    fn produce_snapshot(&mut self) -> Result<CausalSnapshot, ProduceError> {
+        self.history.produce_snapshot()
     }
 
     #[inline]
     fn merge_snapshot(&mut self, external_history: &CausalSnapshot) -> Result<(), MergeError> {
-        self.history.merge_fixed_size(external_history)
+        self.history.merge_snapshot(external_history)
     }
 }
 

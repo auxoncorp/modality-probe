@@ -70,7 +70,7 @@ bool test_event_recording(void) {
     ERROR_CHECK(result, passed);
 
     modality_causal_snapshot snap_a;
-    result = modality_probe_distribute_snapshot(t, &snap_a);
+    result = modality_probe_produce_snapshot(t, &snap_a);
     ERROR_CHECK(result, passed);
     if (snap_a.clock.id != DEFAULT_PROBE_ID) {
         passed = false;
@@ -102,7 +102,7 @@ bool test_event_recording(void) {
     result = MODALITY_PROBE_EXPECT(t, EVENT_A, 1 == 0, "my docs", MODALITY_TAGS("SEVERITY_10"));
     ERROR_CHECK(result, passed);
     modality_causal_snapshot snap_b;
-    result = modality_probe_distribute_snapshot(t, &snap_b);
+    result = modality_probe_produce_snapshot(t, &snap_b);
     ERROR_CHECK(result, passed);
 
     free(t);
@@ -123,7 +123,7 @@ bool test_merge(void) {
     result = modality_probe_record_event(probe_a, EVENT_A);
     ERROR_CHECK(result, passed);
     modality_causal_snapshot snap_a;
-    result = modality_probe_distribute_snapshot(probe_a, &snap_a);
+    result = modality_probe_produce_snapshot(probe_a, &snap_a);
     ERROR_CHECK(result, passed);
     if (snap_a.clock.id != DEFAULT_PROBE_ID) {
         passed = false;
@@ -131,7 +131,7 @@ bool test_merge(void) {
     result = modality_probe_merge_snapshot(probe_b, &snap_a);
     ERROR_CHECK(result, passed);
     modality_causal_snapshot snap_b;
-    result = modality_probe_distribute_snapshot(probe_b, &snap_b);
+    result = modality_probe_produce_snapshot(probe_b, &snap_b);
     ERROR_CHECK(result, passed);
     if (snap_b.clock.id != probe_b_id) {
         passed = false;
@@ -139,7 +139,7 @@ bool test_merge(void) {
     result = modality_probe_record_event(probe_b, EVENT_A);
     ERROR_CHECK(result, passed);
     modality_causal_snapshot snap_c;
-    result = modality_probe_distribute_snapshot(probe_b, &snap_c);
+    result = modality_probe_produce_snapshot(probe_b, &snap_c);
     ERROR_CHECK(result, passed);
     if (snap_c.clock.id != probe_b_id) {
         passed = false;
@@ -191,10 +191,10 @@ bool test_now(void) {
         passed = false;
     }
     modality_causal_snapshot snap_a;
-    result = modality_probe_distribute_snapshot(probe_a, &snap_a);
+    result = modality_probe_produce_snapshot(probe_a, &snap_a);
     ERROR_CHECK(result, passed);
     /*
-     * When the logical clock ticks up, here because we distributed a snapshot
+     * When the logical clock ticks up, here because we produced a snapshot
      * the event_count should reset to 0
      */
     instant_a = modality_probe_now(probe_a);
@@ -212,7 +212,7 @@ bool test_now(void) {
         passed = false;
     }
     modality_causal_snapshot snap_b;
-    result = modality_probe_distribute_snapshot(probe_b, &snap_b);
+    result = modality_probe_produce_snapshot(probe_b, &snap_b);
     ERROR_CHECK(result, passed);
     instant_b = modality_probe_now(probe_b);
     if (instant_b.clock.id != probe_b_id || instant_b.clock.count != 2 || instant_b.event_count != 0) {

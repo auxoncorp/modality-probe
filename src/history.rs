@@ -1,6 +1,6 @@
 use super::{
-    CausalSnapshot, DistributeError, EventId, LogicalClock, MergeError, ModalityProbeInstant,
-    ProbeId, StorageSetupError,
+    CausalSnapshot, EventId, LogicalClock, MergeError, ModalityProbeInstant, ProbeId, ProduceError,
+    StorageSetupError,
 };
 use crate::compact_log::{CompactLogItem, CompactLogVec};
 use crate::report::chunked::ChunkedReportState;
@@ -244,9 +244,9 @@ impl<'a> DynamicHistory<'a> {
     /// Produce a transparent but limited snapshot of the causal state for transmission
     /// within the system under test
     #[inline]
-    pub(crate) fn write_fixed_size_snapshot(&mut self) -> Result<CausalSnapshot, DistributeError> {
+    pub(crate) fn produce_snapshot(&mut self) -> Result<CausalSnapshot, ProduceError> {
         if self.chunked_report_state.is_report_in_progress() {
-            return Err(DistributeError::ReportLockConflict);
+            return Err(ProduceError::ReportLockConflict);
         }
         self.increment_local_clock_count();
         self.write_current_clocks_to_log();
@@ -259,7 +259,7 @@ impl<'a> DynamicHistory<'a> {
 
     /// Merge a publicly-transmittable causal history into our specialized local in-memory storage
     #[inline]
-    pub(crate) fn merge_fixed_size(
+    pub(crate) fn merge_snapshot(
         &mut self,
         external_history: &CausalSnapshot,
     ) -> Result<(), MergeError> {

@@ -504,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn chunked_report_prevents_distribute_and_merge_and_bulk_report_while_in_progress() {
+    fn chunked_report_prevents_produce_and_merge_and_bulk_report_while_in_progress() {
         let mut other_transmission_buffer = [0u8; 1024];
 
         let probe_id_foo = 1u32.try_into().expect("Invalid probe id");
@@ -517,7 +517,7 @@ mod tests {
         let mut storage_bar = [0u8; 4096];
         let mut eko_bar = ModalityProbe::new_with_storage(&mut storage_bar, probe_id_bar)
             .expect("Could not initialize Modality probe");
-        let bar_fixed_snapshot = eko_bar.distribute_snapshot().unwrap();
+        let bar_fixed_snapshot = eko_bar.produce_snapshot().unwrap();
 
         let token = eko_foo
             .start_chunked_report()
@@ -529,8 +529,8 @@ mod tests {
         );
 
         assert_eq!(
-            DistributeError::ReportLockConflict,
-            eko_foo.distribute_snapshot().unwrap_err()
+            ProduceError::ReportLockConflict,
+            eko_foo.produce_snapshot().unwrap_err()
         );
 
         assert_eq!(
@@ -565,7 +565,7 @@ mod tests {
         // Everything works again after the reporting is done
         assert_eq!(Ok(()), eko_foo.merge_snapshot(&bar_fixed_snapshot));
 
-        assert!(eko_foo.distribute_snapshot().is_ok());
+        assert!(eko_foo.produce_snapshot().is_ok());
 
         assert!(eko_foo.report(&mut other_transmission_buffer).is_ok());
         assert!(eko_foo

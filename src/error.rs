@@ -46,13 +46,13 @@ pub enum StorageSetupError {
     NullDestination,
 }
 
-/// The errors than can occur when distributing (exporting a serialized
-/// version of) a probe's causal history for use by some other probe instance.
+/// The errors than can occur when producing a probe's
+/// causal history for use by some other probe instance.
 ///
-/// Returned in the error cases for the `distribute_snapshot` and
-/// `distribute_fixed_size_snapshot` functions
+/// Returned in the error cases for the `produce_snapshot` and
+/// `produce_snapshot_bytes` functions.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DistributeError {
+pub enum ProduceError {
     /// The destination that is receiving the history is not big enough.
     ///
     /// Indicates that the end user should provide a larger destination buffer.
@@ -127,9 +127,9 @@ pub enum ModalityProbeError {
     InvalidProbeId,
     /// An error relating to the initialization of an ModalityProbe instance.
     InitializationError(InitializationError),
-    /// The errors than can occur when using the `distribute_snapshot`
-    /// and `distribute_fixed_size_snapshot` functions.
-    DistributeError(DistributeError),
+    /// The errors than can occur when using the `produce_snapshot`
+    /// and `produce_snapshot_bytes` functions.
+    ProduceError(ProduceError),
     /// The errors than can occur when using the `merge_snapshot`
     /// and `merge_fixed_size_snapshot` functions.
     MergeError(MergeError),
@@ -159,10 +159,10 @@ impl From<InitializationError> for ModalityProbeError {
     }
 }
 
-impl From<DistributeError> for ModalityProbeError {
+impl From<ProduceError> for ModalityProbeError {
     #[inline]
-    fn from(e: DistributeError) -> Self {
-        ModalityProbeError::DistributeError(e)
+    fn from(e: ProduceError) -> Self {
+        ModalityProbeError::ProduceError(e)
     }
 }
 

@@ -181,15 +181,13 @@ fn report_error_to_modality_probe_error(report_error: ReportError) -> ModalityPr
     }
 }
 
-fn distribute_error_to_modality_probe_error(
-    distribute_error: DistributeError,
-) -> ModalityProbeError {
-    match distribute_error {
-        DistributeError::InsufficientDestinationSize => {
+fn produce_error_to_modality_probe_error(produce_error: ProduceError) -> ModalityProbeError {
+    match produce_error {
+        ProduceError::InsufficientDestinationSize => {
             MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES
         }
-        DistributeError::Encoding => MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR,
-        DistributeError::ReportLockConflict => MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR,
+        ProduceError::Encoding => MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR,
+        ProduceError::ReportLockConflict => MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
 
@@ -199,7 +197,7 @@ fn distribute_error_to_modality_probe_error(
 /// to an initialized instance operating in a single-threaded
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
-pub unsafe fn modality_probe_distribute_snapshot(
+pub unsafe fn modality_probe_produce_snapshot(
     probe: *mut ModalityProbe<'static>,
     destination_snapshot: *mut CausalSnapshot,
 ) -> ModalityProbeError {
@@ -207,12 +205,12 @@ pub unsafe fn modality_probe_distribute_snapshot(
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match probe.distribute_snapshot() {
+    match probe.produce_snapshot() {
         Ok(snapshot) => {
             *destination_snapshot = snapshot;
             MODALITY_PROBE_ERROR_OK
         }
-        Err(e) => distribute_error_to_modality_probe_error(e),
+        Err(e) => produce_error_to_modality_probe_error(e),
     }
 }
 
@@ -427,7 +425,7 @@ mod tests {
     fn stack_snapshot(probe: *mut ModalityProbe<'static>) -> CausalSnapshot {
         let mut snap = MaybeUninit::uninit();
         assert_eq!(MODALITY_PROBE_ERROR_OK, unsafe {
-            modality_probe_distribute_snapshot(probe, snap.as_mut_ptr())
+            modality_probe_produce_snapshot(probe, snap.as_mut_ptr())
         });
         unsafe { snap.assume_init() }
     }

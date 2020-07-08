@@ -926,7 +926,7 @@ mod tests {
                     _ => (),
                 }
                 let causal_history = probe
-                    .distribute_snapshot()
+                    .produce_snapshot()
                     .expect("Could not write history to share with other in-system member");
 
                 for destination in id_to_sender.values() {
@@ -1020,7 +1020,7 @@ mod tests {
                     continue;
                 }
                 let causal_history = probe
-                    .distribute_snapshot()
+                    .produce_snapshot()
                     .expect("Could not write history to share with other in-system member");
 
                 for destination in id_to_sender.values() {

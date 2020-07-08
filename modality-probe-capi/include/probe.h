@@ -376,7 +376,7 @@ size_t modality_probe_report(
  * causal history for use by another Modality probe elsewhere
  * in the system.
  */
-size_t modality_probe_distribute_snapshot(
+size_t modality_probe_produce_snapshot(
         modality_probe *probe,
         modality_causal_snapshot *snapshot);
 

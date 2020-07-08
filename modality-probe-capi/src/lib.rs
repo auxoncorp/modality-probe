@@ -175,12 +175,12 @@ pub extern "C" fn modality_probe_report(
 }
 
 #[no_mangle]
-pub extern "C" fn modality_probe_distribute_snapshot(
+pub extern "C" fn modality_probe_produce_snapshot(
     probe: *mut ModalityProbe<'static>,
     destination_snapshot: *mut CausalSnapshot,
 ) -> ModalityProbeError {
     unsafe {
-        modality_probe_capi_impl::modality_probe_distribute_snapshot(probe, destination_snapshot)
+        modality_probe_capi_impl::modality_probe_produce_snapshot(probe, destination_snapshot)
     }
 }
 
