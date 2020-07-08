@@ -183,7 +183,7 @@ pub fn start_receiving_from_socket<W: Write>(
 }
 
 /// Returns the smallest available segment id
-fn add_log_report_to_entries(
+pub fn add_log_report_to_entries(
     log_report: &LogReport,
     session_id: SessionId,
     initial_segment_id: SegmentId,

@@ -187,6 +187,7 @@ impl EventId {
     /// for external analysis.
     pub const EVENT_PRODUCED_EXTERNAL_REPORT: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 1) });
+    // Note - this will be changed to "EVENT_LOG_ITEMS_MISSED" once RaceBuffer is used for log storage
     /// There was not sufficient room in memory to store all desired events or clock data
     pub const EVENT_LOG_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 2) });
@@ -237,7 +238,7 @@ impl EventId {
 
     /// Get the underlying value as a convenient primitive
     #[inline]
-    pub fn get_raw(self) -> u32 {
+    pub const fn get_raw(self) -> u32 {
         self.0.get()
     }
 

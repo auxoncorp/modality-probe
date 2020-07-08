@@ -3,7 +3,7 @@
 use core::cmp::PartialEq;
 use core::marker::Copy;
 
-/// Entry that can be stored in RaceBuffer
+/// Entry that can be stored in a RaceBuffer
 pub trait Entry: Copy + PartialEq {
     /// Return true if entry is the first in a double entry
     fn is_prefix(&self) -> bool;

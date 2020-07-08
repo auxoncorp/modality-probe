@@ -72,6 +72,7 @@ const_assert_eq!(
 /// backed by runtime-sized arrays of current logical clocks
 /// and probe log items
 #[derive(Debug)]
+#[repr(C)]
 pub struct DynamicHistory<'a> {
     pub(crate) probe_id: ProbeId,
     /// The number of events seen since the current
