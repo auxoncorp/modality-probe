@@ -1,5 +1,13 @@
-use crate::{error::GracefulExit, events::Events, exit_error, lang::Lang, probes::Probes};
+use crate::{
+    component::{Component, ComponentHasher, ComponentHasherExt, ComponentUuId},
+    error::GracefulExit,
+    events::Events,
+    exit_error,
+    lang::Lang,
+    probes::Probes,
+};
 use invocations::{Config, Invocations};
+use std::fs;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -33,21 +41,18 @@ pub struct ManifestGen {
     #[structopt(long = "file-extension")]
     pub file_extensions: Option<Vec<String>>,
 
-    /// Event ID manifest CSV file
-    #[structopt(long, parse(from_os_str), default_value = "events.csv")]
-    pub events_csv_file: PathBuf,
+    /// Component name used when generating a component manifest and
+    /// containing directory
+    #[structopt(long, default_value = "component")]
+    pub component_name: String,
 
-    /// Probe ID manifest CSV file
-    #[structopt(long, parse(from_os_str), default_value = "probes.csv")]
-    pub probes_csv_file: PathBuf,
+    /// Output path where component, event and probe manifests are generated
+    #[structopt(short = "-o", long, parse(from_os_str), default_value = "component")]
+    pub output_path: PathBuf,
 
-    /// Omit generating event ID manifest
+    /// Regenerate the component UUID instead of using an existing one (if present)
     #[structopt(long)]
-    pub no_events: bool,
-
-    /// Omit generating probe ID manifest
-    #[structopt(long)]
-    pub no_probes: bool,
+    pub regen_component_uuid: bool,
 
     /// Source code path to search
     #[structopt(parse(from_os_str))]
@@ -61,10 +66,9 @@ impl Default for ManifestGen {
             event_id_offset: None,
             probe_id_offset: None,
             file_extensions: None,
-            events_csv_file: PathBuf::from("events.csv"),
-            probes_csv_file: PathBuf::from("probes.csv"),
-            no_events: false,
-            no_probes: false,
+            component_name: String::from("component"),
+            output_path: PathBuf::from("."),
+            regen_component_uuid: false,
             source_path: PathBuf::from("."),
         }
     }
@@ -85,21 +89,24 @@ impl ManifestGen {
 pub fn run(opt: ManifestGen) {
     opt.validate();
 
-    let mut manifest_probes = Probes::from_csv(&opt.probes_csv_file);
-    let mut manifest_events = Events::from_csv(&opt.events_csv_file);
+    let component_manifest_dir = opt.output_path;
+    let component_manifest_path = component_manifest_dir.join("Component.toml");
+    let probes_manifest_path = component_manifest_dir.join("probes.csv");
+    let events_manifest_path = component_manifest_dir.join("events.csv");
 
-    manifest_probes.validate_nonzero_ids();
-    manifest_probes.validate_unique_ids();
-    manifest_probes.validate_unique_names();
+    let mut probes_manifest = Probes::from_csv(&probes_manifest_path);
+    let mut events_manifest = Events::from_csv(&events_manifest_path);
 
-    manifest_events.validate_nonzero_ids();
-    manifest_events.validate_unique_ids();
-    manifest_events.validate_unique_names();
+    probes_manifest.validate_ids();
+    probes_manifest.validate_unique_ids();
+    probes_manifest.validate_unique_names();
+
+    events_manifest.validate_ids();
+    events_manifest.validate_unique_ids();
+    events_manifest.validate_unique_names();
 
     let config = Config {
         lang: opt.lang,
-        no_probes: opt.no_probes,
-        no_events: opt.no_events,
         file_extensions: opt.file_extensions,
         ..Default::default()
     };
@@ -110,15 +117,50 @@ pub fn run(opt: ManifestGen) {
     invocations.check_probes().unwrap_or_exit("manifest-gen");
     invocations.check_events().unwrap_or_exit("manifest-gen");
 
-    invocations.merge_probes_into(opt.probe_id_offset, &mut manifest_probes);
-    invocations.merge_events_into(opt.event_id_offset, &mut manifest_events);
+    invocations.merge_probes_into(opt.probe_id_offset, &mut probes_manifest);
+    invocations.merge_events_into(opt.event_id_offset, &mut events_manifest);
 
-    // Write out the new events and probes CSV files
-    if !opt.no_events {
-        manifest_events.write_csv(&opt.events_csv_file);
+    let instrumentation_hash = {
+        let mut hasher = ComponentHasher::new();
+        for p in probes_manifest.probes.iter() {
+            p.instrumentation_hash(&mut hasher);
+        }
+        for e in events_manifest.events.iter() {
+            e.instrumentation_hash(&mut hasher);
+        }
+        let hash_bytes: [u8; 32] = *(hasher.finalize().as_ref());
+        hash_bytes.into()
+    };
+
+    let mut component_manifest = if component_manifest_path.exists() {
+        let mut c = Component::from_toml(&component_manifest_path);
+        c.code_hash = Some(invocations.code_hash());
+        c.instrumentation_hash = Some(instrumentation_hash);
+        c
+    } else {
+        Component {
+            name: opt.component_name,
+            uuid: ComponentUuId::new(),
+            code_hash: Some(invocations.code_hash()),
+            instrumentation_hash: Some(instrumentation_hash),
+        }
+    };
+
+    if opt.regen_component_uuid {
+        component_manifest.uuid = ComponentUuId::new();
     }
 
-    if !opt.no_probes {
-        manifest_probes.write_csv(&opt.probes_csv_file);
+    for p in probes_manifest.probes.iter_mut() {
+        p.uuid = component_manifest.uuid;
     }
+    for e in events_manifest.events.iter_mut() {
+        e.uuid = component_manifest.uuid;
+    }
+
+    fs::create_dir_all(&component_manifest_dir)
+        .unwrap_or_exit("Can't create component manifest path");
+
+    component_manifest.write_toml(&component_manifest_path);
+    events_manifest.write_csv(&events_manifest_path);
+    probes_manifest.write_csv(&probes_manifest_path);
 }

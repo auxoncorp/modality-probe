@@ -33,13 +33,14 @@ itertools = "0.8.2"
 petgraph = "0.5.0"
 sha2 = "0.8"
 nom_locate = "2.0"
+toml = "0.5"
+sha3 = "0.9"
+hex = "0.4"
+derivative = "2.1"
+
 modality-probe-graph = { path = "../modality-probe-graph" }
-
-[dependencies.modality-probe]
-path = "../"
-
-[dependencies.util]
-path = "../util"
+modality-probe = { path = "../" }
+util = { path = "../util" }
 
 [dependencies.serde]
 version = "1"
@@ -54,6 +55,10 @@ features = []
 version = "0.4"
 features = ["serde"]
 
+[dependencies.uuid]
+version = "0.8"
+features = ["serde", "v4"]
+
 [dev-dependencies]
-proptest = "0.9"
 pretty_assertions = "0.6"
+tempfile = "3.1"

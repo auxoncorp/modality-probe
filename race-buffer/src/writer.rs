@@ -3,13 +3,22 @@ use core::iter::Iterator;
 use core::mem::size_of;
 use core::mem::MaybeUninit;
 
-pub enum ReadEntry<E>
-where
-    E: Entry,
-{
-    NotYetWritten,
-    Missed,
-    Entry(E),
+#[cfg(not(feature = "std"))]
+use core::fmt;
+#[cfg(feature = "std")]
+use std::fmt;
+
+/// Minimum allowed capacity of backing storage
+pub const MIN_STORAGE_CAP: usize = 4;
+pub struct SizeError();
+
+impl fmt::Debug for SizeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!(
+            "Storage capacity must be at least {}",
+            MIN_STORAGE_CAP
+        ))
+    }
 }
 
 #[inline]
@@ -17,6 +26,16 @@ where
 fn round_to_power_2(length: usize) -> usize {
     let exp: usize = size_of::<usize>() * 8 - (length.leading_zeros() as usize) - 1;
     1 << exp
+}
+
+/// A single entry that has been read, which may or may not be currently available
+pub enum ReadEntry<E>
+where
+    E: Entry,
+{
+    NotYetWritten,
+    Missed,
+    Entry(E),
 }
 
 #[repr(C)]
@@ -41,17 +60,24 @@ where
     E: Entry,
 {
     /// Create new RaceBuffer. Returns error if storage size is not power of 2
-    pub fn new(storage: &'a mut [MaybeUninit<E>], use_base_2_indexing: bool) -> RaceBuffer<'a, E> {
+    pub fn new(
+        storage: &'a mut [MaybeUninit<E>],
+        use_base_2_indexing: bool,
+    ) -> Result<RaceBuffer<'a, E>, SizeError> {
         let truncated_len = if use_base_2_indexing {
             round_to_power_2(storage.len())
         } else {
             storage.len()
         };
-        RaceBuffer {
-            wcurs: 0,
-            owcurs: 0,
-            storage: &mut storage[..truncated_len],
-            use_base_2_indexing,
+        if truncated_len < MIN_STORAGE_CAP {
+            Err(SizeError())
+        } else {
+            Ok(RaceBuffer {
+                wcurs: 0,
+                owcurs: 0,
+                storage: &mut storage[..truncated_len],
+                use_base_2_indexing,
+            })
         }
     }
 
@@ -141,6 +167,7 @@ impl<'a, 'b, E> RaceBufferIter<'a, 'b, E>
 where
     E: Entry,
 {
+    /// Create a new iterator over the RaceBuffer at the given starting cursor
     pub fn new(race_buffer: &'b RaceBuffer<'a, E>, start_curs: usize) -> Self {
         Self {
             race_buffer,
@@ -157,7 +184,9 @@ where
 
     fn next(&mut self) -> Option<Option<E>> {
         match self.race_buffer.read(self.rcurs) {
+            // Indicate that the iterator is finished
             ReadEntry::NotYetWritten => None,
+            // Iterator not finished, but value was missed
             ReadEntry::Missed => Some(None),
             ReadEntry::Entry(e) => {
                 self.rcurs += 1;

@@ -65,7 +65,7 @@ bool test_event_recording(void) {
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
             &t,
-            "tags=tag 1; tag 2",
+            MODALITY_TAGS(tag 1, tag 2),
             "desc");
     ERROR_CHECK(result, passed);
 
@@ -79,17 +79,17 @@ bool test_event_recording(void) {
     ERROR_CHECK(result, passed);
     result = modality_probe_record_event_with_payload(t, EVENT_A, 1);
     ERROR_CHECK(result, passed);
-    result = MODALITY_PROBE_RECORD(t, EVENT_A, (int8_t) 1, "tags=my-tag", "description");
+    result = MODALITY_PROBE_RECORD(t, EVENT_A, (int8_t) 1, MODALITY_TAGS("my-tag"), "description");
     ERROR_CHECK(result, passed);
-    result = MODALITY_PROBE_RECORD(t, EVENT_A, (int8_t) 1, "tags=my-tag");
+    result = MODALITY_PROBE_RECORD(t, EVENT_A, (int8_t) 1, MODALITY_TAGS(my-tag));
     ERROR_CHECK(result, passed);
     result = MODALITY_PROBE_RECORD_W_I8(t, EVENT_A, (int8_t) 1);
     ERROR_CHECK(result, passed);
     result = MODALITY_PROBE_RECORD_W_U8(t, EVENT_A, (uint8_t) 1, "more docs");
     ERROR_CHECK(result, passed);
-    result = MODALITY_PROBE_RECORD_W_I16(t, EVENT_A, (int16_t) 1, "tags=my tag");
+    result = MODALITY_PROBE_RECORD_W_I16(t, EVENT_A, (int16_t) 1, MODALITY_TAGS(my tag));
     ERROR_CHECK(result, passed);
-    result = MODALITY_PROBE_RECORD_W_U16(t, EVENT_A, (uint16_t) 1, "tags=a-tag", "desc");
+    result = MODALITY_PROBE_RECORD_W_U16(t, EVENT_A, (uint16_t) 1, MODALITY_TAGS("a-tag"), "desc");
     ERROR_CHECK(result, passed);
     result = MODALITY_PROBE_RECORD_W_I32(t, EVENT_A, (int32_t) 1, "some docs");
     ERROR_CHECK(result, passed);
@@ -99,7 +99,7 @@ bool test_event_recording(void) {
     ERROR_CHECK(result, passed);
     result = MODALITY_PROBE_RECORD_W_F32(t, EVENT_A, 1.23f, "my docs");
     ERROR_CHECK(result, passed);
-    result = MODALITY_PROBE_EXPECT(t, EVENT_A, 1 == 0, "my docs", "tags=severity.10");
+    result = MODALITY_PROBE_EXPECT(t, EVENT_A, 1 == 0, "my docs", MODALITY_TAGS("SEVERITY_10"));
     ERROR_CHECK(result, passed);
     modality_causal_snapshot snap_b;
     result = modality_probe_distribute_snapshot(t, &snap_b);

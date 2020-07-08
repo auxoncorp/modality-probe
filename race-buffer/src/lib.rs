@@ -5,12 +5,12 @@ use core::marker::Copy;
 
 /// Entry that can be stored in a RaceBuffer
 pub trait Entry: Copy + PartialEq {
-    //const NIL_VAL: Self;
+    /// Return true if entry is the first in a double entry
     fn is_prefix(&self) -> bool;
 }
 
-#[inline]
 /// Returns the corresponding index in backing storage of given cursor index
+#[inline]
 fn get_cursor_index(storage_cap: usize, cursor: usize, use_base_2_indexing: bool) -> usize {
     if use_base_2_indexing {
         // Index is lowest n bits of cursor where storage_cap is 2^n
@@ -43,8 +43,6 @@ pub mod tests {
     pub struct OrderedEntry(u32);
 
     impl Entry for OrderedEntry {
-        //const NIL_VAL: OrderedEntry = OrderedEntry(0);
-
         fn is_prefix(&self) -> bool {
             assert!(!self.is_suffix());
             self.is_prefix_unchecked()
@@ -58,7 +56,7 @@ pub mod tests {
         pub(crate) fn to_index(&self) -> u32 {
             if self.is_suffix() {
                 self.0 - Self::SUFFIX_TAG
-            } else if self.is_prefix() {
+            } else if self.is_prefix_unchecked() {
                 self.0 - Self::PREFIX_TAG
             } else {
                 self.0
@@ -81,7 +79,7 @@ pub mod tests {
         }
 
         pub(crate) fn is_prefix_unchecked(&self) -> bool {
-            self.0 > Self::PREFIX_TAG
+            self.0 >= Self::PREFIX_TAG
         }
 
         pub(crate) fn is_suffix(&self) -> bool {
@@ -90,11 +88,9 @@ pub mod tests {
 
         // Invariant: Check if entries all have correct index
         fn entries_correct_index(rbuf: &[Option<OrderedEntry>]) -> bool {
-            for i in 0..rbuf.len() {
-                if let Some(entry) = rbuf[i] {
-                    if entry.to_index() != i as u32 + 1 {
-                        return false;
-                    }
+            for (idx, entry) in rbuf.iter().enumerate().filter(|(_, e)| e.is_some()) {
+                if entry.unwrap().to_index() != idx as u32 {
+                    return false;
                 }
             }
             return true;
@@ -102,12 +98,15 @@ pub mod tests {
 
         // Invariant: Check if entries all have correct index
         fn double_entries_consistent(rbuf: &[Option<OrderedEntry>]) -> bool {
+            if rbuf.len() == 0 {
+                return true;
+            }
             if let Some(first_entry) = rbuf[0] {
                 if first_entry.is_suffix() {
                     return false;
                 }
             }
-            if let Some(last_entry) = rbuf[rbuf.len() - 1] {
+            if let Some(last_entry) = rbuf.last().unwrap() {
                 if last_entry.is_prefix_unchecked() {
                     return false;
                 }
@@ -168,12 +167,12 @@ pub mod tests {
             s.spawn(move |_| {
                 let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
 
-                let mut buf = writer::RaceBuffer::new(&mut storage[..], false);
+                let mut buf = writer::RaceBuffer::new(&mut storage[..], false).unwrap();
                 assert!(buf.get_slice().len() == STORAGE_CAP);
                 let buf_ptr = &buf as *const writer::RaceBuffer<'_, OrderedEntry> as usize;
                 ptr_s.send(buf_ptr).unwrap();
 
-                for i in 1..=NUM_WRITES {
+                for i in 0..NUM_WRITES {
                     buf.write(OrderedEntry::from_index(i));
                     std::thread::sleep(Duration::from_millis(10));
                 }
@@ -214,15 +213,13 @@ pub mod tests {
         crossbeam::thread::scope(|s| {
             s.spawn(move |_| {
                 let mut storage = [MaybeUninit::uninit(); RAW_STORAGE_CAP];
-
-                let mut buf = writer::RaceBuffer::new(&mut storage[..], true);
+                let mut buf = writer::RaceBuffer::new(&mut storage[..], true).unwrap();
                 assert!(buf.get_slice().len() == STORAGE_CAP);
                 let buf_ptr = &buf as *const writer::RaceBuffer<'_, OrderedEntry> as usize;
                 ptr_s.send(buf_ptr).unwrap();
-
                 let mut rng = rand::thread_rng();
                 let mut last_prefix = false;
-                for i in 1..=NUM_WRITES {
+                for i in 0..NUM_WRITES {
                     if last_prefix {
                         buf.write(OrderedEntry::from_index_suffix(i));
                         last_prefix = false;
@@ -266,5 +263,41 @@ pub mod tests {
             });
         })
         .unwrap();
+    }
+
+    /// Test backing storage size rounding and minimum size enforcement
+    #[test]
+    fn test_init_sizes() {
+        // Ensure minimum storage size is checked
+        let mut too_small_storage =
+            [MaybeUninit::<OrderedEntry>::uninit(); writer::MIN_STORAGE_CAP - 1];
+        assert!(writer::RaceBuffer::new(&mut too_small_storage[..], false).is_err());
+        assert!(writer::RaceBuffer::new(&mut too_small_storage[..], true).is_err());
+
+        let input_sizes = [5, 6, 7, 8, 9, 12, 16];
+
+        let output_sizes: Vec<usize> = input_sizes
+            .iter()
+            .map(|size| {
+                let mut storage = vec![MaybeUninit::<OrderedEntry>::uninit(); *size];
+                writer::RaceBuffer::new(&mut storage[..], false)
+                    .unwrap()
+                    .get_slice()
+                    .len()
+            })
+            .collect();
+        assert_eq!(&input_sizes[..], &output_sizes[..]);
+
+        let rounded_output_sizes: Vec<usize> = input_sizes
+            .iter()
+            .map(|size| {
+                let mut storage = vec![MaybeUninit::<OrderedEntry>::uninit(); *size];
+                writer::RaceBuffer::new(&mut storage[..], true)
+                    .unwrap()
+                    .get_slice()
+                    .len()
+            })
+            .collect();
+        assert_eq!(&[4, 4, 4, 8, 8, 8, 16][..], &rounded_output_sizes[..]);
     }
 }

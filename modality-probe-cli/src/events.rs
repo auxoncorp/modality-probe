@@ -1,16 +1,25 @@
+use crate::{
+    component::{ComponentHasherExt, ComponentUuId},
+    error::GracefulExit,
+    exit_error,
+};
+use derivative::Derivative;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs::File;
 use std::hash::Hash;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(
     Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Deserialize, Serialize,
 )]
 pub struct EventId(pub u32);
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Deserialize, Serialize)]
+#[derive(Derivative, Clone, Debug, Deserialize, Serialize)]
+#[derivative(PartialEq, Hash, PartialOrd)]
 pub struct Event {
+    #[derivative(PartialEq = "ignore", PartialOrd = "ignore", Hash = "ignore")]
+    pub uuid: ComponentUuId,
     pub id: EventId,
     pub name: String,
     pub description: String,
@@ -18,6 +27,16 @@ pub struct Event {
     pub type_hint: String,
     pub file: String,
     pub line: String,
+}
+
+impl Event {
+    // Excludes UUID, description, file and line
+    pub fn instrumentation_hash<H: ComponentHasherExt>(&self, state: &mut H) {
+        state.update(self.id.0.to_le_bytes());
+        state.update(self.name.as_bytes());
+        state.update(self.tags.as_bytes());
+        state.update(self.type_hint.as_bytes());
+    }
 }
 
 #[derive(Debug)]
@@ -29,8 +48,10 @@ pub struct Events {
 impl Events {
     /// The events reserved for internal use
     pub fn internal_events() -> Vec<Event> {
+        let uuid = ComponentUuId::nil();
         vec![
             Event {
+                uuid,
                 id: EventId(modality_probe::EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw()),
                 name: "INTERNAL_EVENT_PRODUCED_EXTERNAL_REPORT".to_string(),
                 description: "The probe produced a log report for transmission to \
@@ -42,6 +63,7 @@ impl Events {
                 line: String::new(),
             },
             Event {
+                uuid,
                 id: EventId(modality_probe::EventId::EVENT_LOG_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_LOG_OVERFLOWED".to_string(),
                 description: "There was not sufficient room in memory to store all desired events or clock data"
@@ -52,6 +74,7 @@ impl Events {
                 line: String::new(),
             },
             Event {
+                uuid,
                 id: EventId(modality_probe::EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_LOGICAL_CLOCK_OVERFLOWED".to_string(),
                 description: "A logical clock's count reached the maximum trackable value"
@@ -62,6 +85,7 @@ impl Events {
                 line: String::new(),
             },
             Event {
+                uuid,
                 id: EventId(modality_probe::EventId::EVENT_NUM_CLOCKS_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_NUM_CLOCKS_OVERFLOWED".to_string(),
                 description: "The probe did not have enough memory reserved to store enough logical \
@@ -75,14 +99,14 @@ impl Events {
         ]
     }
 
-    pub fn from_csv(events_csv_file: &PathBuf) -> Self {
-        let events: Vec<Event> = if events_csv_file.exists() {
+    pub fn from_csv<P: AsRef<Path>>(path: P) -> Self {
+        let events: Vec<Event> = if path.as_ref().exists() {
             let mut events_reader = csv::Reader::from_reader(
-                File::open(events_csv_file).expect("Can't open events csv file"),
+                File::open(&path).unwrap_or_exit("Can't open events manifest file"),
             );
             events_reader
                 .deserialize()
-                .map(|maybe_event| maybe_event.expect("Can't deserialize event"))
+                .map(|maybe_event| maybe_event.unwrap_or_exit("Can't deserialize event"))
                 .map(|mut e: Event| {
                     e.name = e.name.to_uppercase();
                     e
@@ -93,25 +117,27 @@ impl Events {
         };
 
         Events {
-            path: events_csv_file.clone(),
+            path: path.as_ref().to_path_buf(),
             events,
         }
     }
 
-    pub fn write_csv(&self, events_csv_file: &PathBuf) {
+    pub fn write_csv<P: AsRef<Path>>(&self, path: P) {
         let mut events_writer = csv::Writer::from_writer(
-            File::create(events_csv_file).expect("Can't open events csv file"),
+            File::create(&path).unwrap_or_exit("Can't create events manifest file"),
         );
         self.events.iter().for_each(|event| {
             events_writer
                 .serialize(event)
-                .expect("Can't serialize event")
+                .unwrap_or_exit("Can't serialize event")
         });
-        events_writer.flush().expect("Can't flush events writer");
+        events_writer
+            .flush()
+            .unwrap_or_exit("Can't flush events writer");
     }
 
     pub fn next_available_event_id(&self, internal_events: &[u32]) -> u32 {
-        // Event IDs start at 1
+        // Event IDs are NonZeroU32, and therefor start at 1
         1 + self
             .events
             .iter()
@@ -121,23 +147,46 @@ impl Events {
             .unwrap_or(0)
     }
 
-    pub fn validate_nonzero_ids(&self) {
+    pub fn validate_ids(&self) {
         self.events.iter().for_each(|event| {
-            if event.id.0 == 0 {
-                panic!("Events CSV contains invalid EventId (0) \"{}\"", event.name);
+            let is_valid_user_id = modality_probe::EventId::new(event.id.0).is_some();
+            let is_valid_internal_id = modality_probe::EventId::new_internal(event.id.0).is_some();
+
+            if is_valid_internal_id && !event.tags.contains("internal") {
+                exit_error!(
+                    "events",
+                    "Events manifest contains an event \"{}\" with an EventId ({}) in the internal range but is missing the \"internal\" tag",
+                    event.name,
+                    event.id.0,
+                );
+            }
+
+            if !is_valid_user_id && !is_valid_internal_id {
+                exit_error!(
+                    "events",
+                    "Events manifest contains an event \"{}\" with an invalid EventId ({})",
+                    event.name,
+                    event.id.0,
+                );
             }
         });
     }
 
     pub fn validate_unique_ids(&self) {
         if !has_unique_elements(self.events.iter().map(|event| event.id)) {
-            panic!("Events CSV contains duplicate event IDs");
+            exit_error!("events", "Events manifest contains duplicate event IDs");
         }
     }
 
     pub fn validate_unique_names(&self) {
         if !has_unique_elements(self.events.iter().map(|event| event.name.clone())) {
-            panic!("Events CSV contains duplicate event names");
+            exit_error!("events", "Events manifest contains duplicate event names");
+        }
+    }
+
+    pub fn instrumentation_hash<H: ComponentHasherExt>(&self, state: &mut H) {
+        for e in self.events.iter() {
+            e.instrumentation_hash(state);
         }
     }
 }

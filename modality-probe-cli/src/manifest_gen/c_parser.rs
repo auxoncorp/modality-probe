@@ -151,7 +151,7 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let (args, agent_instance) = variable_call_exp_arg(args)?;
+    let (args, probe_instance) = variable_call_exp_arg(args)?;
     let (args, name) = variable_call_exp_arg(args)?;
     if !event_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
@@ -177,18 +177,18 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
-        if !t.contains("expectation") {
-            t.insert_str(0, "expectation;");
+        if !t.contains("EXPECTATION") {
+            t.insert_str(0, "EXPECTATION;");
         }
     } else {
-        tags = Some(String::from("expectation"));
+        tags = Some(String::from("EXPECTATION"));
     }
     let description = tags_and_desc.pop();
     Ok((
         input,
         EventMetadata {
             name,
-            agent_instance,
+            probe_instance,
             payload: Some((TypeHint::U32, expr).into()),
             description,
             tags,
@@ -204,10 +204,12 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, _) = tag(tag_string.as_str())(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
-    let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)?;
+    let (input, _) = tag("(")(input)?;
+    let (input, args) = take_until(");")(input)
+        .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
-        tag(";")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let (args, agent_instance) = variable_call_exp_arg(args)?;
+        tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (args, probe_instance) = variable_call_exp_arg(args)?;
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
     let (args, name) = if expect_tags_or_desc {
         variable_call_exp_arg(args)?
@@ -241,7 +243,7 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         input,
         EventMetadata {
             name,
-            agent_instance,
+            probe_instance,
             payload: None,
             description,
             tags,
@@ -271,7 +273,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-    let (args, agent_instance) = variable_call_exp_arg(args)?;
+    let (args, probe_instance) = variable_call_exp_arg(args)?;
     let (args, name) = variable_call_exp_arg(args)?;
     if !event_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
@@ -319,7 +321,7 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         input,
         EventMetadata {
             name,
-            agent_instance,
+            probe_instance,
             payload: Some((type_hint, payload).into()),
             description,
             tags,
@@ -336,13 +338,17 @@ fn variable_call_exp_arg(input: Span) -> ParserResult<Span, String> {
 }
 
 fn multi_variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String> {
+    let (input, _) = comments_and_spacing(input)?;
     if input.fragment().is_empty() {
         return Err(nom::Err::Error(
             (input, nom::error::ErrorKind::ParseTo).into(),
         ));
     }
+    let (input, expect_tags) = peek(opt(tag("MODALITY_TAGS")))(input)?;
     let expect_another = peek(variable_call_exp_arg_literal)(input).is_ok();
-    let (input, arg) = if expect_another {
+    let (input, arg) = if expect_tags.is_some() {
+        modality_tags(input)?
+    } else if expect_another {
         variable_call_exp_arg_literal(input)?
     } else {
         rest_literal(input)?
@@ -365,10 +371,12 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
     let (input, _) = tag(tag_string.as_str())(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
-    let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)
-        .map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (input, _) = tag("(")(input)?;
+    let (input, args) = take_until(");")(input)
+        .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
-        tag(";")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+        tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+
     let (args, _storage) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let (args, _storage_size) =
@@ -379,7 +387,7 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
-    let (args, _agent_instance) = if expect_tags_or_desc {
+    let (args, _probe_instance) = if expect_tags_or_desc {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
     } else {
         rest_string(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
@@ -413,6 +421,35 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
             description,
         },
     ))
+}
+
+fn modality_tags(input: Span) -> ParserResult<Span, String> {
+    let (input, _) = comments_and_spacing(input)?;
+    let (input, pos) = position(input)?;
+    let (input, _) = tag("MODALITY_TAGS")(input)?;
+    let (input, args) = delimited(char('('), is_not(")"), char(')'))(input)
+        .map_err(|e| convert_error(e, Error::EmptyTags(pos.into())))?;
+    let (input, _) = opt(tag(","))(input)?;
+    let split: Vec<&str> = args.fragment().split(',').collect();
+    if split.is_empty() {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut tags = String::from("tags=");
+    for (idx, s) in split.iter().enumerate() {
+        let s = if !s.contains('"') {
+            format!("\"{}\"", s)
+        } else {
+            s.to_string()
+        };
+        let t =
+            truncate_and_trim(&s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+        tags.push_str(&t);
+        if (split.len() > 1) && (idx < (split.len() - 1)) {
+            tags.push(';');
+        }
+    }
+    let tags = format!("\"{}\"", tags);
+    Ok((input, tags))
 }
 
 fn comments_and_spacing(input: Span) -> ParserResult<Span, ()> {
@@ -627,11 +664,11 @@ mod tests {
             STORAGE_SIZE,
             PROBE_ID_FOO,
             &g_agent,
-            "tags=my-tags;more tags",
+            MODALITY_TAGS(my-tags, more tags),
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    MODALITY_PROBE_INIT(storage, size, ID_BAR, t, "tags=my tag");
+    MODALITY_PROBE_INIT(storage, size, ID_BAR, t, MODALITY_TAGS(my tag));
 "#;
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
@@ -649,9 +686,9 @@ mod tests {
     MODALITY_PROBE_RECORD(
             probe, /* comments */
             EVENT_WRITE1,
-            "tags=network"); // more comments
+            MODALITY_TAGS(network)); // more comments
 
-    MODALITY_PROBE_RECORD(  probe, /* comments */ EVENT_WRITE2, "tags=network;file-system", "docs"); // more comments
+    MODALITY_PROBE_RECORD(  probe, /* comments */ EVENT_WRITE2, MODALITY_TAGS(network, file-system), "docs"); // more comments
 
     uint8_t status;
     const size_t err = MODALITY_PROBE_RECORD_W_U8(probe, EVENT_A, status);
@@ -676,7 +713,7 @@ mod tests {
         probe,
         EVENT_F,
     (uint16_t) *((uint16_t*) &mydata),
-    "tags=my tag"
+    MODALITY_TAGS(my tag)
     );
 
     const size_t err = MODALITY_PROBE_RECORD_W_U16(
@@ -684,20 +721,20 @@ mod tests {
         EVENT_G,
     (uint16_t) *((uint16_t*) &mydata),
     " docs ", /* Order of tags and docs doesn't matter */
-    "tags=thing1;thing2;my::namespace;tag with spaces" //docs
+    MODALITY_TAGS(thing1, thing2, my::namespace, "tag with spaces") // docs
     );
 
     err = MODALITY_PROBE_EXPECT(
             probe,
             EVENT_H,
             1 == 0, /* Arbitrary expression, evaluates to 0 (failure) or 1 (success) */
-            "tags=severity.1;another tag",
+            MODALITY_TAGS(SEVERITY_1, another tag),
             "Some description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    MODALITY_PROBE_EXPECT(probe, EVENT_I, *foo != (1 + bar), "tags=expectation;severity.2;network");
+    MODALITY_PROBE_EXPECT(probe, EVENT_I, *foo != (1 + bar), MODALITY_TAGS(EXPECTATION, SEVERITY_2, network));
 
-    /* Special "expectation" tag is inserted"
+    /* Special "EXPECTATION" tag is inserted"
     MODALITY_PROBE_EXPECT(probe, EVENT_J, 0 == 0);
 "#;
 
@@ -746,7 +783,7 @@ mod tests {
                 },
                 ProbeMetadata {
                     name: "ID_BAR".to_string(),
-                    location: (1025, 41, 5).into(),
+                    location: (1034, 41, 5).into(),
                     tags: Some("my tag".to_string()),
                     description: None,
                 },
@@ -763,7 +800,7 @@ mod tests {
             Ok(vec![
                 EventMetadata {
                     name: "EVENT_READ1".to_string(),
-                    agent_instance: "g_probe".to_string(),
+                    probe_instance: "g_probe".to_string(),
                     payload: None,
                     description: None,
                     tags: None,
@@ -771,7 +808,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_READ2".to_string(),
-                    agent_instance: "g_probe".to_string(),
+                    probe_instance: "g_probe".to_string(),
                     payload: None,
                     description: Some("my docs".to_string()),
                     tags: None,
@@ -779,7 +816,7 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_WRITE1".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: None,
                     description: None,
                     tags: Some("network".to_string()),
@@ -787,91 +824,91 @@ mod tests {
                 },
                 EventMetadata {
                     name: "EVENT_WRITE2".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: None,
                     description: Some("docs".to_string()),
                     tags: Some("network;file-system".to_string()),
-                    location: (441, 18, 5).into(),
+                    location: (449, 18, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_A".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
                     description: None,
                     tags: None,
-                    location: (599, 21, 24).into(),
+                    location: (616, 21, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_B".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U8, "status").into()),
                     description: Some("desc text here".to_string()),
                     tags: None,
-                    location: (675, 23, 24).into(),
+                    location: (692, 23, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_C".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: None,
                     tags: None,
-                    location: (916, 32, 24).into(),
+                    location: (933, 32, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_D".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::I16, "(int16_t) data").into()),
                     description: Some("docs".to_string()),
                     tags: None,
-                    location: (1001, 34, 24).into(),
+                    location: (1018, 34, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_E".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::I8, "(int8_t) *((uint8_t*) &mydata)").into()),
                     description: None,
                     tags: None,
-                    location: (1094, 36, 24).into(),
+                    location: (1111, 36, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_F".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: None,
                     tags: Some("my tag".to_string()),
-                    location: (1198, 39, 24).into(),
+                    location: (1215, 39, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_G".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U16, "(uint16_t) *((uint16_t*) &mydata)").into()),
                     description: Some("docs".to_string()),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
-                    location: (1347, 46, 24).into(),
+                    location: (1372, 46, 24).into(),
                 },
                 EventMetadata {
                     name: "EVENT_H".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "1 == 0").into()),
                     description: Some("Some description".to_string()),
-                    tags: Some("expectation;severity.1;another tag".to_string()),
-                    location: (1585, 54, 11).into(),
+                    tags: Some("EXPECTATION;SEVERITY_1;another tag".to_string()),
+                    location: (1624, 54, 11).into(),
                 },
                 EventMetadata {
                     name: "EVENT_I".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "*foo != (1 + bar)").into()),
                     description: None,
-                    tags: Some("expectation;severity.2;network".to_string()),
-                    location: (1861, 62, 5).into(),
+                    tags: Some("EXPECTATION;SEVERITY_2;network".to_string()),
+                    location: (1909, 62, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_J".to_string(),
-                    agent_instance: "probe".to_string(),
+                    probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "0 == 0").into()),
                     description: None,
-                    tags: Some("expectation".to_string()),
-                    location: (2009, 65, 5).into(),
+                    tags: Some("EXPECTATION".to_string()),
+                    location: (2067, 65, 5).into(),
                 },
             ])
         );
@@ -882,7 +919,6 @@ mod tests {
         let parser = CParser::default();
         let input = r#"
 const size_t err = MODALITY_PROBE_RECORD(g_probe, EVENT_READ)
-assert(err == MODALITY_PROBE_ERROR_OK);
 "#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((20, 2, 20).into())));
@@ -955,14 +991,14 @@ assert(err == MODALITY_PROBE_ERROR_OK);
     #[test]
     fn empty_event_tags_errors() {
         let parser = CParser::default();
-        let input = r#"MODALITY_PROBE_RECORD(probe, EVENT_A, "tags=", "desc");"#;
+        let input = r#"MODALITY_PROBE_RECORD(probe, EVENT_A, MODALITY_TAGS(), "desc");"#;
         let tokens = parser.parse_event_md(input);
-        assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
-        let input = r#"MODALITY_PROBE_RECORD(probe, EVENT_A, "tags=");"#;
+        assert_eq!(tokens, Err(Error::EmptyTags((38, 1, 39).into())));
+        let input = r#"MODALITY_PROBE_RECORD(probe, EVENT_A, MODALITY_TAGS());"#;
         let tokens = parser.parse_event_md(input);
-        assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
-        let input = r#"MODALITY_PROBE_RECORD_W_U32(probe, EVENT_A, 123, "desc", "tags=");"#;
+        assert_eq!(tokens, Err(Error::EmptyTags((38, 1, 39).into())));
+        let input = r#"MODALITY_PROBE_RECORD_W_U32(probe, EVENT_A, 123, "desc", MODALITY_TAGS());"#;
         let tokens = parser.parse_event_md(input);
-        assert_eq!(tokens, Err(Error::EmptyTags((0, 1, 1).into())));
+        assert_eq!(tokens, Err(Error::EmptyTags((57, 1, 58).into())));
     }
 }
