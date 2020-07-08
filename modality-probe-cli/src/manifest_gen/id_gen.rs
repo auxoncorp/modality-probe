@@ -1,6 +1,7 @@
-use crate::exit_error;
+use crate::{error::GracefulExit, exit_error};
 use core::num::NonZeroU32;
 use sha3::{Digest, Sha3_256};
+use std::convert::TryInto;
 use std::hash::Hash;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -22,6 +23,10 @@ impl NonZeroIdRange {
                 inclusive_end,
             })
         }
+    }
+
+    pub fn contains(&self, value: NonZeroU32) -> bool {
+        value.get() >= self.inclusive_start.get() && value.get() <= self.inclusive_end.get()
     }
 }
 
@@ -69,20 +74,22 @@ impl IdGen {
         hasher.update(token.as_bytes());
         let hash = hasher.finalize();
         let bytes: &[u8; 32] = hash.as_ref();
-        let be16_bytes = u16::from_be_bytes([bytes[0], bytes[1]]);
-        let be32_bytes = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let be16_bytes = u16::from_be_bytes(
+            bytes[0..2]
+                .try_into()
+                .unwrap_or_exit("Can't make a u16 from bytes"),
+        );
+        let be32_bytes = u32::from_be_bytes(
+            bytes[0..4]
+                .try_into()
+                .unwrap_or_exit("Can't make a u32 from bytes"),
+        );
         let id = u32::from(be16_bytes)
             .overflowing_mul(0xFFFF_FFFF)
             .0
             .overflowing_add(be32_bytes)
             .0;
         id % self.id_range.inclusive_end.get()
-    }
-}
-
-impl NonZeroIdRange {
-    pub fn contains(&self, value: NonZeroU32) -> bool {
-        value.get() >= self.inclusive_start.get() && value.get() <= self.inclusive_end.get()
     }
 }
 
