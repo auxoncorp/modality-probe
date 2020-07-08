@@ -94,15 +94,13 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
     let mut probe_addrs = Vec::new();
     let mut symbols = Vec::new();
     // Separate probe/probe pointer addresses and probe symbols
-    for addr_str in options
-        .probe_syms.iter()
-    {
+    for addr_str in options.probe_syms.iter() {
         match parse_probe_address(addr_str)? {
             None => symbols.push(addr_str),
-            Some(probe_addr) => probe_addrs.push(probe_addr)
+            Some(probe_addr) => probe_addrs.push(probe_addr),
         }
     }
-    
+
     let mut elf_endianness = None;
     if let Some(elf_path) = options.elf_path.as_ref() {
         let mut elf_buf = Vec::new();
@@ -147,10 +145,14 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, Box<dyn
 /// Parse a probe address from a given argument, or return none in case of a symbol
 fn parse_probe_address(input: &str) -> Result<Option<ProbeAddr>, Box<dyn Error>> {
     if input.starts_with("*0x") || input.starts_with("*0X") {
-        let addr = u32::from_str_radix(input.trim_start_matches("*0x").trim_start_matches("*0X"), 16)?;
+        let addr = u32::from_str_radix(
+            input.trim_start_matches("*0x").trim_start_matches("*0X"),
+            16,
+        )?;
         Ok(Some(ProbeAddr::PtrAddr(addr)))
     } else if input.starts_with("0x") || input.starts_with("0X") {
-        let addr = u32::from_str_radix(input.trim_start_matches("0x").trim_start_matches("0X"), 16)?;
+        let addr =
+            u32::from_str_radix(input.trim_start_matches("0x").trim_start_matches("0X"), 16)?;
         Ok(Some(ProbeAddr::Addr(addr)))
     } else {
         Ok(None)
