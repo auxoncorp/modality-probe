@@ -189,6 +189,10 @@ impl Events {
             e.instrumentation_hash(state);
         }
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Event> {
+        self.events.iter()
+    }
 }
 
 fn has_unique_elements<T>(iter: T) -> bool
