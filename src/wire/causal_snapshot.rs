@@ -5,7 +5,7 @@ use core::mem::size_of;
 use static_assertions::const_assert_eq;
 
 /// Everything that can go wrong when attempting to interpret a causal snaphot
-/// from the wire representation
+/// to/from the wire representation
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum CausalSnapshotWireError {
     /// There weren't enough bytes for a full causal snapshot
@@ -15,9 +15,30 @@ pub enum CausalSnapshotWireError {
     InvalidProbeId(u32),
 }
 
+/// Error that indicates there weren't enough bytes for a full causal snapshot
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct MissingBytes;
+
+/// Error that indicates the probe id didn't follow the rules for being
+/// a valid Modality probe-specifying ProbeId
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InvalidWireProbeId(u32);
+
+impl From<MissingBytes> for CausalSnapshotWireError {
+    fn from(_: MissingBytes) -> Self {
+        CausalSnapshotWireError::MissingBytes
+    }
+}
+
+impl From<InvalidWireProbeId> for CausalSnapshotWireError {
+    fn from(e: InvalidWireProbeId) -> Self {
+        CausalSnapshotWireError::InvalidProbeId(e.0)
+    }
+}
+
 /// A read/write wrapper around a causal snaphot buffer
 #[derive(Debug, Clone)]
-pub struct CausalSnapshot<T: AsRef<[u8]>> {
+pub struct WireCausalSnapshot<T: AsRef<[u8]>> {
     buffer: T,
 }
 
@@ -39,10 +60,10 @@ mod field {
     pub const REST: Rest = 12..;
 }
 
-impl<T: AsRef<[u8]>> CausalSnapshot<T> {
+impl<T: AsRef<[u8]>> WireCausalSnapshot<T> {
     /// Construct a causal snaphot from a byte buffer
-    pub fn new_unchecked(buffer: T) -> CausalSnapshot<T> {
-        CausalSnapshot { buffer }
+    pub fn new_unchecked(buffer: T) -> WireCausalSnapshot<T> {
+        WireCausalSnapshot { buffer }
     }
 
     /// Construct a causal snaphot from a byte buffer, with checks.
@@ -50,7 +71,7 @@ impl<T: AsRef<[u8]>> CausalSnapshot<T> {
     /// A combination of:
     /// * [new_unchecked](struct.CausalSnapshot.html#method.new_unchecked)
     /// * [check_len](struct.CausalSnapshot.html#method.check_len)
-    pub fn new(buffer: T) -> Result<CausalSnapshot<T>, CausalSnapshotWireError> {
+    pub fn new(buffer: T) -> Result<WireCausalSnapshot<T>, MissingBytes> {
         let r = Self::new_unchecked(buffer);
         r.check_len()?;
         Ok(r)
@@ -60,10 +81,10 @@ impl<T: AsRef<[u8]>> CausalSnapshot<T> {
     ///
     /// Returns `Err(CausalSnapshotWireError::MissingBytes)` if the buffer
     /// is too short.
-    pub fn check_len(&self) -> Result<(), CausalSnapshotWireError> {
+    pub fn check_len(&self) -> Result<(), MissingBytes> {
         let len = self.buffer.as_ref().len();
         if len < field::REST.start {
-            Err(CausalSnapshotWireError::MissingBytes)
+            Err(MissingBytes)
         } else {
             Ok(())
         }
@@ -75,18 +96,18 @@ impl<T: AsRef<[u8]>> CausalSnapshot<T> {
     }
 
     /// Return the length of a buffer required to hold a causal snaphot
-    pub fn buffer_len() -> usize {
+    pub fn min_buffer_len() -> usize {
         field::REST.start
     }
 
     /// Return the `probe_id` field
     #[inline]
-    pub fn probe_id(&self) -> Result<ProbeId, CausalSnapshotWireError> {
+    pub fn probe_id(&self) -> Result<ProbeId, InvalidWireProbeId> {
         let data = self.buffer.as_ref();
         let raw_probe_id = le_bytes::read_u32(&data[field::PROBE_ID]);
         match ProbeId::new(raw_probe_id) {
             Some(id) => Ok(id),
-            None => Err(CausalSnapshotWireError::InvalidProbeId(raw_probe_id)),
+            None => Err(InvalidWireProbeId(raw_probe_id)),
         }
     }
 
@@ -112,7 +133,7 @@ impl<T: AsRef<[u8]>> CausalSnapshot<T> {
     }
 }
 
-impl<T: AsRef<[u8]> + AsMut<[u8]>> CausalSnapshot<T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]>> WireCausalSnapshot<T> {
     /// Set the `probe_id` field
     #[inline]
     pub fn set_probe_id(&mut self, value: ProbeId) {
@@ -142,7 +163,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> CausalSnapshot<T> {
     }
 }
 
-impl<T: AsRef<[u8]>> AsRef<[u8]> for CausalSnapshot<T> {
+impl<T: AsRef<[u8]>> AsRef<[u8]> for WireCausalSnapshot<T> {
     fn as_ref(&self) -> &[u8] {
         self.buffer.as_ref()
     }
@@ -165,14 +186,14 @@ mod tests {
     ];
 
     #[test]
-    fn buffer_len() {
-        assert_eq!(CausalSnapshot::<&[u8]>::buffer_len(), 12);
+    fn min_buffer_len() {
+        assert_eq!(WireCausalSnapshot::<&[u8]>::min_buffer_len(), 12);
     }
 
     #[test]
     fn construct() {
         let mut bytes = [0xFF; 12];
-        let mut s = CausalSnapshot::new_unchecked(&mut bytes[..]);
+        let mut s = WireCausalSnapshot::new_unchecked(&mut bytes[..]);
         assert_eq!(s.check_len(), Ok(()));
         s.set_probe_id(ProbeId::new(1).unwrap());
         s.set_count(2);
@@ -183,7 +204,7 @@ mod tests {
 
     #[test]
     fn deconstruct() {
-        let s = CausalSnapshot::new(&SNAPSHOT_BYTES[..]).unwrap();
+        let s = WireCausalSnapshot::new(&SNAPSHOT_BYTES[..]).unwrap();
         assert_eq!(s.probe_id().unwrap().get_raw(), 1);
         assert_eq!(s.count(), 2);
         assert_eq!(s.reserved_0(), 3);
@@ -193,8 +214,11 @@ mod tests {
     #[test]
     fn missing_bytes() {
         let bytes = [0xFF; 12 - 1];
-        assert_eq!(bytes.len(), CausalSnapshot::<&[u8]>::buffer_len() - 1);
-        let s = CausalSnapshot::new(&bytes[..]);
-        assert_eq!(s.unwrap_err(), CausalSnapshotWireError::MissingBytes);
+        assert_eq!(
+            bytes.len(),
+            WireCausalSnapshot::<&[u8]>::min_buffer_len() - 1
+        );
+        let s = WireCausalSnapshot::new(&bytes[..]);
+        assert_eq!(s.unwrap_err(), MissingBytes);
     }
 }

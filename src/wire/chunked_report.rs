@@ -38,15 +38,17 @@ pub enum ChunkPayloadDataType {
 impl ChunkPayloadDataType {
     fn data_type_le_byte(self) -> u8 {
         match self {
-            ChunkPayloadDataType::Log => ChunkedReport::<&[u8]>::DATA_TYPE_LOG.to_le(),
-            ChunkPayloadDataType::Extension => ChunkedReport::<&[u8]>::DATA_TYPE_EXTENSION.to_le(),
+            ChunkPayloadDataType::Log => WireChunkedReport::<&[u8]>::DATA_TYPE_LOG.to_le(),
+            ChunkPayloadDataType::Extension => {
+                WireChunkedReport::<&[u8]>::DATA_TYPE_EXTENSION.to_le()
+            }
         }
     }
 }
 
 /// A read/write wrapper around a chunked report buffer
 #[derive(Debug, Clone)]
-pub struct ChunkedReport<T: AsRef<[u8]>> {
+pub struct WireChunkedReport<T: AsRef<[u8]>> {
     buffer: T,
 }
 
@@ -91,11 +93,11 @@ mod field {
 }
 
 const_assert_ne!(
-    ChunkedReport::<&[u8]>::DATA_TYPE_LOG,
-    ChunkedReport::<&[u8]>::DATA_TYPE_EXTENSION
+    WireChunkedReport::<&[u8]>::DATA_TYPE_LOG,
+    WireChunkedReport::<&[u8]>::DATA_TYPE_EXTENSION
 );
 
-impl<T: AsRef<[u8]>> ChunkedReport<T> {
+impl<T: AsRef<[u8]>> WireChunkedReport<T> {
     /// Chunked report fingerprint (ECNK)
     pub const FINGERPRINT: u32 = 0x45_43_4E_4B;
 
@@ -110,8 +112,8 @@ impl<T: AsRef<[u8]>> ChunkedReport<T> {
     pub const MAX_PAYLOAD_BYTES_PER_CHUNK: usize = 256 - field::PAYLOAD.start;
 
     /// Construct a chunked report from a byte buffer
-    pub fn new_unchecked(buffer: T) -> ChunkedReport<T> {
-        ChunkedReport { buffer }
+    pub fn new_unchecked(buffer: T) -> WireChunkedReport<T> {
+        WireChunkedReport { buffer }
     }
 
     /// Construct a chunked report from a byte buffer, with checks.
@@ -121,7 +123,7 @@ impl<T: AsRef<[u8]>> ChunkedReport<T> {
     /// * [check_len](struct.ChunkedReport.html#method.check_len)
     /// * [check_fingerprint](struct.ChunkedReport.html#method.check_fingerprint)
     /// * [check_payload_len](struct.ChunkedReport.html#method.check_payload_len)
-    pub fn new(buffer: T) -> Result<ChunkedReport<T>, ChunkedReportWireError> {
+    pub fn new(buffer: T) -> Result<WireChunkedReport<T>, ChunkedReportWireError> {
         let r = Self::new_unchecked(buffer);
         r.check_len()?;
         r.check_fingerprint()?;
@@ -258,7 +260,7 @@ impl<T: AsRef<[u8]>> ChunkedReport<T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> ChunkedReport<&'a T> {
+impl<'a, T: AsRef<[u8]> + ?Sized> WireChunkedReport<&'a T> {
     /// Return a pointer to the payload
     #[inline]
     pub fn payload(&self) -> &'a [u8] {
@@ -267,7 +269,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> ChunkedReport<&'a T> {
     }
 }
 
-impl<T: AsRef<[u8]> + AsMut<[u8]>> ChunkedReport<T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]>> WireChunkedReport<T> {
     /// Set the `fingerprint` field to
     /// [Self::FINGERPRINT](struct.ChunkedReport.html#associatedconstant.FINGERPRINT)
     #[inline]
@@ -333,7 +335,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> ChunkedReport<T> {
     }
 }
 
-impl<T: AsRef<[u8]>> AsRef<[u8]> for ChunkedReport<T> {
+impl<T: AsRef<[u8]>> AsRef<[u8]> for WireChunkedReport<T> {
     fn as_ref(&self) -> &[u8] {
         self.buffer.as_ref()
     }
@@ -376,10 +378,10 @@ mod tests {
 
     #[test]
     fn header_len() {
-        assert_eq!(ChunkedReport::<&[u8]>::header_len(), 16);
+        assert_eq!(WireChunkedReport::<&[u8]>::header_len(), 16);
         let n_chunk_payload_bytes = 12;
         assert_eq!(
-            ChunkedReport::<&[u8]>::buffer_len(n_chunk_payload_bytes),
+            WireChunkedReport::<&[u8]>::buffer_len(n_chunk_payload_bytes),
             16 + 12
         );
     }
@@ -387,7 +389,7 @@ mod tests {
     #[test]
     fn construct() {
         let mut bytes = [0xFF; 28];
-        let mut r = ChunkedReport::new_unchecked(&mut bytes[..]);
+        let mut r = WireChunkedReport::new_unchecked(&mut bytes[..]);
         assert_eq!(r.check_len(), Ok(()));
         r.set_fingerprint();
         r.set_probe_id(ProbeId::new(1).unwrap());
@@ -407,7 +409,7 @@ mod tests {
     fn construct_with_extra() {
         const EXTRA_JUNK_SIZE: usize = 7;
         let mut bytes = [0xFF; 28 + EXTRA_JUNK_SIZE];
-        let mut r = ChunkedReport::new_unchecked(&mut bytes[..]);
+        let mut r = WireChunkedReport::new_unchecked(&mut bytes[..]);
         assert_eq!(r.check_len(), Ok(()));
         r.set_fingerprint();
         r.set_probe_id(ProbeId::new(1).unwrap());
@@ -423,14 +425,14 @@ mod tests {
         (&mut r.payload_mut()[..payload_len]).copy_from_slice(&PAYLOAD_BYTES[..]);
         assert_eq!(r.check_fingerprint(), Ok(()));
         assert_eq!(r.check_payload_len(), Ok(()));
-        let msg_len = ChunkedReport::<&[u8]>::buffer_len(12);
+        let msg_len = WireChunkedReport::<&[u8]>::buffer_len(12);
         assert_eq!(&r.into_inner()[..msg_len], &MSG_BYTES[..]);
     }
 
     #[test]
     fn deconstruct() {
-        let r = ChunkedReport::new(&MSG_BYTES[..]).unwrap();
-        assert_eq!(r.fingerprint(), ChunkedReport::<&[u8]>::FINGERPRINT);
+        let r = WireChunkedReport::new(&MSG_BYTES[..]).unwrap();
+        assert_eq!(r.fingerprint(), WireChunkedReport::<&[u8]>::FINGERPRINT);
         assert_eq!(r.probe_id().unwrap().get_raw(), 1);
         assert_eq!(r.chunk_group_id(), 2);
         assert_eq!(r.chunk_index(), 3);
@@ -448,8 +450,8 @@ mod tests {
         let mut bytes = [0xFF; 28 + EXTRA_JUNK_SIZE];
         assert_eq!(bytes.len(), MSG_BYTES.len() + EXTRA_JUNK_SIZE);
         (&mut bytes[..28]).copy_from_slice(&MSG_BYTES[..]);
-        let r = ChunkedReport::new(&bytes[..]).unwrap();
-        assert_eq!(r.fingerprint(), ChunkedReport::<&[u8]>::FINGERPRINT);
+        let r = WireChunkedReport::new(&bytes[..]).unwrap();
+        assert_eq!(r.fingerprint(), WireChunkedReport::<&[u8]>::FINGERPRINT);
         assert_eq!(r.probe_id().unwrap().get_raw(), 1);
         assert_eq!(r.chunk_group_id(), 2);
         assert_eq!(r.chunk_index(), 3);
@@ -466,26 +468,26 @@ mod tests {
     #[test]
     fn invalid_fingerprint() {
         let bytes = [0xFF; 16];
-        let r = ChunkedReport::new(&bytes[..]);
+        let r = WireChunkedReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), ChunkedReportWireError::InvalidFingerprint);
     }
 
     #[test]
     fn missing_header() {
         let bytes = [0xFF; 16 - 1];
-        assert_eq!(bytes.len(), ChunkedReport::<&[u8]>::header_len() - 1);
-        let r = ChunkedReport::new(&bytes[..]);
+        assert_eq!(bytes.len(), WireChunkedReport::<&[u8]>::header_len() - 1);
+        let r = WireChunkedReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), ChunkedReportWireError::MissingHeader);
     }
 
     #[test]
     fn incomplete_payload() {
         let mut bytes = MSG_BYTES.clone();
-        let mut r = ChunkedReport::new(&mut bytes[..]).unwrap();
-        assert!(MSG_BYTES.len() < (ChunkedReport::<&[u8]>::MAX_CHUNK_BYTES - 1));
+        let mut r = WireChunkedReport::new(&mut bytes[..]).unwrap();
+        assert!(MSG_BYTES.len() < (WireChunkedReport::<&[u8]>::MAX_CHUNK_BYTES - 1));
         r.set_n_chunk_payload_bytes(MSG_BYTES.len() as u8 + 1);
         let bytes = r.into_inner();
-        let r = ChunkedReport::new(&bytes[..]);
+        let r = WireChunkedReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), ChunkedReportWireError::IncompletePayload);
     }
 
@@ -495,10 +497,12 @@ mod tests {
         let mut bytes = [0xFF; 28 + EXTRA_JUNK_SIZE];
         assert_eq!(bytes.len(), MSG_BYTES.len() + EXTRA_JUNK_SIZE);
         (&mut bytes[..28]).copy_from_slice(&MSG_BYTES[..]);
-        let mut r = ChunkedReport::new(&mut bytes[..]).unwrap();
-        r.set_n_chunk_payload_bytes(ChunkedReport::<&[u8]>::MAX_PAYLOAD_BYTES_PER_CHUNK as u8 + 1);
+        let mut r = WireChunkedReport::new(&mut bytes[..]).unwrap();
+        r.set_n_chunk_payload_bytes(
+            WireChunkedReport::<&[u8]>::MAX_PAYLOAD_BYTES_PER_CHUNK as u8 + 1,
+        );
         let bytes = r.into_inner();
-        let r = ChunkedReport::new(&bytes[..]);
+        let r = WireChunkedReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), ChunkedReportWireError::TooManyPayloadBytes);
     }
 }

@@ -74,11 +74,8 @@ impl CausalSnapshot {
     }
 
     /// Writes a causal snapshot into a slice of little endian bytes
-    pub fn write_into_le_bytes(
-        &self,
-        bytes: &mut [u8],
-    ) -> Result<(), wire::CausalSnapshotWireError> {
-        let mut wire = wire::CausalSnapshot::new_unchecked(bytes);
+    pub fn write_into_le_bytes(&self, bytes: &mut [u8]) -> Result<(), wire::MissingBytes> {
+        let mut wire = wire::WireCausalSnapshot::new_unchecked(bytes);
         wire.check_len()?;
         wire.set_probe_id(self.clock.id);
         wire.set_count(self.clock.count);
@@ -92,7 +89,7 @@ impl TryFrom<&[u8]> for CausalSnapshot {
     type Error = wire::CausalSnapshotWireError;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        let snapshot = wire::CausalSnapshot::new(bytes)?;
+        let snapshot = wire::WireCausalSnapshot::new(bytes)?;
         Ok(CausalSnapshot {
             clock: LogicalClock {
                 id: snapshot.probe_id()?,

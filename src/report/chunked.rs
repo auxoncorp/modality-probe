@@ -4,7 +4,7 @@
 
 use crate::compact_log::CompactLogItem;
 use crate::history::DynamicHistory;
-use crate::wire::{ChunkPayloadDataType, ChunkedReport, ChunkedReportWireError};
+use crate::wire::{ChunkPayloadDataType, ChunkedReportWireError, WireChunkedReport};
 use crate::ProbeId;
 use crate::ReportError;
 use core::borrow::Borrow;
@@ -15,7 +15,7 @@ pub const MAX_CHUNK_U32_WORDS: usize = 256 / size_of::<u32>();
 /// The maximum number of compact log items (events or clocks)
 /// that could fit in a chunk.
 pub const MAX_PAYLOAD_COMPACT_LOG_ITEMS_PER_CHUNK: usize =
-    ChunkedReport::<&[u8]>::MAX_PAYLOAD_BYTES_PER_CHUNK / size_of::<CompactLogItem>();
+    WireChunkedReport::<&[u8]>::MAX_PAYLOAD_BYTES_PER_CHUNK / size_of::<CompactLogItem>();
 
 /// The slice input was an incorrect length.
 #[derive(Debug, PartialEq, Eq)]
@@ -157,7 +157,7 @@ impl<'data> ChunkedReporter for DynamicHistory<'data> {
             return Ok(0);
         }
 
-        let required_bytes = ChunkedReport::<&[u8]>::buffer_len(n_chunk_payload_bytes);
+        let required_bytes = WireChunkedReport::<&[u8]>::buffer_len(n_chunk_payload_bytes);
         if destination.len() < required_bytes {
             return Err(ChunkedReportError::ReportError(
                 ReportError::InsufficientDestinationSize,
@@ -167,7 +167,7 @@ impl<'data> ChunkedReporter for DynamicHistory<'data> {
         let log_slice =
             &self.compact_log.as_slice()[log_index..log_index + items_for_current_chunk];
 
-        let mut report = ChunkedReport::new_unchecked(&mut destination[..]);
+        let mut report = WireChunkedReport::new_unchecked(&mut destination[..]);
         report.set_fingerprint();
         report.set_probe_id(self.probe_id);
         report.set_chunk_group_id(token.group_id);
@@ -256,7 +256,7 @@ impl NativeChunk {
     ) -> Result<NativeChunk, ChunkedReportWireError> {
         let wire_bytes = borrow_wire_bytes.borrow();
 
-        let report = ChunkedReport::new(&wire_bytes[..])?;
+        let report = WireChunkedReport::new(&wire_bytes[..])?;
 
         let probe_id = report.probe_id()?;
         let chunk_group_id = report.chunk_group_id();
@@ -302,7 +302,7 @@ impl NativeChunk {
             ChunkPayloadDataType::Extension => {
                 // Assuming init is always safe when initializing an array of MaybeUninit values
                 let mut payload: [MaybeUninit<u8>;
-                    ChunkedReport::<&[u8]>::MAX_PAYLOAD_BYTES_PER_CHUNK] =
+                    WireChunkedReport::<&[u8]>::MAX_PAYLOAD_BYTES_PER_CHUNK] =
                     unsafe { MaybeUninit::uninit().assume_init() };
                 for (source, sink) in payload_bytes.iter().zip(payload.iter_mut()) {
                     *sink = MaybeUninit::new(*source);
@@ -393,7 +393,7 @@ pub struct NativeChunkExtensionContents {
     /// How many of the payload bytes are populated?
     n_chunk_payload_bytes: u8,
     /// The content of the report chunk
-    payload: [MaybeUninit<u8>; ChunkedReport::<&[u8]>::MAX_PAYLOAD_BYTES_PER_CHUNK],
+    payload: [MaybeUninit<u8>; WireChunkedReport::<&[u8]>::MAX_PAYLOAD_BYTES_PER_CHUNK],
 }
 
 impl PartialEq for NativeChunkExtensionContents {
@@ -441,7 +441,7 @@ mod tests {
     use proptest::prelude::*;
     use proptest::std_facade::*;
 
-    const MAX_CHUNK_BYTES: usize = ChunkedReport::<&[u8]>::MAX_CHUNK_BYTES;
+    const MAX_CHUNK_BYTES: usize = WireChunkedReport::<&[u8]>::MAX_CHUNK_BYTES;
 
     #[test]
     fn chunked_report_happy_path_single_chunk() {
@@ -458,7 +458,7 @@ mod tests {
             .expect("Could not write chunk");
         // For now, we expect just a single logical clock (the local one) to be written in the log since no events were recorded
         // and no other logical histories merged in.
-        let expected_size_bytes = ChunkedReport::<&[u8]>::buffer_len(size_of::<LogicalClock>());
+        let expected_size_bytes = WireChunkedReport::<&[u8]>::buffer_len(size_of::<LogicalClock>());
         assert_eq!(expected_size_bytes, n_report_bytes);
         let n_report_bytes = eko
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
@@ -492,7 +492,7 @@ mod tests {
             .expect("Could not write chunk");
         // Two events shouldn't have been able to fit in the prior report
         let expected_size_bytes =
-            ChunkedReport::<&[u8]>::buffer_len(2 * size_of::<CompactLogItem>());
+            WireChunkedReport::<&[u8]>::buffer_len(2 * size_of::<CompactLogItem>());
         assert_eq!(expected_size_bytes, n_report_bytes);
         let n_report_bytes = eko
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
@@ -552,7 +552,7 @@ mod tests {
             .expect("Could not write chunk");
         // For now, we expect just a single logical clock (the local one) to be written in the log since no events were recorded
         // and no other logical histories merged in.
-        let expected_size_bytes = ChunkedReport::<&[u8]>::buffer_len(size_of::<LogicalClock>());
+        let expected_size_bytes = WireChunkedReport::<&[u8]>::buffer_len(size_of::<LogicalClock>());
         assert_eq!(expected_size_bytes, n_report_bytes);
         let n_report_bytes = eko_foo
             .write_next_report_chunk(&token, &mut report_transmission_buffer)
@@ -608,7 +608,7 @@ mod tests {
                 .unwrap_err()
         );
         // Starts to work when you give it a minimally-sized buffer
-        let expected_size_bytes = ChunkedReport::<&[u8]>::buffer_len(size_of::<LogicalClock>());
+        let expected_size_bytes = WireChunkedReport::<&[u8]>::buffer_len(size_of::<LogicalClock>());
         assert_eq!(
             expected_size_bytes,
             eko.write_next_report_chunk(

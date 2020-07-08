@@ -191,6 +191,6 @@ impl ChunkHandler {
 }
 
 pub fn matches_chunk_fingerprint(message_bytes: &[u8]) -> bool {
-    let report = modality_probe::wire::ChunkedReport::new_unchecked(&message_bytes[..]);
+    let report = modality_probe::wire::WireChunkedReport::new_unchecked(&message_bytes[..]);
     report.check_len().is_ok() && report.check_fingerprint().is_ok()
 }

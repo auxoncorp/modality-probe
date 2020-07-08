@@ -2,7 +2,7 @@
 
 use crate::compact_log::CompactLogItem;
 use crate::history::DynamicHistory;
-use crate::wire::{BulkReport, BulkReportWireError};
+use crate::wire::{BulkReportWireError, WireBulkReport};
 use crate::{ExtensionBytes, ProbeId, ReportError};
 use core::mem::size_of;
 
@@ -54,12 +54,12 @@ impl<'log> BulkReporter for BulkReportSourceComponents<'log> {
             // since the extension data is opaque.
             return Err(ReportError::Extension);
         }
-        let required_bytes = BulkReport::<&[u8]>::buffer_len(n_log_bytes, n_extension_bytes);
+        let required_bytes = WireBulkReport::<&[u8]>::buffer_len(n_log_bytes, n_extension_bytes);
         if destination.len() < required_bytes {
             return Err(ReportError::InsufficientDestinationSize);
         }
 
-        let mut report = BulkReport::new_unchecked(&mut destination[..]);
+        let mut report = WireBulkReport::new_unchecked(&mut destination[..]);
         report.set_fingerprint();
         report.set_probe_id(self.probe_id);
         report.set_n_log_bytes(n_log_bytes as u32); // Checked above for range
@@ -132,7 +132,7 @@ pub fn try_bulk_from_wire_bytes<'b>(
     ),
     BulkReportWireError,
 > {
-    let report = BulkReport::new(&wire_bytes[..])?;
+    let report = WireBulkReport::new(&wire_bytes[..])?;
     let payload_bytes = report.payload();
 
     let probe_id = report.probe_id()?;

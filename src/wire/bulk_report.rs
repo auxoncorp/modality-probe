@@ -20,7 +20,7 @@ pub enum BulkReportWireError {
 
 /// A read/write wrapper around a bulk report buffer
 #[derive(Debug, Clone)]
-pub struct BulkReport<T: AsRef<[u8]>> {
+pub struct WireBulkReport<T: AsRef<[u8]>> {
     buffer: T,
 }
 
@@ -44,13 +44,13 @@ mod field {
     pub const PAYLOAD: Rest = 16..;
 }
 
-impl<T: AsRef<[u8]>> BulkReport<T> {
+impl<T: AsRef<[u8]>> WireBulkReport<T> {
     /// Bulk report fingerprint (EBLK)
     pub const FINGERPRINT: u32 = 0x45_42_4C_4B;
 
     /// Construct a bulk report from a byte buffer
-    pub fn new_unchecked(buffer: T) -> BulkReport<T> {
-        BulkReport { buffer }
+    pub fn new_unchecked(buffer: T) -> WireBulkReport<T> {
+        WireBulkReport { buffer }
     }
 
     /// Construct a bulk report from a byte buffer, with checks.
@@ -60,7 +60,7 @@ impl<T: AsRef<[u8]>> BulkReport<T> {
     /// * [check_len](struct.BulkReport.html#method.check_len)
     /// * [check_fingerprint](struct.BulkReport.html#method.check_fingerprint)
     /// * [check_payload_len](struct.BulkReport.html#method.check_payload_len)
-    pub fn new(buffer: T) -> Result<BulkReport<T>, BulkReportWireError> {
+    pub fn new(buffer: T) -> Result<WireBulkReport<T>, BulkReportWireError> {
         let r = Self::new_unchecked(buffer);
         r.check_len()?;
         r.check_fingerprint()?;
@@ -165,7 +165,7 @@ impl<T: AsRef<[u8]>> BulkReport<T> {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> BulkReport<&'a T> {
+impl<'a, T: AsRef<[u8]> + ?Sized> WireBulkReport<&'a T> {
     /// Return a pointer to the payload
     #[inline]
     pub fn payload(&self) -> &'a [u8] {
@@ -174,7 +174,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> BulkReport<&'a T> {
     }
 }
 
-impl<T: AsRef<[u8]> + AsMut<[u8]>> BulkReport<T> {
+impl<T: AsRef<[u8]> + AsMut<[u8]>> WireBulkReport<T> {
     /// Set the `fingerprint` field to
     /// [Self::FINGERPRINT](struct.BulkReport.html#associatedconstant.FINGERPRINT)
     #[inline]
@@ -212,7 +212,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> BulkReport<T> {
     }
 }
 
-impl<T: AsRef<[u8]>> AsRef<[u8]> for BulkReport<T> {
+impl<T: AsRef<[u8]>> AsRef<[u8]> for WireBulkReport<T> {
     fn as_ref(&self) -> &[u8] {
         self.buffer.as_ref()
     }
@@ -247,11 +247,11 @@ mod tests {
 
     #[test]
     fn header_len() {
-        assert_eq!(BulkReport::<&[u8]>::header_len(), 16);
+        assert_eq!(WireBulkReport::<&[u8]>::header_len(), 16);
         let n_log_bytes = 12;
         let n_ext_bytes = 14;
         assert_eq!(
-            BulkReport::<&[u8]>::buffer_len(n_log_bytes, n_ext_bytes),
+            WireBulkReport::<&[u8]>::buffer_len(n_log_bytes, n_ext_bytes),
             16 + 12 + 14
         );
     }
@@ -259,7 +259,7 @@ mod tests {
     #[test]
     fn construct() {
         let mut bytes = [0xFF; 28];
-        let mut r = BulkReport::new_unchecked(&mut bytes[..]);
+        let mut r = WireBulkReport::new_unchecked(&mut bytes[..]);
         assert_eq!(r.check_len(), Ok(()));
         r.set_fingerprint();
         r.set_probe_id(ProbeId::new(1).unwrap());
@@ -275,7 +275,7 @@ mod tests {
     fn construct_with_extra() {
         const EXTRA_JUNK_SIZE: usize = 7;
         let mut bytes = [0xFF; 28 + EXTRA_JUNK_SIZE];
-        let mut r = BulkReport::new_unchecked(&mut bytes[..]);
+        let mut r = WireBulkReport::new_unchecked(&mut bytes[..]);
         assert_eq!(r.check_len(), Ok(()));
         r.set_fingerprint();
         r.set_probe_id(ProbeId::new(1).unwrap());
@@ -287,14 +287,14 @@ mod tests {
         (&mut r.payload_mut()[..payload_len]).copy_from_slice(&PAYLOAD_BYTES[..]);
         assert_eq!(r.check_fingerprint(), Ok(()));
         assert_eq!(r.check_payload_len(), Ok(()));
-        let msg_len = BulkReport::<&[u8]>::buffer_len(8, 4);
+        let msg_len = WireBulkReport::<&[u8]>::buffer_len(8, 4);
         assert_eq!(&r.into_inner()[..msg_len], &MSG_BYTES[..]);
     }
 
     #[test]
     fn deconstruct() {
-        let r = BulkReport::new(&MSG_BYTES[..]).unwrap();
-        assert_eq!(r.fingerprint(), BulkReport::<&[u8]>::FINGERPRINT);
+        let r = WireBulkReport::new(&MSG_BYTES[..]).unwrap();
+        assert_eq!(r.fingerprint(), WireBulkReport::<&[u8]>::FINGERPRINT);
         assert_eq!(r.probe_id().unwrap().get_raw(), 1);
         assert_eq!(r.n_log_bytes(), 8);
         assert_eq!(r.n_extension_bytes(), 4);
@@ -312,8 +312,8 @@ mod tests {
         let mut bytes = [0xFF; 28 + EXTRA_JUNK_SIZE];
         assert_eq!(bytes.len(), MSG_BYTES.len() + EXTRA_JUNK_SIZE);
         (&mut bytes[..28]).copy_from_slice(&MSG_BYTES[..]);
-        let r = BulkReport::new(&bytes[..]).unwrap();
-        assert_eq!(r.fingerprint(), BulkReport::<&[u8]>::FINGERPRINT);
+        let r = WireBulkReport::new(&bytes[..]).unwrap();
+        assert_eq!(r.fingerprint(), WireBulkReport::<&[u8]>::FINGERPRINT);
         assert_eq!(r.probe_id().unwrap().get_raw(), 1);
         assert_eq!(r.n_log_bytes(), 8);
         assert_eq!(r.n_extension_bytes(), 4);
@@ -326,26 +326,26 @@ mod tests {
     #[test]
     fn invalid_fingerprint() {
         let bytes = [0xFF; 16];
-        let r = BulkReport::new(&bytes[..]);
+        let r = WireBulkReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), BulkReportWireError::InvalidFingerprint);
     }
 
     #[test]
     fn missing_header() {
         let bytes = [0xFF; 16 - 1];
-        assert_eq!(bytes.len(), BulkReport::<&[u8]>::header_len() - 1);
-        let r = BulkReport::new(&bytes[..]);
+        assert_eq!(bytes.len(), WireBulkReport::<&[u8]>::header_len() - 1);
+        let r = WireBulkReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), BulkReportWireError::MissingHeader);
     }
 
     #[test]
     fn incomplete_payload() {
         let mut bytes = MSG_BYTES.clone();
-        let mut r = BulkReport::new(&mut bytes[..]).unwrap();
+        let mut r = WireBulkReport::new(&mut bytes[..]).unwrap();
         r.set_n_log_bytes(8 + 1);
         r.set_n_extension_bytes(4 + 1);
         let bytes = r.into_inner();
-        let r = BulkReport::new(&bytes[..]);
+        let r = WireBulkReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), BulkReportWireError::IncompletePayload);
     }
 }
