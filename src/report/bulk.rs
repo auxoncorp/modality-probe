@@ -1,12 +1,10 @@
-//! A wire protocol for representing Modality probe log reports
-//! that are fragmented into multiple chunks due to sizing
-//! constraints
+//! Bulk Modality probe log reports
 
 use crate::compact_log::CompactLogItem;
 use crate::history::DynamicHistory;
+use crate::wire::{BulkReportWireError, WireBulkReport};
 use crate::{ExtensionBytes, ProbeId, ReportError};
-use core::mem::{align_of, size_of};
-use static_assertions::{assert_eq_align, const_assert_eq};
+use core::mem::size_of;
 
 /// Write reports all at once into a single byte slice.
 pub trait BulkReporter {
@@ -56,20 +54,17 @@ impl<'log> BulkReporter for BulkReportSourceComponents<'log> {
             // since the extension data is opaque.
             return Err(ReportError::Extension);
         }
-        let required_bytes = size_of::<WireBulkHeader>() + n_log_bytes + n_extension_bytes;
+        let required_bytes = WireBulkReport::<&[u8]>::buffer_len(n_log_bytes, n_extension_bytes);
         if destination.len() < required_bytes {
             return Err(ReportError::InsufficientDestinationSize);
         }
-        // We consider this relatively safe because WireBulkHeader is a largely
-        // uninterpreted pile of bytes fields all with alignments == 1
-        // and we know from the above check that there's enough size
-        assert_eq_align!(u8, WireBulkHeader);
-        let (header_bytes, payload_bytes) = destination.split_at_mut(size_of::<WireBulkHeader>());
-        let header = unsafe { &mut *(header_bytes.as_mut_ptr() as *mut WireBulkHeader) };
-        header.fingerprint = bulk_framing_fingerprint();
-        header.probe_id = self.probe_id.get_raw().to_le_bytes();
-        header.n_log_bytes = (n_log_bytes as u32).to_le_bytes(); // Checked above for range
-        header.n_extension_bytes = (n_extension_bytes as u32).to_le_bytes(); // Checked above for range
+
+        let mut report = WireBulkReport::new_unchecked(&mut destination[..]);
+        report.set_fingerprint();
+        report.set_probe_id(self.probe_id);
+        report.set_n_log_bytes(n_log_bytes as u32); // Checked above for range
+        report.set_n_extension_bytes(n_extension_bytes as u32); // Checked above for range
+        let payload_bytes = report.payload_mut();
 
         let (log_bytes, extension_bytes) = payload_bytes.split_at_mut(n_log_bytes);
         if super::write_log_as_little_endian_bytes(log_bytes, self.log).is_err() {
@@ -120,23 +115,6 @@ impl<'data> BulkReporter for DynamicHistory<'data> {
     }
 }
 
-/// Fixed-sized always-initialized header portion of the bulk report format
-#[repr(C, align(1))]
-pub struct WireBulkHeader {
-    /// A magical (constant) value used as a hint about the
-    /// data encoded in this pile of bytes.
-    pub fingerprint: [u8; 4],
-    /// A u32 representing the probe_id of the
-    /// Modality probe instance producing this report.
-    pub probe_id: [u8; 4],
-    /// How many of the payload bytes are populated with log data?
-    pub n_log_bytes: [u8; 4],
-    /// How many of the payload bytes are populated with extension data?
-    pub n_extension_bytes: [u8; 4],
-}
-const_assert_eq!(1, align_of::<WireBulkHeader>());
-const_assert_eq!(16, size_of::<WireBulkHeader>());
-
 /// Attempt to split a bulk report from its on-the-wire representation
 /// into its constituent parts, without unbounded copying or any allocation.
 ///
@@ -152,34 +130,14 @@ pub fn try_bulk_from_wire_bytes<'b>(
         impl Iterator<Item = CompactLogItem> + 'b,
         ExtensionBytes,
     ),
-    ParseBulkFromWireError,
+    BulkReportWireError,
 > {
-    if wire_bytes.len() < size_of::<WireBulkHeader>() {
-        return Err(ParseBulkFromWireError::MissingHeader);
-    }
-    assert_eq_align!(u8, WireBulkHeader);
-    debug_assert_eq!(
-        0,
-        wire_bytes.as_ptr() as usize % align_of::<WireBulkHeader>()
-    );
-    let (header_bytes, payload_bytes) = wire_bytes.split_at(size_of::<WireBulkHeader>());
-    let wire_header = unsafe { &*(header_bytes.as_ptr() as *const WireBulkHeader) };
-    if wire_header.fingerprint != bulk_framing_fingerprint() {
-        return Err(ParseBulkFromWireError::InvalidFingerprint);
-    }
-    let raw_probe_id = u32::from_le_bytes(wire_header.probe_id);
-    let probe_id = ProbeId::new(raw_probe_id)
-        .ok_or_else(|| ParseBulkFromWireError::InvalidProbeId(raw_probe_id))?;
-    let n_log_bytes = u32::from_le_bytes(wire_header.n_log_bytes);
-    let n_extension_bytes = u32::from_le_bytes(wire_header.n_extension_bytes);
+    let report = WireBulkReport::new(&wire_bytes[..])?;
+    let payload_bytes = report.payload();
 
-    if payload_bytes.len() < n_log_bytes as usize {
-        return Err(ParseBulkFromWireError::IncompletePayload);
-    }
+    let probe_id = report.probe_id()?;
+    let n_log_bytes = report.n_log_bytes();
     let (log_bytes, extension_bytes) = payload_bytes.split_at(n_log_bytes as usize);
-    if extension_bytes.len() < n_extension_bytes as usize {
-        return Err(ParseBulkFromWireError::IncompletePayload);
-    }
     let log_iter = log_bytes.chunks_exact(4).map(|item_bytes| {
         CompactLogItem::from_raw(u32::from_le_bytes([
             item_bytes[0],
@@ -189,29 +147,6 @@ pub fn try_bulk_from_wire_bytes<'b>(
         ]))
     });
     Ok((probe_id, log_iter, ExtensionBytes(extension_bytes)))
-}
-
-/// Everything that can go wrong when attempting to interpret a bulk report
-/// from the wire representation
-#[derive(Debug, PartialEq, Eq)]
-pub enum ParseBulkFromWireError {
-    /// The fingerprint didn't match expectations
-    InvalidFingerprint,
-    /// There weren't enough bytes for a full header
-    MissingHeader,
-    /// There weren't enough payload bytes (based on
-    /// expectations from inspecting the header).
-    IncompletePayload,
-    /// The probe id didn't follow the rules for being
-    /// a valid Modality probe-specifying ProbeId
-    InvalidProbeId(u32),
-}
-
-const BULK_FRAMING_FINGERPRINT_SOURCE: u32 = 0x45_42_4C_4B; // EBLK
-/// Little endian representation of the chunk format's chunk message
-/// fingerprint.
-pub fn bulk_framing_fingerprint() -> [u8; 4] {
-    BULK_FRAMING_FINGERPRINT_SOURCE.to_le_bytes()
 }
 
 #[cfg(test)]
