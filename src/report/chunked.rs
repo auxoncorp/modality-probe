@@ -517,6 +517,9 @@ mod tests {
         let mut storage_bar = [0u8; 4096];
         let mut eko_bar = ModalityProbe::new_with_storage(&mut storage_bar, probe_id_bar)
             .expect("Could not initialize Modality probe");
+        let bar_snapshot_len = eko_bar
+            .produce_snapshot_bytes(&mut other_transmission_buffer)
+            .unwrap();
         let bar_fixed_snapshot = eko_bar.produce_snapshot().unwrap();
 
         let token = eko_foo
@@ -525,12 +528,25 @@ mod tests {
 
         assert_eq!(
             MergeError::ReportLockConflict,
+            eko_foo
+                .merge_snapshot_bytes(&other_transmission_buffer[..bar_snapshot_len])
+                .unwrap_err()
+        );
+        assert_eq!(
+            MergeError::ReportLockConflict,
             eko_foo.merge_snapshot(&bar_fixed_snapshot).unwrap_err()
         );
 
         assert_eq!(
             ProduceError::ReportLockConflict,
             eko_foo.produce_snapshot().unwrap_err()
+        );
+
+        assert_eq!(
+            ProduceError::ReportLockConflict,
+            eko_foo
+                .produce_snapshot_bytes(&mut other_transmission_buffer)
+                .unwrap_err()
         );
 
         assert_eq!(
@@ -563,9 +579,16 @@ mod tests {
             .expect("Could not finish chunked report");
 
         // Everything works again after the reporting is done
+        assert_eq!(
+            Ok(()),
+            eko_foo.merge_snapshot_bytes(&other_transmission_buffer[..bar_snapshot_len])
+        );
         assert_eq!(Ok(()), eko_foo.merge_snapshot(&bar_fixed_snapshot));
 
         assert!(eko_foo.produce_snapshot().is_ok());
+        assert!(eko_foo
+            .produce_snapshot_bytes(&mut other_transmission_buffer)
+            .is_ok());
 
         assert!(eko_foo.report(&mut other_transmission_buffer).is_ok());
         assert!(eko_foo

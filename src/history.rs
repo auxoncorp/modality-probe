@@ -4,7 +4,9 @@ use super::{
 };
 use crate::compact_log::{CompactLogItem, CompactLogVec};
 use crate::report::chunked::ChunkedReportState;
+use crate::wire::WireCausalSnapshot;
 use core::cmp::{max, Ordering, PartialEq};
+use core::convert::TryFrom;
 use core::fmt::{Error as FmtError, Formatter};
 use core::mem::{align_of, size_of};
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
@@ -241,8 +243,6 @@ impl<'a> DynamicHistory<'a> {
         self.event_count = 0;
     }
 
-    /// Produce a transparent but limited snapshot of the causal state for transmission
-    /// within the system under test
     #[inline]
     pub(crate) fn produce_snapshot(&mut self) -> Result<CausalSnapshot, ProduceError> {
         if self.chunked_report_state.is_report_in_progress() {
@@ -257,7 +257,25 @@ impl<'a> DynamicHistory<'a> {
         })
     }
 
-    /// Merge a publicly-transmittable causal history into our specialized local in-memory storage
+    #[inline]
+    pub(crate) fn produce_snapshot_bytes(
+        &mut self,
+        destination: &mut [u8],
+    ) -> Result<usize, ProduceError> {
+        if self.chunked_report_state.is_report_in_progress() {
+            return Err(ProduceError::ReportLockConflict);
+        }
+        self.increment_local_clock_count();
+        self.write_current_clocks_to_log();
+        let mut s = WireCausalSnapshot::new_unchecked(destination);
+        s.check_len()?;
+        s.set_probe_id(self.clocks[0].id);
+        s.set_count(self.clocks[0].count);
+        s.set_reserved_0(0);
+        s.set_reserved_1(0);
+        Ok(WireCausalSnapshot::<&[u8]>::min_buffer_len())
+    }
+
     #[inline]
     pub(crate) fn merge_snapshot(
         &mut self,
@@ -266,6 +284,15 @@ impl<'a> DynamicHistory<'a> {
         if self.chunked_report_state.is_report_in_progress() {
             return Err(MergeError::ReportLockConflict);
         }
+        self.merge_internal(external_history.clock.id, external_history.clock.count)
+    }
+
+    #[inline]
+    pub(crate) fn merge_snapshot_bytes(&mut self, source: &[u8]) -> Result<(), MergeError> {
+        if self.chunked_report_state.is_report_in_progress() {
+            return Err(MergeError::ReportLockConflict);
+        }
+        let external_history = CausalSnapshot::try_from(source)?;
         self.merge_internal(external_history.clock.id, external_history.clock.count)
     }
 

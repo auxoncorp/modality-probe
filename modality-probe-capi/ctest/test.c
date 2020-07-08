@@ -112,6 +112,7 @@ bool test_event_recording(void) {
 bool test_merge(void) {
     bool passed = true;
     uint8_t * destination_a = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
+    uint8_t * snap_bytes = (uint8_t*) malloc(sizeof(modality_causal_snapshot));
     modality_probe * probe_a;
     modality_probe_error result = modality_probe_initialize(destination_a, DEFAULT_PROBE_SIZE, DEFAULT_PROBE_ID, &probe_a);
     ERROR_CHECK(result, passed);
@@ -128,6 +129,21 @@ bool test_merge(void) {
     if (snap_a.clock.id != DEFAULT_PROBE_ID) {
         passed = false;
     }
+    size_t num_snap_bytes = 0;
+    result = modality_probe_produce_snapshot_bytes(
+            probe_a,
+            snap_bytes,
+            sizeof(modality_causal_snapshot),
+            &num_snap_bytes);
+    ERROR_CHECK(result, passed);
+    if(num_snap_bytes != sizeof(modality_causal_snapshot)) {
+        passed = false;
+    }
+    result = modality_probe_merge_snapshot_bytes(
+            probe_b,
+            snap_bytes,
+            num_snap_bytes);
+    ERROR_CHECK(result, passed);
     result = modality_probe_merge_snapshot(probe_b, &snap_a);
     ERROR_CHECK(result, passed);
     modality_causal_snapshot snap_b;
@@ -153,8 +169,9 @@ bool test_merge(void) {
         passed = false;
     }
 
-    free(probe_a);
-    free(probe_b);
+    free(snap_bytes);
+    free(destination_a);
+    free(destination_b);
     return passed;
 }
 

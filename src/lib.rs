@@ -133,9 +133,23 @@ pub trait Probe {
     /// by another probe elsewhere in the system.
     fn produce_snapshot(&mut self) -> Result<CausalSnapshot, ProduceError>;
 
+    /// Write a summary of this probe's causal history for use
+    /// by another probe elsewhere in the system.
+    ///
+    /// This summary can be treated as an opaque blob of data
+    /// that ought to be passed around to be `merge_snapshot`d, though
+    /// it will conform to an internal schema for the interested.
+    ///
+    /// If the write was successful, returns the number of bytes written.
+    fn produce_snapshot_bytes(&mut self, destination: &mut [u8]) -> Result<usize, ProduceError>;
+
     /// Consume a causal history summary structure provided
     /// by some other probe via `produce_snapshot`.
     fn merge_snapshot(&mut self, external_history: &CausalSnapshot) -> Result<(), MergeError>;
+
+    /// Consume a causal history summary blob provided
+    /// by some other probe via `produce_snapshot_bytes`.
+    fn merge_snapshot_bytes(&mut self, source: &[u8]) -> Result<(), MergeError>;
 }
 
 /// Reference implementation of a `ModalityProbe`.
@@ -325,8 +339,18 @@ impl<'a> Probe for ModalityProbe<'a> {
     }
 
     #[inline]
+    fn produce_snapshot_bytes(&mut self, destination: &mut [u8]) -> Result<usize, ProduceError> {
+        self.history.produce_snapshot_bytes(destination)
+    }
+
+    #[inline]
     fn merge_snapshot(&mut self, external_history: &CausalSnapshot) -> Result<(), MergeError> {
         self.history.merge_snapshot(external_history)
+    }
+
+    #[inline]
+    fn merge_snapshot_bytes(&mut self, source: &[u8]) -> Result<(), MergeError> {
+        self.history.merge_snapshot_bytes(source)
     }
 }
 

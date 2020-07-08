@@ -106,11 +106,11 @@ typedef enum {
      */
     MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS = 7,
     /*
-     * The external history we attempted to merge was encoded
-     * in an invalid fashion.
+     * The the external history source buffer we attempted to merge
+     * was insufficiently sized for a valid causal snapshot.
      * Detected during merging.
      */
-    MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_ENCODING = 8,
+    MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES = 8,
     /*
      * The provided external history violated a semantic rule of the protocol,
      * such as by having a probe_id out of the allowed value range.
@@ -381,12 +381,34 @@ size_t modality_probe_produce_snapshot(
         modality_causal_snapshot *snapshot);
 
 /*
+ * Produce a transmittable opaque blob of this Modality probe's
+ * causal history for use by another Modality probe elsewhere
+ * in the system.
+ *
+ * Populates the number of bytes written in out_written_bytes.
+ */
+size_t modality_probe_produce_snapshot_bytes(
+        modality_probe *probe,
+        uint8_t *history_destination,
+        size_t history_destination_bytes,
+        size_t *out_written_bytes);
+
+/*
  * Consume a causal history summary structure provided
  * by some other Modality probe.
  */
 size_t modality_probe_merge_snapshot(
         modality_probe *probe,
         const modality_causal_snapshot *snapshot);
+
+/*
+ * Consume a opaque causal history blob provided
+ * by some other Modality probe.
+ */
+size_t modality_probe_merge_snapshot_bytes(
+        modality_probe *probe,
+        const uint8_t *history_source,
+        size_t history_source_bytes);
 
 /*
  * Capture the Modality probe instance's moment in causal time

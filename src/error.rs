@@ -57,11 +57,6 @@ pub enum ProduceError {
     ///
     /// Indicates that the end user should provide a larger destination buffer.
     InsufficientDestinationSize,
-    /// An unexpected error occurred while writing out causal history.
-    ///
-    /// Indicates a logical error in the implementation of this library
-    /// (or its dependencies).
-    Encoding,
     /// A reporting transaction is in progress. Cannot
     /// do mutating operations on the agent until calling
     /// `finish_chunked_report`.
@@ -78,9 +73,9 @@ pub enum MergeError {
     /// The local probe does not have enough space to track all
     /// of direct neighbors attempting to communicate with it.
     ExceededAvailableClocks,
-    /// The the external history we attempted to merge was encoded
-    /// in an invalid fashion.
-    ExternalHistoryEncoding,
+    /// The the external history source buffer we attempted to merge
+    /// was insufficiently sized for a valid causal snapshot.
+    InsufficientSourceSize,
     /// The external history violated a semantic rule of the protocol,
     /// such as by having a probe_id out of the allowed value range.
     ExternalHistorySemantics,

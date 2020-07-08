@@ -25,10 +25,10 @@ pub const MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR: ModalityProbeError = 6;
 /// Detected during merging.
 pub const MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS: ModalityProbeError = 7;
 
-/// The external history we attempted to merge was encoded
-/// in an invalid fashion.
+/// The the external history source buffer we attempted to merge
+/// was insufficiently sized for a valid causal snapshot.
 /// Detected during merging.
-pub const MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_ENCODING: ModalityProbeError = 8;
+pub const MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES: ModalityProbeError = 8;
 /// The provided external history violated a semantic rule of the protocol;
 /// such as by having a probe_id out of the allowed value range.
 /// Detected during merging.
@@ -186,7 +186,6 @@ fn produce_error_to_modality_probe_error(produce_error: ProduceError) -> Modalit
         ProduceError::InsufficientDestinationSize => {
             MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES
         }
-        ProduceError::Encoding => MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR,
         ProduceError::ReportLockConflict => MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
@@ -214,12 +213,38 @@ pub unsafe fn modality_probe_produce_snapshot(
     }
 }
 
+/// # Safety
+///
+/// The ModalityProbe instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_produce_snapshot_bytes(
+    probe: *mut ModalityProbe<'static>,
+    history_destination: *mut u8,
+    history_destination_bytes: usize,
+    out_written_bytes: *mut usize,
+) -> ModalityProbeError {
+    let probe = match probe.as_mut() {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
+    };
+    match probe.produce_snapshot_bytes(core::slice::from_raw_parts_mut(
+        history_destination,
+        history_destination_bytes,
+    )) {
+        Ok(written_bytes) => {
+            *out_written_bytes = written_bytes;
+            MODALITY_PROBE_ERROR_OK
+        }
+        Err(e) => produce_error_to_modality_probe_error(e),
+    }
+}
+
 fn merge_error_to_modality_probe_error(merge_error: MergeError) -> ModalityProbeError {
     match merge_error {
         MergeError::ExceededAvailableClocks => MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS,
-        MergeError::ExternalHistoryEncoding => {
-            MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_ENCODING
-        }
+        MergeError::InsufficientSourceSize => MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES,
         MergeError::ExternalHistorySemantics => {
             MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS
         }
@@ -249,6 +274,30 @@ pub unsafe fn modality_probe_merge_snapshot(
             Ok(_) => MODALITY_PROBE_ERROR_OK,
             Err(e) => merge_error_to_modality_probe_error(e),
         }
+    }
+}
+
+/// # Safety
+///
+/// The ModalityProbe instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_merge_snapshot_bytes(
+    probe: *mut ModalityProbe<'static>,
+    history_source: *const u8,
+    history_source_bytes: usize,
+) -> ModalityProbeError {
+    let probe = match probe.as_mut() {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
+    };
+    match probe.merge_snapshot_bytes(core::slice::from_raw_parts(
+        history_source,
+        history_source_bytes,
+    )) {
+        Ok(_) => MODALITY_PROBE_ERROR_OK,
+        Err(e) => merge_error_to_modality_probe_error(e),
     }
 }
 

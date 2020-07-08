@@ -185,12 +185,45 @@ pub extern "C" fn modality_probe_produce_snapshot(
 }
 
 #[no_mangle]
+pub extern "C" fn modality_probe_produce_snapshot_bytes(
+    probe: *mut ModalityProbe<'static>,
+    history_destination: *mut u8,
+    history_destination_bytes: usize,
+    out_written_bytes: *mut usize,
+) -> ModalityProbeError {
+    unsafe {
+        modality_probe_capi_impl::modality_probe_produce_snapshot_bytes(
+            probe,
+            history_destination,
+            history_destination_bytes,
+            out_written_bytes,
+        )
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn modality_probe_merge_snapshot(
     probe: *mut ModalityProbe<'static>,
     snapshot: *const CausalSnapshot,
 ) -> ModalityProbeError {
     unsafe { modality_probe_capi_impl::modality_probe_merge_snapshot(probe, snapshot) }
 }
+
+#[no_mangle]
+pub extern "C" fn modality_probe_merge_snapshot_bytes(
+    probe: *mut ModalityProbe<'static>,
+    history_source: *const u8,
+    history_source_bytes: usize,
+) -> ModalityProbeError {
+    unsafe {
+        modality_probe_capi_impl::modality_probe_merge_snapshot_bytes(
+            probe,
+            history_source,
+            history_source_bytes,
+        )
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> ModalityProbeInstant {
     unsafe { modality_probe_capi_impl::modality_probe_now(probe) }

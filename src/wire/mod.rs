@@ -1,5 +1,7 @@
 //! Wire protocols
 
+use crate::{MergeError, ProduceError};
+
 pub mod bulk_report;
 pub mod causal_snapshot;
 pub mod chunked_report;
@@ -7,6 +9,37 @@ pub mod chunked_report;
 pub use bulk_report::*;
 pub use causal_snapshot::*;
 pub use chunked_report::*;
+
+impl From<MissingBytes> for ProduceError {
+    #[inline]
+    fn from(_: MissingBytes) -> Self {
+        ProduceError::InsufficientDestinationSize
+    }
+}
+
+impl From<MissingBytes> for MergeError {
+    #[inline]
+    fn from(_: MissingBytes) -> Self {
+        MergeError::InsufficientSourceSize
+    }
+}
+
+impl From<InvalidWireProbeId> for MergeError {
+    #[inline]
+    fn from(_: InvalidWireProbeId) -> Self {
+        MergeError::ExternalHistorySemantics
+    }
+}
+
+impl From<CausalSnapshotWireError> for MergeError {
+    #[inline]
+    fn from(e: CausalSnapshotWireError) -> Self {
+        match e {
+            CausalSnapshotWireError::MissingBytes => MergeError::InsufficientSourceSize,
+            CausalSnapshotWireError::InvalidProbeId(_) => MergeError::ExternalHistorySemantics,
+        }
+    }
+}
 
 mod le_bytes {
     // This pattern is mostly copied from
