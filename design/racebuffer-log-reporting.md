@@ -29,9 +29,10 @@ iterate through each item in its log, appending each item to the report until th
 Chunked reports will not be changed much, but since the probe must interpret clocks in the log instead of apathetically copying,
 additional chunked report state will need to be tracked in order to ensure that clocks or payload events split between chunks
 are not misinterpreted. This state will include:
-- `clock_index: Option<usize>` - Index in probe's `reported_clocks` of next clock to write to report at start of next chunk,
-  or None if not currently writing clocks
-- `is_next_suffix` - True if first item in next chunk should be interpreted as a payload, or if given `clock_index` refers to the count item
+- `initial_clocks_index: Option<usize>` -In the case that the probe's `reported_clocks` included at the start of the report do not
+  fit in a single chunk, include the index in the probe's `reported_clocks` of next clock.
+- `is_next_suffix` - True if first item in next chunk should be interpreted as a payload/clock count 
+  (meaning it is not the id item of a clock), or if the given `clock_index` refers to the count item
   of the given clock instead of the id item.
 
 # Debug collector reports
