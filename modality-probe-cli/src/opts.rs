@@ -128,10 +128,8 @@ mod test {
                     "modality-probe",
                     "export",
                     "acyclic",
-                    "--events",
-                    "events.csv",
-                    "--probes",
-                    "probes.csv",
+                    "--components",
+                    "component",
                     "--report",
                     "report.csv",
                 ]
@@ -139,8 +137,7 @@ mod test {
             ),
             Opts::Export(Export {
                 interactions_only: false,
-                events: PathBuf::from("events.csv"),
-                probes: PathBuf::from("probes.csv"),
+                components: vec![PathBuf::from("component")],
                 report: PathBuf::from("report.csv"),
                 graph_type: GraphType::Acyclic,
             })
@@ -152,10 +149,8 @@ mod test {
                     "export",
                     "cyclic",
                     "--interactions-only",
-                    "--events",
-                    "events.csv",
-                    "--probes",
-                    "probes.csv",
+                    "--components",
+                    "component",
                     "--report",
                     "report.csv",
                 ]
@@ -163,8 +158,7 @@ mod test {
             ),
             Opts::Export(Export {
                 interactions_only: true,
-                events: PathBuf::from("events.csv"),
-                probes: PathBuf::from("probes.csv"),
+                components: vec![PathBuf::from("component")],
                 report: PathBuf::from("report.csv"),
                 graph_type: GraphType::Cyclic,
             })

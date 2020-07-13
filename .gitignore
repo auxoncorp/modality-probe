@@ -4,3 +4,4 @@
 ./target
 Cargo.lock
 *.csv
+/src/.dir-locals.el
