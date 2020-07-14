@@ -64,7 +64,6 @@ bool test_event_recording(void) {
             destination,
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
-            MY_COMPONENT_ID,
             &t,
             MODALITY_TAGS(tag 1, tag 2),
             "desc");

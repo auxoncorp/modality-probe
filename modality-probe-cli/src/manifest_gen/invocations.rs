@@ -9,7 +9,6 @@ use crate::manifest_gen::{
 };
 use crate::{
     component::{ComponentHash, ComponentHasher, ComponentHasherExt},
-    component_dir::ComponentDir,
     events::{Event, EventId, Events},
     exit_error,
     lang::Lang,
@@ -242,38 +241,9 @@ impl Invocations {
         Ok(())
     }
 
-    pub fn merge_components_into(
-        &self,
-        event_id_offset: Option<u32>,
-        probe_id_gen: &mut IdGen,
-        mf_components: &mut Vec<ComponentDir>,
-    ) {
-        let mut existing_probe_ids: Vec<u32> = mf_components
-            .iter()
-            .flat_map(|c| c.probes.probes.iter())
-            .map(|p| p.id.0)
-            .collect();
+    pub fn merge_probes_into(&self, mut probe_id_gen: IdGen, mf_probes: &mut Probes) {
+        let mut existing_probe_ids: Vec<u32> = mf_probes.iter().map(|p| p.id.0).collect();
 
-        for comp in mf_components.iter_mut() {
-            self.merge_probes_into(
-                &comp.component.name,
-                probe_id_gen,
-                &mut existing_probe_ids,
-                &mut comp.probes,
-            );
-
-            // Events are dup'd across each component
-            self.merge_events_into(event_id_offset, &mut comp.events);
-        }
-    }
-
-    fn merge_probes_into(
-        &self,
-        component_name: &str,
-        probe_id_gen: &mut IdGen,
-        existing_probe_ids: &mut Vec<u32>,
-        mf_probes: &mut Probes,
-    ) {
         let mf_path = mf_probes.path.clone();
         self.probes.iter().for_each(|src_probe| {
             mf_probes
@@ -321,27 +291,24 @@ impl Invocations {
                 });
         });
 
-        self.probes
-            .iter()
-            .filter(|p| component_name.eq_ignore_ascii_case(&p.canonical_component_name()))
-            .for_each(|src_probe| {
-                let next_probe_id = Self::generate_probe_id(
-                    probe_id_gen,
-                    src_probe.canonical_name().as_str(),
-                    existing_probe_ids,
-                );
+        self.probes.iter().for_each(|src_probe| {
+            let next_probe_id = Self::generate_probe_id(
+                &mut probe_id_gen,
+                src_probe.canonical_name().as_str(),
+                &mut existing_probe_ids,
+            );
 
-                if mf_probes.probes.iter().find(|t| src_probe.eq(t)).is_none() {
-                    let probe = src_probe.to_probe(next_probe_id);
-                    println!(
-                        "Adding probe {}, ID {} to {}",
-                        probe.name,
-                        probe.id.0,
-                        mf_path.display(),
-                    );
-                    mf_probes.probes.push(probe);
-                }
-            });
+            if mf_probes.probes.iter().find(|t| src_probe.eq(t)).is_none() {
+                let probe = src_probe.to_probe(next_probe_id);
+                println!(
+                    "Adding probe {}, ID {} to {}",
+                    probe.name,
+                    probe.id.0,
+                    mf_path.display(),
+                );
+                mf_probes.probes.push(probe);
+            }
+        });
 
         mf_probes.probes.iter().for_each(|mf_probe| {
             let missing_probe = self
@@ -365,7 +332,7 @@ impl Invocations {
         });
     }
 
-    fn merge_events_into(&self, event_id_offset: Option<u32>, mf_events: &mut Events) {
+    pub fn merge_events_into(&self, event_id_offset: Option<u32>, mf_events: &mut Events) {
         let mf_path = mf_events.path.clone();
         for src_event in self.events.iter() {
             mf_events
@@ -513,17 +480,6 @@ impl Invocations {
                     );
                 }
             });
-    }
-
-    pub fn component_names(&self) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .probes
-            .iter()
-            .map(|p| p.canonical_component_name())
-            .collect();
-        names.sort();
-        names.dedup();
-        names
     }
 
     fn generate_probe_id(
@@ -678,7 +634,6 @@ mod tests {
             },
             metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
-                component: String::new(),
                 location: (1, 1, 1).into(),
                 tags: None,
                 description: None,
@@ -691,7 +646,6 @@ mod tests {
             },
             metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
-                component: String::new(),
                 location: (1, 1, 1).into(),
                 tags: None,
                 description: None,
@@ -717,7 +671,6 @@ mod tests {
             },
             metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
-                component: String::new(),
                 location: (1, 1, 1).into(),
                 tags: None,
                 description: None,
@@ -730,7 +683,6 @@ mod tests {
             },
             metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
-                component: String::new(),
                 location: (1, 2, 1).into(),
                 tags: None,
                 description: None,
@@ -756,7 +708,6 @@ mod tests {
             },
             metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
-                component: String::new(),
                 location: (1, 2, 3).into(),
                 tags: None,
                 description: None,
@@ -769,7 +720,6 @@ mod tests {
             },
             metadata: ProbeMetadata {
                 name: "location_b".to_string(),
-                component: String::new(),
                 location: (4, 5, 6).into(),
                 tags: None,
                 description: None,
@@ -795,7 +745,6 @@ mod tests {
             },
             metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
-                component: "component".to_string(),
                 location: (1, 4, 3).into(),
                 tags: None,
                 description: None,
@@ -824,15 +773,8 @@ mod tests {
             NonZeroU32::new(modality_probe::ProbeId::MAX_ID).unwrap(),
         )
         .unwrap();
-        let mut probe_id_gen = IdGen::new(probe_id_range);
-        let mut existing_probe_ids: Vec<u32> = Vec::new();
-        invcs.merge_probes_into(
-            "component",
-            &mut probe_id_gen,
-            &mut existing_probe_ids,
-            &mut mf_probes,
-        );
-        assert_eq!(existing_probe_ids.len(), 1);
+        let probe_id_gen = IdGen::new(probe_id_range);
+        invcs.merge_probes_into(probe_id_gen, &mut mf_probes);
         assert_eq!(
             mf_probes.probes,
             vec![Probe {
@@ -856,7 +798,6 @@ mod tests {
             },
             metadata: ProbeMetadata {
                 name: "LOCATION_A".to_string(),
-                component: "component".to_string(),
                 location: (1, 4, 3).into(),
                 tags: Some("my-tag".to_string()),
                 description: Some("desc".to_string()),
@@ -885,15 +826,8 @@ mod tests {
             NonZeroU32::new(modality_probe::ProbeId::MAX_ID).unwrap(),
         )
         .unwrap();
-        let mut probe_id_gen = IdGen::new(probe_id_range);
-        let mut existing_probe_ids: Vec<u32> = Vec::new();
-        invcs.merge_probes_into(
-            "component",
-            &mut probe_id_gen,
-            &mut existing_probe_ids,
-            &mut mf_probes,
-        );
-        assert_eq!(existing_probe_ids.len(), 1);
+        let probe_id_gen = IdGen::new(probe_id_range);
+        invcs.merge_probes_into(probe_id_gen, &mut mf_probes);
         assert_eq!(
             mf_probes.probes,
             vec![Probe {

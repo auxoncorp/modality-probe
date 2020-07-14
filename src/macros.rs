@@ -15,13 +15,13 @@ macro_rules! tags {
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! initialize_at {
-    ($storage:expr, $probe_id:expr, $component_name:expr) => {
+    ($storage:expr, $probe_id:expr) => {
         ModalityProbe::initialize_at($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $component_name:expr, $desc_or_tags:expr) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr) => {
         ModalityProbe::initialize_at($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $component_name:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
         ModalityProbe::initialize_at($storage, $probe_id)
     };
 }
@@ -33,13 +33,13 @@ macro_rules! initialize_at {
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! try_initialize_at {
-    ($storage:expr, $probe_id:expr, $component_name:expr) => {
+    ($storage:expr, $probe_id:expr) => {
         ModalityProbe::try_initialize_at($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $component_name:expr, $desc_or_tags:expr) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr) => {
         ModalityProbe::try_initialize_at($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $component_name:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
         ModalityProbe::try_initialize_at($storage, $probe_id)
     };
 }
@@ -51,13 +51,13 @@ macro_rules! try_initialize_at {
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! new_with_storage {
-    ($storage:expr, $probe_id:expr, $component_name:expr) => {
+    ($storage:expr, $probe_id:expr) => {
         ModalityProbe::new_with_storage($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $component_name:expr, $desc_or_tags:expr) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr) => {
         ModalityProbe::new_with_storage($storage, $probe_id)
     };
-    ($storage:expr, $probe_id:expr, $component_name:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
+    ($storage:expr, $probe_id:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
         ModalityProbe::new_with_storage($storage, $probe_id)
     };
 }
@@ -582,18 +582,14 @@ mod tests {
     fn probe_macro_use() {
         let probe_id = ProbeId::new(1).unwrap();
         let mut storage = [0_u8; 1024];
-        let _probe = initialize_at!(&mut storage, probe_id, my_component_a).unwrap();
-        let _probe = initialize_at!(&mut storage, probe_id, MY_COMP_B, "desc").unwrap();
-        let _probe =
-            initialize_at!(&mut storage, probe_id, MY_COMP_C, "desc", tags!("some-tag")).unwrap();
-        let _probe = try_initialize_at!(&mut storage, 1, COMPONENT).unwrap();
-        let _probe =
-            try_initialize_at!(&mut storage, 1, COMP_A, tags!("some-tag", "another tag")).unwrap();
-        let _probe =
-            try_initialize_at!(&mut storage, 1, COMP_B, tags!("some-tag"), "desc").unwrap();
-        let _probe = new_with_storage!(&mut storage, probe_id, COMP_1).unwrap();
-        let _probe = new_with_storage!(&mut storage, probe_id, COMP_2, "desc").unwrap();
-        let _probe =
-            new_with_storage!(&mut storage, probe_id, COMP_3, tags!("some-tag"), "desc").unwrap();
+        let _probe = initialize_at!(&mut storage, probe_id).unwrap();
+        let _probe = initialize_at!(&mut storage, probe_id, "desc").unwrap();
+        let _probe = initialize_at!(&mut storage, probe_id, "desc", tags!("some-tag")).unwrap();
+        let _probe = try_initialize_at!(&mut storage, 1).unwrap();
+        let _probe = try_initialize_at!(&mut storage, 1, tags!("some-tag", "another tag")).unwrap();
+        let _probe = try_initialize_at!(&mut storage, 1, tags!("some-tag"), "desc").unwrap();
+        let _probe = new_with_storage!(&mut storage, probe_id).unwrap();
+        let _probe = new_with_storage!(&mut storage, probe_id, "desc").unwrap();
+        let _probe = new_with_storage!(&mut storage, probe_id, tags!("some-tag"), "desc").unwrap();
     }
 }

@@ -20,7 +20,6 @@ int main(void) {
             &g_storage[0],
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
-            MY_COMPONENT_ID,
             &g_probe,
             MODALITY_TAGS("my-tags", "more tags"),
             "Description");

@@ -193,6 +193,10 @@ impl Events {
     pub fn iter(&self) -> impl Iterator<Item = &Event> {
         self.events.iter()
     }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Event> {
+        self.events.iter_mut()
+    }
 }
 
 fn has_unique_elements<T>(iter: T) -> bool

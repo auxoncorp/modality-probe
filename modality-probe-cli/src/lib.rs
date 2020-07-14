@@ -1,5 +1,4 @@
 pub mod component;
-pub mod component_dir;
 pub mod error;
 pub mod events;
 pub mod export;

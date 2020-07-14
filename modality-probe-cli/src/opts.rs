@@ -36,7 +36,8 @@ mod test {
                 event_id_offset: None,
                 probe_id_range: None,
                 regen_component_uuid: false,
-                output_path: PathBuf::from("components"),
+                component_name: "component".to_string(),
+                output_path: PathBuf::from("component"),
                 source_path: PathBuf::from("/path"),
             })
         );
@@ -55,6 +56,8 @@ mod test {
                     "--probe-id-range=1..=12",
                     "--output-path",
                     "/out",
+                    "--component-name",
+                    "my-comp",
                     "/path",
                 ]
                 .iter()
@@ -67,6 +70,7 @@ mod test {
                     NonZeroIdRange::new(NonZeroU32::new(1).unwrap(), NonZeroU32::new(12).unwrap())
                         .unwrap()
                 ),
+                component_name: "my-comp".to_string(),
                 output_path: PathBuf::from("/out"),
                 regen_component_uuid: true,
                 source_path: PathBuf::from("/path"),
@@ -77,22 +81,12 @@ mod test {
     #[test]
     fn parse_opts_header_gen() {
         assert_eq!(
-            Opts::from_iter(
-                [
-                    "modality-probe",
-                    "header-gen",
-                    "--lang",
-                    "Rust",
-                    "--components",
-                    "my-comps",
-                ]
-                .iter()
-            ),
+            Opts::from_iter(["modality-probe", "header-gen", "--lang", "Rust", "comp",].iter()),
             Opts::HeaderGen(HeaderGen {
                 lang: Lang::Rust,
-                components: vec![PathBuf::from("my-comps")],
                 include_guard_prefix: "MODALITY_PROBE".to_string(),
                 output_path: None,
+                component_path: PathBuf::from("comp"),
             })
         );
         assert_eq!(
@@ -102,20 +96,17 @@ mod test {
                     "header-gen",
                     "--lang",
                     "C",
-                    "--components",
-                    "comp1",
-                    "--components",
-                    "comp2",
                     "--output-path",
-                    "my_dir"
+                    "my_dir",
+                    "comp1",
                 ]
                 .iter()
             ),
             Opts::HeaderGen(HeaderGen {
                 lang: Lang::C,
-                components: vec![PathBuf::from("comp1"), PathBuf::from("comp2")],
                 include_guard_prefix: "MODALITY_PROBE".to_string(),
                 output_path: Some(PathBuf::from("my_dir")),
+                component_path: PathBuf::from("comp1"),
             })
         );
     }

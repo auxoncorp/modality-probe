@@ -113,6 +113,10 @@ impl Probes {
     pub fn iter(&self) -> impl Iterator<Item = &Probe> {
         self.probes.iter()
     }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Probe> {
+        self.probes.iter_mut()
+    }
 }
 
 fn has_unique_elements<T>(iter: T) -> bool

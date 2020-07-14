@@ -1,8 +1,8 @@
 use crate::manifest_gen::{
     event_metadata::EventMetadata,
     parser::{
-        self, component_name_valid, event_name_valid, probe_name_valid, remove_double_quotes,
-        tags_or_desc_valid, trimmed_string, trimmed_string_w_space, Parser, ParserConfig, Span,
+        self, event_name_valid, probe_name_valid, remove_double_quotes, tags_or_desc_valid,
+        trimmed_string, trimmed_string_w_space, Parser, ParserConfig, Span,
     },
     probe_metadata::ProbeMetadata,
     source_location::SourceLocation,
@@ -385,11 +385,6 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
     if !probe_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
-    let (args, component_name) =
-        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    if !component_name_valid(&component_name) {
-        return Err(make_failure(input, Error::Syntax(pos.into())));
-    }
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
     let (args, _probe_instance) = if expect_tags_or_desc {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
@@ -420,7 +415,6 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         input,
         ProbeMetadata {
             name,
-            component: component_name,
             location: pos.into(),
             tags,
             description,
@@ -639,43 +633,41 @@ mod tests {
         destination,
         DEFAULT_PROBE_SIZE,
         DEFAULT_PROBE_ID,
-        DEFAULT_COMPONENT_ID,
         &t);
 
     // One line
-    MODALITY_PROBE_INIT(dest,PROBE_SIZE,MY_PROBE_ID,MY_COMP_ID,&t);
+    MODALITY_PROBE_INIT(dest,PROBE_SIZE,MY_PROBE_ID,&t);
 
     const size_t err = MODALITY_PROBE_INIT(     dest,  PROBE_SIZE,
-    PROBE_ID_FOO,  COMPONENT_ID_FOO,    &t);
+    PROBE_ID_FOO,      &t);
 
     const size_t err =
         MODALITY_PROBE_INIT(
         // stuff
         dest, // more stuff
         PROBE_SIZE, /* comment */
-    PROBE_ID_BAR,   /* things */ COMP_ID_BAR,   /* more */  &t);
+    PROBE_ID_BAR,   /* things */   &t);
 
     MODALITY_PROBE_INIT(
-        dest, /* more docs */ PROBE_SIZE , /* docs */ MY_OTHER_PROBE_ID, COMP_ID, /* docs */ &t, "desc");
+        dest, /* more docs */ PROBE_SIZE , /* docs */ MY_OTHER_PROBE_ID, /* docs */ &t, "desc");
 
     /* things in comments
      * are
      * ignored
      *
-     * MODALITY_PROBE_INIT(dest,PROBE_SIZE,ANOTHER_ID,C_ID,&t);
+     * MODALITY_PROBE_INIT(dest,PROBE_SIZE,ANOTHER_ID,&t);
      *
      */
     size_t err = MODALITY_PROBE_INIT(
             &g_agent_storage[0],
             STORAGE_SIZE,
             PROBE_ID_FOO,
-            COMPONENT_ID_FOO,
             &g_agent,
             MODALITY_TAGS(my-tags, more tags),
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    MODALITY_PROBE_INIT(storage, size, ID_BAR, ID_C, t, MODALITY_TAGS(my tag));
+    MODALITY_PROBE_INIT(storage, size, ID_BAR, t, MODALITY_TAGS(my tag));
 "#;
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
@@ -754,50 +746,43 @@ mod tests {
             Ok(vec![
                 ProbeMetadata {
                     name: "DEFAULT_PROBE_ID".to_string(),
-                    component: "DEFAULT_COMPONENT_ID".to_string(),
                     location: (57, 3, 35).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "MY_PROBE_ID".to_string(),
-                    component: "MY_COMP_ID".to_string(),
-                    location: (217, 11, 5).into(),
+                    location: (187, 10, 5).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_FOO".to_string(),
-                    component: "COMPONENT_ID_FOO".to_string(),
-                    location: (305, 13, 24).into(),
+                    location: (264, 12, 24).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_BAR".to_string(),
-                    component: "COMP_ID_BAR".to_string(),
-                    location: (426, 17, 9).into(),
+                    location: (368, 16, 9).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "MY_OTHER_PROBE_ID".to_string(),
-                    component: "COMP_ID".to_string(),
-                    location: (596, 23, 5).into(),
+                    location: (513, 22, 5).into(),
                     tags: None,
                     description: Some("desc".to_string()),
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_FOO".to_string(),
-                    component: "COMPONENT_ID_FOO".to_string(),
-                    location: (879, 33, 18).into(),
+                    location: (782, 32, 18).into(),
                     tags: Some("my-tags;more tags".to_string()),
                     description: Some("Description".to_string()),
                 },
                 ProbeMetadata {
                     name: "ID_BAR".to_string(),
-                    component: "ID_C".to_string(),
-                    location: (1161, 43, 5).into(),
+                    location: (1034, 41, 5).into(),
                     tags: Some("my tag".to_string()),
                     description: None,
                 },

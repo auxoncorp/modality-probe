@@ -162,7 +162,7 @@ typedef enum {
  * - A string for the probe description
  *
  */
-#define MODALITY_PROBE_INIT(dest, dest_size, probe_id, component_name, probe, ...) \
+#define MODALITY_PROBE_INIT(dest, dest_size, probe_id, probe, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_initialize(dest, dest_size, probe_id, probe) : MODALITY_PROBE_ERROR_OK)
 
 /*

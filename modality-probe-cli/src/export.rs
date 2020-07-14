@@ -273,7 +273,7 @@ fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Comps, String> {
             let comp = Component::from_toml(&pf);
             probes.insert(p.id, p.clone());
             probes_by_name.insert(p.name.clone(), p.clone());
-            probes_to_components.insert(p.id, comp.uuid.0);
+            probes_to_components.insert(p.id, comp.id.0);
         }
     }
     for ef in event_files.iter_mut() {
@@ -285,7 +285,7 @@ fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Comps, String> {
             ef.pop();
             ef.push("Component.toml");
             let comp = Component::from_toml(&ef);
-            events.insert((comp.uuid.0, e.id), e.clone());
+            events.insert((comp.id.0, e.id), e.clone());
             events_by_name.insert(e.name.clone(), e);
         }
     }
@@ -311,11 +311,11 @@ mod test {
 
     const COMP_ONE_CONTENT: &'static str = r#"
 name = "one"
-uuid = "bba61171-e4b5-4db4-8cbb-8b4f4a581ca1"
+id = "bba61171-e4b5-4db4-8cbb-8b4f4a581ca1"
 "#;
     const COMP_TWO_CONTENT: &'static str = r#"
 name = "two"
-uuid = "bba61171-e4b5-4db4-8cbb-8b4f4a581ca2"
+id = "bba61171-e4b5-4db4-8cbb-8b4f4a581ca2"
 "#;
     const PROBE_ONE_CONTENT: &'static str = "
 uuid,id,name,description,tags,file,line

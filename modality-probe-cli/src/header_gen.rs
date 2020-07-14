@@ -1,18 +1,19 @@
-use crate::{component_dir::ComponentDir, events::Event, lang::Lang, probes::Probe};
+use crate::{
+    component::Component,
+    events::{Event, Events},
+    exit_error,
+    lang::Lang,
+    probes::{Probe, Probes},
+};
+use sha3::{Digest, Sha3_256};
 use std::fs::File;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use structopt::StructOpt;
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, StructOpt)]
 pub struct HeaderGen {
-    /// Component paths.
-    ///
-    /// All provided components will be combined into a single header file.
-    #[structopt(long, required = true)]
-    pub components: Vec<PathBuf>,
-
     /// The language to output the source in. Either `c' or `rust'.
     #[structopt(short, long, parse(try_from_str), default_value = "C")]
     pub lang: Lang,
@@ -24,12 +25,16 @@ pub struct HeaderGen {
     /// Write output to file (instead of stdout)
     #[structopt(short = "o", long, parse(from_os_str))]
     pub output_path: Option<PathBuf>,
+
+    /// Component path
+    #[structopt(parse(from_os_str))]
+    pub component_path: PathBuf,
 }
 
 impl Default for HeaderGen {
     fn default() -> Self {
         HeaderGen {
-            components: Vec::new(),
+            component_path: PathBuf::new(),
             lang: Lang::Rust,
             include_guard_prefix: String::from("MODALITY_PROBE"),
             output_path: None,
@@ -150,45 +155,97 @@ impl FromStr for Lang {
     }
 }
 
+impl HeaderGen {
+    pub fn validate(&self) {
+        if !self.component_path.exists() {
+            exit_error!(
+                "manifest-gen",
+                "The component path '{}' does not exist",
+                self.component_path.display()
+            );
+        }
+
+        let component_manifest_path = Component::component_manifest_path(&self.component_path);
+        if !component_manifest_path.exists() {
+            exit_error!(
+                "manifest-gen",
+                "The component manifest path '{}' does not exist",
+                component_manifest_path.display()
+            );
+        }
+
+        let probes_manifest_path = Component::probes_manifest_path(&self.component_path);
+        if !probes_manifest_path.exists() {
+            exit_error!(
+                "manifest-gen",
+                "The probes manifest path '{}' does not exist",
+                probes_manifest_path.display()
+            );
+        }
+
+        let events_manifest_path = Component::events_manifest_path(&self.component_path);
+        if !events_manifest_path.exists() {
+            exit_error!(
+                "manifest-gen",
+                "The events manifest path '{}' does not exist",
+                events_manifest_path.display()
+            );
+        }
+    }
+}
+
+fn file_sha256<P: AsRef<Path>>(path: P) -> String {
+    let mut file = File::open(path.as_ref()).unwrap_or_else(|e| {
+        exit_error!(
+            "manifest-gen",
+            "Can't open file {} for hashing: {}",
+            path.as_ref().display(),
+            e
+        )
+    });
+    let mut sha256 = Sha3_256::new();
+    io::copy(&mut file, &mut sha256).unwrap_or_else(|e| {
+        exit_error!(
+            "manifest-gen",
+            "Error hashing file {}: {}",
+            path.as_ref().display(),
+            e
+        )
+    });
+    format!("{:x}", sha256.finalize())
+}
+
 pub fn generate_output<W: io::Write>(
     opt: HeaderGen,
     mut w: W,
     internal_events: Vec<u32>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let components: Vec<ComponentDir> = opt
-        .components
-        .iter()
-        .flat_map(ComponentDir::collect_from_path)
-        .collect();
+    let component_manifest_path = Component::component_manifest_path(&opt.component_path);
+    let probes_manifest_path = Component::probes_manifest_path(&opt.component_path);
+    let events_manifest_path = Component::events_manifest_path(&opt.component_path);
 
-    // Events are dup'd across logically organized
-    // components that were generated from the same
-    // source tree / manifest-gen scan
-    let mut unique_events: Vec<Event> = components
-        .iter()
-        .flat_map(|comp_dir| comp_dir.events.iter())
-        .cloned()
-        .collect();
-    unique_events.sort_by(|a, b| a.id.cmp(&b.id));
-    unique_events.dedup();
+    let probes_file_hash = file_sha256(&probes_manifest_path);
+    let events_file_hash = file_sha256(&events_manifest_path);
+
+    let component = Component::from_toml(&component_manifest_path);
+    let probes = Probes::from_csv(&probes_manifest_path);
+    let events = Events::from_csv(&events_manifest_path);
 
     writeln!(w, "/*")?;
     writeln!(w, " * GENERATED CODE, DO NOT EDIT")?;
-    for comp_dir in components.iter() {
-        writeln!(w, " *")?;
-        writeln!(w, " * Component:")?;
-        writeln!(w, " *   Name: {}", comp_dir.component.name)?;
-        writeln!(w, " *   UUID: {}", comp_dir.component.uuid)?;
-        write!(w, " *   Code hash: ")?;
-        match comp_dir.component.code_hash {
-            Some(hash) => writeln!(w, "{}", hash)?,
-            None => writeln!(w, "None")?,
-        }
-        write!(w, " *   Instrumentation hash: ")?;
-        match comp_dir.component.instrumentation_hash {
-            Some(hash) => writeln!(w, "{}", hash)?,
-            None => writeln!(w, "None")?,
-        }
+    writeln!(w, " *")?;
+    writeln!(w, " * Component:")?;
+    writeln!(w, " *   Name: {}", component.name)?;
+    writeln!(w, " *   ID: {}", component.id)?;
+    write!(w, " *   Code hash: ")?;
+    match component.code_hash {
+        Some(hash) => writeln!(w, "{}", hash)?,
+        None => writeln!(w, "None")?,
+    }
+    write!(w, " *   Instrumentation hash: ")?;
+    match component.instrumentation_hash {
+        Some(hash) => writeln!(w, "{}", hash)?,
+        None => writeln!(w, "None")?,
     }
     writeln!(w, " */")?;
 
@@ -212,23 +269,21 @@ pub fn generate_output<W: io::Write>(
 
     writeln!(w)?;
     writeln!(w, "/*")?;
-    writeln!(w, " * Probes")?;
+    writeln!(w, " * Probes (sha3-256 {})", probes_file_hash)?;
     writeln!(w, " */")?;
 
-    for comp_dir in components.iter() {
-        for probe in comp_dir.probes.iter() {
-            writeln!(w)?;
-            writeln!(w, "{}", probe.doc_comment(opt.lang))?;
-            writeln!(w, "{}", probe.generate_const_definition(opt.lang))?;
-        }
+    for probe in probes.iter() {
+        writeln!(w)?;
+        writeln!(w, "{}", probe.doc_comment(opt.lang))?;
+        writeln!(w, "{}", probe.generate_const_definition(opt.lang))?;
     }
 
     writeln!(w)?;
     writeln!(w, "/*")?;
-    writeln!(w, " * Events")?;
+    writeln!(w, " * Events (sha3-256 {})", events_file_hash)?;
     writeln!(w, " */")?;
 
-    for event in unique_events.iter() {
+    for event in events.iter() {
         if internal_events.contains(&event.id.0) {
             continue;
         }
@@ -255,6 +310,8 @@ pub fn generate_output<W: io::Write>(
 }
 
 pub fn run(opt: HeaderGen, internal_events: Vec<u32>) {
+    opt.validate();
+
     let io_out: Box<dyn io::Write> = if let Some(p) = &opt.output_path {
         Box::new(File::create(p).unwrap())
     } else {

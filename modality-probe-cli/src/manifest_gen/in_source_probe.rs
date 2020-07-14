@@ -19,10 +19,6 @@ impl InSourceProbe {
         self.metadata.canonical_name()
     }
 
-    pub fn canonical_component_name(&self) -> String {
-        self.metadata.canonical_component_name()
-    }
-
     pub fn to_probe(&self, id: ProbeId) -> Probe {
         Probe {
             uuid: ComponentUuid::nil(),
@@ -87,7 +83,6 @@ mod tests {
             },
             metadata: ProbeMetadata {
                 name: "PROBE_ID_A".to_string(),
-                component: String::new(),
                 location: (1, 4, 3).into(),
                 tags: None,
                 description: None,

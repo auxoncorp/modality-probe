@@ -1,8 +1,8 @@
 use crate::manifest_gen::{
     event_metadata::EventMetadata,
     parser::{
-        self, component_name_valid, event_name_valid, probe_name_valid, remove_double_quotes,
-        tags_or_desc_valid, trimmed_string, trimmed_string_w_space, Parser, ParserConfig, Span,
+        self, event_name_valid, probe_name_valid, remove_double_quotes, tags_or_desc_valid,
+        trimmed_string, trimmed_string_w_space, Parser, ParserConfig, Span,
     },
     probe_metadata::ProbeMetadata,
     source_location::SourceLocation,
@@ -668,15 +668,8 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         tag(";")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (args, _storage) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    let (args, full_name) =
-        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    let name =
-        reduce_namespace(&full_name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
-    if !probe_name_valid(&name) {
-        return Err(make_failure(input, Error::Syntax(pos.into())));
-    }
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
-    let (args, component_name) = if expect_tags_or_desc {
+    let (args, full_name) = if expect_tags_or_desc {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
     } else {
         let (args, name_token) =
@@ -684,7 +677,9 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         let (_args, _) = tag(")")(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
         rest_string(name_token).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
     };
-    if !component_name_valid(&component_name) {
+    let name =
+        reduce_namespace(&full_name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    if !probe_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
     let mut tags_and_desc: Vec<String> = Vec::new();
@@ -715,7 +710,6 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         input,
         ProbeMetadata {
             name,
-            component: component_name,
             location: pos.into(),
             tags,
             description,
@@ -942,29 +936,27 @@ mod tests {
 
     const MIXED_PROBE_ID_INPUT: &'static str = r#"
     /// Docs ModalityProbe::try_initialize_at(a, b, c)
-    let probe = try_initialize_at!(&mut storage, PROBE_ID_A, COMPONENT)
+    let probe = try_initialize_at!(&mut storage, PROBE_ID_A)
         .expect("Could not initialize ModalityProbe");
 
-    let probe_foo = try_initialize_at!(&mut storage_bytes, PROBE_ID_B, COMP_B, "desc")?;
+    let probe_foo = try_initialize_at!(&mut storage_bytes, PROBE_ID_B, "desc")?;
 
     // A comment
     let bar = modality_probe::initialize_at!(
         &mut storage_bytes, // docs
-        my_ids::PROBE_ID_C, //docs
-        COMP_C)?; // docs
+        my_ids::PROBE_ID_C)?; // docs
 
     let probe_foo = try_initialize_at!(&mut storage_bytes,
-    my::nested::mod::PROBE_ID_D, COMP_D, tags!("my tag", "more-tags"))?; // docs
+    my::nested::mod::PROBE_ID_D, tags!("my tag", "more-tags"))?; // docs
 
     /* More comments
-     * on more lines modality_probe::new_with_storage!(a, b, c)
+     * on more lines modality_probe::new_with_storage!(a, b)
      */
-    let probe = modality_probe::new_with_storage!(storage, PROBE_ID_E, COMP_E).unwrap();
+    let probe = modality_probe::new_with_storage!(storage, PROBE_ID_E).unwrap();
 
     let bar = modality_probe::initialize_at!(
         &mut storage_bytes, /* comments */
         my_ids::PROBE_ID_F, // comments
-        COMPONENT_F, // comments
         " desc ", /* Order of tags and docs doesn't matter */
         tags!("thing1", "thing2", "my::namespace", "tag with spaces"))?; //docs
 "#;
@@ -1054,43 +1046,37 @@ mod tests {
             Ok(vec![
                 ProbeMetadata {
                     name: "PROBE_ID_A".to_string(),
-                    component: "COMPONENT".to_string(),
                     location: (72, 3, 17).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_B".to_string(),
-                    component: "COMP_B".to_string(),
-                    location: (204, 6, 21).into(),
+                    location: (193, 6, 21).into(),
                     tags: None,
                     description: Some("desc".to_string()),
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_C".to_string(),
-                    component: "COMP_C".to_string(),
-                    location: (321, 9, 31).into(),
+                    location: (302, 9, 31).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_D".to_string(),
-                    component: "COMP_D".to_string(),
-                    location: (455, 14, 21).into(),
+                    location: (413, 13, 21).into(),
                     tags: Some("my tag;more-tags".to_string()),
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_E".to_string(),
-                    component: "COMP_E".to_string(),
-                    location: (701, 20, 33).into(),
+                    location: (648, 19, 33).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_F".to_string(),
-                    component: "COMPONENT_F".to_string(),
-                    location: (789, 22, 31).into(),
+                    location: (728, 21, 31).into(),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
                     description: Some("desc".to_string()),
                 },

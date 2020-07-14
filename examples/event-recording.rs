@@ -3,9 +3,9 @@
 //! Before building this example, run:
 //!
 //! ```
-//! modality-probe manifest-gen --output-path . ./
+//! modality-probe manifest-gen --file-extension="rs" --output-path example-component .
 //!
-//! modality-probe header-gen --lang Rust --components example-component --output-path generated_ids/mod.rs
+//! modality-probe header-gen --lang Rust --output-path generated_ids/mod.rs example-component
 //! ```
 
 // The generated identifiers
@@ -26,7 +26,6 @@ fn main() {
     let probe = try_initialize_at!(
         &mut storage,
         PROBE_ID_FOO,
-        EXAMPLE_COMPONENT,
         tags!("example"),
         "Example probe"
     )

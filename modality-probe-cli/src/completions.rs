@@ -3,7 +3,6 @@
 use structopt::{clap::Shell, StructOpt};
 
 mod component;
-mod component_dir;
 mod error;
 mod events;
 mod export;
