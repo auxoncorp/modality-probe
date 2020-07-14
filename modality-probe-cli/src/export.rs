@@ -20,10 +20,10 @@ pub struct Export {
     pub interactions_only: bool,
     /// The path to a component directory. To include multiple
     /// components, provide this switch multiple times.
-    #[structopt(short, long)]
+    #[structopt(short, long, required = true)]
     pub components: Vec<PathBuf>,
-    /// The path the events.csv for a component.
-    #[structopt(short, long)]
+    /// The path to the collected trace.
+    #[structopt(short, long, required = true)]
     pub report: PathBuf,
     /// The type of graph to output.
     ///
@@ -34,6 +34,7 @@ pub struct Export {
     ///
     /// * An acyclic graph shows the causal history of either all
     /// events or the interactions between traces in the system.
+    #[structopt(required = true)]
     pub graph_type: GraphType,
 }
 
