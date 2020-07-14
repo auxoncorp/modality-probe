@@ -4,9 +4,11 @@
 use std::{collections::HashMap, path::PathBuf, str::FromStr};
 
 use structopt::StructOpt;
+use uuid::Uuid;
 
 use crate::{
     component::Component,
+    events::Events,
     graph::{self, digraph::Digraph, meta::*, Cfg},
 };
 
@@ -132,7 +134,7 @@ pub fn run(mut exp: Export) -> Result<(), String> {
                     |n, _| Ok(format!("{}_{}_{}", n.name(), n.clock(), n.clock_offset())),
                     |n, _| {
                         let event = events_by_name.get(n.name()).ok_or_else(|| format!("couldn't find an event to match the name {}", n.name()))?;
-                        let probe = probes_by_name.get(n.name()).ok_or_else(|| format!("couldn't find a probe to match the name {}", n.name()))?;
+                        let probe = probes_by_name.get(n.location()).ok_or_else(|| format!("couldn't find a probe to match the name {}", n.name()))?;
                         Ok(if let Some(th) = &event.type_hint {
                             match (event.line, n.parsed_payload(th)) {
                                 (Some(line), Some(p)) => format!(
@@ -289,6 +291,9 @@ fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Comps, String> {
             events_by_name.insert(e.name.clone(), e);
         }
     }
+
+    add_internal_events(&mut events, &mut events_by_name)?;
+
     Ok((
         Cfg {
             events,
@@ -300,9 +305,48 @@ fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Comps, String> {
     ))
 }
 
+fn add_internal_events(
+    events: &mut HashMap<(Uuid, u32), EventMeta>,
+    events_by_name: &mut HashMap<String, EventMeta>,
+) -> Result<(), String> {
+    let nil_uuid = Uuid::nil();
+    for ie in Events::internal_events() {
+        let ev = EventMeta {
+            uuid: nil_uuid,
+            id: ie.id.0,
+            name: ie.name,
+            type_hint: if ie.type_hint.is_empty() {
+                None
+            } else {
+                Some(ie.type_hint)
+            },
+            tags: ie.tags,
+            description: ie.description,
+            file: ie.file,
+            line: if ie.line.is_empty() {
+                None
+            } else {
+                Some(str::parse::<u32>(&ie.line).map_err(|e| {
+                    format!(
+                        "encountered a bad internal event, unable to parse line number: {}",
+                        e
+                    )
+                })?)
+            },
+        };
+        events.insert((nil_uuid, ie.id.0), ev.clone());
+        events_by_name.insert(ev.name.clone(), ev);
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod test {
-    use std::{fs, fs::File, io::Write};
+    use std::{
+        collections::HashMap,
+        {fs, fs::File, io::Write},
+    };
 
     use tempfile::tempdir;
     use uuid::Uuid;
@@ -390,7 +434,7 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,
             .into_iter()
             .collect();
 
-            let expected_events = vec![
+            let mut expected_events = vec![
                 (
                     (
                         Uuid::parse_str("bba61171-e4b5-4db4-8cbb-8b4f4a581ca1").unwrap(),
@@ -426,6 +470,8 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,
             ]
             .into_iter()
             .collect();
+
+            super::add_internal_events(&mut expected_events, &mut HashMap::new()).unwrap();
 
             tmp_one.pop();
             tmp_two.pop();
