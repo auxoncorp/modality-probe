@@ -1,7 +1,9 @@
 use std::convert::{TryFrom, TryInto};
 
 use chrono::prelude::*;
-use modality_probe::{compact_log::LogEvent, report::wire::LogReport, EventId, ProbeId};
+use modality_probe::{
+    compact_log::LogEvent, report::wire::LogReport, EventId, ProbeClock, ProbeEpoch, ProbeId,
+};
 
 pub mod csv;
 
@@ -65,7 +67,7 @@ pub struct ProbeMapping {
 pub enum LogEntryData {
     Event(EventId),
     EventWithPayload(EventId, u32),
-    LogicalClock(ProbeId, u32),
+    LogicalClock(ProbeId, ProbeEpoch, ProbeClock),
 }
 
 impl From<EventId> for LogEntryData {
@@ -74,9 +76,9 @@ impl From<EventId> for LogEntryData {
     }
 }
 
-impl From<(ProbeId, u32)> for LogEntryData {
-    fn from((id, count): (ProbeId, u32)) -> LogEntryData {
-        LogEntryData::LogicalClock(id, count)
+impl From<(ProbeId, ProbeEpoch, ProbeClock)> for LogEntryData {
+    fn from((id, epoch, clock): (ProbeId, ProbeEpoch, ProbeClock)) -> LogEntryData {
+        LogEntryData::LogicalClock(id, epoch, clock)
     }
 }
 
@@ -121,14 +123,14 @@ impl LogEntry {
     pub fn is_event(&self) -> bool {
         match self.data {
             LogEntryData::Event(_) | LogEntryData::EventWithPayload(_, _) => true,
-            LogEntryData::LogicalClock(_, _) => false,
+            LogEntryData::LogicalClock(_, _, _) => false,
         }
     }
 
     pub fn is_clock(&self) -> bool {
         match self.data {
             LogEntryData::Event(_) | LogEntryData::EventWithPayload(_, _) => false,
-            LogEntryData::LogicalClock(_, _) => true,
+            LogEntryData::LogicalClock(_, _, _) => true,
         }
     }
 }
@@ -144,7 +146,8 @@ struct LogFileRow {
     event_id: Option<u32>,
     event_payload: Option<u32>,
     lc_probe_id: Option<u32>,
-    lc_clock: Option<u32>,
+    lc_probe_epoch: Option<u16>,
+    lc_probe_clock: Option<u16>,
 }
 
 impl From<&LogEntry> for LogFileRow {
@@ -164,11 +167,15 @@ impl From<&LogEntry> for LogFileRow {
                 _ => None,
             },
             lc_probe_id: match &e.data {
-                LogEntryData::LogicalClock(probe_id, _) => Some(probe_id.get_raw()),
+                LogEntryData::LogicalClock(probe_id, _, _) => Some(probe_id.get_raw()),
                 _ => None,
             },
-            lc_clock: match &e.data {
-                LogEntryData::LogicalClock(_, clock) => Some(*clock),
+            lc_probe_epoch: match &e.data {
+                LogEntryData::LogicalClock(_, probe_epoch, _) => Some(*probe_epoch),
+                _ => None,
+            },
+            lc_probe_clock: match &e.data {
+                LogEntryData::LogicalClock(_, _, probe_clock) => Some(*probe_clock),
                 _ => None,
             },
             receive_time: e.receive_time,
@@ -192,12 +199,19 @@ impl TryFrom<&LogFileRow> for LogEntry {
                     segment_index,
                     message: "When event_id is present, lc_probe_id must be empty",
                 });
-            } else if l.lc_clock.is_some() {
+            } else if l.lc_probe_epoch.is_some() {
                 return Err(ReadError::InvalidContent {
                     session_id,
                     segment_id,
                     segment_index,
-                    message: "When event_id is present, lc_clock must be empty",
+                    message: "When event_id is present, lc_probe_epoch must be empty",
+                });
+            } else if l.lc_probe_clock.is_some() {
+                return Err(ReadError::InvalidContent {
+                    session_id,
+                    segment_id,
+                    segment_index,
+                    message: "When event_id is present, lc_probe_clock must be empty",
                 });
             }
 
@@ -215,23 +229,31 @@ impl TryFrom<&LogFileRow> for LogEntry {
                 LogEntryData::Event(event_id)
             }
         } else if let Some(lc_probe_id) = l.lc_probe_id {
-            match l.lc_clock {
-                None => {
+            match (l.lc_probe_clock, l.lc_probe_epoch) {
+                (None, _) => {
                     return Err(ReadError::InvalidContent {
                         session_id,
                         segment_id,
                         segment_index,
-                        message: "When lc_probe_id is present, lc_clock must also be present",
+                        message: "When lc_probe_id is present, lc_probe_clock must also be present",
                     });
-                }
-                Some(lc_clock) => LogEntryData::LogicalClock(lc_probe_id.try_into().map_err(|_e|
+                },
+                (_, None) => {
+                    return Err(ReadError::InvalidContent {
+                        session_id,
+                        segment_id,
+                        segment_index,
+                        message: "When lc_probe_id is present, lc_probe_epoch must also be present",
+                    });
+                },
+                (Some(lc_probe_clock), Some(lc_probe_epoch)) => LogEntryData::LogicalClock(lc_probe_id.try_into().map_err(|_e|
                     ReadError::InvalidContent {
                         session_id,
                         segment_id,
                         segment_index,
                         message: "When lc_probe_id is present, it must be a valid modality_probe::ProbeId",
                     }
-                )?, lc_clock),
+                )?, lc_probe_epoch, lc_probe_clock),
             }
         } else {
             return Err(ReadError::InvalidContent {
@@ -278,7 +300,11 @@ pub fn add_log_report_to_entries(
                 segment_id: next_segment_id.into(),
                 segment_index,
                 probe_id,
-                data: LogEntryData::LogicalClock(clock_bucket.id, clock_bucket.count),
+                data: LogEntryData::LogicalClock(
+                    clock_bucket.id,
+                    clock_bucket.epoch,
+                    clock_bucket.clock,
+                ),
                 receive_time,
             });
 
@@ -336,7 +362,11 @@ pub fn add_owned_report_to_entries(
                 segment_id: next_segment_id.into(),
                 segment_index,
                 probe_id,
-                data: LogEntryData::LogicalClock(clock_bucket.id, clock_bucket.count as u32),
+                data: LogEntryData::LogicalClock(
+                    clock_bucket.id,
+                    clock_bucket.epoch,
+                    clock_bucket.clock,
+                ),
                 receive_time,
             });
 
@@ -424,6 +454,14 @@ pub mod test {
         }
     }
 
+    pub(crate) fn arb_probe_epoch() -> impl Strategy<Value = ProbeEpoch> {
+        any::<u16>()
+    }
+
+    pub(crate) fn arb_probe_clock() -> impl Strategy<Value = ProbeClock> {
+        any::<u16>()
+    }
+
     pub fn arb_probe_mapping() -> impl Strategy<Value = ProbeMapping> {
         (arb_probe_id(), any::<String>(), any::<String>()).prop_map(|(id, name, description)| {
             ProbeMapping {
@@ -436,7 +474,9 @@ pub mod test {
 
     pub fn arb_log_entry_data() -> impl Strategy<Value = LogEntryData> {
         let eid = arb_event_id().prop_map_into().boxed();
-        let lc = (arb_probe_id(), any::<u32>()).prop_map_into().boxed();
+        let lc = (arb_probe_id(), arb_probe_epoch(), arb_probe_clock())
+            .prop_map_into()
+            .boxed();
         eid.prop_union(lc)
     }
 
@@ -482,7 +522,8 @@ pub mod test {
             proptest::option::of(gen_raw_user_event_id()),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
-            proptest::option::of(any::<u32>()),
+            proptest::option::of(any::<ProbeEpoch>()),
+            proptest::option::of(any::<ProbeClock>()),
         )
             .prop_map(
                 |(
@@ -494,7 +535,8 @@ pub mod test {
                     event_id,
                     event_payload,
                     lc_probe_id,
-                    lc_clock,
+                    lc_probe_epoch,
+                    lc_probe_clock,
                 )| LogFileRow {
                     session_id,
                     segment_id,
@@ -510,7 +552,8 @@ pub mod test {
                         None
                     },
                     lc_probe_id,
-                    lc_clock,
+                    lc_probe_epoch,
+                    lc_probe_clock,
                 },
             )
     }

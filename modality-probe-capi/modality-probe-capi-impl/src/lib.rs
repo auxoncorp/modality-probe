@@ -327,7 +327,8 @@ pub unsafe fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> Modality
                     // This is intentionally generating an invalid value,
                     // per the documentation above
                     id: core::mem::transmute(0u32),
-                    count: 0,
+                    epoch: 0,
+                    clock: 0,
                 },
                 event_count: 0,
             };

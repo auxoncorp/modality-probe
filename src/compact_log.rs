@@ -11,6 +11,7 @@
 //! the probe where the log was generated.
 
 use super::{EventId, LogicalClock, ProbeId};
+use crate::unpack_clock_word;
 use core::convert::TryInto;
 use fixed_slice_vec::FixedSliceVec;
 
@@ -50,7 +51,10 @@ impl CompactLogItem {
         // Set the top bit for id to indicate that it is not an event but a logical clock bucket,
         // and to treat the next item as the count. Don't separate these two!
         let id = clock.id.get_raw() | CLOCK_MASK;
-        (CompactLogItem(id), CompactLogItem(clock.count))
+        (
+            CompactLogItem(id),
+            CompactLogItem((clock.clock as u32) << 16 | (clock.epoch as u32)),
+        )
     }
 
     /// Create a pair of `CompactLogItem`s representing an event and associated payload.
@@ -255,10 +259,8 @@ impl<'a> Iterator for LogSegmentLogicalClockIterator<'a> {
             None => return Some(Err(LogicalClockInterpretationError::InvalidProbeId(raw_id))),
         };
 
-        Some(Ok(LogicalClock {
-            id,
-            count: curr[1].raw(),
-        }))
+        let (clock, epoch) = unpack_clock_word(curr[1].raw());
+        Some(Ok(LogicalClock { id, clock, epoch }))
     }
 }
 
@@ -425,10 +427,10 @@ where
                 }
             };
             match self.inner.next() {
-                Some(count) => Some(Ok(LogItem::Clock(LogicalClock {
-                    id,
-                    count: count.raw(),
-                }))),
+                Some(clock_word) => {
+                    let (clock, epoch) = unpack_clock_word(clock_word.raw());
+                    Some(Ok(LogItem::Clock(LogicalClock { id, clock, epoch })))
+                }
                 None => {
                     self.is_done = true;
                     Some(Err(
@@ -500,10 +502,11 @@ pub(crate) mod log_tests {
     }
 
     /// Compact logical clock bucket
-    fn cb(id: u32, count: u32) -> (CompactLogItem, CompactLogItem) {
+    fn cb(id: u32, epoch: u16, clock: u16) -> (CompactLogItem, CompactLogItem) {
         CompactLogItem::clock(LogicalClock {
             id: id.try_into().unwrap(),
-            count,
+            epoch,
+            clock,
         })
     }
 
@@ -519,8 +522,8 @@ pub(crate) mod log_tests {
         assert_eq!(1, count_segments(&[ce(1), ce(1)], probe_id));
         assert_eq!(1, count_segments(&[ce(1), ce(2), ce(1)], probe_id));
 
-        let (a, b) = cb(1, 1);
-        let (c, d) = cb(2, 1);
+        let (a, b) = cb(1, 0, 1);
+        let (c, d) = cb(2, 0, 1);
         assert_eq!(1, count_segments(&[a, b, ce(1)], probe_id));
         assert_eq!(2, count_segments(&[ce(1), a, b], probe_id));
         assert_eq!(2, count_segments(&[ce(1), a, b, ce(1)], probe_id));
@@ -529,7 +532,7 @@ pub(crate) mod log_tests {
             2,
             count_segments(&[a, b, ce(1), c, d, ce(1), ce(2),], probe_id)
         );
-        let (e, f) = cb(3, 1);
+        let (e, f) = cb(3, 0, 1);
         assert_eq!(
             2,
             count_segments(&[a, b, ce(1), c, d, e, f, ce(1), ce(2),], probe_id)
@@ -543,11 +546,11 @@ pub(crate) mod log_tests {
     #[test]
     fn segment_counting_distinguishes_adjacent_clock_segments_by_local_probe_id() {
         let local_probe_id = ProbeId::new(314).unwrap();
-        let (a, b) = cb(314, 1);
+        let (a, b) = cb(314, 0, 1);
         assert_eq!(1, count_segments(&[a, b], local_probe_id));
-        let (c, d) = cb(314, 2);
+        let (c, d) = cb(314, 0, 2);
         assert_eq!(2, count_segments(&[a, b, c, d], local_probe_id));
-        let (e, f) = cb(99, 2);
+        let (e, f) = cb(99, 0, 2);
         assert_eq!(2, count_segments(&[a, b, c, d, e, f], local_probe_id));
         assert_eq!(2, count_segments(&[a, b, e, f, c, d], local_probe_id));
     }
@@ -555,7 +558,7 @@ pub(crate) mod log_tests {
     #[test]
     fn segmentation_distinguishes_events_with_payloads_from_clocks() {
         let local_probe_id = ProbeId::new(314).unwrap();
-        let (a, b) = cb(314, 1);
+        let (a, b) = cb(314, 0, 1);
         let (c, d) = cep(99, core::u32::MAX);
         assert_eq!(1, count_segments(&[a, b, c, d], local_probe_id));
     }
@@ -567,7 +570,8 @@ pub(crate) mod log_tests {
 
         let (id, count) = CompactLogItem::clock(LogicalClock {
             id: 4.try_into().unwrap(),
-            count: 5,
+            epoch: 0,
+            clock: 5,
         });
         assert!(id.has_clock_bit_set());
         assert!(!count.has_clock_bit_set());
@@ -616,8 +620,8 @@ pub(crate) mod log_tests {
     }
 
     prop_compose! {
-        pub(crate) fn gen_clock()(id in gen_probe_id(), count in proptest::num::u32::ANY) -> LogicalClock {
-            LogicalClock { id, count }
+        pub(crate) fn gen_clock()(id in gen_probe_id(), epoch in gen_probe_epoch(), clock in gen_probe_clock()) -> LogicalClock {
+            LogicalClock { id, epoch, clock }
         }
     }
 
