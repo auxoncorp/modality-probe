@@ -73,15 +73,17 @@ impl CausalSnapshot {
         ]
     }
 
-    /// Writes a causal snapshot into a slice of little endian bytes
-    pub fn write_into_le_bytes(&self, bytes: &mut [u8]) -> Result<(), wire::MissingBytes> {
+    /// Writes a causal snapshot into a slice of little endian bytes.
+    ///
+    /// Returns the number of bytes written.
+    pub fn write_into_le_bytes(&self, bytes: &mut [u8]) -> Result<usize, wire::MissingBytes> {
         let mut wire = wire::WireCausalSnapshot::new_unchecked(bytes);
         wire.check_len()?;
         wire.set_probe_id(self.clock.id);
         wire.set_count(self.clock.count);
         wire.set_reserved_0(self.reserved_0);
         wire.set_reserved_1(self.reserved_1);
-        Ok(())
+        Ok(wire::WireCausalSnapshot::<&[u8]>::min_buffer_len())
     }
 }
 
@@ -444,7 +446,8 @@ mod tests {
             assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
 
             let mut bytes = [0xFF; 12];
-            snap_in.write_into_le_bytes(&mut bytes[..]).unwrap();
+            let bytes_written = snap_in.write_into_le_bytes(&mut bytes[..]).unwrap();
+            assert_eq!(bytes_written, size_of::<crate::CausalSnapshot>());
             let snap_out = CausalSnapshot::try_from(&bytes[..]).unwrap();
             assert_eq!(snap_in.clock, snap_out.clock);
             assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
