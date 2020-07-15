@@ -229,6 +229,9 @@ pub unsafe fn modality_probe_produce_snapshot_bytes(
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
+    if history_destination.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
     match probe.produce_snapshot_bytes(core::slice::from_raw_parts_mut(
         history_destination,
         history_destination_bytes,
@@ -425,6 +428,9 @@ pub unsafe fn modality_probe_write_next_report_chunk(
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
+    if log_report_destination.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
     match probe.write_next_report_chunk(
         &*report_token,
         core::slice::from_raw_parts_mut(log_report_destination, log_report_destination_size_bytes),
