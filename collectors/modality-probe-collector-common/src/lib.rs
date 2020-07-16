@@ -2,7 +2,7 @@ use std::convert::{TryFrom, TryInto};
 
 use chrono::prelude::*;
 use modality_probe::{
-    compact_log::LogEvent, report::wire::LogReport, EventId, ProbeClock, ProbeEpoch, ProbeId,
+    compact_log::LogEvent, report::wire::LogReport, EventId, ProbeEpoch, ProbeId, ProbeTicks,
 };
 
 pub mod csv;
@@ -67,7 +67,7 @@ pub struct ProbeMapping {
 pub enum LogEntryData {
     Event(EventId),
     EventWithPayload(EventId, u32),
-    LogicalClock(ProbeId, ProbeEpoch, ProbeClock),
+    LogicalClock(ProbeId, ProbeEpoch, ProbeTicks),
 }
 
 impl From<EventId> for LogEntryData {
@@ -76,8 +76,8 @@ impl From<EventId> for LogEntryData {
     }
 }
 
-impl From<(ProbeId, ProbeEpoch, ProbeClock)> for LogEntryData {
-    fn from((id, epoch, clock): (ProbeId, ProbeEpoch, ProbeClock)) -> LogEntryData {
+impl From<(ProbeId, ProbeEpoch, ProbeTicks)> for LogEntryData {
+    fn from((id, epoch, clock): (ProbeId, ProbeEpoch, ProbeTicks)) -> LogEntryData {
         LogEntryData::LogicalClock(id, epoch, clock)
     }
 }
@@ -303,7 +303,7 @@ pub fn add_log_report_to_entries(
                 data: LogEntryData::LogicalClock(
                     clock_bucket.id,
                     clock_bucket.epoch,
-                    clock_bucket.clock,
+                    clock_bucket.ticks,
                 ),
                 receive_time,
             });
@@ -365,7 +365,7 @@ pub fn add_owned_report_to_entries(
                 data: LogEntryData::LogicalClock(
                     clock_bucket.id,
                     clock_bucket.epoch,
-                    clock_bucket.clock,
+                    clock_bucket.ticks,
                 ),
                 receive_time,
             });
@@ -458,7 +458,7 @@ pub mod test {
         any::<u16>()
     }
 
-    pub(crate) fn arb_probe_clock() -> impl Strategy<Value = ProbeClock> {
+    pub(crate) fn arb_probe_clock() -> impl Strategy<Value = ProbeTicks> {
         any::<u16>()
     }
 
@@ -523,7 +523,7 @@ pub mod test {
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<u32>()),
             proptest::option::of(any::<ProbeEpoch>()),
-            proptest::option::of(any::<ProbeClock>()),
+            proptest::option::of(any::<ProbeTicks>()),
         )
             .prop_map(
                 |(

@@ -220,7 +220,7 @@ mod tests {
                 clock: LogicalClock {
                     id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
                     epoch: 0,
-                    clock: 0,
+                    ticks: 0,
                 },
                 reserved_0: 0,
                 reserved_1: 0,
@@ -237,12 +237,12 @@ mod tests {
                         LogicalClock {
                             id: 31.try_into().unwrap(),
                             epoch: 0,
-                            clock: 14,
+                            ticks: 14,
                         },
                         LogicalClock {
                             id: 15.try_into().unwrap(),
                             epoch: 0,
-                            clock: 9,
+                            ticks: 9,
                         },
                     ],
                     events: vec![LogEvent::Event(2653.try_into().unwrap())],
@@ -251,7 +251,7 @@ mod tests {
                     clocks: vec![LogicalClock {
                         id: 271.try_into().unwrap(),
                         epoch: 0,
-                        clock: 1,
+                        ticks: 1,
                     }],
                     events: vec![
                         LogEvent::Event(793.try_into().unwrap()),

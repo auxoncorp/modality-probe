@@ -53,7 +53,7 @@ impl CompactLogItem {
         let id = clock.id.get_raw() | CLOCK_MASK;
         (
             CompactLogItem(id),
-            CompactLogItem((clock.clock as u32) << 16 | (clock.epoch as u32)),
+            CompactLogItem((clock.ticks as u32) << 16 | (clock.epoch as u32)),
         )
     }
 
@@ -260,7 +260,11 @@ impl<'a> Iterator for LogSegmentLogicalClockIterator<'a> {
         };
 
         let (clock, epoch) = unpack_clock_word(curr[1].raw());
-        Some(Ok(LogicalClock { id, clock, epoch }))
+        Some(Ok(LogicalClock {
+            id,
+            ticks: clock,
+            epoch,
+        }))
     }
 }
 
@@ -429,7 +433,11 @@ where
             match self.inner.next() {
                 Some(clock_word) => {
                     let (clock, epoch) = unpack_clock_word(clock_word.raw());
-                    Some(Ok(LogItem::Clock(LogicalClock { id, clock, epoch })))
+                    Some(Ok(LogItem::Clock(LogicalClock {
+                        id,
+                        ticks: clock,
+                        epoch,
+                    })))
                 }
                 None => {
                     self.is_done = true;
@@ -506,7 +514,7 @@ pub(crate) mod log_tests {
         CompactLogItem::clock(LogicalClock {
             id: id.try_into().unwrap(),
             epoch,
-            clock,
+            ticks: clock,
         })
     }
 
@@ -571,7 +579,7 @@ pub(crate) mod log_tests {
         let (id, count) = CompactLogItem::clock(LogicalClock {
             id: 4.try_into().unwrap(),
             epoch: 0,
-            clock: 5,
+            ticks: 5,
         });
         assert!(id.has_clock_bit_set());
         assert!(!count.has_clock_bit_set());
@@ -620,8 +628,8 @@ pub(crate) mod log_tests {
     }
 
     prop_compose! {
-        pub(crate) fn gen_clock()(id in gen_probe_id(), epoch in gen_probe_epoch(), clock in gen_probe_clock()) -> LogicalClock {
-            LogicalClock { id, epoch, clock }
+        pub(crate) fn gen_clock()(id in gen_probe_id(), epoch in gen_probe_epoch(), ticks in gen_probe_ticks()) -> LogicalClock {
+            LogicalClock { id, epoch, ticks }
         }
     }
 

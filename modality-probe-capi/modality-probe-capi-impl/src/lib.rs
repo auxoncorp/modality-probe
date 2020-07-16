@@ -328,7 +328,7 @@ pub unsafe fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> Modality
                     // per the documentation above
                     id: core::mem::transmute(0u32),
                     epoch: 0,
-                    clock: 0,
+                    ticks: 0,
                 },
                 event_count: 0,
             };

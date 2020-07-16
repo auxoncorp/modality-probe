@@ -388,7 +388,7 @@ pub use prop::*;
 #[cfg(test)]
 pub(crate) mod id_tests {
     use super::*;
-    use crate::{ProbeClock, ProbeEpoch};
+    use crate::{ProbeEpoch, ProbeTicks};
     use proptest::prelude::*;
 
     #[test]
@@ -430,7 +430,7 @@ pub(crate) mod id_tests {
         any::<u16>()
     }
 
-    pub(crate) fn gen_probe_clock() -> impl Strategy<Value = ProbeClock> {
+    pub(crate) fn gen_probe_ticks() -> impl Strategy<Value = ProbeTicks> {
         any::<u16>()
     }
 

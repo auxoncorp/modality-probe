@@ -1,6 +1,6 @@
 //! A wire protocol for representing Modality probe causal snaphots
 
-use crate::{wire::le_bytes, ProbeClock, ProbeEpoch, ProbeId};
+use crate::{wire::le_bytes, ProbeEpoch, ProbeId, ProbeTicks};
 use core::mem::size_of;
 use static_assertions::const_assert_eq;
 
@@ -52,7 +52,7 @@ mod field {
     pub const PROBE_ID: Field = 0..4;
 
     /// LogicalClock.clock
-    pub const PROBE_CLOCK: Field = 4..6;
+    pub const PROBE_TICKS: Field = 4..6;
 
     /// LogicalClock.epoch
     pub const PROBE_EPOCH: Field = 6..8;
@@ -125,11 +125,11 @@ impl<T: AsRef<[u8]>> WireCausalSnapshot<T> {
         le_bytes::read_u16(&data[field::PROBE_EPOCH])
     }
 
-    /// Return the `clock` field
+    /// Return the `ticks` field
     #[inline]
-    pub fn probe_clock(&self) -> u16 {
+    pub fn probe_ticks(&self) -> u16 {
         let data = self.buffer.as_ref();
-        le_bytes::read_u16(&data[field::PROBE_CLOCK])
+        le_bytes::read_u16(&data[field::PROBE_TICKS])
     }
 
     /// Return the `reserved_0` field
@@ -164,9 +164,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireCausalSnapshot<T> {
 
     /// Set the `clock` field
     #[inline]
-    pub fn set_clock(&mut self, value: ProbeClock) {
+    pub fn set_ticks(&mut self, value: ProbeTicks) {
         let data = self.buffer.as_mut();
-        le_bytes::write_u16(&mut data[field::PROBE_CLOCK], value);
+        le_bytes::write_u16(&mut data[field::PROBE_TICKS], value);
     }
 
     /// Set the `reserved_0` field
@@ -219,7 +219,7 @@ mod tests {
         let mut s = WireCausalSnapshot::new_unchecked(&mut bytes[..]);
         assert_eq!(s.check_len(), Ok(()));
         s.set_probe_id(ProbeId::new(1).unwrap());
-        s.set_clock(2);
+        s.set_ticks(2);
         s.set_epoch(0);
         s.set_reserved_0(3);
         s.set_reserved_1(4);
@@ -230,7 +230,7 @@ mod tests {
     fn deconstruct() {
         let s = WireCausalSnapshot::new(&SNAPSHOT_BYTES[..]).unwrap();
         assert_eq!(s.probe_id().unwrap().get_raw(), 1);
-        assert_eq!(s.probe_clock(), 2);
+        assert_eq!(s.probe_ticks(), 2);
         assert_eq!(s.probe_epoch(), 0);
         assert_eq!(s.reserved_0(), 3);
         assert_eq!(s.reserved_1(), 4);

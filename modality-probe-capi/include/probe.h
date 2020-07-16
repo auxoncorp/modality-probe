@@ -39,7 +39,7 @@ typedef struct modality_logical_clock {
     /*
      * Clock tick count
      */
-    uint16_t clock;
+    uint16_t ticks;
 } modality_logical_clock;
 
 typedef struct modality_probe_instant {

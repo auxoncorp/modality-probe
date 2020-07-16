@@ -105,7 +105,7 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
 
     // Expect no increments; this happens after the data is serialized.
     assert_eq!(0, clock.epoch, "expect no epoch increments");
-    assert_eq!(0, clock.clock, "expect no clock increments");
+    assert_eq!(0, clock.ticks, "expect no clock increments");
     Ok(())
 }
 

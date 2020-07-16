@@ -54,7 +54,7 @@ impl CausalSnapshot {
                 Ok(CausalSnapshot {
                     clock: LogicalClock {
                         id: probe_id,
-                        clock,
+                        ticks: clock,
                         epoch,
                     },
                     reserved_0: res_lsb as u16,
@@ -70,7 +70,7 @@ impl CausalSnapshot {
         let res_msb = self.reserved_1 as u32;
         [
             self.clock.id.get_raw(),
-            pack_clock_word(self.clock.clock, self.clock.epoch),
+            pack_clock_word(self.clock.ticks, self.clock.epoch),
             res_lsb | (res_msb << 16),
         ]
     }
@@ -82,7 +82,7 @@ impl CausalSnapshot {
         let mut wire = wire::WireCausalSnapshot::new_unchecked(bytes);
         wire.check_len()?;
         wire.set_probe_id(self.clock.id);
-        wire.set_clock(self.clock.clock);
+        wire.set_ticks(self.clock.ticks);
         wire.set_epoch(self.clock.epoch);
         wire.set_reserved_0(self.reserved_0);
         wire.set_reserved_1(self.reserved_1);
@@ -99,7 +99,7 @@ impl TryFrom<&[u8]> for CausalSnapshot {
             clock: LogicalClock {
                 id: snapshot.probe_id()?,
                 epoch: snapshot.probe_epoch(),
-                clock: snapshot.probe_clock(),
+                ticks: snapshot.probe_ticks(),
             },
             reserved_0: snapshot.reserved_0(),
             reserved_1: snapshot.reserved_1(),
@@ -111,17 +111,17 @@ impl TryFrom<&[u8]> for CausalSnapshot {
 pub type ProbeEpoch = u16;
 
 /// The clock part of a probe's logical clock
-pub type ProbeClock = u16;
+pub type ProbeTicks = u16;
 
 /// Pack the epoch and clock into a u32
 #[inline]
-pub fn pack_clock_word(clock: ProbeClock, epoch: ProbeEpoch) -> u32 {
+pub fn pack_clock_word(clock: ProbeTicks, epoch: ProbeEpoch) -> u32 {
     ((clock as u32) << 16) | (epoch as u32)
 }
 
 /// Unpack a probe epoch and clock from a u32
 #[inline]
-pub fn unpack_clock_word(w: u32) -> (ProbeClock, ProbeEpoch) {
+pub fn unpack_clock_word(w: u32) -> (ProbeTicks, ProbeEpoch) {
     let clock = (w >> 16) & (core::u16::MAX as u32);
     let epoch = w & (core::u16::MAX as u32);
     (clock as u16, epoch as u16)
@@ -139,7 +139,7 @@ pub struct LogicalClock {
     pub epoch: ProbeEpoch,
 
     /// The clock portion of the logical clock
-    pub clock: ProbeClock,
+    pub ticks: ProbeTicks,
 }
 
 impl PartialOrd for LogicalClock {
@@ -147,7 +147,7 @@ impl PartialOrd for LogicalClock {
         if self.id != other.id {
             None
         } else {
-            (self.epoch, self.clock).partial_cmp(&(other.epoch, other.clock))
+            (self.epoch, self.ticks).partial_cmp(&(other.epoch, other.ticks))
         }
     }
 }
@@ -158,8 +158,8 @@ impl LogicalClock {
     /// around to 1.
     #[inline]
     pub fn increment(&mut self) {
-        let (new_clock, overflow) = self.clock.overflowing_add(1);
-        self.clock = max(new_clock, 1);
+        let (new_clock, overflow) = self.ticks.overflowing_add(1);
+        self.ticks = max(new_clock, 1);
         if overflow {
             self.epoch = self.epoch.wrapping_add(1);
         }
@@ -450,7 +450,7 @@ mod tests {
             clock: LogicalClock {
                 id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
                 epoch: 0x2233,
-                clock: 0x1122,
+                ticks: 0x1122,
             },
             reserved_0: 0x3333,
             reserved_1: 0x4444,
@@ -466,7 +466,7 @@ mod tests {
                 clock: LogicalClock {
                     id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
                     epoch: 0xBBBB,
-                    clock: 0xAAAA,
+                    ticks: 0xAAAA,
                 },
                 reserved_0: 0xCCCC,
                 reserved_1: 0xDDDD,
@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn logical_clock_ordering() {
         let lc =
-            |id: ProbeId, epoch: ProbeEpoch, clock: ProbeClock| LogicalClock { id, epoch, clock };
+            |id: ProbeId, epoch: ProbeEpoch, ticks: ProbeTicks| LogicalClock { id, epoch, ticks };
 
         let probe_a = ProbeId::new(1).unwrap();
         let probe_b = ProbeId::new(2).unwrap();
@@ -518,8 +518,8 @@ mod tests {
         // Clocks from different probes are not comparable
         proptest!(
             ProptestConfig::default(),
-            |(epoch_a: ProbeEpoch, clock_a: ProbeClock, epoch_b: ProbeEpoch, clock_b: ProbeClock)| {
-                prop_assert_eq!(lc(probe_a, epoch_a, clock_a).partial_cmp(&lc(probe_b, epoch_b, clock_b)),
+            |(epoch_a: ProbeEpoch, ticks_a: ProbeTicks, epoch_b: ProbeEpoch, ticks_b: ProbeTicks)| {
+                prop_assert_eq!(lc(probe_a, epoch_a, ticks_a).partial_cmp(&lc(probe_b, epoch_b, ticks_b)),
                                 None);
             }
         );
@@ -527,10 +527,10 @@ mod tests {
         // From the same probe, epoch takes precedence
         proptest!(
             ProptestConfig::default(),
-            |(epoch_a1: ProbeEpoch, epoch_a2: ProbeClock, clock_a1: ProbeEpoch, clock_a2: ProbeClock)| {
-                let cmp_res = lc(probe_a, epoch_a1, clock_a1).partial_cmp(&lc(probe_a, epoch_a2, clock_a2));
+            |(epoch_a1: ProbeEpoch, epoch_a2: ProbeTicks, ticks_a1: ProbeEpoch, ticks_a2: ProbeTicks)| {
+                let cmp_res = lc(probe_a, epoch_a1, ticks_a1).partial_cmp(&lc(probe_a, epoch_a2, ticks_a2));
                 if epoch_a1 == epoch_a2 {
-                    prop_assert_eq!(cmp_res, clock_a1.partial_cmp(&clock_a2));
+                    prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
                 } else {
                    prop_assert_eq!(cmp_res, epoch_a1.partial_cmp(&epoch_a2));
                 }
@@ -541,9 +541,9 @@ mod tests {
         // Focused test for equal epochs
         proptest!(
             ProptestConfig::default(),
-            |(epoch_a: ProbeEpoch, clock_a1: ProbeEpoch, clock_a2: ProbeClock)| {
-                let cmp_res = lc(probe_a, epoch_a, clock_a1).partial_cmp(&lc(probe_a, epoch_a, clock_a2));
-                prop_assert_eq!(cmp_res, clock_a1.partial_cmp(&clock_a2));
+            |(epoch_a: ProbeEpoch, ticks_a1: ProbeEpoch, ticks_a2: ProbeTicks)| {
+                let cmp_res = lc(probe_a, epoch_a, ticks_a1).partial_cmp(&lc(probe_a, epoch_a, ticks_a2));
+                prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
             }
         );
     }
