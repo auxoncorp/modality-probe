@@ -21,7 +21,7 @@ pub use report::bulk::BulkReporter;
 pub use report::chunked::ChunkedReporter;
 
 use crate::report::chunked::{ChunkedReportError, ChunkedReportToken};
-use core::cmp::Ordering;
+use core::cmp::{max, Ordering};
 use core::convert::TryFrom;
 use core::mem::size_of;
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
@@ -154,14 +154,19 @@ impl PartialOrd for LogicalClock {
 
 impl LogicalClock {
     /// Increment the logical clock by one. If the clock portion overflows,
-    /// clock wraps around and epoch is incremented. Epoch wraps around to zero.
+    /// clock wraps around and epoch is incremented. Epoch and clock both wrap
+    /// around to 1.
     #[inline]
     pub fn increment(&mut self) {
         let (new_clock, overflow) = self.clock.overflowing_add(1);
-        self.clock = new_clock;
+        self.clock = max(new_clock, 1);
         if overflow {
-            self.epoch = self.epoch.wrapping_add(1)
+            self.epoch = self.epoch.wrapping_add(1);
         }
+
+        // This handles both wrapping around to 1 and going from the zero epoch
+        // (uninitialized) to epoch 1
+        self.epoch = max(self.epoch, 1);
     }
 }
 

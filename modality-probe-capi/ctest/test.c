@@ -183,7 +183,7 @@ bool test_now(void) {
     ERROR_CHECK(result, passed);
     modality_probe_instant instant_a = modality_probe_now(probe_a);
     /* modality_probe_instant should have the correct id and start at 0 logical clock count and 0 event count */
-    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.count != 0 || instant_a.event_count != 0) {
+    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.clock != 0 || instant_a.event_count != 0) {
         passed = false;
     }
 
@@ -197,14 +197,14 @@ bool test_now(void) {
     result = modality_probe_record_event(probe_a, EVENT_A);
     ERROR_CHECK(result, passed);
     instant_a = modality_probe_now(probe_a);
-    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.count != 0 || instant_a.event_count != 1) {
+    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.clock != 0 || instant_a.event_count != 1) {
         passed = false;
     }
     /* Recording an event should tick the event_count of the seen instant */
     result = modality_probe_record_event(probe_a, EVENT_A);
     ERROR_CHECK(result, passed);
     instant_a = modality_probe_now(probe_a);
-    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.count != 0 || instant_a.event_count != 2) {
+    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.clock != 0 || instant_a.event_count != 2) {
         passed = false;
     }
     modality_causal_snapshot snap_a;
@@ -215,30 +215,30 @@ bool test_now(void) {
      * the event_count should reset to 0
      */
     instant_a = modality_probe_now(probe_a);
-    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.count != 1 || instant_a.event_count != 0) {
+    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 1 || instant_a.clock.clock != 1 || instant_a.event_count != 0) {
         passed = false;
     }
 
     modality_probe_instant instant_b = modality_probe_now(probe_b);
-    if (instant_b.clock.id != probe_b_id || instant_b.clock.count != 0 || instant_b.event_count != 0) {
+    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 0 ||instant_b.clock.clock != 0 || instant_b.event_count != 0) {
         passed = false;
     }
     modality_probe_merge_snapshot(probe_b, &snap_a);
     instant_b = modality_probe_now(probe_b);
-    if (instant_b.clock.id != probe_b_id || instant_b.clock.count != 1 || instant_b.event_count != 0) {
+    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 1 || instant_b.clock.clock != 1 || instant_b.event_count != 0) {
         passed = false;
     }
     modality_causal_snapshot snap_b;
     result = modality_probe_produce_snapshot(probe_b, &snap_b);
     ERROR_CHECK(result, passed);
     instant_b = modality_probe_now(probe_b);
-    if (instant_b.clock.id != probe_b_id || instant_b.clock.count != 2 || instant_b.event_count != 0) {
+    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 1 || instant_b.clock.clock != 2 || instant_b.event_count != 0) {
         passed = false;
     }
     result = modality_probe_record_event(probe_b, EVENT_A);
     ERROR_CHECK(result, passed);
     instant_b = modality_probe_now(probe_b);
-    if (instant_b.clock.id != probe_b_id || instant_b.clock.count != 2 || instant_b.event_count != 1) {
+    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 1 || instant_b.clock.clock != 2 || instant_b.event_count != 1) {
         passed = false;
     }
 
@@ -250,7 +250,10 @@ bool test_now(void) {
     if (instant_b.clock.id != probe_b_id) {
         passed = false;
     }
-    if (instant_b.clock.count != 3) {
+    if (instant_b.clock.epoch != 1) {
+            passed = false;
+    }
+    if (instant_b.clock.clock != 3) {
         passed = false;
     }
     /*
