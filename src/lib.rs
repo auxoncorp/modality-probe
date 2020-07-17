@@ -98,8 +98,8 @@ impl TryFrom<&[u8]> for CausalSnapshot {
         Ok(CausalSnapshot {
             clock: LogicalClock {
                 id: snapshot.probe_id()?,
-                epoch: snapshot.probe_epoch(),
-                ticks: snapshot.probe_ticks(),
+                epoch: snapshot.epoch(),
+                ticks: snapshot.ticks(),
             },
             reserved_0: snapshot.reserved_0(),
             reserved_1: snapshot.reserved_1(),

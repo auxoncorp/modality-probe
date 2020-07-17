@@ -52,10 +52,10 @@ mod field {
     pub const PROBE_ID: Field = 0..4;
 
     /// LogicalClock.clock
-    pub const PROBE_TICKS: Field = 4..6;
+    pub const TICKS: Field = 4..6;
 
     /// LogicalClock.epoch
-    pub const PROBE_EPOCH: Field = 6..8;
+    pub const EPOCH: Field = 6..8;
 
     /// Reserved field
     pub const RESERVED_0: Field = 8..10;
@@ -120,16 +120,16 @@ impl<T: AsRef<[u8]>> WireCausalSnapshot<T> {
 
     /// Return the `epoch` field
     #[inline]
-    pub fn probe_epoch(&self) -> u16 {
+    pub fn epoch(&self) -> ProbeEpoch {
         let data = self.buffer.as_ref();
-        le_bytes::read_u16(&data[field::PROBE_EPOCH])
+        le_bytes::read_u16(&data[field::EPOCH])
     }
 
     /// Return the `ticks` field
     #[inline]
-    pub fn probe_ticks(&self) -> u16 {
+    pub fn ticks(&self) -> ProbeTicks {
         let data = self.buffer.as_ref();
-        le_bytes::read_u16(&data[field::PROBE_TICKS])
+        le_bytes::read_u16(&data[field::TICKS])
     }
 
     /// Return the `reserved_0` field
@@ -159,14 +159,14 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireCausalSnapshot<T> {
     #[inline]
     pub fn set_epoch(&mut self, value: ProbeEpoch) {
         let data = self.buffer.as_mut();
-        le_bytes::write_u16(&mut data[field::PROBE_EPOCH], value);
+        le_bytes::write_u16(&mut data[field::EPOCH], value);
     }
 
     /// Set the `clock` field
     #[inline]
     pub fn set_ticks(&mut self, value: ProbeTicks) {
         let data = self.buffer.as_mut();
-        le_bytes::write_u16(&mut data[field::PROBE_TICKS], value);
+        le_bytes::write_u16(&mut data[field::TICKS], value);
     }
 
     /// Set the `reserved_0` field
@@ -230,8 +230,8 @@ mod tests {
     fn deconstruct() {
         let s = WireCausalSnapshot::new(&SNAPSHOT_BYTES[..]).unwrap();
         assert_eq!(s.probe_id().unwrap().get_raw(), 1);
-        assert_eq!(s.probe_ticks(), 2);
-        assert_eq!(s.probe_epoch(), 0);
+        assert_eq!(s.ticks(), 2);
+        assert_eq!(s.epoch(), 0);
         assert_eq!(s.reserved_0(), 3);
         assert_eq!(s.reserved_1(), 4);
     }
