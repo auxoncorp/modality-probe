@@ -212,22 +212,6 @@ mod tests {
 
     use super::*;
 
-    struct DefaultableCausalSnapshot(CausalSnapshot);
-
-    impl Default for DefaultableCausalSnapshot {
-        fn default() -> Self {
-            DefaultableCausalSnapshot(CausalSnapshot {
-                clock: LogicalClock {
-                    id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-                    epoch: 0,
-                    ticks: 0,
-                },
-                reserved_0: 0,
-                reserved_1: 0,
-            })
-        }
-    }
-
     fn dummy_report(raw_main_probe_id: u32) -> LogReport {
         LogReport {
             probe_id: raw_main_probe_id.try_into().unwrap(),
