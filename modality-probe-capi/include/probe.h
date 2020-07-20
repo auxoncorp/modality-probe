@@ -30,10 +30,16 @@ typedef struct modality_logical_clock {
      * The Modality probe that this clock is tracking
      */
     uint32_t id;
+
+    /*
+     * Clock epoch
+     */
+    uint16_t epoch;
+
     /*
      * Clock tick count
      */
-    uint32_t count;
+    uint16_t ticks;
 } modality_logical_clock;
 
 typedef struct modality_probe_instant {

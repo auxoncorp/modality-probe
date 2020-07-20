@@ -1,6 +1,6 @@
 //! A wire protocol for representing Modality probe causal snaphots
 
-use crate::{wire::le_bytes, ProbeId};
+use crate::{wire::le_bytes, ProbeEpoch, ProbeId, ProbeTicks};
 use core::mem::size_of;
 use static_assertions::const_assert_eq;
 
@@ -50,12 +50,19 @@ mod field {
 
     /// LogicalClock.id
     pub const PROBE_ID: Field = 0..4;
-    /// LogicalClock.count
-    pub const COUNT: Field = 4..8;
+
+    /// LogicalClock.clock
+    pub const TICKS: Field = 4..6;
+
+    /// LogicalClock.epoch
+    pub const EPOCH: Field = 6..8;
+
     /// Reserved field
     pub const RESERVED_0: Field = 8..10;
+
     /// Reserved field
     pub const RESERVED_1: Field = 10..12;
+
     /// Remaining bytes
     pub const REST: Rest = 12..;
 }
@@ -111,11 +118,18 @@ impl<T: AsRef<[u8]>> WireCausalSnapshot<T> {
         }
     }
 
-    /// Return the `count` field
+    /// Return the `epoch` field
     #[inline]
-    pub fn count(&self) -> u32 {
+    pub fn epoch(&self) -> ProbeEpoch {
         let data = self.buffer.as_ref();
-        le_bytes::read_u32(&data[field::COUNT])
+        le_bytes::read_u16(&data[field::EPOCH])
+    }
+
+    /// Return the `ticks` field
+    #[inline]
+    pub fn ticks(&self) -> ProbeTicks {
+        let data = self.buffer.as_ref();
+        le_bytes::read_u16(&data[field::TICKS])
     }
 
     /// Return the `reserved_0` field
@@ -141,11 +155,18 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireCausalSnapshot<T> {
         le_bytes::write_u32(&mut data[field::PROBE_ID], value.get_raw());
     }
 
-    /// Set the `count` field
+    /// Set the `epoch` field
     #[inline]
-    pub fn set_count(&mut self, value: u32) {
+    pub fn set_epoch(&mut self, value: ProbeEpoch) {
         let data = self.buffer.as_mut();
-        le_bytes::write_u32(&mut data[field::COUNT], value);
+        le_bytes::write_u16(&mut data[field::EPOCH], value);
+    }
+
+    /// Set the `clock` field
+    #[inline]
+    pub fn set_ticks(&mut self, value: ProbeTicks) {
+        let data = self.buffer.as_mut();
+        le_bytes::write_u16(&mut data[field::TICKS], value);
     }
 
     /// Set the `reserved_0` field
@@ -177,11 +198,13 @@ mod tests {
     static SNAPSHOT_BYTES: [u8; 12] = [
         // probe_id: 1
         0x01, 0x00, 0x00, 0x00,
-        // count: 2
-        0x02, 0x00, 0x00, 0x00,
-        // reserved_0: 3
+        // clock: 2
+        0x02, 0x00,
+        // epoch: 3
+        0x00, 0x00,
+        // reserved_0: 4
         0x03, 0x00,
-        // reserved_1: 4
+        // reserved_1: 5
         0x04, 0x00,
     ];
 
@@ -196,7 +219,8 @@ mod tests {
         let mut s = WireCausalSnapshot::new_unchecked(&mut bytes[..]);
         assert_eq!(s.check_len(), Ok(()));
         s.set_probe_id(ProbeId::new(1).unwrap());
-        s.set_count(2);
+        s.set_ticks(2);
+        s.set_epoch(0);
         s.set_reserved_0(3);
         s.set_reserved_1(4);
         assert_eq!(&s.into_inner()[..], &SNAPSHOT_BYTES[..]);
@@ -206,7 +230,8 @@ mod tests {
     fn deconstruct() {
         let s = WireCausalSnapshot::new(&SNAPSHOT_BYTES[..]).unwrap();
         assert_eq!(s.probe_id().unwrap().get_raw(), 1);
-        assert_eq!(s.count(), 2);
+        assert_eq!(s.ticks(), 2);
+        assert_eq!(s.epoch(), 0);
         assert_eq!(s.reserved_0(), 3);
         assert_eq!(s.reserved_1(), 4);
     }

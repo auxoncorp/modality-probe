@@ -776,7 +776,7 @@ mod tests {
                 let logical_clocks: Vec<crate::LogicalClock> = segment.iter_clocks().map(|r| r.unwrap()).collect();
                 assert_eq!(1, logical_clocks.len());
                 assert_eq!(probe_id, logical_clocks[0].id);
-                assert_eq!(produced_report_index, logical_clocks[0].count as usize);
+                assert_eq!(produced_report_index, logical_clocks[0].ticks as usize);
                 let found_events: Vec<LogEvent> = segment.iter_events().map(|r| r.expect("Should be able to interpret event")).collect();
                 let mut expected_events = Vec::new();
                 if produced_report_index > 0 {

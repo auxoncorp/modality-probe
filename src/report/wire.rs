@@ -139,7 +139,7 @@ pub enum ParseBulkReportError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{EventId, LogicalClock, ProbeId};
+    use crate::{EventId, LogicalClock, ProbeEpoch, ProbeId, ProbeTicks};
     use proptest::prelude::*;
     use std::convert::TryInto;
 
@@ -153,11 +153,13 @@ mod tests {
                 clocks: vec![
                     LogicalClock {
                         id: tid_a,
-                        count: 1,
+                        epoch: 0,
+                        ticks: 1,
                     },
                     LogicalClock {
                         id: tid_b,
-                        count: 200,
+                        epoch: 0,
+                        ticks: 200,
                     },
                 ],
                 events: vec![
@@ -191,8 +193,11 @@ mod tests {
     }
 
     prop_compose! {
-        fn gen_clock()(probe_id in gen_raw_probe_id(), count in proptest::num::u32::ANY) -> LogicalClock {
-            LogicalClock { id: probe_id.try_into().unwrap(), count }
+        fn gen_clock()(probe_id in gen_raw_probe_id(),
+                       epoch in gen_probe_epoch(),
+                       ticks in gen_probe_ticks()
+        ) -> LogicalClock {
+            LogicalClock { id: probe_id.try_into().unwrap(), epoch, ticks }
         }
     }
 
@@ -200,6 +205,14 @@ mod tests {
         pub(crate) fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
             raw_id
         }
+    }
+
+    pub(crate) fn gen_probe_epoch() -> impl Strategy<Value = ProbeEpoch> {
+        any::<u16>()
+    }
+
+    pub(crate) fn gen_probe_ticks() -> impl Strategy<Value = ProbeTicks> {
+        any::<u16>()
     }
 
     prop_compose! {
@@ -259,7 +272,7 @@ mod tests {
                 // matching the id of the probe where the log report was generated
                 if needs_first_clock_id_fixup {
                     fixup_count += 1;
-                    segment.clocks.insert(0, LogicalClock { id: probe_id, count: fixup_count })
+                    segment.clocks.insert(0, LogicalClock { id: probe_id, epoch: 0, ticks: fixup_count })
                 }
             }
             LogReport {

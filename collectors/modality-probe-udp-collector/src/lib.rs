@@ -204,8 +204,8 @@ mod tests {
     use lazy_static::*;
 
     use modality_probe::{
-        compact_log::LogEvent, report::wire::OwnedLogSegment, BulkReporter, ChunkedReporter,
-        LogicalClock, Probe,
+        compact_log::LogEvent, report::wire::OwnedLogSegment, BulkReporter, CausalSnapshot,
+        ChunkedReporter, LogicalClock, Probe, ProbeId,
     };
 
     use modality_probe_collector_common::*;
@@ -220,11 +220,13 @@ mod tests {
                     clocks: vec![
                         LogicalClock {
                             id: 31.try_into().unwrap(),
-                            count: 14,
+                            epoch: 0,
+                            ticks: 14,
                         },
                         LogicalClock {
                             id: 15.try_into().unwrap(),
-                            count: 9,
+                            epoch: 0,
+                            ticks: 9,
                         },
                     ],
                     events: vec![LogEvent::Event(2653.try_into().unwrap())],
@@ -232,7 +234,8 @@ mod tests {
                 OwnedLogSegment {
                     clocks: vec![LogicalClock {
                         id: 271.try_into().unwrap(),
-                        count: 1,
+                        epoch: 0,
+                        ticks: 1,
                     }],
                     events: vec![
                         LogEvent::Event(793.try_into().unwrap()),
@@ -260,7 +263,7 @@ mod tests {
                     segment_id: start_segment_id,
                     segment_index: 0,
                     probe_id: main_probe_id,
-                    data: LogEntryData::LogicalClock(31.try_into().unwrap(), 14),
+                    data: LogEntryData::LogicalClock(31.try_into().unwrap(), 0, 14),
                     receive_time,
                 },
                 LogEntry {
@@ -268,7 +271,7 @@ mod tests {
                     segment_id: start_segment_id,
                     segment_index: 1,
                     probe_id: main_probe_id,
-                    data: LogEntryData::LogicalClock(15.try_into().unwrap(), 9),
+                    data: LogEntryData::LogicalClock(15.try_into().unwrap(), 0, 9),
                     receive_time,
                 },
                 LogEntry {
@@ -284,7 +287,7 @@ mod tests {
                     segment_id: (start_segment_id.0 + 1).into(),
                     segment_index: 0,
                     probe_id: main_probe_id,
-                    data: LogEntryData::LogicalClock(271.try_into().unwrap(), 1),
+                    data: LogEntryData::LogicalClock(271.try_into().unwrap(), 0, 1),
                     receive_time,
                 },
                 LogEntry {
@@ -617,7 +620,7 @@ mod tests {
                         }
                     }
                     LogEntryData::EventWithPayload(_, _) => (),
-                    LogEntryData::LogicalClock(tid, _count) => {
+                    LogEntryData::LogicalClock(tid, _epoch, _clock) => {
                         if e.probe_id == probe_a_id {
                             // Process A should only know about itself, since it doesn't receive history from anyone else
                             assert_eq!(tid, probe_a_id);
@@ -747,7 +750,7 @@ mod tests {
                         }
                     }
                     LogEntryData::EventWithPayload(_, _) => (),
-                    LogEntryData::LogicalClock(tid, _count) => {
+                    LogEntryData::LogicalClock(tid, _epoch, _clock) => {
                         if e.probe_id == probe_a_id {
                             // Process A should only know about itself, since it doesn't receive history from anyone else
                             assert_eq!(tid, probe_a_id);
@@ -873,7 +876,7 @@ mod tests {
                             panic!("got unexpected event: {:?}", event);
                         }
                     }
-                    LogEntryData::LogicalClock(tid, _count) => {
+                    LogEntryData::LogicalClock(tid, _epoch, _clock) => {
                         if e.probe_id == probe_a_id {
                             // Process A should only know about itself, since it doesn't receive history from anyone else
                             assert_eq!(tid, probe_a_id);

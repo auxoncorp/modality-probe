@@ -5,6 +5,7 @@ use super::{
 use crate::compact_log::{CompactLogItem, CompactLogVec};
 use crate::report::chunked::ChunkedReportState;
 use crate::wire::WireCausalSnapshot;
+use crate::{ProbeEpoch, ProbeTicks};
 use core::cmp::{max, Ordering, PartialEq};
 use core::convert::TryFrom;
 use core::fmt::{Error as FmtError, Formatter};
@@ -17,8 +18,8 @@ impl core::fmt::Debug for CausalSnapshot {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         write!(
             f,
-            "CausalSnapshot {{ id: {:?}, count: {} }}",
-            self.clock.id, self.clock.count,
+            "CausalSnapshot {{ id: {:?}, epcoh: {}, clock: {} }}",
+            self.clock.id, self.clock.epoch, self.clock.ticks
         )
     }
 }
@@ -32,11 +33,7 @@ impl PartialEq for CausalSnapshot {
 
 impl PartialOrd for CausalSnapshot {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.clock.id != other.clock.id {
-            None
-        } else {
-            self.clock.count.partial_cmp(&other.clock.count)
-        }
+        self.clock.partial_cmp(&other.clock)
     }
 }
 
@@ -46,6 +43,9 @@ pub const MIN_HISTORY_SIZE_BYTES: usize = size_of::<DynamicHistory>()
     + 3 * size_of::<u32>()
     + MIN_CLOCKS_LEN * size_of::<LogicalClock>()
     + MIN_LOG_LEN * size_of::<CompactLogItem>();
+
+const EPOCH_WRAPAROUND_THRESHOLD_TOP: u16 = ProbeEpoch::MAX - 3;
+const EPOCH_WRAPAROUND_THRESHOLD_BOTTOM: u16 = 3;
 
 const_assert_eq!(align_of::<usize>(), align_of::<DynamicHistory>());
 const_assert_eq!(4, align_of::<LogicalClock>());
@@ -162,7 +162,8 @@ impl<'a> DynamicHistory<'a> {
         clocks
             .try_push(LogicalClock {
                 id: probe_id,
-                count: 0,
+                epoch: 0,
+                ticks: 0,
             })
             .expect(
                 "The History.clocks field should always contain a clock for this probe instance",
@@ -239,7 +240,7 @@ impl<'a> DynamicHistory<'a> {
             !self.chunked_report_state.is_report_in_progress(),
             "Should not be incrementing the local clock count when a report is in progress"
         );
-        self.clocks.as_mut_slice()[0].count = self.clocks.as_slice()[0].count.saturating_add(1);
+        self.clocks.as_mut_slice()[0].increment();
         self.event_count = 0;
     }
 
@@ -270,7 +271,8 @@ impl<'a> DynamicHistory<'a> {
         let mut s = WireCausalSnapshot::new_unchecked(destination);
         s.check_len()?;
         s.set_probe_id(self.clocks[0].id);
-        s.set_count(self.clocks[0].count);
+        s.set_epoch(self.clocks[0].epoch);
+        s.set_ticks(self.clocks[0].ticks);
         s.set_reserved_0(0);
         s.set_reserved_1(0);
         Ok(WireCausalSnapshot::<&[u8]>::min_buffer_len())
@@ -284,7 +286,11 @@ impl<'a> DynamicHistory<'a> {
         if self.chunked_report_state.is_report_in_progress() {
             return Err(MergeError::ReportLockConflict);
         }
-        self.merge_internal(external_history.clock.id, external_history.clock.count)
+        self.merge_internal(
+            external_history.clock.id,
+            external_history.clock.epoch,
+            external_history.clock.ticks,
+        )
     }
 
     #[inline]
@@ -293,14 +299,19 @@ impl<'a> DynamicHistory<'a> {
             return Err(MergeError::ReportLockConflict);
         }
         let external_history = CausalSnapshot::try_from(source)?;
-        self.merge_internal(external_history.clock.id, external_history.clock.count)
+        self.merge_internal(
+            external_history.clock.id,
+            external_history.clock.epoch,
+            external_history.clock.ticks,
+        )
     }
 
     #[inline]
     fn merge_internal(
         &mut self,
         external_id: ProbeId,
-        external_clock: u32,
+        external_epoch: ProbeEpoch,
+        external_clock: ProbeTicks,
     ) -> Result<(), MergeError> {
         // Ensure that there is a clock for the neighbor that sent the snapshot
         if !self.clocks.as_slice().iter().any(|b| b.id == external_id)
@@ -308,7 +319,8 @@ impl<'a> DynamicHistory<'a> {
                 .clocks
                 .try_push(LogicalClock {
                     id: external_id,
-                    count: 0,
+                    epoch: 0,
+                    ticks: 0,
                 })
                 .is_err()
         {
@@ -317,7 +329,7 @@ impl<'a> DynamicHistory<'a> {
                 .try_push(CompactLogItem::event(EventId::EVENT_NUM_CLOCKS_OVERFLOWED));
             return Err(MergeError::ExceededAvailableClocks);
         }
-        if external_clock != 0 {
+        if external_clock != 0 && external_epoch != 0 {
             for internal_clock in self.clocks.as_mut_slice() {
                 // N.B This depends on the local clock already having been created, above,
                 // when we received a history from the clock's source probe_id.
@@ -325,7 +337,15 @@ impl<'a> DynamicHistory<'a> {
                 // data from an indirect neighbor that
                 // is also a direct neighbor (but has not yet sent us a message).
                 if internal_clock.id == external_id {
-                    internal_clock.count = max(internal_clock.count, external_clock);
+                    if (external_epoch, external_clock) > (internal_clock.epoch, internal_clock.ticks)
+                        // Handle epcoh wraparound
+                        || (internal_clock.epoch >= EPOCH_WRAPAROUND_THRESHOLD_TOP &&
+                            external_epoch <= EPOCH_WRAPAROUND_THRESHOLD_BOTTOM)
+                    {
+                        internal_clock.epoch = external_epoch;
+                        internal_clock.ticks = external_clock;
+                    }
+
                     break;
                 }
             }
@@ -384,6 +404,84 @@ impl<'a> DynamicHistory<'a> {
         ModalityProbeInstant {
             clock: self.clocks[0],
             event_count: self.event_count,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn epoch_rollover() {
+        let probe_a = ProbeId::new(1).unwrap();
+        let probe_b = ProbeId::new(2).unwrap();
+
+        let lc = |id: ProbeId, epoch: ProbeEpoch, clock: ProbeTicks| LogicalClock {
+            id,
+            epoch,
+            ticks: clock,
+        };
+
+        let find_clock =
+            |h: &DynamicHistory, id: ProbeId| h.clocks.iter().find(|c| c.id == id).cloned();
+
+        {
+            let mut storage_a = [0u8; 512];
+            let h = DynamicHistory::new_at(&mut storage_a, probe_a).unwrap();
+
+            h.merge_internal(probe_b, 1, 1).unwrap();
+            assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 1, 1)));
+
+            // Sanity check just the clock tick
+            h.merge_internal(probe_b, 1, 2).unwrap();
+            assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 1, 2)));
+
+            // Sanity check the epoch tick
+            h.merge_internal(probe_b, 2, 2).unwrap();
+            assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 2, 2)));
+
+            // Can't roll back the clock
+            h.merge_internal(probe_b, 2, 1).unwrap();
+            assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 2, 2)));
+
+            // Can't roll back the epoch
+            h.merge_internal(probe_b, 1, 3).unwrap();
+            assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 2, 2)));
+
+            // Go to the very edge of the epoch's range
+            let emax = ProbeEpoch::MAX;
+            let cmax = ProbeTicks::MAX;
+            h.merge_internal(probe_b, emax, cmax).unwrap();
+            assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, emax, cmax)));
+
+            // Wraparound to 1 is now allowed
+            h.merge_internal(probe_b, 1, 1).unwrap();
+            assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 1, 1)));
+        }
+
+        // Wrap around can happen even if a few messages were missed (because of
+        // repeated restarts)
+        {
+            let mut storage_a = [0u8; 512];
+            let h = DynamicHistory::new_at(&mut storage_a, probe_a).unwrap();
+
+            h.merge_internal(probe_b, ProbeEpoch::MAX - 2, 1).unwrap();
+            h.merge_internal(probe_b, 2, 1).unwrap();
+            assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 2, 1)));
+        }
+
+        // But not outside the threshold
+        {
+            let mut storage_a = [0u8; 512];
+            let h = DynamicHistory::new_at(&mut storage_a, probe_a).unwrap();
+
+            h.merge_internal(probe_b, ProbeEpoch::MAX - 2, 1).unwrap();
+            h.merge_internal(probe_b, 5, 1).unwrap();
+            assert_eq!(
+                find_clock(&h, probe_b),
+                Some(lc(probe_b, ProbeEpoch::MAX - 2, 1))
+            );
         }
     }
 }

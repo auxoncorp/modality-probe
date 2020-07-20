@@ -21,7 +21,7 @@ pub use report::bulk::BulkReporter;
 pub use report::chunked::ChunkedReporter;
 
 use crate::report::chunked::{ChunkedReportError, ChunkedReportToken};
-use core::cmp::Ordering;
+use core::cmp::{max, Ordering};
 use core::convert::TryFrom;
 use core::mem::size_of;
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
@@ -48,12 +48,14 @@ impl CausalSnapshot {
         match ProbeId::new(words[0]) {
             None => Err(InvalidProbeId),
             Some(probe_id) => {
+                let (clock, epoch) = unpack_clock_word(words[1]);
                 let res_lsb = words[2] & core::u16::MAX as u32;
                 let res_msb = (words[2] >> 16) & core::u16::MAX as u32;
                 Ok(CausalSnapshot {
                     clock: LogicalClock {
                         id: probe_id,
-                        count: words[1],
+                        ticks: clock,
+                        epoch,
                     },
                     reserved_0: res_lsb as u16,
                     reserved_1: res_msb as u16,
@@ -68,7 +70,7 @@ impl CausalSnapshot {
         let res_msb = self.reserved_1 as u32;
         [
             self.clock.id.get_raw(),
-            self.clock.count,
+            pack_clock_word(self.clock.ticks, self.clock.epoch),
             res_lsb | (res_msb << 16),
         ]
     }
@@ -80,7 +82,8 @@ impl CausalSnapshot {
         let mut wire = wire::WireCausalSnapshot::new_unchecked(bytes);
         wire.check_len()?;
         wire.set_probe_id(self.clock.id);
-        wire.set_count(self.clock.count);
+        wire.set_ticks(self.clock.ticks);
+        wire.set_epoch(self.clock.epoch);
         wire.set_reserved_0(self.reserved_0);
         wire.set_reserved_1(self.reserved_1);
         Ok(wire::WireCausalSnapshot::<&[u8]>::min_buffer_len())
@@ -95,7 +98,8 @@ impl TryFrom<&[u8]> for CausalSnapshot {
         Ok(CausalSnapshot {
             clock: LogicalClock {
                 id: snapshot.probe_id()?,
-                count: snapshot.count(),
+                epoch: snapshot.epoch(),
+                ticks: snapshot.ticks(),
             },
             reserved_0: snapshot.reserved_0(),
             reserved_1: snapshot.reserved_1(),
@@ -103,15 +107,67 @@ impl TryFrom<&[u8]> for CausalSnapshot {
     }
 }
 
+/// The epoch part of a probe's logical clock
+pub type ProbeEpoch = u16;
+
+/// The clock part of a probe's logical clock
+pub type ProbeTicks = u16;
+
+/// Pack the epoch and clock into a u32
+#[inline]
+pub fn pack_clock_word(clock: ProbeTicks, epoch: ProbeEpoch) -> u32 {
+    ((clock as u32) << 16) | (epoch as u32)
+}
+
+/// Unpack a probe epoch and clock from a u32
+#[inline]
+pub fn unpack_clock_word(w: u32) -> (ProbeTicks, ProbeEpoch) {
+    let clock = (w >> 16) & (core::u16::MAX as u32);
+    let epoch = w & (core::u16::MAX as u32);
+    (clock as u16, epoch as u16)
+}
+
 /// A single logical clock, usable as an entry in a vector clock
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 #[repr(C)]
 pub struct LogicalClock {
     /// The probe that this clock is tracking
     /// Equivalent structurally to a u32.
     pub id: ProbeId,
-    /// Clock tick count
-    pub count: u32,
+
+    /// The epoch portion of the logical clock
+    pub epoch: ProbeEpoch,
+
+    /// The clock portion of the logical clock
+    pub ticks: ProbeTicks,
+}
+
+impl PartialOrd for LogicalClock {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.id != other.id {
+            None
+        } else {
+            (self.epoch, self.ticks).partial_cmp(&(other.epoch, other.ticks))
+        }
+    }
+}
+
+impl LogicalClock {
+    /// Increment the logical clock by one. If the clock portion overflows,
+    /// clock wraps around and epoch is incremented. Epoch and clock both wrap
+    /// around to 1.
+    #[inline]
+    pub fn increment(&mut self) {
+        let (new_clock, overflow) = self.ticks.overflowing_add(1);
+        self.ticks = max(new_clock, 1);
+        if overflow {
+            self.epoch = self.epoch.wrapping_add(1);
+        }
+
+        // This handles both wrapping around to 1 and going from the zero epoch
+        // (uninitialized) to epoch 1
+        self.epoch = max(self.epoch, 1);
+    }
 }
 
 /// Interface for the core (post-initialization) operations of `ModalityProbe`
@@ -309,13 +365,7 @@ pub struct ModalityProbeInstant {
 
 impl PartialOrd for ModalityProbeInstant {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.clock.id != other.clock.id {
-            return None;
-        }
-        match self.clock.count.cmp(&other.clock.count) {
-            Ordering::Equal => Some(self.event_count.cmp(&other.event_count)),
-            o => Some(o),
-        }
+        (self.clock, self.event_count).partial_cmp(&(other.clock, other.event_count))
     }
 }
 
@@ -399,22 +449,24 @@ mod tests {
         let snap = CausalSnapshot {
             clock: LogicalClock {
                 id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-                count: 0x2222_2222,
+                epoch: 0x2233,
+                ticks: 0x1122,
             },
             reserved_0: 0x3333,
             reserved_1: 0x4444,
         };
         assert_eq!(
             snap.to_le_bytes(),
-            [ProbeId::MAX_ID, 0x2222_2222, 0x4444_3333]
+            [ProbeId::MAX_ID, 0x1122_2233, 0x4444_3333]
         );
 
         assert_eq!(
-            CausalSnapshot::from_le_bytes([ProbeId::MAX_ID, 0xBBBB_BBBB, 0xDDDD_CCCC]),
+            CausalSnapshot::from_le_bytes([ProbeId::MAX_ID, 0xAAAA_BBBB, 0xDDDD_CCCC]),
             Ok(CausalSnapshot {
                 clock: LogicalClock {
                     id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-                    count: 0xBBBB_BBBB,
+                    epoch: 0xBBBB,
+                    ticks: 0xAAAA,
                 },
                 reserved_0: 0xCCCC,
                 reserved_1: 0xDDDD,
@@ -453,5 +505,46 @@ mod tests {
             assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
             assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
         }
+    }
+
+    #[test]
+    fn logical_clock_ordering() {
+        let lc =
+            |id: ProbeId, epoch: ProbeEpoch, ticks: ProbeTicks| LogicalClock { id, epoch, ticks };
+
+        let probe_a = ProbeId::new(1).unwrap();
+        let probe_b = ProbeId::new(2).unwrap();
+
+        // Clocks from different probes are not comparable
+        proptest!(
+            ProptestConfig::default(),
+            |(epoch_a: ProbeEpoch, ticks_a: ProbeTicks, epoch_b: ProbeEpoch, ticks_b: ProbeTicks)| {
+                prop_assert_eq!(lc(probe_a, epoch_a, ticks_a).partial_cmp(&lc(probe_b, epoch_b, ticks_b)),
+                                None);
+            }
+        );
+
+        // From the same probe, epoch takes precedence
+        proptest!(
+            ProptestConfig::default(),
+            |(epoch_a1: ProbeEpoch, epoch_a2: ProbeTicks, ticks_a1: ProbeEpoch, ticks_a2: ProbeTicks)| {
+                let cmp_res = lc(probe_a, epoch_a1, ticks_a1).partial_cmp(&lc(probe_a, epoch_a2, ticks_a2));
+                if epoch_a1 == epoch_a2 {
+                    prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
+                } else {
+                   prop_assert_eq!(cmp_res, epoch_a1.partial_cmp(&epoch_a2));
+                }
+
+            }
+        );
+
+        // Focused test for equal epochs
+        proptest!(
+            ProptestConfig::default(),
+            |(epoch_a: ProbeEpoch, ticks_a1: ProbeEpoch, ticks_a2: ProbeTicks)| {
+                let cmp_res = lc(probe_a, epoch_a, ticks_a1).partial_cmp(&lc(probe_a, epoch_a, ticks_a2));
+                prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
+            }
+        );
     }
 }
