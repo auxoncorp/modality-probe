@@ -204,8 +204,8 @@ mod tests {
     use lazy_static::*;
 
     use modality_probe::{
-        compact_log::LogEvent, report::wire::OwnedLogSegment, BulkReporter, CausalSnapshot,
-        ChunkedReporter, LogicalClock, Probe, ProbeId,
+        compact_log::LogEvent, report::wire::OwnedLogSegment, BulkReporter, ChunkedReporter,
+        LogicalClock, Probe,
     };
 
     use modality_probe_collector_common::*;

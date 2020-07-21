@@ -48,13 +48,13 @@ impl CausalSnapshot {
         match ProbeId::new(words[0]) {
             None => Err(InvalidProbeId),
             Some(probe_id) => {
-                let (clock, epoch) = unpack_clock_word(words[1]);
+                let (epoch, ticks) = unpack_clock_word(words[1]);
                 let res_lsb = words[2] & core::u16::MAX as u32;
                 let res_msb = (words[2] >> 16) & core::u16::MAX as u32;
                 Ok(CausalSnapshot {
                     clock: LogicalClock {
                         id: probe_id,
-                        ticks: clock,
+                        ticks,
                         epoch,
                     },
                     reserved_0: res_lsb as u16,
@@ -70,7 +70,7 @@ impl CausalSnapshot {
         let res_msb = self.reserved_1 as u32;
         [
             self.clock.id.get_raw(),
-            pack_clock_word(self.clock.ticks, self.clock.epoch),
+            pack_clock_word(self.clock.epoch, self.clock.ticks),
             res_lsb | (res_msb << 16),
         ]
     }
@@ -115,16 +115,16 @@ pub type ProbeTicks = u16;
 
 /// Pack the epoch and clock into a u32
 #[inline]
-pub fn pack_clock_word(clock: ProbeTicks, epoch: ProbeEpoch) -> u32 {
-    ((clock as u32) << 16) | (epoch as u32)
+pub fn pack_clock_word(epoch: ProbeEpoch, ticks: ProbeTicks) -> u32 {
+    ((epoch as u32) << 16) | (ticks as u32)
 }
 
 /// Unpack a probe epoch and clock from a u32
 #[inline]
-pub fn unpack_clock_word(w: u32) -> (ProbeTicks, ProbeEpoch) {
-    let clock = (w >> 16) & (core::u16::MAX as u32);
-    let epoch = w & (core::u16::MAX as u32);
-    (clock as u16, epoch as u16)
+pub fn unpack_clock_word(w: u32) -> (ProbeEpoch, ProbeTicks) {
+    let epoch = (w >> 16) & (core::u16::MAX as u32);
+    let ticks = w & (core::u16::MAX as u32);
+    (epoch as u16, ticks as u16)
 }
 
 /// A single logical clock, usable as an entry in a vector clock
@@ -449,15 +449,15 @@ mod tests {
         let snap = CausalSnapshot {
             clock: LogicalClock {
                 id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-                epoch: 0x2233,
-                ticks: 0x1122,
+                epoch: 2,
+                ticks: 1,
             },
             reserved_0: 0x3333,
             reserved_1: 0x4444,
         };
         assert_eq!(
             snap.to_le_bytes(),
-            [ProbeId::MAX_ID, 0x1122_2233, 0x4444_3333]
+            [ProbeId::MAX_ID, 0x0002_0001, 0x4444_3333]
         );
 
         assert_eq!(
@@ -465,8 +465,8 @@ mod tests {
             Ok(CausalSnapshot {
                 clock: LogicalClock {
                     id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-                    epoch: 0xBBBB,
-                    ticks: 0xAAAA,
+                    epoch: 0xAAAA,
+                    ticks: 0xBBBB,
                 },
                 reserved_0: 0xCCCC,
                 reserved_1: 0xDDDD,

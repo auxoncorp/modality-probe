@@ -11,7 +11,7 @@
 //! the probe where the log was generated.
 
 use super::{EventId, LogicalClock, ProbeId};
-use crate::unpack_clock_word;
+use crate::{pack_clock_word, unpack_clock_word};
 use core::convert::TryInto;
 use fixed_slice_vec::FixedSliceVec;
 
@@ -53,7 +53,7 @@ impl CompactLogItem {
         let id = clock.id.get_raw() | CLOCK_MASK;
         (
             CompactLogItem(id),
-            CompactLogItem((clock.ticks as u32) << 16 | (clock.epoch as u32)),
+            CompactLogItem(pack_clock_word(clock.epoch, clock.ticks)),
         )
     }
 
@@ -259,12 +259,8 @@ impl<'a> Iterator for LogSegmentLogicalClockIterator<'a> {
             None => return Some(Err(LogicalClockInterpretationError::InvalidProbeId(raw_id))),
         };
 
-        let (clock, epoch) = unpack_clock_word(curr[1].raw());
-        Some(Ok(LogicalClock {
-            id,
-            ticks: clock,
-            epoch,
-        }))
+        let (epoch, ticks) = unpack_clock_word(curr[1].raw());
+        Some(Ok(LogicalClock { id, ticks, epoch }))
     }
 }
 
@@ -432,12 +428,8 @@ where
             };
             match self.inner.next() {
                 Some(clock_word) => {
-                    let (clock, epoch) = unpack_clock_word(clock_word.raw());
-                    Some(Ok(LogItem::Clock(LogicalClock {
-                        id,
-                        ticks: clock,
-                        epoch,
-                    })))
+                    let (epoch, ticks) = unpack_clock_word(clock_word.raw());
+                    Some(Ok(LogItem::Clock(LogicalClock { id, epoch, ticks })))
                 }
                 None => {
                     self.is_done = true;
