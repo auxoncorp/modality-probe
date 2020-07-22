@@ -122,14 +122,14 @@ impl<T: AsRef<[u8]>> WireCausalSnapshot<T> {
     #[inline]
     pub fn epoch(&self) -> ProbeEpoch {
         let data = self.buffer.as_ref();
-        le_bytes::read_u16(&data[field::EPOCH])
+        ProbeEpoch(le_bytes::read_u16(&data[field::EPOCH]))
     }
 
     /// Return the `ticks` field
     #[inline]
     pub fn ticks(&self) -> ProbeTicks {
         let data = self.buffer.as_ref();
-        le_bytes::read_u16(&data[field::TICKS])
+        ProbeTicks(le_bytes::read_u16(&data[field::TICKS]))
     }
 
     /// Return the `reserved_0` field
@@ -159,14 +159,14 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireCausalSnapshot<T> {
     #[inline]
     pub fn set_epoch(&mut self, value: ProbeEpoch) {
         let data = self.buffer.as_mut();
-        le_bytes::write_u16(&mut data[field::EPOCH], value);
+        le_bytes::write_u16(&mut data[field::EPOCH], value.0);
     }
 
     /// Set the `clock` field
     #[inline]
     pub fn set_ticks(&mut self, value: ProbeTicks) {
         let data = self.buffer.as_mut();
-        le_bytes::write_u16(&mut data[field::TICKS], value);
+        le_bytes::write_u16(&mut data[field::TICKS], value.0);
     }
 
     /// Set the `reserved_0` field

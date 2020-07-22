@@ -1,61 +1,39 @@
-use super::{
-    CausalSnapshot, EventId, LogicalClock, MergeError, ModalityProbeInstant, ProbeId, ProduceError,
-    StorageSetupError,
+use core::{
+    cmp::max,
+    convert::TryFrom,
+    mem::{align_of, size_of},
 };
-use crate::compact_log::{CompactLogItem, CompactLogVec};
-use crate::report::chunked::ChunkedReportState;
-use crate::wire::WireCausalSnapshot;
-use crate::{ProbeEpoch, ProbeTicks};
-use core::cmp::{max, Ordering, PartialEq};
-use core::convert::TryFrom;
-use core::fmt::{Error as FmtError, Formatter};
-use core::mem::{align_of, size_of};
-use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
-use fixed_slice_vec::FixedSliceVec;
+
+use fixed_slice_vec::{
+    single::{EmbedValueError, SplitUninitError},
+    FixedSliceVec,
+};
+use race_buffer::writer::OverwrittenEntry;
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_assert_eq};
 
-impl core::fmt::Debug for CausalSnapshot {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
-        write!(
-            f,
-            "CausalSnapshot {{ id: {:?}, epcoh: {}, clock: {} }}",
-            self.clock.id, self.clock.epoch, self.clock.ticks
-        )
-    }
-}
-
-/// Do a logical clock comparison, ignoring the source probe_id
-impl PartialEq for CausalSnapshot {
-    fn eq(&self, other: &Self) -> bool {
-        self.clock == other.clock
-    }
-}
-
-impl PartialOrd for CausalSnapshot {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.clock.partial_cmp(&other.clock)
-    }
-}
+use crate::{
+    log::{LogEntry, RaceLog},
+    wire::WireCausalSnapshot,
+    CausalSnapshot, EventId, LogicalClock, MergeError, ModalityProbeInstant, OrdClock, ProbeEpoch,
+    ProbeId, ProbeTicks, ProduceError, StorageSetupError,
+};
 
 pub const MIN_CLOCKS_LEN: usize = 2;
 pub const MIN_LOG_LEN: usize = MIN_CLOCKS_LEN * 16;
 pub const MIN_HISTORY_SIZE_BYTES: usize = size_of::<DynamicHistory>()
     + 3 * size_of::<u32>()
     + MIN_CLOCKS_LEN * size_of::<LogicalClock>()
-    + MIN_LOG_LEN * size_of::<CompactLogItem>();
-
-const EPOCH_WRAPAROUND_THRESHOLD_TOP: u16 = ProbeEpoch::MAX - 3;
-const EPOCH_WRAPAROUND_THRESHOLD_BOTTOM: u16 = 3;
+    + MIN_LOG_LEN * size_of::<LogEntry>();
 
 const_assert_eq!(align_of::<usize>(), align_of::<DynamicHistory>());
 const_assert_eq!(4, align_of::<LogicalClock>());
-const_assert_eq!(4, align_of::<CompactLogItem>());
+const_assert_eq!(4, align_of::<LogEntry>());
 
 assert_eq_size!(u64, LogicalClock);
 assert_eq_align!(u32, LogicalClock);
 
-assert_eq_size!(u32, CompactLogItem);
-assert_eq_align!(u32, CompactLogItem);
+assert_eq_size!(u32, LogEntry);
+assert_eq_align!(u32, LogEntry);
 
 const_assert_eq!(12, size_of::<CausalSnapshot>());
 const_assert_eq!(4, align_of::<CausalSnapshot>());
@@ -63,12 +41,13 @@ const_assert_eq!(4, align_of::<CausalSnapshot>());
 const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
-const_assert_eq!(
-    10 + size_of::<FixedSliceVec<'_, LogicalClock>>()
-        + size_of::<CompactLogVec<'_>>()
-        + size_of::<ChunkedReportState>(),
-    size_of::<DynamicHistory>()
-);
+// TODO(dan@auxon.io): FIX ME
+// const_assert_eq!(
+//     10 + size_of::<FixedSliceVec<'_, LogicalClock>>()
+//         + size_of::<CompactLogVec<'_>>()
+//         + size_of::<ChunkedReportState>(),
+//     size_of::<DynamicHistory>()
+// );
 
 /// Manages the core of a probe in-memory implementation
 /// backed by runtime-sized arrays of current logical clocks
@@ -79,7 +58,6 @@ pub struct DynamicHistory<'a> {
     /// The number of events seen since the current
     /// probe's logical clock last increased.
     pub(crate) event_count: u32,
-    pub(crate) chunked_report_state: ChunkedReportState,
     /// Invariants:
     ///   * The first clock is always that of the local probe id
     pub(crate) clocks: FixedSliceVec<'a, LogicalClock>,
@@ -87,7 +65,7 @@ pub struct DynamicHistory<'a> {
     ///   * This log must always contain at least one item
     ///   * The first group of items in the log must always be logical clocks,
     /// starting with the local logical clock.
-    pub(crate) compact_log: CompactLogVec<'a>,
+    pub(crate) log: RaceLog<'a>,
 }
 
 #[derive(Debug)]
@@ -106,7 +84,7 @@ impl<'a> DynamicHistory<'a> {
         if destination.as_ptr().is_null() {
             return Err(StorageSetupError::NullDestination);
         }
-        let history = match embed(destination, |dynamic_region_slice| {
+        let history = match fixed_slice_vec::single::embed(destination, |dynamic_region_slice| {
             DynamicHistory::new(dynamic_region_slice, probe_id)
         }) {
             Ok(v) => Ok(v),
@@ -132,7 +110,7 @@ impl<'a> DynamicHistory<'a> {
             );
             assert!(
                 clocks_ptr as usize + history.clocks.capacity() * size_of::<LogicalClock>()
-                    <= history.compact_log.as_slice().as_ptr() as usize,
+                    <= history.log.as_slice().as_ptr() as usize,
                 "log pointer should not overlap clock bytes"
             );
         }
@@ -155,107 +133,100 @@ impl<'a> DynamicHistory<'a> {
         }
         let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
         let mut clocks = FixedSliceVec::from_bytes(clocks_region);
-        let mut compact_log = CompactLogVec::from_bytes(log_region);
-        if clocks.capacity() < MIN_CLOCKS_LEN || compact_log.capacity() < MIN_LOG_LEN {
+        let mut log = RaceLog::new_from_bytes(log_region)
+            .map_err(|_| StorageSetupError::UnderMinimumAllowedSize)?;
+        if clocks.capacity() < MIN_CLOCKS_LEN || log.capacity() < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         clocks
             .try_push(LogicalClock {
                 id: probe_id,
-                epoch: 0,
-                ticks: 0,
+                epoch: ProbeEpoch(0),
+                ticks: ProbeTicks(0),
             })
             .expect(
                 "The History.clocks field should always contain a clock for this probe instance",
             );
-        // This ensures that the first log segment always has a piece of logical
-        // clock information.
-        DynamicHistory::write_clocks_to_log(&mut compact_log, clocks.as_slice());
-        Ok(DynamicHistory {
+        let history = DynamicHistory {
             probe_id,
             clocks,
-            compact_log,
-            chunked_report_state: ChunkedReportState::default(),
+            log,
             event_count: 0,
-        })
+        };
+        // This ensures that the first log segment always has a piece
+        // of logical clock information.
+        history.write_clocks_to_log(&[history.clocks[0]]);
+        Ok(history)
     }
 
     /// Add an item to the internal log that records this event
     /// occurred.
     ///
-    /// Note: This function silently drop events if the log has
-    /// overflowed or if the instance is locked for reporting.
+    /// Note: this function overwrites older events in the log if it
+    /// is full.
     #[inline]
     pub(crate) fn record_event(&mut self, event_id: EventId) {
-        if self.chunked_report_state.is_report_in_progress() {
-            return;
-        }
-        let len = self.compact_log.len();
-        let cap = self.compact_log.capacity();
-        if len == cap {
-            return;
-        }
         // N.B. point for future improvement - basic compression here
-        if self
-            .compact_log
-            .try_push(CompactLogItem::event(event_id))
-            .is_ok()
-        {
-            self.event_count = self.event_count.saturating_add(1);
+        if let OverwrittenEntry::Double(one, two) = self.log.write(LogEntry::event(event_id)) {
+            if one.has_clock_bit_set() {
+                let (epoch, ticks) = crate::unpack_clock_word(two.raw());
+                // If what we get out of the log is garbage, i.e., a
+                // zero-valued probe id, just discard it.
+                if let Some(id) = ProbeId::new(one.interpret_as_logical_clock_probe_id()) {
+                    self.merge_clock(LogicalClock { id, epoch, ticks });
+                }
+            }
         }
+        self.event_count = self.event_count.saturating_add(1);
     }
 
     /// Add the event and its payload to the internal log, recording
     /// that this event occurred.
     ///
-    /// Note: This function silently drop events if the log has
-    /// overflowed or if the instance is locked for reporting.
+    /// Note: this function overwrites older events in the log if it
+    /// is full.
     #[inline]
     pub(crate) fn record_event_with_payload(&mut self, event_id: EventId, payload: u32) {
-        if self.chunked_report_state.is_report_in_progress() {
-            return;
+        let (ev, pay) = LogEntry::event_with_payload(event_id, payload);
+        if let OverwrittenEntry::Double(one, two) = self.log.write(ev) {
+            let (epoch, ticks) = crate::unpack_clock_word(two.raw());
+            // If what we get out of the log is garbage, i.e., a
+            // zero-valued probe id, just discard it.
+            if let Some(id) = ProbeId::new(one.interpret_as_logical_clock_probe_id()) {
+                self.merge_clock(LogicalClock { id, epoch, ticks });
+            }
         }
-        let len = self.compact_log.len();
-        let cap = self.compact_log.capacity();
-        // Room for two?
-        if len + 1 >= cap {
-            return;
+        if let OverwrittenEntry::Double(one, two) = self.log.write(pay) {
+            let (epoch, ticks) = crate::unpack_clock_word(two.raw());
+            // If what we get out of the log is garbage, i.e., a
+            // zero-valued probe id, just discard it.
+            if let Some(id) = ProbeId::new(one.interpret_as_logical_clock_probe_id()) {
+                self.merge_clock(LogicalClock { id, epoch, ticks });
+            }
         }
-        let (ev, payload) = CompactLogItem::event_with_payload(event_id, payload);
-        if self.compact_log.try_push(ev).is_err() {
-            return;
-        }
-        if self.compact_log.try_push(payload).is_ok() {
-            self.event_count = self.event_count.saturating_add(1);
-        }
+        self.event_count = self.event_count.saturating_add(1);
     }
 
     /// Increments the clock in the logical clock corresponding to this probe instance
     #[inline]
-    fn increment_local_clock_count(&mut self) {
+    fn increment_local_clock(&mut self) {
         // N.B. We rely on the fact that the first member of the clocks
         // collection is always the clock for this probe
         debug_assert!(self.probe_id == self.clocks[0].id);
-        debug_assert!(
-            !self.chunked_report_state.is_report_in_progress(),
-            "Should not be incrementing the local clock count when a report is in progress"
-        );
         self.clocks.as_mut_slice()[0].increment();
         self.event_count = 0;
     }
 
     #[inline]
     pub(crate) fn produce_snapshot(&mut self) -> Result<CausalSnapshot, ProduceError> {
-        if self.chunked_report_state.is_report_in_progress() {
-            return Err(ProduceError::ReportLockConflict);
-        }
-        self.increment_local_clock_count();
-        self.write_current_clocks_to_log();
-        Ok(CausalSnapshot {
+        let snap = CausalSnapshot {
             clock: self.clocks[0],
             reserved_0: 0,
             reserved_1: 0,
-        })
+        };
+        self.increment_local_clock();
+        self.write_clocks_to_log(&[self.clocks[0]]);
+        Ok(snap)
     }
 
     #[inline]
@@ -263,11 +234,6 @@ impl<'a> DynamicHistory<'a> {
         &mut self,
         destination: &mut [u8],
     ) -> Result<usize, ProduceError> {
-        if self.chunked_report_state.is_report_in_progress() {
-            return Err(ProduceError::ReportLockConflict);
-        }
-        self.increment_local_clock_count();
-        self.write_current_clocks_to_log();
         let mut s = WireCausalSnapshot::new_unchecked(destination);
         s.check_len()?;
         s.set_probe_id(self.clocks[0].id);
@@ -275,6 +241,8 @@ impl<'a> DynamicHistory<'a> {
         s.set_ticks(self.clocks[0].ticks);
         s.set_reserved_0(0);
         s.set_reserved_1(0);
+        self.increment_local_clock();
+        self.write_clocks_to_log(&[self.clocks[0]]);
         Ok(WireCausalSnapshot::<&[u8]>::min_buffer_len())
     }
 
@@ -283,9 +251,6 @@ impl<'a> DynamicHistory<'a> {
         &mut self,
         external_history: &CausalSnapshot,
     ) -> Result<(), MergeError> {
-        if self.chunked_report_state.is_report_in_progress() {
-            return Err(MergeError::ReportLockConflict);
-        }
         self.merge_internal(
             external_history.clock.id,
             external_history.clock.epoch,
@@ -295,9 +260,6 @@ impl<'a> DynamicHistory<'a> {
 
     #[inline]
     pub(crate) fn merge_snapshot_bytes(&mut self, source: &[u8]) -> Result<(), MergeError> {
-        if self.chunked_report_state.is_report_in_progress() {
-            return Err(MergeError::ReportLockConflict);
-        }
         let external_history = CausalSnapshot::try_from(source)?;
         self.merge_internal(
             external_history.clock.id,
@@ -313,97 +275,49 @@ impl<'a> DynamicHistory<'a> {
         external_epoch: ProbeEpoch,
         external_clock: ProbeTicks,
     ) -> Result<(), MergeError> {
-        // Ensure that there is a clock for the neighbor that sent the snapshot
-        if !self.clocks.as_slice().iter().any(|b| b.id == external_id)
-            && self
-                .clocks
-                .try_push(LogicalClock {
-                    id: external_id,
-                    epoch: 0,
-                    ticks: 0,
-                })
-                .is_err()
-        {
-            let _ = self
-                .compact_log
-                .try_push(CompactLogItem::event(EventId::EVENT_NUM_CLOCKS_OVERFLOWED));
-            return Err(MergeError::ExceededAvailableClocks);
-        }
-        if external_clock != 0 && external_epoch != 0 {
-            for internal_clock in self.clocks.as_mut_slice() {
-                // N.B This depends on the local clock already having been created, above,
-                // when we received a history from the clock's source probe_id.
-                // During early probe event recording, may cause us to drop
-                // data from an indirect neighbor that
-                // is also a direct neighbor (but has not yet sent us a message).
-                if internal_clock.id == external_id {
-                    if (external_epoch, external_clock) > (internal_clock.epoch, internal_clock.ticks)
-                        // Handle epcoh wraparound
-                        || (internal_clock.epoch >= EPOCH_WRAPAROUND_THRESHOLD_TOP &&
-                            external_epoch <= EPOCH_WRAPAROUND_THRESHOLD_BOTTOM)
-                    {
-                        internal_clock.epoch = external_epoch;
-                        internal_clock.ticks = external_clock;
-                    }
-
-                    break;
-                }
-            }
-        }
-        self.increment_local_clock_count();
-        self.write_current_clocks_to_log();
+        self.increment_local_clock();
+        self.write_clocks_to_log(&[
+            self.clocks[0],
+            LogicalClock {
+                id: external_id,
+                epoch: external_epoch,
+                ticks: external_clock,
+            },
+        ]);
         Ok(())
     }
 
     #[inline]
-    fn write_clocks_to_log<'d>(compact_log: &mut CompactLogVec<'d>, clocks: &[LogicalClock]) {
-        if compact_log.is_full() {
-            return;
+    fn write_clocks_to_log(&mut self, clocks: &[LogicalClock]) {
+        for c in clocks.iter() {
+            let (probe_id, clock) = LogEntry::clock(*c);
+            self.log.write(probe_id);
+            self.log.write(clock);
         }
-        let max_len_that_can_fit_a_clock_and_overflow_notice =
-            (compact_log.capacity() - 2) as usize;
-        let mut log_len = compact_log.len();
-        let mut has_overflowed_log = false;
-        for b in clocks {
-            let (id, count) = CompactLogItem::clock(*b);
-            if log_len < max_len_that_can_fit_a_clock_and_overflow_notice {
-                compact_log
-                    .try_push(id)
-                    .expect("Already checked id will fit");
-                compact_log
-                    .try_push(count)
-                    .expect("Already checked count will fit");
-                log_len += 2;
-            } else {
-                // TODO - instead of breaking in the middle, should we have just not written
-                // any of the logical clock at all?
-                has_overflowed_log = true;
-                break;
-            }
-        }
-        if has_overflowed_log {
-            let _ = compact_log.try_push(CompactLogItem::event(EventId::EVENT_LOG_OVERFLOWED));
-        }
-    }
-
-    #[inline]
-    fn write_current_clocks_to_log(&mut self) {
-        let clocks = self.clocks.as_slice();
-        let log = &mut self.compact_log;
-        DynamicHistory::write_clocks_to_log(log, clocks);
-    }
-
-    pub(crate) fn finished_report_logging(&mut self) {
-        self.compact_log.clear();
-        self.increment_local_clock_count();
-        self.write_current_clocks_to_log();
-        self.record_event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT);
     }
 
     pub(crate) fn now(&self) -> ModalityProbeInstant {
         ModalityProbeInstant {
             clock: self.clocks[0],
             event_count: self.event_count,
+        }
+    }
+
+    fn merge_clock(&mut self, ext_clock: LogicalClock) {
+        let mut existed = false;
+        for c in self.clocks.iter_mut() {
+            if c.id == ext_clock.id {
+                if OrdClock(ext_clock.epoch, ext_clock.ticks) > OrdClock(c.epoch, c.ticks) {
+                    c.epoch = ext_clock.epoch;
+                    c.ticks = ext_clock.ticks;
+                }
+                existed = true;
+            }
+        }
+        if !existed {
+            if self.clocks.try_push(ext_clock).is_err() {
+                self.record_event(EventId::EVENT_NUM_CLOCKS_OVERFLOWED);
+            }
         }
     }
 }

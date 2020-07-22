@@ -71,22 +71,15 @@ where
     E: Entry,
 {
     /// Create new RaceBuffer. Returns error if storage size is not power of 2
-    pub fn new(
-        storage: &'a mut [MaybeUninit<E>],
-        use_base_2_indexing: bool,
-    ) -> Result<RaceBuffer<'a, E>, SizeError> {
-        let truncated_len = if use_base_2_indexing {
-            round_to_power_2(storage.len())
-        } else {
-            storage.len()
-        };
-        if truncated_len < MIN_STORAGE_CAP {
+    pub fn new(storage: &'a mut [MaybeUninit<E>]) -> Result<RaceBuffer<'a, E>, SizeError> {
+        let use_base_2_indexing = storage.len().is_power_of_two();
+        if storage.len() < MIN_STORAGE_CAP {
             Err(SizeError)
         } else {
             Ok(RaceBuffer {
                 wcurs: 0,
-                owcurs: 0,
-                storage: &mut storage[..truncated_len],
+                owcurs: storage.len(),
+                storage,
                 use_base_2_indexing,
             })
         }
@@ -94,11 +87,8 @@ where
 
     /// Create new RaceBuffer with properly aligned backing storage
     #[inline]
-    pub fn new_from_bytes(
-        bytes: &'a mut [u8],
-        use_base_2_indexing: bool,
-    ) -> Result<RaceBuffer<'a, E>, SizeError> {
-        let (_prefix, buf, _suffix) = Self::align_from_bytes(bytes, use_base_2_indexing);
+    pub fn new_from_bytes(bytes: &'a mut [u8]) -> Result<RaceBuffer<'a, E>, SizeError> {
+        let (_prefix, buf, _suffix) = Self::align_from_bytes(bytes);
         buf
     }
 
@@ -106,7 +96,6 @@ where
     #[inline]
     pub fn align_from_bytes(
         bytes: &'a mut [u8],
-        use_base_2_indexing: bool,
     ) -> (
         &'a mut [u8],
         Result<RaceBuffer<'a, E>, SizeError>,
@@ -114,11 +103,7 @@ where
     ) {
         // Safe because storage is treated as uninit after transmutation
         let (prefix, storage, suffix) = unsafe { bytes.align_to_mut() };
-        (
-            prefix,
-            RaceBuffer::new(storage, use_base_2_indexing),
-            suffix,
-        )
+        (prefix, RaceBuffer::new(storage), suffix)
     }
 
     /// Write single entry to buffer
@@ -183,8 +168,12 @@ where
     }
 
     #[inline]
-    pub fn get_slice(&self) -> &[MaybeUninit<E>] {
+    pub fn as_slice(&self) -> &[MaybeUninit<E>] {
         self.storage
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.storage.len()
     }
 
     #[cfg(test)]
