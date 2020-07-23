@@ -5,6 +5,7 @@ use crate::{MergeError, ProduceError};
 pub mod bulk_report;
 pub mod causal_snapshot;
 pub mod chunked_report;
+pub mod report;
 
 pub use bulk_report::*;
 pub use causal_snapshot::*;

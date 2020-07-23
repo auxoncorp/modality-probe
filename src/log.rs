@@ -71,16 +71,6 @@ impl LogEntry {
         self.0
     }
 
-    /// Rather tricky and dangerous to use, firmly recommend
-    /// the more strongly typed constructors where possible.
-    ///
-    /// Pretty much should only see this in use when marshalling
-    /// raw bytes around.
-    #[inline]
-    pub fn from_raw(value: u32) -> Self {
-        LogEntry(value)
-    }
-
     /// Unset that top bit to get the original probe id back out
     #[inline]
     pub(crate) fn interpret_as_logical_clock_probe_id(self) -> u32 {

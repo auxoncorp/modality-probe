@@ -1,5 +1,5 @@
 use core::{
-    cmp::max,
+    cmp,
     convert::TryFrom,
     mem::{align_of, size_of},
 };
@@ -13,9 +13,9 @@ use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_ass
 
 use crate::{
     log::{LogEntry, RaceLog},
-    wire::WireCausalSnapshot,
+    wire::{report::WireReport, WireCausalSnapshot},
     CausalSnapshot, EventId, LogicalClock, MergeError, ModalityProbeInstant, OrdClock, ProbeEpoch,
-    ProbeId, ProbeTicks, ProduceError, StorageSetupError,
+    ProbeId, ProbeTicks, ProduceError, ReportError, StorageSetupError,
 };
 
 pub const MIN_CLOCKS_LEN: usize = 2;
@@ -66,6 +66,8 @@ pub struct DynamicHistory<'a> {
     ///   * The first group of items in the log must always be logical clocks,
     /// starting with the local logical clock.
     pub(crate) log: RaceLog<'a>,
+    read_cursor: usize,
+    report_seq_num: u16,
 }
 
 #[derive(Debug)]
@@ -123,7 +125,7 @@ impl<'a> DynamicHistory<'a> {
         dynamic_region_slice: &'a mut [u8],
         probe_id: ProbeId,
     ) -> Result<Self, StorageSetupError> {
-        let max_n_clocks = max(
+        let max_n_clocks = cmp::max(
             MIN_CLOCKS_LEN,
             dynamic_region_slice.len() / 8 / size_of::<LogicalClock>(),
         );
@@ -133,7 +135,7 @@ impl<'a> DynamicHistory<'a> {
         }
         let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
         let mut clocks = FixedSliceVec::from_bytes(clocks_region);
-        let mut log = RaceLog::new_from_bytes(log_region)
+        let log = RaceLog::new_from_bytes(log_region)
             .map_err(|_| StorageSetupError::UnderMinimumAllowedSize)?;
         if clocks.capacity() < MIN_CLOCKS_LEN || log.capacity() < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
@@ -148,14 +150,13 @@ impl<'a> DynamicHistory<'a> {
                 "The History.clocks field should always contain a clock for this probe instance",
             );
         let history = DynamicHistory {
+            read_cursor: 0,
+            report_seq_num: 0,
+            event_count: 0,
             probe_id,
             clocks,
             log,
-            event_count: 0,
         };
-        // This ensures that the first log segment always has a piece
-        // of logical clock information.
-        history.write_clocks_to_log(&[history.clocks[0]]);
         Ok(history)
     }
 
@@ -215,6 +216,7 @@ impl<'a> DynamicHistory<'a> {
         debug_assert!(self.probe_id == self.clocks[0].id);
         self.clocks.as_mut_slice()[0].increment();
         self.event_count = 0;
+        self.report_seq_num = 0;
     }
 
     #[inline]
@@ -266,6 +268,80 @@ impl<'a> DynamicHistory<'a> {
             external_history.clock.epoch,
             external_history.clock.ticks,
         )
+    }
+
+    pub(crate) fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
+        // Can I get at least two entries in here (just in case the
+        // first entry is a clock)?
+        if destination.len()
+            < WireReport::<&[u8]>::HEADER_LEN
+                + (self.clocks.len() * size_of::<LogicalClock>())
+                + (size_of::<LogEntry>() * 2)
+        {
+            todo!("buffer too small");
+        }
+
+        let read_curs = self.read_cursor;
+        let self_clock = self.clocks[0];
+        let clocks_len = self.clocks.len();
+        let mut report = WireReport::init_from(destination);
+
+        report.set_fingerprint();
+        report.set_probe_id(self.probe_id);
+        report.set_clock(crate::pack_clock_word(self_clock.epoch, self_clock.ticks));
+        report.set_seq_num(self.report_seq_num);
+        report.set_n_clocks(clocks_len as u16);
+
+        let payload = report.payload_mut();
+        for (c, dest_bytes) in self
+            .clocks
+            .iter()
+            .zip(payload.chunks_exact_mut(size_of::<LogicalClock>()))
+        {
+            dest_bytes.copy_from_slice(&c.to_le_bytes());
+        }
+
+        let n_log_entries_possible = cmp::min(
+            payload.len() - (clocks_len * size_of::<LogicalClock>()),
+            self.log.write_cursor().saturating_sub(read_curs),
+        );
+
+        let mut n_copied = 0;
+        let mut clock_id = None;
+        let clocks = &mut self.clocks;
+        for (entry, dest_bytes) in self.log.iter(read_curs).zip(
+            payload[clocks_len * size_of::<LogicalClock>()..]
+                .chunks_exact_mut(size_of::<LogEntry>()),
+        ) {
+            match entry {
+                Some(e) => {
+                    if e.has_clock_bit_set() {
+                        if n_copied <= n_log_entries_possible - 2 {
+                            dest_bytes.copy_from_slice(&e.raw().to_le_bytes());
+                            clock_id = ProbeId::new(e.interpret_as_logical_clock_probe_id());
+                            n_copied += 1;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        dest_bytes.copy_from_slice(&e.raw().to_le_bytes());
+                        if let Some(id) = clock_id {
+                            let (epoch, ticks) = crate::unpack_clock_word(e.raw());
+                            Self::merge_clocks(clocks, LogicalClock { id, epoch, ticks });
+                            clock_id = None;
+                        }
+                        n_copied += 1;
+                    }
+                }
+                None => todo!("something to do with a missed item"),
+            }
+        }
+        report.set_n_log_entries(n_copied as u32);
+
+        self.read_cursor = read_curs + n_copied;
+        Ok(WireReport::<&[u8]>::HEADER_LEN
+            + (clocks_len * size_of::<LogicalClock>())
+            + (n_copied * size_of::<LogEntry>()))
     }
 
     #[inline]
@@ -320,21 +396,44 @@ impl<'a> DynamicHistory<'a> {
             }
         }
     }
+
+    fn merge_clocks<'c>(clocks: &mut FixedSliceVec<'c, LogicalClock>, ext_clock: LogicalClock) {
+        let mut existed = false;
+        for c in clocks.iter_mut() {
+            if c.id == ext_clock.id {
+                if OrdClock(ext_clock.epoch, ext_clock.ticks) > OrdClock(c.epoch, c.ticks) {
+                    c.epoch = ext_clock.epoch;
+                    c.ticks = ext_clock.ticks;
+                }
+                existed = true;
+            }
+        }
+        if !existed {
+            let _ = clocks.try_push(ext_clock);
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
 
+    impl std::ops::Sub for ProbeEpoch {
+        type Output = Self;
+        fn sub(self, other: Self) -> Self {
+            ProbeEpoch(self.0 - other.0)
+        }
+    }
+
     #[test]
     fn epoch_rollover() {
         let probe_a = ProbeId::new(1).unwrap();
         let probe_b = ProbeId::new(2).unwrap();
 
-        let lc = |id: ProbeId, epoch: ProbeEpoch, clock: ProbeTicks| LogicalClock {
+        let lc = |id: ProbeId, epoch: u16, clock: u16| LogicalClock {
             id,
-            epoch,
-            ticks: clock,
+            epoch: ProbeEpoch(epoch),
+            ticks: ProbeTicks(clock),
         };
 
         let find_clock =
@@ -344,33 +443,39 @@ mod test {
             let mut storage_a = [0u8; 512];
             let h = DynamicHistory::new_at(&mut storage_a, probe_a).unwrap();
 
-            h.merge_internal(probe_b, 1, 1).unwrap();
+            h.merge_internal(probe_b, ProbeEpoch(1), ProbeTicks(1))
+                .unwrap();
             assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 1, 1)));
 
             // Sanity check just the clock tick
-            h.merge_internal(probe_b, 1, 2).unwrap();
+            h.merge_internal(probe_b, ProbeEpoch(1), ProbeTicks(2))
+                .unwrap();
             assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 1, 2)));
 
             // Sanity check the epoch tick
-            h.merge_internal(probe_b, 2, 2).unwrap();
+            h.merge_internal(probe_b, ProbeEpoch(2), ProbeTicks(2))
+                .unwrap();
             assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 2, 2)));
 
             // Can't roll back the clock
-            h.merge_internal(probe_b, 2, 1).unwrap();
+            h.merge_internal(probe_b, ProbeEpoch(2), ProbeTicks(1))
+                .unwrap();
             assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 2, 2)));
 
             // Can't roll back the epoch
-            h.merge_internal(probe_b, 1, 3).unwrap();
+            h.merge_internal(probe_b, ProbeEpoch(1), ProbeTicks(3))
+                .unwrap();
             assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 2, 2)));
 
             // Go to the very edge of the epoch's range
             let emax = ProbeEpoch::MAX;
             let cmax = ProbeTicks::MAX;
             h.merge_internal(probe_b, emax, cmax).unwrap();
-            assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, emax, cmax)));
+            assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, emax.0, cmax.0)));
 
             // Wraparound to 1 is now allowed
-            h.merge_internal(probe_b, 1, 1).unwrap();
+            h.merge_internal(probe_b, ProbeEpoch(1), ProbeTicks(1))
+                .unwrap();
             assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 1, 1)));
         }
 
@@ -380,8 +485,10 @@ mod test {
             let mut storage_a = [0u8; 512];
             let h = DynamicHistory::new_at(&mut storage_a, probe_a).unwrap();
 
-            h.merge_internal(probe_b, ProbeEpoch::MAX - 2, 1).unwrap();
-            h.merge_internal(probe_b, 2, 1).unwrap();
+            h.merge_internal(probe_b, ProbeEpoch::MAX - ProbeEpoch(2), ProbeTicks(1))
+                .unwrap();
+            h.merge_internal(probe_b, ProbeEpoch(2), ProbeTicks(1))
+                .unwrap();
             assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 2, 1)));
         }
 
@@ -390,11 +497,13 @@ mod test {
             let mut storage_a = [0u8; 512];
             let h = DynamicHistory::new_at(&mut storage_a, probe_a).unwrap();
 
-            h.merge_internal(probe_b, ProbeEpoch::MAX - 2, 1).unwrap();
-            h.merge_internal(probe_b, 5, 1).unwrap();
+            h.merge_internal(probe_b, ProbeEpoch::MAX - ProbeEpoch(2), ProbeTicks(1))
+                .unwrap();
+            h.merge_internal(probe_b, ProbeEpoch(5), ProbeTicks(1))
+                .unwrap();
             assert_eq!(
                 find_clock(&h, probe_b),
-                Some(lc(probe_b, ProbeEpoch::MAX - 2, 1))
+                Some(lc(probe_b, ProbeEpoch::MAX.0 - 2, 1))
             );
         }
     }

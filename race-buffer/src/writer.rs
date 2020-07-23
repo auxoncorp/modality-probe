@@ -1,6 +1,5 @@
 use crate::{get_cursor_index, Entry};
 use core::iter::Iterator;
-use core::mem::size_of;
 use core::mem::MaybeUninit;
 
 #[cfg(not(feature = "std"))]
@@ -19,13 +18,6 @@ impl fmt::Debug for SizeError {
             MIN_STORAGE_CAP
         ))
     }
-}
-
-#[inline]
-/// Round given length down to a power of 2
-fn round_to_power_2(length: usize) -> usize {
-    let exp: usize = size_of::<usize>() * 8 - (length.leading_zeros() as usize) - 1;
-    1 << exp
 }
 
 /// A single entry that has been read, which may or may not be currently available
@@ -176,18 +168,10 @@ where
         self.storage.len()
     }
 
-    #[cfg(test)]
     #[inline]
     /// Get current value of write cursor
-    pub(crate) fn get_wcurs(&self) -> usize {
+    pub fn write_cursor(&self) -> usize {
         self.wcurs
-    }
-
-    #[cfg(test)]
-    #[inline]
-    /// Get current value of write cursor
-    pub(crate) fn get_owcurs(&self) -> usize {
-        self.owcurs
     }
 }
 
@@ -224,7 +208,10 @@ where
             // Indicate that the iterator is finished
             ReadEntry::NotYetWritten => None,
             // Iterator not finished, but value was missed
-            ReadEntry::Missed => Some(None),
+            ReadEntry::Missed => {
+                self.rcurs += 1;
+                Some(None)
+            }
             ReadEntry::Entry(e) => {
                 self.rcurs += 1;
                 Some(Some(e))

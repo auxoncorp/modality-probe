@@ -13,7 +13,7 @@ mod generated_ids;
 
 use crate::generated_ids::*;
 use modality_probe::{
-    try_expect, try_initialize_at, try_record, try_record_w_u32, BulkReporter, ModalityProbe,
+    try_expect, try_initialize_at, try_record, try_record_w_u32, ModalityProbe, Probe,
 };
 use std::net::UdpSocket;
 use std::{thread, time};

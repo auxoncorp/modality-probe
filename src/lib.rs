@@ -11,6 +11,8 @@ use core::{
 };
 
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
+#[cfg(feature = "std")]
+use proptest_derive::Arbitrary;
 use static_assertions::{assert_cfg, const_assert};
 
 pub use error::*;
@@ -30,7 +32,7 @@ pub mod wire;
 /// Note the use of bare integer types rather than the safety-oriented
 /// wrappers (ProbeId, NonZero*) for C representation reasons.
 #[repr(C)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CausalSnapshot {
     /// Probe id and tick-count at the probe which this history snapshot
     /// was created from
@@ -39,18 +41,6 @@ pub struct CausalSnapshot {
     pub reserved_0: u16,
     /// Reserved field
     pub reserved_1: u16,
-}
-
-/// The type returned when a report is successfully created.
-#[repr(C)]
-#[derive(Clone)]
-pub struct ReportResult {
-    /// How much was copied into the destination buffer including the
-    /// header, clocks, and events.
-    size_bytes: u32,
-    /// The number of event log items that were able to fit into the
-    /// destination buffer.
-    num_items: u32,
 }
 
 impl CausalSnapshot {
@@ -133,10 +123,12 @@ impl PartialOrd for CausalSnapshot {
 /// The epoch part of a probe's logical clock
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "std", derive(Arbitrary))]
 pub struct ProbeEpoch(u16);
 
 impl ProbeEpoch {
-    const MAX: Self = ProbeEpoch(u16::MAX);
+    /// The maximum value a probe epoch can inhabit.
+    pub const MAX: Self = ProbeEpoch(u16::MAX);
     const WRAPAROUND_THRESHOLD_TOP: Self = ProbeEpoch(u16::MAX - 3);
     const WRAPAROUND_THRESHOLD_BOTTOM: Self = ProbeEpoch(3);
 }
@@ -144,10 +136,12 @@ impl ProbeEpoch {
 /// The clock part of a probe's logical clock
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "std", derive(Arbitrary))]
 pub struct ProbeTicks(u16);
 
 impl ProbeTicks {
-    const MAX: u16 = u16::MAX;
+    /// The maximum value a probe tick can inhabit.
+    pub const MAX: Self = ProbeTicks(u16::MAX);
 }
 
 /// Pack the epoch and clock into a u32
@@ -229,6 +223,15 @@ impl LogicalClock {
         // (uninitialized) to epoch 1
         self.epoch = ProbeEpoch(max(self.epoch.0, 1));
     }
+
+    /// Put the clock into a byte array, probe id first, where the two
+    /// u32's are unpacked as little endian bytes.
+    pub fn to_le_bytes(&self) -> [u8; 8] {
+        let mut out = [0; 8];
+        out[..4].copy_from_slice(&self.id.get_raw().to_le_bytes());
+        out[4..].copy_from_slice(&pack_clock_word(self.epoch, self.ticks).to_le_bytes());
+        out
+    }
 }
 
 /// Interface for the core (post-initialization) operations of `ModalityProbe`
@@ -278,11 +281,7 @@ pub trait Probe {
     ///    reported.
     /// 3. As much of the event log that will fit in the remaining
     ///    chunk of `destination`.
-    fn report_with_extension(
-        &mut self,
-        destination: &mut [u8],
-        extension_metadata: ExtensionBytes<'_>,
-    ) -> Result<ReportResult, ReportError>;
+    fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError>;
 }
 
 /// Reference implementation of a `ModalityProbe`.
@@ -479,6 +478,11 @@ impl<'a> Probe for ModalityProbe<'a> {
     fn merge_snapshot_bytes(&mut self, source: &[u8]) -> Result<(), MergeError> {
         self.history.merge_snapshot_bytes(source)
     }
+
+    #[inline]
+    fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
+        self.history.report(destination)
+    }
 }
 
 #[cfg(test)]
@@ -491,8 +495,8 @@ mod tests {
         let snap = CausalSnapshot {
             clock: LogicalClock {
                 id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-                epoch: 2,
-                ticks: 1,
+                epoch: ProbeEpoch(2),
+                ticks: ProbeTicks(1),
             },
             reserved_0: 0x3333,
             reserved_1: 0x4444,
@@ -507,8 +511,8 @@ mod tests {
             Ok(CausalSnapshot {
                 clock: LogicalClock {
                     id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-                    epoch: 0xAAAA,
-                    ticks: 0xBBBB,
+                    epoch: ProbeEpoch(0xAAAA),
+                    ticks: ProbeTicks(0xBBBB),
                 },
                 reserved_0: 0xCCCC,
                 reserved_1: 0xDDDD,
@@ -570,7 +574,7 @@ mod tests {
         // From the same probe, epoch takes precedence
         proptest!(
             ProptestConfig::default(),
-            |(epoch_a1: ProbeEpoch, epoch_a2: ProbeTicks, ticks_a1: ProbeEpoch, ticks_a2: ProbeTicks)| {
+            |(epoch_a1: ProbeEpoch, epoch_a2: ProbeEpoch, ticks_a1: ProbeTicks, ticks_a2: ProbeTicks)| {
                 let cmp_res = lc(probe_a, epoch_a1, ticks_a1).partial_cmp(&lc(probe_a, epoch_a2, ticks_a2));
                 if epoch_a1 == epoch_a2 {
                     prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
@@ -584,7 +588,7 @@ mod tests {
         // Focused test for equal epochs
         proptest!(
             ProptestConfig::default(),
-            |(epoch_a: ProbeEpoch, ticks_a1: ProbeEpoch, ticks_a2: ProbeTicks)| {
+            |(epoch_a: ProbeEpoch, ticks_a1: ProbeTicks, ticks_a2: ProbeTicks)| {
                 let cmp_res = lc(probe_a, epoch_a, ticks_a1).partial_cmp(&lc(probe_a, epoch_a, ticks_a2));
                 prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
             }

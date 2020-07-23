@@ -219,8 +219,8 @@ mod tests {
         let mut s = WireCausalSnapshot::new_unchecked(&mut bytes[..]);
         assert_eq!(s.check_len(), Ok(()));
         s.set_probe_id(ProbeId::new(1).unwrap());
-        s.set_ticks(2);
-        s.set_epoch(0);
+        s.set_ticks(ProbeTicks(2));
+        s.set_epoch(ProbeEpoch(0));
         s.set_reserved_0(3);
         s.set_reserved_1(4);
         assert_eq!(&s.into_inner()[..], &SNAPSHOT_BYTES[..]);
@@ -230,8 +230,8 @@ mod tests {
     fn deconstruct() {
         let s = WireCausalSnapshot::new(&SNAPSHOT_BYTES[..]).unwrap();
         assert_eq!(s.probe_id().unwrap().get_raw(), 1);
-        assert_eq!(s.ticks(), 2);
-        assert_eq!(s.epoch(), 0);
+        assert_eq!(s.ticks().0, 2);
+        assert_eq!(s.epoch().0, 0);
         assert_eq!(s.reserved_0(), 3);
         assert_eq!(s.reserved_1(), 4);
     }
