@@ -1,3 +1,4 @@
+//! Types and functionality used for the probe's event storage.
 use race_buffer::{writer::RaceBuffer, Entry};
 
 use crate::{pack_clock_word, EventId, LogicalClock};
@@ -23,6 +24,15 @@ pub(crate) type RaceLog<'a> = RaceBuffer<'a, LogEntry>;
 pub struct LogEntry(u32);
 
 impl LogEntry {
+    /// Construct an entry without knowing what kind it is.
+    ///
+    /// Note: this should be used with caution, for cases where you
+    /// want to use `LogEntry` to determine the "type" of the raw
+    /// value.
+    pub unsafe fn new_unchecked(val: u32) -> Self {
+        LogEntry(val)
+    }
+
     /// Create a single event `LogEntry` with no payload.
     #[must_use]
     #[inline]
@@ -56,13 +66,15 @@ impl LogEntry {
         )
     }
 
+    /// Determine if the clock bit is set on this entry.
     #[inline]
-    pub(crate) fn has_clock_bit_set(self) -> bool {
+    pub fn has_clock_bit_set(self) -> bool {
         (self.0 & CLOCK_MASK) == CLOCK_MASK
     }
 
+    /// Determine if the event with payload bit is set on this entry.
     #[inline]
-    pub(crate) fn has_event_with_payload_bit_set(self) -> bool {
+    pub fn has_event_with_payload_bit_set(self) -> bool {
         (self.0 & EVENT_WITH_PAYLOAD_MASK) == EVENT_WITH_PAYLOAD_MASK
     }
 
@@ -73,8 +85,13 @@ impl LogEntry {
 
     /// Unset that top bit to get the original probe id back out
     #[inline]
-    pub(crate) fn interpret_as_logical_clock_probe_id(self) -> u32 {
+    pub fn interpret_as_logical_clock_probe_id(self) -> u32 {
         self.0 & !CLOCK_MASK
+    }
+
+    /// Convert to an event id.
+    pub fn interpret_as_event_id(&self) -> Option<EventId> {
+        EventId::new(self.0)
     }
 }
 

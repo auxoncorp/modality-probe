@@ -42,7 +42,8 @@ impl From<CausalSnapshotWireError> for MergeError {
     }
 }
 
-mod le_bytes {
+/// Functions for reading and writing little endian bytes.
+pub mod le_bytes {
     // This pattern is mostly copied from
     // https://github.com/BurntSushi/byteorder.
     // We can't use that crate due to rust-lang/cargo#5730.

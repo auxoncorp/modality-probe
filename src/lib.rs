@@ -22,7 +22,7 @@ pub use id::*;
 mod error;
 mod history;
 mod id;
-mod log;
+pub mod log;
 mod macros;
 pub mod report;
 pub mod wire;
@@ -124,7 +124,7 @@ impl PartialOrd for CausalSnapshot {
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "std", derive(Arbitrary))]
-pub struct ProbeEpoch(u16);
+pub struct ProbeEpoch(pub u16);
 
 impl ProbeEpoch {
     /// The maximum value a probe epoch can inhabit.
@@ -137,7 +137,7 @@ impl ProbeEpoch {
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "std", derive(Arbitrary))]
-pub struct ProbeTicks(u16);
+pub struct ProbeTicks(pub u16);
 
 impl ProbeTicks {
     /// The maximum value a probe tick can inhabit.
@@ -188,9 +188,9 @@ pub(crate) struct OrdClock(pub ProbeEpoch, pub ProbeTicks);
 
 impl PartialOrd for OrdClock {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self == other {
+        if (self.0, self.1) == (other.0, other.1) {
             Some(Ordering::Equal)
-        } else if self > other
+        } else if (self.0, self.1) > (other.0, other.1)
             || (self.0 >= ProbeEpoch::WRAPAROUND_THRESHOLD_TOP
                 && other.0 <= ProbeEpoch::WRAPAROUND_THRESHOLD_BOTTOM)
         {
@@ -198,12 +198,6 @@ impl PartialOrd for OrdClock {
         } else {
             Some(Ordering::Less)
         }
-    }
-}
-
-impl Ord for OrdClock {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.partial_cmp(other).unwrap()
     }
 }
 

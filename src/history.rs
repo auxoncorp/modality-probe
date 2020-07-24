@@ -66,6 +66,7 @@ pub struct DynamicHistory<'a> {
     ///   * The first group of items in the log must always be logical clocks,
     /// starting with the local logical clock.
     pub(crate) log: RaceLog<'a>,
+    self_clock: LogicalClock,
     read_cursor: usize,
     report_seq_num: u16,
 }
@@ -153,6 +154,11 @@ impl<'a> DynamicHistory<'a> {
             read_cursor: 0,
             report_seq_num: 0,
             event_count: 0,
+            self_clock: LogicalClock {
+                id: probe_id,
+                epoch: ProbeEpoch(0),
+                ticks: ProbeTicks(0),
+            },
             probe_id,
             clocks,
             log,
@@ -213,8 +219,7 @@ impl<'a> DynamicHistory<'a> {
     fn increment_local_clock(&mut self) {
         // N.B. We rely on the fact that the first member of the clocks
         // collection is always the clock for this probe
-        debug_assert!(self.probe_id == self.clocks[0].id);
-        self.clocks.as_mut_slice()[0].increment();
+        self.self_clock.increment();
         self.event_count = 0;
         self.report_seq_num = 0;
     }
@@ -222,12 +227,12 @@ impl<'a> DynamicHistory<'a> {
     #[inline]
     pub(crate) fn produce_snapshot(&mut self) -> Result<CausalSnapshot, ProduceError> {
         let snap = CausalSnapshot {
-            clock: self.clocks[0],
+            clock: self.self_clock,
             reserved_0: 0,
             reserved_1: 0,
         };
         self.increment_local_clock();
-        self.write_clocks_to_log(&[self.clocks[0]]);
+        self.write_clocks_to_log(&[self.self_clock]);
         Ok(snap)
     }
 
@@ -238,13 +243,13 @@ impl<'a> DynamicHistory<'a> {
     ) -> Result<usize, ProduceError> {
         let mut s = WireCausalSnapshot::new_unchecked(destination);
         s.check_len()?;
-        s.set_probe_id(self.clocks[0].id);
-        s.set_epoch(self.clocks[0].epoch);
-        s.set_ticks(self.clocks[0].ticks);
+        s.set_probe_id(self.self_clock.id);
+        s.set_epoch(self.self_clock.epoch);
+        s.set_ticks(self.self_clock.ticks);
         s.set_reserved_0(0);
         s.set_reserved_1(0);
         self.increment_local_clock();
-        self.write_clocks_to_log(&[self.clocks[0]]);
+        self.write_clocks_to_log(&[self.self_clock]);
         Ok(WireCausalSnapshot::<&[u8]>::min_buffer_len())
     }
 
@@ -282,7 +287,7 @@ impl<'a> DynamicHistory<'a> {
         }
 
         let read_curs = self.read_cursor;
-        let self_clock = self.clocks[0];
+        let self_clock = self.self_clock;
         let clocks_len = self.clocks.len();
         let mut report = WireReport::init_from(destination);
 
@@ -339,6 +344,7 @@ impl<'a> DynamicHistory<'a> {
         report.set_n_log_entries(n_copied as u32);
 
         self.read_cursor = read_curs + n_copied;
+        self.report_seq_num += 1;
         Ok(WireReport::<&[u8]>::HEADER_LEN
             + (clocks_len * size_of::<LogicalClock>())
             + (n_copied * size_of::<LogEntry>()))
@@ -353,7 +359,7 @@ impl<'a> DynamicHistory<'a> {
     ) -> Result<(), MergeError> {
         self.increment_local_clock();
         self.write_clocks_to_log(&[
-            self.clocks[0],
+            self.self_clock,
             LogicalClock {
                 id: external_id,
                 epoch: external_epoch,
@@ -374,7 +380,7 @@ impl<'a> DynamicHistory<'a> {
 
     pub(crate) fn now(&self) -> ModalityProbeInstant {
         ModalityProbeInstant {
-            clock: self.clocks[0],
+            clock: self.self_clock,
             event_count: self.event_count,
         }
     }
@@ -397,6 +403,7 @@ impl<'a> DynamicHistory<'a> {
         }
     }
 
+    // TODO(dan@auxon.io): Combine these
     fn merge_clocks<'c>(clocks: &mut FixedSliceVec<'c, LogicalClock>, ext_clock: LogicalClock) {
         let mut existed = false;
         for c in clocks.iter_mut() {

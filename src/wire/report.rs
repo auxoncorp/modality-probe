@@ -1,7 +1,9 @@
 //! Provides a wire format for a "report" from a probe. A report is a
 //! section of the probe's event log prepended by the most up-to-date
 //! neighbor clocks UP TO that report.
-use crate::{wire::le_bytes, ProbeId};
+use core::mem;
+
+use crate::{log::LogEntry, wire::le_bytes, LogicalClock, ProbeId};
 
 /// A read/write wrapper around a bulk report buffer
 #[derive(Debug, Clone)]
@@ -13,7 +15,7 @@ pub struct WireReport<T: AsRef<[u8]>> {
 /// report from the wire representation
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 // TODO(dan@auxon.io): derive error
-pub enum ReportWireError {
+pub enum WireReportError {
     /// The fingerprint didn't match expectations
     InvalidFingerprint,
     /// There weren't enough bytes for a full header
@@ -58,6 +60,16 @@ impl<T: AsRef<[u8]>> WireReport<T> {
     /// The length of the wire header.
     pub const HEADER_LEN: usize = field::PAYLOAD.start;
 
+    /// Make a new `WireReport` and confirm its fingerprint and
+    /// length.
+    pub fn new(buf: T) -> Result<Self, WireReportError> {
+        let report = WireReport::init_from(buf);
+        report.check_fingerprint()?;
+        report.verify_len()?;
+        Ok(report)
+    }
+
+    // TODO(dan@auxon.io): new_unchecked
     /// Construct a `WireReport` around the given buffer, ready to be
     /// filled with header, clocks, and log entries.
     pub fn init_from(buffer: T) -> Self {
@@ -66,11 +78,11 @@ impl<T: AsRef<[u8]>> WireReport<T> {
 
     /// Check for the expected fingerprint value.
     ///
-    /// Returns `Err(ReportWireError::InvalidFingerprint)` if the fingerprint
+    /// Returns `Err(WireReportError::InvalidFingerprint)` if the fingerprint
     /// does not match.
-    pub fn check_fingerprint(&self) -> Result<(), ReportWireError> {
+    pub fn check_fingerprint(&self) -> Result<(), WireReportError> {
         if self.fingerprint() != Self::FINGERPRINT {
-            Err(ReportWireError::InvalidFingerprint)
+            Err(WireReportError::InvalidFingerprint)
         } else {
             Ok(())
         }
@@ -88,15 +100,56 @@ impl<T: AsRef<[u8]>> WireReport<T> {
         le_bytes::read_u32(&data[field::FINGERPRINT])
     }
 
+    /// Return the `clock` field
+    #[inline]
+    pub fn clock(&self) -> u32 {
+        let data = self.buffer.as_ref();
+        le_bytes::read_u32(&data[field::CLOCK])
+    }
+
+    /// Return the `seq_num` field
+    #[inline]
+    pub fn seq_num(&self) -> u16 {
+        let data = self.buffer.as_ref();
+        le_bytes::read_u16(&data[field::SEQ_NUM])
+    }
+
+    /// Return the `n_clocks` field
+    #[inline]
+    pub fn n_clocks(&self) -> u16 {
+        let data = self.buffer.as_ref();
+        le_bytes::read_u16(&data[field::N_CLOCKS])
+    }
+
+    /// Return the `n_log_entries` field
+    #[inline]
+    pub fn n_log_entries(&self) -> u32 {
+        let data = self.buffer.as_ref();
+        le_bytes::read_u32(&data[field::N_LOG_ENTRIES])
+    }
+
     /// Return the `probe_id` field
     #[inline]
-    pub fn probe_id(&self) -> Result<ProbeId, ReportWireError> {
+    pub fn probe_id(&self) -> Result<ProbeId, WireReportError> {
         let data = self.buffer.as_ref();
         let raw_probe_id = le_bytes::read_u32(&data[field::PROBE_ID]);
         match ProbeId::new(raw_probe_id) {
             Some(id) => Ok(id),
-            None => Err(ReportWireError::InvalidProbeId(raw_probe_id)),
+            None => Err(WireReportError::InvalidProbeId(raw_probe_id)),
         }
+    }
+
+    /// Verify that the length of the buffer jives with the data in
+    /// the header
+    #[inline]
+    pub fn verify_len(&self) -> Result<(), WireReportError> {
+        let clocks_bytes = self.n_clocks() as usize * mem::size_of::<LogicalClock>();
+        let entries_bytes = self.n_log_entries() as usize * mem::size_of::<LogEntry>();
+        if self.buffer.as_ref().len() != clocks_bytes + entries_bytes + Self::HEADER_LEN {
+            // TODO(dan@auxon.io): This is probably not the right error.
+            return Err(WireReportError::IncompletePayload);
+        }
+        Ok(())
     }
 }
 
