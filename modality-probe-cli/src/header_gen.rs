@@ -69,19 +69,19 @@ impl ConstGenerator for Probe {
     fn doc_comment(&self, lang: Lang) -> String {
         match lang {
             Lang::C => format!(
-                "/*\n * Name: {}\n * Description:{}\n * Component UUID: {}\n * Tags:{}\n * Location: {}:{}\n */",
+                "/*\n * Name: {}\n * Description:{}\n * Component ID: {}\n * Tags:{}\n * Location: {}:{}\n */",
                 self.name,
                 pad_nonempty(&self.description),
-                self.uuid,
+                self.component_id,
                 pad_nonempty(&self.tags),
                 self.file,
                 self.line
             ),
             Lang::Rust => format!(
-                "/// Name: {}\n/// Description:{}\n/// Component UUID: {}\n/// Tags:{}\n/// Location: {}:{}",
+                "/// Name: {}\n/// Description:{}\n/// Component ID: {}\n/// Tags:{}\n/// Location: {}:{}",
                 self.name,
                 pad_nonempty(&self.description),
-                self.uuid,
+                self.component_id,
                 pad_nonempty(&self.tags),
                 self.file,
                 self.line
@@ -102,20 +102,20 @@ impl ConstGenerator for Event {
     fn doc_comment(&self, lang: Lang) -> String {
         match lang {
             Lang::C => format!(
-                "/*\n * Name: {}\n * Description:{}\n * Component UUID: {}\n * Tags:{}\n * Payload type:{}\n * Location: {}:{}\n */",
+                "/*\n * Name: {}\n * Description:{}\n * Component ID: {}\n * Tags:{}\n * Payload type:{}\n * Location: {}:{}\n */",
                 self.name,
                 pad_nonempty(&self.description),
-                self.uuid,
+                self.component_id,
                 pad_nonempty(&self.tags),
                 pad_nonempty(&self.type_hint),
                 self.file,
                 self.line
             ),
             Lang::Rust => format!(
-                "/// Name: {}\n/// Description:{}\n/// Component UUID: {}\n/// Tags:{}\n/// Payload type:{}\n/// Location: {}:{}",
+                "/// Name: {}\n/// Description:{}\n/// Component ID: {}\n/// Tags:{}\n/// Payload type:{}\n/// Location: {}:{}",
                 self.name,
                 pad_nonempty(&self.description),
-                self.uuid,
+                self.component_id,
                 pad_nonempty(&self.tags),
                 pad_nonempty(&self.type_hint),
                 self.file,
