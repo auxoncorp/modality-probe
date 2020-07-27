@@ -35,7 +35,7 @@ mod test {
                 file_extensions: None,
                 event_id_offset: None,
                 probe_id_range: None,
-                regen_component_uuid: false,
+                regen_component_id: false,
                 component_name: "component".to_string(),
                 output_path: PathBuf::from("component"),
                 source_path: PathBuf::from("/path"),
@@ -51,7 +51,7 @@ mod test {
                     "--event-id-offset",
                     "10",
                     "--file-extension=c",
-                    "--regen-component-uuid",
+                    "--regen-component-id",
                     "--file-extension=cpp",
                     "--probe-id-range=1..=12",
                     "--output-path",
@@ -72,7 +72,7 @@ mod test {
                 ),
                 component_name: "my-comp".to_string(),
                 output_path: PathBuf::from("/out"),
-                regen_component_uuid: true,
+                regen_component_id: true,
                 source_path: PathBuf::from("/path"),
             })
         );

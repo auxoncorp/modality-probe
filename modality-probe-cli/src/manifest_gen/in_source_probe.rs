@@ -21,7 +21,7 @@ impl InSourceProbe {
 
     pub fn to_probe(&self, id: ProbeId) -> Probe {
         Probe {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id,
             name: self.canonical_name(),
             description: self
@@ -89,7 +89,7 @@ mod tests {
             },
         };
         let in_mf_probe = Probe {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: ProbeId(1),
             name: "PROBE_ID_A".to_string(),
             description: String::from("not in src"),

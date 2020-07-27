@@ -21,7 +21,7 @@ impl InSourceEvent {
 
     pub fn to_event(&self, id: EventId) -> Event {
         Event {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id,
             name: self.canonical_name(),
             description: self
@@ -100,7 +100,7 @@ mod tests {
         };
 
         let in_mf_event = Event {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::from("stuff not in the src"),

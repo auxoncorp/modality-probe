@@ -751,7 +751,7 @@ mod tests {
             },
         };
         let in_mf_probe = Probe {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: ProbeId(1),
             name: "location_a".to_string(),
             description: String::new(),
@@ -778,7 +778,7 @@ mod tests {
         assert_eq!(
             mf_probes.probes,
             vec![Probe {
-                uuid: ComponentUuid::nil(),
+                component_id: ComponentUuid::nil(),
                 id: ProbeId(1),
                 name: "location_a".to_string(),
                 description: String::new(),
@@ -804,7 +804,7 @@ mod tests {
             },
         };
         let in_mf_probe = Probe {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: ProbeId(1),
             name: "location_a".to_string(),
             description: String::new(),
@@ -831,7 +831,7 @@ mod tests {
         assert_eq!(
             mf_probes.probes,
             vec![Probe {
-                uuid: ComponentUuid::nil(),
+                component_id: ComponentUuid::nil(),
                 id: ProbeId(1),
                 name: "location_a".to_string(),
                 description: "desc".to_string(),
@@ -927,7 +927,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -948,7 +948,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -977,7 +977,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -998,7 +998,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -1027,7 +1027,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -1048,7 +1048,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -1077,7 +1077,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -1098,7 +1098,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
-            uuid: ComponentUuid::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: "desc".to_string(),

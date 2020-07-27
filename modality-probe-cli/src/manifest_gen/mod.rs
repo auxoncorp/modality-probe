@@ -54,9 +54,9 @@ pub struct ManifestGen {
     #[structopt(long, parse(try_from_str = NonZeroIdRange::from_str))]
     pub probe_id_range: Option<NonZeroIdRange>,
 
-    /// Regenerate the component UUIDs instead of using existing UUIDs (if present)
+    /// Regenerate the component IDs instead of using existing IDs (if present)
     #[structopt(long)]
-    pub regen_component_uuid: bool,
+    pub regen_component_id: bool,
 
     /// Output path where component files are generated
     #[structopt(short = "-o", long, parse(from_os_str), default_value = "component")]
@@ -75,7 +75,7 @@ impl Default for ManifestGen {
             component_name: String::from("component"),
             event_id_offset: None,
             probe_id_range: None,
-            regen_component_uuid: false,
+            regen_component_id: false,
             output_path: PathBuf::from("component"),
             source_path: PathBuf::from("."),
         }
@@ -166,15 +166,15 @@ pub fn run(opt: ManifestGen) {
         }
     };
 
-    if opt.regen_component_uuid {
+    if opt.regen_component_id {
         component_manifest.id = ComponentUuid::new();
     }
 
     for p in probes.iter_mut() {
-        p.uuid = component_manifest.id;
+        p.component_id = component_manifest.id;
     }
     for e in events.iter_mut() {
-        e.uuid = component_manifest.id;
+        e.component_id = component_manifest.id;
     }
 
     fs::create_dir_all(&component_directory).unwrap_or_exit("Can't create component directory");

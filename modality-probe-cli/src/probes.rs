@@ -19,7 +19,7 @@ pub struct ProbeId(pub u32);
 #[derivative(PartialEq, Hash, PartialOrd)]
 pub struct Probe {
     #[derivative(PartialEq = "ignore", PartialOrd = "ignore", Hash = "ignore")]
-    pub uuid: ComponentUuid,
+    pub component_id: ComponentUuid,
     pub id: ProbeId,
     pub name: String,
     pub description: String,

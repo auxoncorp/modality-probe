@@ -19,7 +19,7 @@ pub struct EventId(pub u32);
 #[derivative(PartialEq, Hash, PartialOrd)]
 pub struct Event {
     #[derivative(PartialEq = "ignore", PartialOrd = "ignore", Hash = "ignore")]
-    pub uuid: ComponentUuid,
+    pub component_id: ComponentUuid,
     pub id: EventId,
     pub name: String,
     pub description: String,
@@ -48,10 +48,10 @@ pub struct Events {
 impl Events {
     /// The events reserved for internal use
     pub fn internal_events() -> Vec<Event> {
-        let uuid = ComponentUuid::nil();
+        let component_id = ComponentUuid::nil();
         vec![
             Event {
-                uuid,
+                component_id,
                 id: EventId(modality_probe::EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw()),
                 name: "INTERNAL_EVENT_PRODUCED_EXTERNAL_REPORT".to_string(),
                 description: "The probe produced a log report for transmission to \
@@ -63,7 +63,7 @@ impl Events {
                 line: String::new(),
             },
             Event {
-                uuid,
+                component_id,
                 id: EventId(modality_probe::EventId::EVENT_LOG_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_LOG_OVERFLOWED".to_string(),
                 description: "There was not sufficient room in memory to store all desired events or clock data"
@@ -74,7 +74,7 @@ impl Events {
                 line: String::new(),
             },
             Event {
-                uuid,
+                component_id,
                 id: EventId(modality_probe::EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_LOGICAL_CLOCK_OVERFLOWED".to_string(),
                 description: "A logical clock's count reached the maximum trackable value"
@@ -85,7 +85,7 @@ impl Events {
                 line: String::new(),
             },
             Event {
-                uuid,
+                component_id,
                 id: EventId(modality_probe::EventId::EVENT_NUM_CLOCKS_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_NUM_CLOCKS_OVERFLOWED".to_string(),
                 description: "The probe did not have enough memory reserved to store enough logical \
