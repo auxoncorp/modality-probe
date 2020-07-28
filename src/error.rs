@@ -57,10 +57,6 @@ pub enum ProduceError {
     ///
     /// Indicates that the end user should provide a larger destination buffer.
     InsufficientDestinationSize,
-    /// A reporting transaction is in progress. Cannot
-    /// do mutating operations on the agent until calling
-    /// `finish_chunked_report`.
-    ReportLockConflict,
 }
 
 /// The errors than can occur when merging in the causal history from some
@@ -79,10 +75,6 @@ pub enum MergeError {
     /// The external history violated a semantic rule of the protocol,
     /// such as by having a probe_id out of the allowed value range.
     ExternalHistorySemantics,
-    /// A reporting transaction is in progress. Cannot
-    /// do mutating operations on the agent until calling
-    /// `finish_chunked_report`.
-    ReportLockConflict,
 }
 /// The error relating to using the `report` method to
 /// produce a full causal history log report.
@@ -92,17 +84,6 @@ pub enum ReportError {
     ///
     /// Indicates that the end user should provide a larger destination buffer.
     InsufficientDestinationSize,
-    /// An unexpected error occurred while writing out the report.
-    ///
-    /// Indicates a logical error in the implementation of this library
-    /// (or its dependencies).
-    Encoding,
-    /// The probe encountered a problem dealing with extension metadata
-    Extension,
-    /// A reporting transaction is in progress. Cannot
-    /// do mutating operations on the agent until calling
-    /// `finish_chunked_report`.
-    ReportLockConflict,
 }
 
 /// General purpose error that captures all errors that arise

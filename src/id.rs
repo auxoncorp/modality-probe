@@ -198,6 +198,9 @@ impl EventId {
     /// neighbors that attempt to communicate with it.
     pub const EVENT_NUM_CLOCKS_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 4) });
+    /// The report destination buffer is too small to fit a header and/or the frontier clocks
+    pub const EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 5) });
 
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[
@@ -205,6 +208,7 @@ impl EventId {
         EventId::EVENT_LOG_OVERFLOWED,
         EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
         EventId::EVENT_NUM_CLOCKS_OVERFLOWED,
+        EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE,
     ];
 
     /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID

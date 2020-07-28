@@ -115,6 +115,7 @@ impl Entry for LogEntry {
 pub(crate) mod log_tests {
     use super::*;
     use crate::id::id_tests::*;
+    use crate::{ProbeEpoch, ProbeId, ProbeTicks};
     use proptest::prelude::*;
 
     prop_compose! {
@@ -125,5 +126,26 @@ pub(crate) mod log_tests {
         ) -> LogicalClock {
             LogicalClock { id, epoch, ticks }
         }
+    }
+
+    #[test]
+    fn expected_representation() {
+        let e = LogEntry::event(EventId::new(4).expect("Could not make EventId"));
+        assert!(!e.has_clock_bit_set());
+
+        let (id, count) = LogEntry::clock(LogicalClock {
+            id: ProbeId::new(4).unwrap(),
+            epoch: ProbeEpoch(0),
+            ticks: ProbeTicks(5),
+        });
+        assert!(id.has_clock_bit_set());
+        assert!(!count.has_clock_bit_set());
+    }
+
+    #[test]
+    fn payload_events_are_well_represented() {
+        let (ev, payload) = LogEntry::event_with_payload(EventId::new(4).unwrap(), 777);
+        assert_eq!(ev.0 & EVENT_WITH_PAYLOAD_MASK, EVENT_WITH_PAYLOAD_MASK);
+        assert_eq!(payload.0, 777);
     }
 }

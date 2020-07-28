@@ -1,5 +1,6 @@
 #![deny(warnings)]
 
+use core::mem;
 use modality_probe::*;
 use std::convert::{TryFrom, TryInto};
 
@@ -173,6 +174,43 @@ fn try_record_event_raw_probe_ids() -> Result<(), ModalityProbeError> {
         .try_record_event(EventId::MAX_INTERNAL_ID + 1)
         .is_err());
     assert!(probe.try_record_event(1).is_ok());
+    Ok(())
+}
+
+#[test]
+fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
+    let mut storage = [0u8; 512];
+    let probe = ModalityProbe::try_initialize_at(&mut storage, 1)?;
+    assert!(probe.try_record_event(0).is_err());
+    assert!(probe.try_record_event(EventId::MAX_USER_ID).is_ok());
+
+    // Only room for a header, hard error since we can't log a single event
+    let mut report_dest = [0u8; 20 + mem::size_of::<log::LogEntry>() - 1];
+    assert_eq!(
+        report_dest.len(),
+        wire::WireReport::<&[u8]>::header_len() + mem::size_of::<log::LogEntry>() - 1
+    );
+    assert_eq!(
+        probe.report(&mut report_dest),
+        Err(ReportError::InsufficientDestinationSize)
+    );
+
+    // Not enough room for the frontier clocks, only a single event
+    let mut report_dest = [0u8; 20 + mem::size_of::<log::LogEntry>()];
+    let bytes_written = probe.report(&mut report_dest)?;
+    let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+
+    // Only a single internal event is logged
+    assert_eq!(log_report.n_clocks(), 0);
+    assert_eq!(log_report.n_log_entries(), 1);
+    assert_eq!(log_report.payload_len(), mem::size_of::<log::LogEntry>());
+    let payload = log_report.payload();
+    let raw_event = u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]);
+    assert_eq!(
+        raw_event,
+        EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE.get_raw()
+    );
+
     Ok(())
 }
 

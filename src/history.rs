@@ -6,7 +6,7 @@ use core::{
 
 use fixed_slice_vec::{
     single::{EmbedValueError, SplitUninitError},
-    FixedSliceVec,
+    FixedSliceVec, TryPushError,
 };
 use race_buffer::writer::OverwrittenEntry;
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_assert_eq};
@@ -69,7 +69,6 @@ pub struct DynamicHistory<'a> {
     ///   * The first group of items in the log must always be logical clocks,
     ///     starting with the local logical clock.
     pub(crate) log: RaceLog<'a>,
-    // TODO - docs
     pub(crate) self_clock: LogicalClock,
     pub(crate) read_cursor: usize,
     pub(crate) report_seq_num: u16,
@@ -225,7 +224,6 @@ impl<'a> DynamicHistory<'a> {
         // collection is always the clock for this probe
         self.self_clock.increment();
         self.event_count = 0;
-        self.report_seq_num = 0;
     }
 
     #[inline]
@@ -237,80 +235,87 @@ impl<'a> DynamicHistory<'a> {
     }
 
     pub(crate) fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
-        // Can I get at least two entries in here
-        // (just in case the first entry is a clock)?
-        if destination.len()
-            < WireReport::<&[u8]>::header_len()
-                + (self.clocks.len() * size_of::<LogicalClock>())
-                + (size_of::<LogEntry>() * 2)
-        {
-            todo!("buffer too small");
+        // If we can't store at least a header and one event, it's a hard error
+        if destination.len() < WireReport::<&[u8]>::buffer_len(0, 1) {
+            return Err(ReportError::InsufficientDestinationSize);
         }
 
-        let read_curs = self.read_cursor;
         let self_clock = self.self_clock;
-        let clocks_len = self.clocks.len();
         let mut report = WireReport::new_unchecked(destination);
-        // TODO - same err as above
-        //report.check_len()?;
-
         report.set_fingerprint();
         report.set_probe_id(self.probe_id);
         report.set_clock(crate::pack_clock_word(self_clock.epoch, self_clock.ticks));
-        report.set_seq_num(self.report_seq_num);
-        report.set_n_clocks(clocks_len as u16);
 
-        let payload = report.payload_mut();
-        for (c, dest_bytes) in self
-            .clocks
-            .iter()
-            .zip(payload.chunks_exact_mut(size_of::<LogicalClock>()))
-        {
-            dest_bytes.copy_from_slice(&c.to_le_bytes());
-        }
+        // We can't store at least the frontier clocks and a single two-word item
+        if report.as_ref().len() < WireReport::<&[u8]>::buffer_len(self.clocks.len(), 2) {
+            report.set_seq_num(self.report_seq_num);
+            report.set_n_clocks(0);
+            report.set_n_log_entries(1);
+            let payload = report.payload_mut();
+            payload[..size_of::<LogEntry>()].copy_from_slice(
+                &EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE
+                    .get_raw()
+                    .to_le_bytes(),
+            );
+        } else {
+            let read_curs = self.read_cursor;
+            let clocks_len = self.clocks.len();
+            report.set_seq_num(self.report_seq_num);
+            report.set_n_clocks(clocks_len as u16);
 
-        let n_log_entries_possible = cmp::min(
-            payload.len() - (clocks_len * size_of::<LogicalClock>()),
-            self.log.write_cursor().saturating_sub(read_curs),
-        );
-
-        let mut n_copied = 0;
-        let mut clock_id = None;
-        let clocks = &mut self.clocks;
-        for (entry, dest_bytes) in self.log.iter(read_curs).zip(
-            payload[clocks_len * size_of::<LogicalClock>()..]
-                .chunks_exact_mut(size_of::<LogEntry>()),
-        ) {
-            match entry {
-                Some(e) => {
-                    if e.has_clock_bit_set() {
-                        if n_copied <= n_log_entries_possible - 2 {
-                            dest_bytes.copy_from_slice(&e.raw().to_le_bytes());
-                            clock_id = ProbeId::new(e.interpret_as_logical_clock_probe_id());
-                            n_copied += 1;
-                        } else {
-                            break;
-                        }
-                    } else {
-                        dest_bytes.copy_from_slice(&e.raw().to_le_bytes());
-                        if let Some(id) = clock_id {
-                            let (epoch, ticks) = crate::unpack_clock_word(e.raw());
-                            Self::merge_clocks(clocks, LogicalClock { id, epoch, ticks });
-                            clock_id = None;
-                        }
-                        n_copied += 1;
-                    }
-                }
-                None => todo!("something to do with a missed item"),
+            let payload = report.payload_mut();
+            for (c, dest_bytes) in self
+                .clocks
+                .iter()
+                .zip(payload.chunks_exact_mut(size_of::<LogicalClock>()))
+            {
+                dest_bytes.copy_from_slice(&c.to_le_bytes());
             }
-        }
-        report.set_n_log_entries(n_copied as u32);
 
-        self.read_cursor = read_curs + n_copied;
+            let n_log_entries_possible = cmp::min(
+                payload.len() - (clocks_len * size_of::<LogicalClock>()),
+                self.log.write_cursor().saturating_sub(read_curs),
+            );
+
+            let mut n_copied = 0;
+            let mut clock_id = None;
+            let clocks = &mut self.clocks;
+            for (entry, dest_bytes) in self.log.iter(read_curs).zip(
+                payload[clocks_len * size_of::<LogicalClock>()..]
+                    .chunks_exact_mut(size_of::<LogEntry>()),
+            ) {
+                match entry {
+                    Some(e) => {
+                        if e.has_clock_bit_set() {
+                            if n_copied <= n_log_entries_possible - 2 {
+                                dest_bytes.copy_from_slice(&e.raw().to_le_bytes());
+                                clock_id = ProbeId::new(e.interpret_as_logical_clock_probe_id());
+                                n_copied += 1;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            dest_bytes.copy_from_slice(&e.raw().to_le_bytes());
+                            if let Some(id) = clock_id {
+                                let (epoch, ticks) = crate::unpack_clock_word(e.raw());
+                                let _ =
+                                    Self::merge_clocks(clocks, LogicalClock { id, epoch, ticks });
+                                clock_id = None;
+                            }
+                            n_copied += 1;
+                        }
+                    }
+                    None => todo!("something to do with a missed item"),
+                }
+            }
+            report.set_n_log_entries(n_copied as u32);
+
+            self.read_cursor = read_curs + n_copied;
+        }
+
         self.report_seq_num = self.report_seq_num.wrapping_add(1);
-        Ok(WireReport::<&[u8]>::header_len()
-            + (clocks_len * size_of::<LogicalClock>())
-            + (n_copied * size_of::<LogEntry>()))
+
+        Ok(WireReport::<&[u8]>::header_len() + report.payload_len())
     }
 
     #[inline]
@@ -393,24 +398,15 @@ impl<'a> DynamicHistory<'a> {
     }
 
     fn merge_clock(&mut self, ext_clock: LogicalClock) {
-        let mut existed = false;
-        for c in self.clocks.iter_mut() {
-            if c.id == ext_clock.id {
-                if OrdClock(ext_clock.epoch, ext_clock.ticks) > OrdClock(c.epoch, c.ticks) {
-                    c.epoch = ext_clock.epoch;
-                    c.ticks = ext_clock.ticks;
-                }
-
-                existed = true;
-            }
-        }
-        if !existed && self.clocks.try_push(ext_clock).is_err() {
+        if Self::merge_clocks(&mut self.clocks, ext_clock).is_err() {
             self.record_event(EventId::EVENT_NUM_CLOCKS_OVERFLOWED);
         }
     }
 
-    // TODO(dan@auxon.io): Combine these
-    fn merge_clocks<'c>(clocks: &mut FixedSliceVec<'c, LogicalClock>, ext_clock: LogicalClock) {
+    fn merge_clocks<'c>(
+        clocks: &mut FixedSliceVec<'c, LogicalClock>,
+        ext_clock: LogicalClock,
+    ) -> Result<(), TryPushError<LogicalClock>> {
         let mut existed = false;
         for c in clocks.iter_mut() {
             if c.id == ext_clock.id {
@@ -422,8 +418,9 @@ impl<'a> DynamicHistory<'a> {
             }
         }
         if !existed {
-            let _ = clocks.try_push(ext_clock);
+            clocks.try_push(ext_clock)?;
         }
+        Ok(())
     }
 }
 
