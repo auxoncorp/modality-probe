@@ -1,4 +1,5 @@
 //! Modality probe, a causal history tracing system
+
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(warnings)]
 #![deny(missing_docs)]
@@ -24,7 +25,6 @@ mod history;
 mod id;
 pub mod log;
 mod macros;
-pub mod report;
 pub mod wire;
 
 /// Snapshot of causal history for transmission around the system.
@@ -191,8 +191,8 @@ impl PartialOrd for OrdClock {
         if (self.0, self.1) == (other.0, other.1) {
             Some(Ordering::Equal)
         } else if (self.0, self.1) > (other.0, other.1)
-            || (self.0 >= ProbeEpoch::WRAPAROUND_THRESHOLD_TOP
-                && other.0 <= ProbeEpoch::WRAPAROUND_THRESHOLD_BOTTOM)
+            || (other.0 >= ProbeEpoch::WRAPAROUND_THRESHOLD_TOP
+                && self.0 <= ProbeEpoch::WRAPAROUND_THRESHOLD_BOTTOM)
         {
             Some(Ordering::Greater)
         } else {
@@ -482,6 +482,7 @@ impl<'a> Probe for ModalityProbe<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::log::log_tests::gen_clock;
     use proptest::prelude::*;
 
     #[test]
@@ -519,34 +520,33 @@ mod tests {
         );
     }
 
-    // TODO(dan@auxon.io): gen_clock
-    // proptest! {
-    //     #[test]
-    //     fn round_trip_causal_snapshot(
-    //         clock in gen_clock(),
-    //         reserved_0 in proptest::num::u16::ANY,
-    //         reserved_1 in proptest::num::u16::ANY) {
-    //         let snap_in = CausalSnapshot {
-    //             clock,
-    //             reserved_0,
-    //             reserved_1,
-    //         };
+    proptest! {
+        #[test]
+        fn round_trip_causal_snapshot(
+            clock in gen_clock(),
+            reserved_0 in proptest::num::u16::ANY,
+            reserved_1 in proptest::num::u16::ANY) {
+            let snap_in = CausalSnapshot {
+                clock,
+                reserved_0,
+                reserved_1,
+            };
 
-    //         let bytes = snap_in.to_le_bytes();
-    //         let snap_out = CausalSnapshot::from_le_bytes(bytes).unwrap();
-    //         assert_eq!(snap_in.clock, snap_out.clock);
-    //         assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
-    //         assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
+            let bytes = snap_in.to_le_bytes();
+            let snap_out = CausalSnapshot::from_le_bytes(bytes).unwrap();
+            assert_eq!(snap_in.clock, snap_out.clock);
+            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
+            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
 
-    //         let mut bytes = [0xFF; 12];
-    //         let bytes_written = snap_in.write_into_le_bytes(&mut bytes[..]).unwrap();
-    //         assert_eq!(bytes_written, size_of::<crate::CausalSnapshot>());
-    //         let snap_out = CausalSnapshot::try_from(&bytes[..]).unwrap();
-    //         assert_eq!(snap_in.clock, snap_out.clock);
-    //         assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
-    //         assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
-    //     }
-    // }
+            let mut bytes = [0xFF; 12];
+            let bytes_written = snap_in.write_into_le_bytes(&mut bytes[..]).unwrap();
+            assert_eq!(bytes_written, size_of::<crate::CausalSnapshot>());
+            let snap_out = CausalSnapshot::try_from(&bytes[..]).unwrap();
+            assert_eq!(snap_in.clock, snap_out.clock);
+            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
+            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
+        }
+    }
 
     #[test]
     fn logical_clock_ordering() {

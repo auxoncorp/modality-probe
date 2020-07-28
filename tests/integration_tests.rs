@@ -1,6 +1,7 @@
-use std::convert::{TryFrom, TryInto};
+#![deny(warnings)]
 
-use modality_probe::{report::wire::*, *};
+use modality_probe::*;
+use std::convert::{TryFrom, TryInto};
 
 struct Buffer {
     buffer: Vec<u8>,
@@ -86,26 +87,36 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     let mut probe = ModalityProbe::new_with_storage(&mut storage_foo, probe_id_foo)?;
     let mut backend = [0u8; 1024];
     let bytes_written = probe.report(&mut backend)?;
-    let log_report = LogReport::try_from_bulk_bytes(&backend[..bytes_written])
+    let log_report = wire::WireReport::new(&backend[..bytes_written])
         .expect("Could not read from bulk report format bytes");
-    assert_eq!(ProbeId::try_from(123).unwrap(), log_report.probe_id);
-    assert_eq!(1, log_report.segments.len());
-    let segment = log_report.segments.first().expect("Should have 1 segment");
-    assert!(segment.events.is_empty());
+    assert_eq!(Ok(ProbeId::try_from(123).unwrap()), log_report.probe_id());
+    assert_eq!(log_report.seq_num(), 0);
+
     assert_eq!(
+        log_report.n_clocks(),
         1,
-        segment.clocks.len(),
-        "only one clock of interest since nothing has been merged in"
+        "Should have 1 clock bucket for own self"
     );
-    let clock = segment
-        .clocks
-        .first()
-        .expect("Should have 1 clock bucket for own self");
-    assert_eq!(123, clock.id.get_raw(), "clock probe ids should match");
+    assert_eq!(log_report.n_log_entries(), 0);
+
+    let payload_len = log_report.payload_len();
+    let payload = &log_report.payload()[..payload_len];
+    assert_eq!(payload_len, core::mem::size_of::<LogicalClock>());
+    assert_eq!(
+        u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]),
+        probe_id_foo.get_raw(),
+        "clock probe ids should match"
+    );
 
     // Expect no increments; this happens after the data is serialized.
-    assert_eq!(0, clock.epoch, "expect no epoch increments");
-    assert_eq!(0, clock.ticks, "expect no clock increments");
+    assert_eq!(log_report.clock(), 0);
+
+    // Another report should bump the sequence number
+    let bytes_written = probe.report(&mut backend)?;
+    let log_report = wire::WireReport::new(&backend[..bytes_written]).unwrap();
+    assert_eq!(Ok(ProbeId::try_from(123).unwrap()), log_report.probe_id());
+    assert_eq!(log_report.seq_num(), 1);
+
     Ok(())
 }
 

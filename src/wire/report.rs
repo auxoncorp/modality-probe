@@ -1,21 +1,14 @@
-//! Provides a wire format for a "report" from a probe. A report is a
-//! section of the probe's event log prepended by the most up-to-date
-//! neighbor clocks UP TO that report.
-use core::mem;
+//! A wire protocol for representing Modality probe log reports.
+//! A report is a section of the probe's event log prepended by
+//! the most up-to-date neighbor clocks UP TO that report.
 
 use crate::{log::LogEntry, wire::le_bytes, LogicalClock, ProbeId};
+use core::mem;
 
-/// A read/write wrapper around a bulk report buffer
-#[derive(Debug, Clone)]
-pub struct WireReport<T: AsRef<[u8]>> {
-    buffer: T,
-}
-
-/// Everything that can go wrong when attempting to interpret a bulk
+/// Everything that can go wrong when attempting to interpret a
 /// report from the wire representation
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-// TODO(dan@auxon.io): derive error
-pub enum WireReportError {
+pub enum ReportWireError {
     /// The fingerprint didn't match expectations
     InvalidFingerprint,
     /// There weren't enough bytes for a full header
@@ -26,6 +19,12 @@ pub enum WireReportError {
     /// The probe id didn't follow the rules for being
     /// a valid Modality probe-specifying ProbeId
     InvalidProbeId(u32),
+}
+
+/// A read/write wrapper around a report buffer
+#[derive(Debug, Clone)]
+pub struct WireReport<T: AsRef<[u8]>> {
+    buffer: T,
 }
 
 mod field {
@@ -51,46 +50,99 @@ mod field {
     pub const N_CLOCKS: Field = 14..16;
     /// The number of log entries present in the payload.
     pub const N_LOG_ENTRIES: Field = 16..20;
+    /// The payload, consists of (in order):
+    /// * Frontier clocks
+    /// * Log entries
     pub const PAYLOAD: Rest = 20..;
 }
 
 impl<T: AsRef<[u8]>> WireReport<T> {
     /// Report fingerprint (MRPT)
     pub const FINGERPRINT: u32 = 0x4D_52_50_54;
-    /// The length of the wire header.
-    pub const HEADER_LEN: usize = field::PAYLOAD.start;
 
-    /// Make a new `WireReport` and confirm its fingerprint and
-    /// length.
-    pub fn new(buf: T) -> Result<Self, WireReportError> {
-        let report = WireReport::init_from(buf);
-        report.check_fingerprint()?;
-        report.verify_len()?;
-        Ok(report)
-    }
-
-    // TODO(dan@auxon.io): new_unchecked
-    /// Construct a `WireReport` around the given buffer, ready to be
-    /// filled with header, clocks, and log entries.
-    pub fn init_from(buffer: T) -> Self {
+    /// Construct a report from a byte buffer
+    pub fn new_unchecked(buffer: T) -> WireReport<T> {
         WireReport { buffer }
     }
 
-    /// Check for the expected fingerprint value.
+    /// Construct a report from a byte buffer, with checks.
     ///
-    /// Returns `Err(WireReportError::InvalidFingerprint)` if the fingerprint
-    /// does not match.
-    pub fn check_fingerprint(&self) -> Result<(), WireReportError> {
-        if self.fingerprint() != Self::FINGERPRINT {
-            Err(WireReportError::InvalidFingerprint)
+    /// A combination of:
+    /// * [new_unchecked](struct.WireReport.html#method.new_unchecked)
+    /// * [check_len](struct.WireReport.html#method.check_len)
+    /// * [check_fingerprint](struct.WireReport.html#method.check_fingerprint)
+    /// * [check_payload_len](struct.WireReport.html#method.check_payload_len)
+    pub fn new(buffer: T) -> Result<Self, ReportWireError> {
+        let r = Self::new_unchecked(buffer);
+        r.check_len()?;
+        r.check_fingerprint()?;
+        r.check_payload_len()?;
+        Ok(r)
+    }
+
+    /// Ensure that no accessor method will panic if called.
+    ///
+    /// Returns `Err(ReportWireError::MissingHeader)` if the buffer
+    /// is too short.
+    pub fn check_len(&self) -> Result<(), ReportWireError> {
+        let len = self.buffer.as_ref().len();
+        if len < field::PAYLOAD.start {
+            Err(ReportWireError::MissingHeader)
         } else {
             Ok(())
         }
     }
 
-    /// Consumes the bulk report, returning the underlying buffer
+    /// Check for the expected fingerprint value.
+    ///
+    /// Returns `Err(ReportWireError::InvalidFingerprint)` if the fingerprint
+    /// does not match.
+    pub fn check_fingerprint(&self) -> Result<(), ReportWireError> {
+        if self.fingerprint() != Self::FINGERPRINT {
+            Err(ReportWireError::InvalidFingerprint)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Ensure the payload size is sufficient to hold bytes according to the header
+    /// fields `n_clocks` and `n_log_entries`.
+    ///
+    /// Returns `Err(ReportWireError::IncompletePayload)` if the buffer
+    /// is too short.
+    pub fn check_payload_len(&self) -> Result<(), ReportWireError> {
+        let payload_len = self.payload_len();
+        let len = self.buffer.as_ref().len();
+        if len < (field::PAYLOAD.start + payload_len) {
+            Err(ReportWireError::IncompletePayload)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Consumes the report, returning the underlying buffer
     pub fn into_inner(self) -> T {
         self.buffer
+    }
+
+    /// Return the length of a report header
+    pub fn header_len() -> usize {
+        field::PAYLOAD.start
+    }
+
+    /// Return the length of a buffer required to hold a report
+    /// with a payload of `n_clocks` + `n_log_entries`
+    pub fn buffer_len(n_clocks: usize, n_log_entries: usize) -> usize {
+        field::PAYLOAD.start
+            + (n_clocks * mem::size_of::<LogicalClock>())
+            + (n_log_entries * mem::size_of::<LogEntry>())
+    }
+
+    /// Return the length of the report payload
+    pub fn payload_len(&self) -> usize {
+        let n_clock_bytes = self.n_clocks() as usize * mem::size_of::<LogicalClock>();
+        let n_log_bytes = self.n_log_entries() as usize * mem::size_of::<LogEntry>();
+        n_clock_bytes + n_log_bytes
     }
 
     /// Return the `fingerprint` field
@@ -98,6 +150,17 @@ impl<T: AsRef<[u8]>> WireReport<T> {
     pub fn fingerprint(&self) -> u32 {
         let data = self.buffer.as_ref();
         le_bytes::read_u32(&data[field::FINGERPRINT])
+    }
+
+    /// Return the `probe_id` field
+    #[inline]
+    pub fn probe_id(&self) -> Result<ProbeId, ReportWireError> {
+        let data = self.buffer.as_ref();
+        let raw_probe_id = le_bytes::read_u32(&data[field::PROBE_ID]);
+        match ProbeId::new(raw_probe_id) {
+            Some(id) => Ok(id),
+            None => Err(ReportWireError::InvalidProbeId(raw_probe_id)),
+        }
     }
 
     /// Return the `clock` field
@@ -127,30 +190,6 @@ impl<T: AsRef<[u8]>> WireReport<T> {
         let data = self.buffer.as_ref();
         le_bytes::read_u32(&data[field::N_LOG_ENTRIES])
     }
-
-    /// Return the `probe_id` field
-    #[inline]
-    pub fn probe_id(&self) -> Result<ProbeId, WireReportError> {
-        let data = self.buffer.as_ref();
-        let raw_probe_id = le_bytes::read_u32(&data[field::PROBE_ID]);
-        match ProbeId::new(raw_probe_id) {
-            Some(id) => Ok(id),
-            None => Err(WireReportError::InvalidProbeId(raw_probe_id)),
-        }
-    }
-
-    /// Verify that the length of the buffer jives with the data in
-    /// the header
-    #[inline]
-    pub fn verify_len(&self) -> Result<(), WireReportError> {
-        let clocks_bytes = self.n_clocks() as usize * mem::size_of::<LogicalClock>();
-        let entries_bytes = self.n_log_entries() as usize * mem::size_of::<LogEntry>();
-        if self.buffer.as_ref().len() != clocks_bytes + entries_bytes + Self::HEADER_LEN {
-            // TODO(dan@auxon.io): This is probably not the right error.
-            return Err(WireReportError::IncompletePayload);
-        }
-        Ok(())
-    }
 }
 
 impl<'a, T: AsRef<[u8]> + ?Sized> WireReport<&'a T> {
@@ -164,7 +203,7 @@ impl<'a, T: AsRef<[u8]> + ?Sized> WireReport<&'a T> {
 
 impl<T: AsRef<[u8]> + AsMut<[u8]>> WireReport<T> {
     /// Set the `fingerprint` field to
-    /// [Self::FINGERPRINT](struct.Report.html#associatedconstant.FINGERPRINT)
+    /// [Self::FINGERPRINT](struct.WireReport.html#associatedconstant.FINGERPRINT)
     #[inline]
     pub fn set_fingerprint(&mut self) {
         let data = self.buffer.as_mut();
@@ -206,8 +245,7 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireReport<T> {
         le_bytes::write_u32(&mut data[field::N_LOG_ENTRIES], value);
     }
 
-    /// Return the payload section of the report as a mutable
-    /// slice. It's used to copy data into a report.
+    /// Return a mutable pointer to the payload
     #[inline]
     pub fn payload_mut(&mut self) -> &mut [u8] {
         &mut self.buffer.as_mut()[field::PAYLOAD.start..]
@@ -217,5 +255,141 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireReport<T> {
 impl<T: AsRef<[u8]>> AsRef<[u8]> for WireReport<T> {
     fn as_ref(&self) -> &[u8] {
         self.buffer.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[rustfmt::skip]
+    static MSG_BYTES: [u8; 48] = [
+        // fingerprint
+        0x54, 0x50, 0x52, 0x4D,
+        // probe_id: 1
+        0x01, 0x00, 0x00, 0x00,
+        // clock: 2
+        0x02, 0x00, 0x00, 0x00,
+        // seq_id: 8
+        0x08, 0x00, 
+        // n_clocks: 2
+        0x02, 0x00,
+        // n_log_entries: 3
+        0x03, 0x00, 0x00, 0x00,
+        // payload
+        0x01, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00,
+        0x03, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00,
+        0x05, 0x00, 0x00, 0x00,
+        0x06, 0x00, 0x00, 0x00,
+        0x07, 0x00, 0x00, 0x00,
+    ];
+
+    #[rustfmt::skip]
+    static PAYLOAD_BYTES: [u8; 28] = [
+        // logical_clock[0]
+        0x01, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00,
+        // logial_clock[1]
+        0x03, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00,
+        // log_entry[0]
+        0x05, 0x00, 0x00, 0x00,
+        // log_entry[1]
+        0x06, 0x00, 0x00, 0x00,
+        // log_entry[2]
+        0x07, 0x00, 0x00, 0x00,
+    ];
+
+    #[test]
+    fn header_len() {
+        assert_eq!(WireReport::<&[u8]>::header_len(), 20);
+        let n_clocks = 12;
+        let n_log_items = 14;
+        assert_eq!(
+            WireReport::<&[u8]>::buffer_len(n_clocks, n_log_items),
+            20 + (12 * mem::size_of::<LogicalClock>()) + (14 * mem::size_of::<LogEntry>())
+        );
+    }
+
+    #[test]
+    fn construct() {
+        let mut bytes = [0xFF; 48];
+        let mut r = WireReport::new_unchecked(&mut bytes[..]);
+        assert_eq!(r.check_len(), Ok(()));
+        r.set_fingerprint();
+        r.set_probe_id(ProbeId::new(1).unwrap());
+        r.set_clock(2);
+        r.set_seq_num(8);
+        r.set_n_clocks(2);
+        r.set_n_log_entries(3);
+        r.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
+        assert_eq!(r.check_fingerprint(), Ok(()));
+        assert_eq!(r.check_payload_len(), Ok(()));
+        assert_eq!(&r.into_inner()[..], &MSG_BYTES[..]);
+    }
+
+    #[test]
+    fn deconstruct() {
+        let r = WireReport::new(&MSG_BYTES[..]).unwrap();
+        assert_eq!(r.fingerprint(), WireReport::<&[u8]>::FINGERPRINT);
+        assert_eq!(r.probe_id().unwrap().get_raw(), 1);
+        assert_eq!(r.clock(), 2);
+        assert_eq!(r.seq_num(), 8);
+        assert_eq!(r.n_clocks(), 2);
+        assert_eq!(r.n_log_entries(), 3);
+        assert_eq!(
+            r.payload_len(),
+            (2 * mem::size_of::<LogicalClock>()) + (3 * mem::size_of::<LogEntry>())
+        );
+        assert_eq!(r.payload(), &PAYLOAD_BYTES[..]);
+        let n_clock_bytes = r.n_clocks() as usize * mem::size_of::<LogicalClock>();
+        let (clock_bytes, log_bytes) = r.payload().split_at(n_clock_bytes as usize);
+        assert_eq!(
+            clock_bytes,
+            [
+                0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00,
+                0x00, 0x00
+            ]
+        );
+        assert_eq!(
+            log_bytes,
+            [0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00,]
+        );
+    }
+
+    #[test]
+    fn invalid_fingerprint() {
+        let bytes = [0xFF; 20];
+        let r = WireReport::new(&bytes[..]);
+        assert_eq!(r.unwrap_err(), ReportWireError::InvalidFingerprint);
+    }
+
+    #[test]
+    fn missing_header() {
+        let bytes = [0xFF; 20 - 1];
+        assert_eq!(bytes.len(), WireReport::<&[u8]>::header_len() - 1);
+        let r = WireReport::new(&bytes[..]);
+        assert_eq!(r.unwrap_err(), ReportWireError::MissingHeader);
+    }
+
+    #[test]
+    fn incomplete_payload() {
+        let mut bytes = MSG_BYTES.clone();
+        let mut r = WireReport::new(&mut bytes[..]).unwrap();
+        r.set_n_clocks(2 + 1);
+        r.set_n_log_entries(3 + 1);
+        let bytes = r.into_inner();
+        let r = WireReport::new(&bytes[..]);
+        assert_eq!(r.unwrap_err(), ReportWireError::IncompletePayload);
+    }
+
+    #[test]
+    fn invalid_probe_id() {
+        let mut bytes = MSG_BYTES.clone();
+        le_bytes::write_u32(&mut bytes[field::PROBE_ID], 0);
+        let r = WireReport::new(&bytes[..]).unwrap();
+        assert_eq!(r.probe_id(), Err(ReportWireError::InvalidProbeId(0)));
     }
 }

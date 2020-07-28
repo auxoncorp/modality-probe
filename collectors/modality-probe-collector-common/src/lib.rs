@@ -3,10 +3,7 @@ use std::mem;
 
 use modality_probe::{
     log::LogEntry,
-    wire::{
-        le_bytes,
-        report::{WireReport, WireReportError},
-    },
+    wire::{le_bytes, ReportWireError, WireReport},
     EventId, LogicalClock, ProbeId,
 };
 
@@ -14,8 +11,8 @@ use modality_probe::{
 #[derive(Debug)]
 pub struct SerializationError;
 
-impl From<WireReportError> for SerializationError {
-    fn from(_: WireReportError) -> Self {
+impl From<ReportWireError> for SerializationError {
+    fn from(_: ReportWireError) -> Self {
         SerializationError
     }
 }

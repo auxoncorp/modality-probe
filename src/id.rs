@@ -388,6 +388,7 @@ pub use prop::*;
 #[cfg(test)]
 pub(crate) mod id_tests {
     use super::*;
+    use crate::{ProbeEpoch, ProbeTicks};
     use proptest::prelude::*;
 
     #[test]
@@ -417,6 +418,14 @@ pub(crate) mod id_tests {
         pub(crate) fn gen_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> ProbeId {
             raw_id.try_into().unwrap()
         }
+    }
+
+    pub(crate) fn gen_probe_epoch() -> impl Strategy<Value = ProbeEpoch> {
+        any::<ProbeEpoch>()
+    }
+
+    pub(crate) fn gen_probe_ticks() -> impl Strategy<Value = ProbeTicks> {
+        any::<ProbeTicks>()
     }
 
     prop_compose! {

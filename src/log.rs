@@ -1,4 +1,5 @@
 //! Types and functionality used for the probe's event storage.
+
 use race_buffer::{writer::RaceBuffer, Entry};
 
 use crate::{pack_clock_word, EventId, LogicalClock};
@@ -26,7 +27,9 @@ pub struct LogEntry(u32);
 impl LogEntry {
     /// Construct an entry without knowing what kind it is.
     ///
-    /// Note: this should be used with caution, for cases where you
+    /// # Safety
+    ///
+    /// This should be used with caution, for cases where you
     /// want to use `LogEntry` to determine the "type" of the raw
     /// value.
     pub unsafe fn new_unchecked(val: u32) -> Self {
@@ -105,5 +108,22 @@ impl core::fmt::Debug for LogEntry {
 impl Entry for LogEntry {
     fn is_prefix(&self) -> bool {
         self.has_clock_bit_set() || self.has_event_with_payload_bit_set()
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod log_tests {
+    use super::*;
+    use crate::id::id_tests::*;
+    use proptest::prelude::*;
+
+    prop_compose! {
+        pub(crate) fn gen_clock()(
+            id in gen_probe_id(),
+            epoch in gen_probe_epoch(),
+            ticks in gen_probe_ticks()
+        ) -> LogicalClock {
+            LogicalClock { id, epoch, ticks }
+        }
     }
 }
