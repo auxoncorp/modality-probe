@@ -64,9 +64,10 @@ impl Events {
             },
             Event {
                 component_id,
-                id: EventId(modality_probe::EventId::EVENT_LOG_OVERFLOWED.get_raw()),
-                name: "INTERNAL_EVENT_LOG_OVERFLOWED".to_string(),
-                description: "There was not sufficient room in memory to store all desired events or clock data"
+                id: EventId(modality_probe::EventId::EVENT_LOG_ITEMS_MISSED.get_raw()),
+                name: "INTERNAL_EVENT_LOG_ITEMS_MISSED".to_string(),
+                description: "n log items were overwritten without successfully getting \
+                    reported to the collector, where n is the payload"
                     .to_string(),
                 tags: "internal".to_string(),
                 type_hint: String::new(),
@@ -88,9 +89,10 @@ impl Events {
                 component_id,
                 id: EventId(modality_probe::EventId::EVENT_NUM_CLOCKS_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_NUM_CLOCKS_OVERFLOWED".to_string(),
-                description: "The probe did not have enough memory reserved to store enough logical \
+                description:
+                    "The probe did not have enough memory reserved to store enough logical \
                     clocks to track all of the unique neighbors that attempt to communicate with it"
-                    .to_string(),
+                        .to_string(),
                 tags: "internal".to_string(),
                 type_hint: String::new(),
                 file: String::new(),

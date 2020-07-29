@@ -187,8 +187,8 @@ impl EventId {
     /// for external analysis.
     pub const EVENT_PRODUCED_EXTERNAL_REPORT: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 1) });
-    /// There was not sufficient room in memory to store all desired events or clock data
-    pub const EVENT_LOG_OVERFLOWED: EventId =
+    /// N log entries were overwritten before getting reported, where n is the payload of this event
+    pub const EVENT_LOG_ITEMS_MISSED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 2) });
     /// A logical clock's count reached the maximum trackable value
     pub const EVENT_LOGICAL_CLOCK_OVERFLOWED: EventId =
@@ -205,7 +205,7 @@ impl EventId {
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[
         EventId::EVENT_PRODUCED_EXTERNAL_REPORT,
-        EventId::EVENT_LOG_OVERFLOWED,
+        EventId::EVENT_LOG_ITEMS_MISSED,
         EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
         EventId::EVENT_NUM_CLOCKS_OVERFLOWED,
         EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE,

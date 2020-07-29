@@ -13,10 +13,7 @@ pub struct SizeError;
 
 impl fmt::Debug for SizeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!(
-            "Storage capacity must be at least {}",
-            MIN_STORAGE_CAP
-        ))
+        write!(f, "Storage capacity must be at least {}", MIN_STORAGE_CAP)
     }
 }
 
@@ -28,6 +25,29 @@ where
     NotYetWritten,
     Missed,
     Entry(E),
+}
+
+/// A single entry which may have been missed
+#[derive(Copy, Clone)]
+pub enum PossiblyMissed<E>
+where
+    E: Entry,
+{
+    Missed,
+    Entry(E),
+}
+
+impl<E> PossiblyMissed<E>
+where
+    E: Entry,
+{
+    /// Unwraps the entry, panicking if it was missed
+    pub fn assume_not_missed(self) -> E {
+        match self {
+            Self::Missed => panic!("Entry assumed to be present but actually was missed"),
+            Self::Entry(e) => e,
+        }
+    }
 }
 
 /// An entry or double entry that has just been overwritten
@@ -98,7 +118,7 @@ where
         (prefix, RaceBuffer::new(storage), suffix)
     }
 
-    /// Write single entry to buffer
+    /// Write single entry to buffer, returning overwritten entry
     pub fn write(&mut self, entry: E) -> OverwrittenEntry<E> {
         let mut overwritten = OverwrittenEntry::None;
         if self.wcurs == self.owcurs {
@@ -122,6 +142,17 @@ where
         self.write_to_storage(self.wcurs, entry);
         self.wcurs += 1;
         overwritten
+    }
+
+    /// Write double entry in single borrow, returning overwritten entry
+    pub fn write_double(
+        &mut self,
+        prefix: E,
+        suffix: E,
+    ) -> (OverwrittenEntry<E>, OverwrittenEntry<E>) {
+        let first_overwritten = self.write(prefix);
+        let second_overwritten = self.write(suffix);
+        (first_overwritten, second_overwritten)
     }
 
     /// Get value of backing storage corresponding to given index
@@ -201,20 +232,20 @@ impl<'a, 'b, E> Iterator for RaceBufferIter<'a, 'b, E>
 where
     E: Entry,
 {
-    type Item = Option<E>;
+    type Item = PossiblyMissed<E>;
 
-    fn next(&mut self) -> Option<Option<E>> {
+    fn next(&mut self) -> Option<PossiblyMissed<E>> {
         match self.race_buffer.read(self.rcurs) {
             // Indicate that the iterator is finished
             ReadEntry::NotYetWritten => None,
             // Iterator not finished, but value was missed
             ReadEntry::Missed => {
                 self.rcurs += 1;
-                Some(None)
+                Some(PossiblyMissed::Missed)
             }
             ReadEntry::Entry(e) => {
                 self.rcurs += 1;
-                Some(Some(e))
+                Some(PossiblyMissed::Entry(e))
             }
         }
     }
