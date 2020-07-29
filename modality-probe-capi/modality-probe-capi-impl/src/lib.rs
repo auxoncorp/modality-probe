@@ -1,6 +1,5 @@
 #![no_std]
-use modality_probe::report::chunked::ChunkedReportError;
-pub use modality_probe::report::chunked::ChunkedReportToken;
+
 use modality_probe::*;
 pub use modality_probe::{CausalSnapshot, ModalityProbe, ModalityProbeInstant};
 
@@ -18,29 +17,18 @@ pub const MODALITY_PROBE_ERROR_INVALID_PROBE_ID: ModalityProbeError = 3;
 pub const MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES: ModalityProbeError = 4;
 /// Bumped into a pointer size limitation
 pub const MODALITY_PROBE_ERROR_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE: ModalityProbeError = 5;
-/// An unexpected error in internal data encoding occurred.
-pub const MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR: ModalityProbeError = 6;
 /// The local probe does not have enough space to track all
 /// of direct neighbors attempting to communicate with it.
 /// Detected during merging.
-pub const MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS: ModalityProbeError = 7;
-
+pub const MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS: ModalityProbeError = 6;
 /// The the external history source buffer we attempted to merge
 /// was insufficiently sized for a valid causal snapshot.
 /// Detected during merging.
-pub const MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES: ModalityProbeError = 8;
+pub const MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES: ModalityProbeError = 7;
 /// The provided external history violated a semantic rule of the protocol;
 /// such as by having a probe_id out of the allowed value range.
 /// Detected during merging.
-pub const MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS: ModalityProbeError = 9;
-/// The probe encountered a problem dealing with extension metadata
-pub const MODALITY_PROBE_ERROR_EXTENSION_ERROR: ModalityProbeError = 10;
-/// The probe attempted to mutate internal state while
-/// a report lock was active.
-pub const MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR: ModalityProbeError = 11;
-/// The probe attempted to do a chunked report operation when no
-/// chunked report has been started.
-pub const MODALITY_PROBE_ERROR_NO_CHUNKED_REPORT_IN_PROGRESS: ModalityProbeError = 12;
+pub const MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS: ModalityProbeError = 8;
 
 /// # Safety
 ///
@@ -156,14 +144,7 @@ pub unsafe fn modality_probe_report(
         log_report_destination_size_bytes,
     )) {
         Ok(b) => b,
-        Err(ReportError::InsufficientDestinationSize) => {
-            return MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES
-        }
-        Err(ReportError::Encoding) => return MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR,
-        Err(ReportError::Extension) => return MODALITY_PROBE_ERROR_EXTENSION_ERROR,
-        Err(ReportError::ReportLockConflict) => {
-            return MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR
-        }
+        Err(e) => report_error_to_modality_probe_error(e),
     };
 
     *out_written_bytes = written_bytes;
@@ -175,9 +156,6 @@ fn report_error_to_modality_probe_error(report_error: ReportError) -> ModalityPr
         ReportError::InsufficientDestinationSize => {
             MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES
         }
-        ReportError::Encoding => MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR,
-        ReportError::Extension => MODALITY_PROBE_ERROR_EXTENSION_ERROR,
-        ReportError::ReportLockConflict => MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
 
@@ -186,7 +164,6 @@ fn produce_error_to_modality_probe_error(produce_error: ProduceError) -> Modalit
         ProduceError::InsufficientDestinationSize => {
             MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES
         }
-        ProduceError::ReportLockConflict => MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
 
@@ -251,7 +228,6 @@ fn merge_error_to_modality_probe_error(merge_error: MergeError) -> ModalityProbe
         MergeError::ExternalHistorySemantics => {
             MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS
         }
-        MergeError::ReportLockConflict => MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR,
     }
 }
 
@@ -327,150 +303,14 @@ pub unsafe fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> Modality
                     // This is intentionally generating an invalid value,
                     // per the documentation above
                     id: core::mem::transmute(0u32),
-                    epoch: 0,
-                    ticks: 0,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
                 },
                 event_count: 0,
             };
         }
     };
     probe.now()
-}
-
-// ChunkedReportToken is expressed as a uint16_t in probe.h,
-// so let's be extra sure that the sizes and alignment match up
-use static_assertions::{assert_eq_align, assert_eq_size};
-assert_eq_size!(u16, ChunkedReportToken);
-assert_eq_align!(u16, ChunkedReportToken);
-
-/// Prepare to write a chunked report.
-///
-/// Populates the out-parameter `out_report_token` with
-/// a value that will be used to produce the
-/// chunks for the report in calls to
-/// `modality_probe_write_next_report_chunk` and
-/// `modality_probe_finish_chunked_report`
-///
-/// Once this method has been called, mutating operations on
-/// the ModalityProbe instance will return
-/// `MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR` until all available chunks
-/// have been written with  `modality_probe_write_next_report_chunk`
-/// and `modality_probe_finish_chunked_report` called.
-///
-/// # Safety
-///
-/// The ModalityProbe instance pointer must be non-null and point
-/// to an initialized instance operating in a single-threaded
-/// fashion.
-///
-/// If the function returns any error besides MODALITY_PROBE_ERROR_OK,
-/// there has been an error, and the out-pointer for the chunked report token
-/// will not be populated.
-#[cfg_attr(feature = "no_mangle", no_mangle)]
-pub unsafe fn modality_probe_start_chunked_report(
-    probe: *mut ModalityProbe<'static>,
-    out_report_token: *mut ChunkedReportToken,
-) -> ModalityProbeError {
-    let probe = match probe.as_mut() {
-        Some(t) => t,
-        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
-    };
-    match probe.start_chunked_report() {
-        Ok(token) => {
-            *out_report_token = token;
-            MODALITY_PROBE_ERROR_OK
-        }
-        Err(e) => chunked_report_error_to_modality_probe_error(e),
-    }
-}
-
-fn chunked_report_error_to_modality_probe_error(cre: ChunkedReportError) -> ModalityProbeError {
-    match cre {
-        ChunkedReportError::ReportError(re) => report_error_to_modality_probe_error(re),
-        ChunkedReportError::NoChunkedReportInProgress => {
-            MODALITY_PROBE_ERROR_NO_CHUNKED_REPORT_IN_PROGRESS
-        }
-    }
-}
-/// Write up to 1 chunk of a report into
-/// the provided destination buffer.
-///
-/// Populates the out-parameter `out_written_bytes` with
-/// the number of report bytes written into the destination.
-///
-/// If the `out_written_bytes` == 0, then no chunk was
-/// written and there are no chunks left in the report.
-///
-/// The provided ChunkedReportToken should match the value
-/// populated by the `modality_probe_start_chunked_report` call
-/// at the start of this chunked report.
-///
-/// # Safety
-///
-/// The ModalityProbe instance pointer must be non-null and point
-/// to an initialized instance operating in a single-threaded
-/// fashion.
-///
-/// The destination buffer pointer must be non-null
-/// and should have an associated size == 256 bytes.
-///
-/// If the function returns any error besides MODALITY_PROBE_ERROR_OK,
-/// there has been an error and the contents of the report destination
-/// are not certain to be initialized or a valid chunk.
-#[cfg_attr(feature = "no_mangle", no_mangle)]
-pub unsafe fn modality_probe_write_next_report_chunk(
-    probe: *mut ModalityProbe<'static>,
-    report_token: *const ChunkedReportToken,
-    log_report_destination: *mut u8,
-    log_report_destination_size_bytes: usize,
-    out_written_bytes: *mut usize,
-) -> ModalityProbeError {
-    let probe = match probe.as_mut() {
-        Some(t) => t,
-        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
-    };
-    if log_report_destination.is_null() {
-        return MODALITY_PROBE_ERROR_NULL_POINTER;
-    }
-    match probe.write_next_report_chunk(
-        &*report_token,
-        core::slice::from_raw_parts_mut(log_report_destination, log_report_destination_size_bytes),
-    ) {
-        Ok(written_bytes) => {
-            *out_written_bytes = written_bytes;
-            MODALITY_PROBE_ERROR_OK
-        }
-        Err(e) => chunked_report_error_to_modality_probe_error(e),
-    }
-}
-/// Necessary clean-up and finishing step at the end
-/// of iterating through a chunked report.
-///
-/// The provided ChunkedReportToken should match the value
-/// populated by the `modality_probe_start_chunked_report` call
-/// at the start of this chunked report.
-///
-/// # Safety
-///
-/// The ModalityProbe instance pointer must be non-null and point
-/// to an initialized instance operating in a single-threaded
-/// fashion.
-///
-/// If the function returns any error besides MODALITY_PROBE_ERROR_OK,
-/// there has been an error.
-#[cfg_attr(feature = "no_mangle", no_mangle)]
-pub unsafe fn modality_probe_finish_chunked_report(
-    probe: *mut ModalityProbe<'static>,
-    report_token: *const ChunkedReportToken,
-) -> ModalityProbeError {
-    let probe = match probe.as_mut() {
-        Some(t) => t,
-        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
-    };
-    match probe.finish_chunked_report(core::ptr::read(report_token)) {
-        Ok(_) => MODALITY_PROBE_ERROR_OK,
-        Err(e) => chunked_report_error_to_modality_probe_error(e),
-    }
 }
 
 #[cfg(test)]

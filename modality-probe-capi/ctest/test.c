@@ -10,11 +10,9 @@
 STATIC_SIZE(modality_logical_clock, sizeof(uint64_t));
 STATIC_SIZE(modality_probe_instant, 12);
 STATIC_SIZE(modality_causal_snapshot, 12);
-STATIC_SIZE(modality_chunked_report_token, sizeof(uint16_t));
 
 static size_t DEFAULT_PROBE_SIZE = 7000;
 static size_t DEFAULT_LOG_STORAGE = 4096;
-static size_t MAX_REPORT_CHUNK_SIZE = 256;
 static uint32_t DEFAULT_PROBE_ID = 314;
 static uint32_t EVENT_A = 100;
 
@@ -269,50 +267,6 @@ bool test_now(void) {
     return passed;
 }
 
-bool test_chunked_reporting(void) {
-    bool passed = true;
-    uint8_t * destination = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
-    modality_probe * t = MODALITY_PROBE_NULL_INITIALIZER;
-    modality_probe_error result = modality_probe_initialize(destination, DEFAULT_PROBE_SIZE, DEFAULT_PROBE_ID, &t);
-    ERROR_CHECK(result, passed);
-
-    uint8_t * log_storage = (uint8_t*)malloc(MAX_REPORT_CHUNK_SIZE);
-    modality_chunked_report_token report_token;
-    result = modality_probe_start_chunked_report(t, &report_token);
-    ERROR_CHECK(result, passed);
-
-    size_t bytes_written;
-    result = modality_probe_write_next_report_chunk(t, &report_token, log_storage, MAX_REPORT_CHUNK_SIZE, &bytes_written);
-    ERROR_CHECK(result, passed);
-    if (bytes_written == 0) {
-        passed = false;
-    }
-    bool all_zeros = true;
-    unsigned int i;
-    for (i = 0; i < DEFAULT_LOG_STORAGE; i++) {
-        if (log_storage[i] != 0) {
-            all_zeros = false;
-            break;
-        }
-    }
-    if (all_zeros) {
-        passed = false;
-    }
-
-    result = modality_probe_write_next_report_chunk(t, &report_token, log_storage, MAX_REPORT_CHUNK_SIZE, &bytes_written);
-    ERROR_CHECK(result, passed);
-    /* Expect the earlier chunk to suffice, so this should be empty */
-    if (bytes_written != 0) {
-        passed = false;
-    }
-    result = modality_probe_finish_chunked_report(t, &report_token);
-    ERROR_CHECK(result, passed);
-
-    free(destination);
-    free(log_storage);
-    return passed;
-}
-
 void run_test(bool (test)(void), const char *name, bool *passed) {
     if (!test()) {
         *passed = false;
@@ -329,7 +283,6 @@ int main(void) {
     run_test(test_event_recording, "test_event_recording", &passed);
     run_test(test_merge, "test_merge", &passed);
     run_test(test_now, "test_now", &passed);
-    run_test(test_chunked_reporting, "test_chunked_reporting", &passed);
     if (!passed) {
         fprintf(stderr, "FAILED c test suite\n");
         exit(1);

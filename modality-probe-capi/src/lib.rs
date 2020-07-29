@@ -2,7 +2,7 @@
 #![feature(lang_items, core_intrinsics)]
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 pub use modality_probe_capi_impl::{
-    CausalSnapshot, ChunkedReportToken, ModalityProbe, ModalityProbeError, ModalityProbeInstant,
+    CausalSnapshot, ModalityProbe, ModalityProbeError, ModalityProbeInstant,
 };
 
 #[no_mangle]
@@ -227,43 +227,6 @@ pub extern "C" fn modality_probe_merge_snapshot_bytes(
 #[no_mangle]
 pub extern "C" fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> ModalityProbeInstant {
     unsafe { modality_probe_capi_impl::modality_probe_now(probe) }
-}
-
-#[no_mangle]
-pub extern "C" fn modality_probe_start_chunked_report(
-    probe: *mut ModalityProbe<'static>,
-    out_report_token: *mut ChunkedReportToken,
-) -> ModalityProbeError {
-    unsafe {
-        modality_probe_capi_impl::modality_probe_start_chunked_report(probe, out_report_token)
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn modality_probe_write_next_report_chunk(
-    probe: *mut ModalityProbe<'static>,
-    report_token: *const ChunkedReportToken,
-    log_report_destination: *mut u8,
-    log_report_destination_size_bytes: usize,
-    out_written_bytes: *mut usize,
-) -> ModalityProbeError {
-    unsafe {
-        modality_probe_capi_impl::modality_probe_write_next_report_chunk(
-            probe,
-            report_token,
-            log_report_destination,
-            log_report_destination_size_bytes,
-            out_written_bytes,
-        )
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn modality_probe_finish_chunked_report(
-    probe: *mut ModalityProbe<'static>,
-    report_token: *const ChunkedReportToken,
-) -> ModalityProbeError {
-    unsafe { modality_probe_capi_impl::modality_probe_finish_chunked_report(probe, report_token) }
 }
 
 #[cfg(not(test))]

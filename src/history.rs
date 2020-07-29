@@ -314,6 +314,7 @@ impl<'a> DynamicHistory<'a> {
         }
 
         self.report_seq_num = self.report_seq_num.wrapping_add(1);
+        self.record_event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT);
 
         Ok(WireReport::<&[u8]>::header_len() + report.payload_len())
     }

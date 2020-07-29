@@ -73,8 +73,6 @@ typedef struct modality_causal_snapshot {
     uint16_t reserved_1;
 } modality_causal_snapshot;
 
-typedef uint16_t modality_chunked_report_token;
-
 typedef enum {
     /*
      * Everything is okay
@@ -102,41 +100,23 @@ typedef enum {
      */
     MODALITY_PROBE_ERROR_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE = 5,
     /*
-     * An unexpected error in internal data encoding occurred.
-     */
-    MODALITY_PROBE_ERROR_INTERNAL_ENCODING_ERROR = 6,
-    /*
      * The local probe does not have enough space to track all
      * of direct neighbors attempting to communicate with it.
      * Detected during merging.
      */
-    MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS = 7,
+    MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS = 6,
     /*
      * The the external history source buffer we attempted to merge
      * was insufficiently sized for a valid causal snapshot.
      * Detected during merging.
      */
-    MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES = 8,
+    MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES = 7,
     /*
      * The provided external history violated a semantic rule of the protocol,
      * such as by having a probe_id out of the allowed value range.
      * Detected during merging.
      */
-    MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS = 9,
-    /*
-     * The probe encountered a problem dealing with extension metadata
-     */
-    MODALITY_PROBE_ERROR_EXTENSION_ERROR = 10,
-    /*
-     * The probe attempted to mutate internal state while
-     * a report lock was active.
-     */
-    MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR = 11,
-    /*
-     * The probe attempted to do a chunked report operation when no
-     * chunked report has been started.
-     */
-    MODALITY_PROBE_ERROR_NO_CHUNKED_REPORT_IN_PROGRESS = 12,
+    MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS = 8,
 } modality_probe_error;
 
 /*
@@ -426,56 +406,6 @@ size_t modality_probe_merge_snapshot_bytes(
  */
 modality_probe_instant modality_probe_now(
         modality_probe *probe);
-
-/*
- * Prepare to write a chunked report.
- *
- * Populates the out-parameter `out_report_token` with
- * a value that will be used to produce the
- * chunks for the report in calls to
- * `modality_probe_write_next_report_chunk` and `modality_probe_finish_chunked_report`
- *
- * Once this method has been called, mutating operations on
- * the Modality probe instance will return `MODALITY_PROBE_ERROR_REPORT_LOCK_CONFLICT_ERROR`
- * until all available chunks have been written with  `modality_probe_write_next_report_chunk`
- * and `modality_probe_finish_chunked_report` called.
- */
-size_t modality_probe_start_chunked_report(
-        modality_probe *probe,
-        modality_chunked_report_token *out_report_token);
-
-/*
- * Write up to 1 chunk of a report into
- * the provided destination buffer.
- *
- * Populates the out-parameter `out_written_bytes` with
- * the number of report bytes written into the destination.
- *
- * If the `out_written_bytes` == 0, then no chunk was
- * written and there are no chunks left in the report.
- *
- * The provided `modality_chunked_report_token` should match the value
- * populated by the `modality_probe_start_chunked_report` call
- * at the start of this chunked report.
- */
-size_t modality_probe_write_next_report_chunk(
-        modality_probe *probe,
-        const modality_chunked_report_token *report_token,
-        uint8_t *log_report_destination,
-        size_t log_report_destination_bytes,
-        size_t *out_written_bytes);
-
-/*
- * Necessary clean-up and finishing step at the end
- * of iterating through a chunked report.
- *
- * The provided ChunkedReportToken should match the value
- * populated by the `modality_probe_start_chunked_report` call
- * at the start of this chunked report.
- */
-size_t modality_probe_finish_chunked_report(
-        modality_probe *probe,
-        const modality_chunked_report_token *report_token);
 
 #ifdef __cplusplus
 } // extern "C"
