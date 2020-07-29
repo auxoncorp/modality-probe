@@ -3,6 +3,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(warnings)]
 #![deny(missing_docs)]
+#![allow(clippy::unit_arg)]
 assert_cfg!(not(target_pointer_width = "16"));
 
 use core::{
@@ -126,6 +127,12 @@ impl PartialOrd for CausalSnapshot {
 #[cfg_attr(feature = "std", derive(Arbitrary))]
 pub struct ProbeEpoch(pub u16);
 
+impl From<u16> for ProbeEpoch {
+    fn from(epoch: u16) -> Self {
+        ProbeEpoch(epoch)
+    }
+}
+
 impl ProbeEpoch {
     /// The maximum value a probe epoch can inhabit.
     pub const MAX: Self = ProbeEpoch(u16::MAX);
@@ -142,6 +149,12 @@ pub struct ProbeTicks(pub u16);
 impl ProbeTicks {
     /// The maximum value a probe tick can inhabit.
     pub const MAX: Self = ProbeTicks(u16::MAX);
+}
+
+impl From<u16> for ProbeTicks {
+    fn from(ticks: u16) -> Self {
+        ProbeTicks(ticks)
+    }
 }
 
 /// Pack the epoch and clock into a u32

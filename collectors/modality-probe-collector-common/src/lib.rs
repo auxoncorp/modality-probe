@@ -1,13 +1,49 @@
-use std::convert::TryFrom;
-use std::mem;
-
+use chrono::prelude::*;
 use modality_probe::{
     log::LogEntry,
     wire::{le_bytes, ReportWireError, WireReport},
     EventId, LogicalClock, ProbeId,
 };
+use std::convert::{TryFrom, TryInto};
+use std::mem;
 
-//TODO(dan@auxon.io): derive error.
+pub mod csv;
+
+macro_rules! newtype {
+   ($(#[$meta:meta])* pub struct $name:ident(pub $t:ty);) => {
+        $(#[$meta])*
+        pub struct $name(pub $t);
+
+        impl From<$t> for $name {
+            fn from(val: $t) -> $name {
+                $name(val)
+            }
+        }
+
+        impl Into<$t> for &$name {
+            fn into(self) -> $t {
+                self.0
+            }
+        }
+    };
+}
+
+newtype! {
+    /// A logical event scope
+    ///
+    /// A session is an arbitrary scope for log events. Event ordering is (via
+    /// sequence and logical clocks) is resolved between events in the same
+    /// session.
+    #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
+    pub struct SessionId(pub u32);
+}
+
+newtype! {
+    /// A log fragment
+    #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
+    pub struct FragmentId(pub u16);
+}
+
 #[derive(Debug)]
 pub struct SerializationError;
 
@@ -23,14 +59,330 @@ pub struct Report {
     pub probe_clock: LogicalClock,
     pub seq_num: u16,
     pub frontier_clocks: Vec<LogicalClock>,
-    pub event_log: Vec<Event>,
+    pub event_log: Vec<EventLogEntry>,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum Event {
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum EventLogEntry {
     Event(EventId),
     EventWithPayload(EventId, u32),
     TraceClock(LogicalClock),
+}
+
+/// A single entry in the log
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct ReportLogEntry {
+    /// The session in which this entry was made. Used to qualify the id field.
+    pub session_id: SessionId,
+
+    /// The fragment to which this entry belongs
+    pub fragment_id: FragmentId,
+
+    /// Where this entry occurs within the fragment
+    pub fragment_index: u32,
+
+    /// The probe that supplied this entry
+    pub probe_id: ProbeId,
+
+    /// This entry's data; a frontier clock, event, event with payload, or a trace clock
+    pub data: LogEntryData,
+
+    /// The time this entry was received by the collector
+    ///
+    /// This is the collector's system clock at the time the entry data was
+    /// received, not when it was created. It is stored for convenience only;
+    /// the logical clock should be used for ordering messages.
+    pub receive_time: DateTime<Utc>,
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum LogEntryData {
+    FrontierClock(LogicalClock),
+    Event(EventId),
+    EventWithPayload(EventId, u32),
+    TraceClock(LogicalClock),
+}
+
+impl From<EventLogEntry> for LogEntryData {
+    fn from(e: EventLogEntry) -> Self {
+        match e {
+            EventLogEntry::Event(id) => LogEntryData::Event(id),
+            EventLogEntry::EventWithPayload(id, p) => LogEntryData::EventWithPayload(id, p),
+            EventLogEntry::TraceClock(lc) => LogEntryData::TraceClock(lc),
+        }
+    }
+}
+
+/// A row in a collected trace.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
+struct LogFileRow {
+    session_id: u32,
+    fragment_id: u16,
+    fragment_index: u32,
+    receive_time: DateTime<Utc>,
+    probe_id: u32,
+    fc_probe_id: Option<u32>,
+    fc_probe_epoch: Option<u16>,
+    fc_probe_clock: Option<u16>,
+    event_id: Option<u32>,
+    event_payload: Option<u32>,
+    tc_probe_id: Option<u32>,
+    tc_probe_epoch: Option<u16>,
+    tc_probe_clock: Option<u16>,
+}
+
+impl From<&ReportLogEntry> for LogFileRow {
+    fn from(e: &ReportLogEntry) -> LogFileRow {
+        LogFileRow {
+            session_id: e.session_id.0,
+            fragment_id: e.fragment_id.0,
+            fragment_index: e.fragment_index,
+            probe_id: e.probe_id.get_raw(),
+            fc_probe_id: match e.data {
+                LogEntryData::FrontierClock(lc) => Some(lc.id.get_raw()),
+                _ => None,
+            },
+            fc_probe_epoch: match e.data {
+                LogEntryData::FrontierClock(lc) => Some(lc.epoch.0),
+                _ => None,
+            },
+            fc_probe_clock: match e.data {
+                LogEntryData::FrontierClock(lc) => Some(lc.ticks.0),
+                _ => None,
+            },
+            event_id: match &e.data {
+                LogEntryData::Event(id) => Some(id.get_raw()),
+                LogEntryData::EventWithPayload(id, _) => Some(id.get_raw()),
+                _ => None,
+            },
+            event_payload: match &e.data {
+                LogEntryData::EventWithPayload(_, payload) => Some(*payload),
+                _ => None,
+            },
+            tc_probe_id: match &e.data {
+                LogEntryData::TraceClock(lc) => Some(lc.id.get_raw()),
+                _ => None,
+            },
+            tc_probe_epoch: match &e.data {
+                LogEntryData::TraceClock(lc) => Some(lc.epoch.0),
+                _ => None,
+            },
+            tc_probe_clock: match &e.data {
+                LogEntryData::TraceClock(lc) => Some(lc.ticks.0),
+                _ => None,
+            },
+            receive_time: e.receive_time,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ReadError {
+    InvalidContent {
+        session_id: SessionId,
+        fragment_id: FragmentId,
+        fragment_index: u32,
+        message: &'static str,
+    },
+    Serialization(Box<dyn std::error::Error>),
+}
+
+impl TryFrom<&LogFileRow> for ReportLogEntry {
+    type Error = ReadError;
+
+    fn try_from(l: &LogFileRow) -> Result<ReportLogEntry, Self::Error> {
+        let session_id: SessionId = l.session_id.into();
+        let fragment_id: FragmentId = l.fragment_id.into();
+        let fragment_index: u32 = l.fragment_index;
+
+        let data = if let Some(fc_probe_id) = l.fc_probe_id {
+            match (l.fc_probe_epoch, l.fc_probe_clock) {
+                (Some(epoch), Some(clock)) => {
+                    LogEntryData::FrontierClock(
+                        LogicalClock {
+                            id: fc_probe_id.try_into().map_err(|_e|
+                                ReadError::InvalidContent {
+                                    session_id,
+                                    fragment_id,
+                                    fragment_index,
+                                    message: "When fc_probe_id is present, it must be a valid modality_probe::ProbeId",
+                                })?,
+                            epoch: epoch.into(),
+                            ticks: clock.into(),
+                        }
+                    )
+                }
+                (None, _) => {
+                    return Err(ReadError::InvalidContent {
+                        session_id,
+                        fragment_id,
+                        fragment_index,
+                        message: "When fc_probe_id is present, fc_probe_epoch must also be present",
+                    });
+                },
+                (_, None) => {
+                    return Err(ReadError::InvalidContent {
+                        session_id,
+                        fragment_id,
+                        fragment_index,
+                        message: "When fc_probe_id is present, fc_probe_clock must also be present",
+                    });
+                },
+            }
+        } else if let Some(event_id) = l.event_id {
+            if l.fc_probe_id.is_some() {
+                return Err(ReadError::InvalidContent {
+                    session_id,
+                    fragment_id,
+                    fragment_index,
+                    message: "When event_id is present, fc_probe_id must be empty",
+                });
+            } else if l.fc_probe_epoch.is_some() {
+                return Err(ReadError::InvalidContent {
+                    session_id,
+                    fragment_id,
+                    fragment_index,
+                    message: "When event_id is present, fc_probe_epoch must be empty",
+                });
+            } else if l.fc_probe_clock.is_some() {
+                return Err(ReadError::InvalidContent {
+                    session_id,
+                    fragment_id,
+                    fragment_index,
+                    message: "When event_id is present, fc_probe_clock must be empty",
+                });
+            } else if l.tc_probe_id.is_some() {
+                return Err(ReadError::InvalidContent {
+                    session_id,
+                    fragment_id,
+                    fragment_index,
+                    message: "When event_id is present, tc_probe_id must be empty",
+                });
+            } else if l.tc_probe_epoch.is_some() {
+                return Err(ReadError::InvalidContent {
+                    session_id,
+                    fragment_id,
+                    fragment_index,
+                    message: "When event_id is present, tc_probe_epoch must be empty",
+                });
+            } else if l.tc_probe_clock.is_some() {
+                return Err(ReadError::InvalidContent {
+                    session_id,
+                    fragment_id,
+                    fragment_index,
+                    message: "When event_id is present, tc_probe_clock must be empty",
+                });
+            }
+
+            let event_id = event_id
+                .try_into()
+                .map_err(|_e| ReadError::InvalidContent {
+                    session_id,
+                    fragment_id,
+                    fragment_index,
+                    message: "Invalid event id",
+                })?;
+
+            if let Some(payload) = l.event_payload {
+                LogEntryData::EventWithPayload(event_id, payload)
+            } else {
+                LogEntryData::Event(event_id)
+            }
+        } else if let Some(tc_probe_id) = l.tc_probe_id {
+            match (l.tc_probe_epoch, l.tc_probe_clock) {
+                (Some(epoch), Some(clock)) => {
+                    LogEntryData::TraceClock(
+                        LogicalClock {
+                            id: tc_probe_id.try_into().map_err(|_e|
+                                ReadError::InvalidContent {
+                                    session_id,
+                                    fragment_id,
+                                    fragment_index,
+                                    message: "When tc_probe_id is present, it must be a valid modality_probe::ProbeId",
+                                })?,
+                            epoch: epoch.into(),
+                            ticks: clock.into(),
+                        }
+                    )
+                }
+                (None, _) => {
+                    return Err(ReadError::InvalidContent {
+                        session_id,
+                        fragment_id,
+                        fragment_index,
+                        message: "When tc_probe_id is present, tc_probe_epoch must also be present",
+                    });
+                },
+                (_, None) => {
+                    return Err(ReadError::InvalidContent {
+                        session_id,
+                        fragment_id,
+                        fragment_index,
+                        message: "When tc_probe_id is present, tc_probe_clock must also be present",
+                    });
+                },
+            }
+        } else {
+            return Err(ReadError::InvalidContent {
+                session_id,
+                fragment_id,
+                fragment_index,
+                message: "Either fc_probe_id, event_id, or tc_probe_id must be preset",
+            });
+        };
+
+        Ok(ReportLogEntry {
+            session_id,
+            fragment_id,
+            fragment_index,
+            probe_id: l
+                .probe_id
+                .try_into()
+                .map_err(|_e| ReadError::InvalidContent {
+                    session_id,
+                    fragment_id,
+                    fragment_index,
+                    message: "probe_id must be a valid modality_probe::ProbeId",
+                })?,
+            data,
+            receive_time: l.receive_time,
+        })
+    }
+}
+
+pub fn add_log_report_to_entries(
+    log_report: &Report,
+    session_id: SessionId,
+    receive_time: DateTime<Utc>,
+    log_entries_buffer: &mut Vec<ReportLogEntry>,
+) {
+    let probe_id = log_report.probe_id;
+    let fragment_id = log_report.seq_num.into();
+    let mut fragment_index = 0;
+
+    for fc in &log_report.frontier_clocks {
+        log_entries_buffer.push(ReportLogEntry {
+            session_id,
+            fragment_id,
+            fragment_index,
+            probe_id,
+            data: LogEntryData::FrontierClock(*fc),
+            receive_time,
+        });
+        fragment_index += 1;
+    }
+
+    for event in &log_report.event_log {
+        log_entries_buffer.push(ReportLogEntry {
+            session_id,
+            fragment_id,
+            fragment_index,
+            probe_id,
+            data: LogEntryData::from(*event),
+            receive_time,
+        });
+        fragment_index += 1;
+    }
 }
 
 impl TryFrom<&[u8]> for Report {
@@ -85,7 +437,7 @@ impl TryFrom<&[u8]> for Report {
                                 .ok_or_else(|| SerializationError)?,
                         );
                     } else {
-                        owned_report.event_log.push(Event::Event(
+                        owned_report.event_log.push(EventLogEntry::Event(
                             raw_entry
                                 .interpret_as_event_id()
                                 .ok_or_else(|| SerializationError)?,
@@ -94,17 +446,15 @@ impl TryFrom<&[u8]> for Report {
                 }
                 Next::Clock(id) => {
                     let (epoch, ticks) = modality_probe::unpack_clock_word(raw);
-                    owned_report.event_log.push(Event::TraceClock(LogicalClock {
-                        id,
-                        epoch,
-                        ticks,
-                    }));
+                    owned_report
+                        .event_log
+                        .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
                     interpret_next_as = Next::DontKnow;
                 }
                 Next::Payload(id) => {
                     owned_report
                         .event_log
-                        .push(Event::EventWithPayload(id, raw));
+                        .push(EventLogEntry::EventWithPayload(id, raw));
                     interpret_next_as = Next::DontKnow;
                 }
             }
@@ -120,12 +470,108 @@ enum Next {
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
+    use super::*;
+    use modality_probe::*;
+    use pretty_assertions::assert_eq;
+    use proptest::prelude::*;
     use std::convert::TryFrom;
 
-    use modality_probe::*;
+    pub fn arb_session_id() -> impl Strategy<Value = SessionId> {
+        any::<u32>().prop_map_into()
+    }
 
-    use super::*;
+    pub fn arb_fragment_id() -> impl Strategy<Value = FragmentId> {
+        any::<u16>().prop_map_into()
+    }
+
+    pub fn arb_fragment_index() -> impl Strategy<Value = u32> {
+        any::<u32>()
+    }
+
+    prop_compose! {
+        pub fn gen_raw_internal_event_id()(
+            raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID
+        ) -> u32 {
+            raw_id
+        }
+    }
+
+    prop_compose! {
+        pub fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
+            raw_id
+        }
+    }
+
+    pub fn arb_event_id() -> impl Strategy<Value = EventId> {
+        prop_oneof![
+            gen_raw_internal_event_id().prop_map(|id| EventId::new_internal(id).unwrap()),
+            gen_raw_user_event_id().prop_map(|id| EventId::new(id).unwrap()),
+        ]
+    }
+
+    prop_compose! {
+        pub fn arb_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> ProbeId {
+            ProbeId::new(raw_id).unwrap()
+        }
+    }
+
+    pub fn arb_probe_epoch() -> impl Strategy<Value = ProbeEpoch> {
+        any::<ProbeEpoch>()
+    }
+
+    pub fn arb_probe_clock() -> impl Strategy<Value = ProbeTicks> {
+        any::<ProbeTicks>()
+    }
+
+    pub fn arb_datetime() -> impl Strategy<Value = DateTime<Utc>> {
+        any::<i64>().prop_map(|n| Utc.timestamp_nanos(n))
+    }
+
+    pub fn arb_logical_clock() -> impl Strategy<Value = LogicalClock> {
+        (arb_probe_id(), arb_probe_epoch(), arb_probe_clock())
+            .prop_map(|(id, epoch, ticks)| LogicalClock { id, epoch, ticks })
+    }
+
+    pub fn arb_log_entry_data() -> impl Strategy<Value = LogEntryData> {
+        let fc = arb_logical_clock()
+            .prop_map(|lc| LogEntryData::FrontierClock(lc))
+            .boxed();
+        let eid = arb_event_id()
+            .prop_map(|id| LogEntryData::Event(id))
+            .boxed();
+        let eid_wp = (arb_event_id(), any::<u32>())
+            .prop_map(|(id, p)| LogEntryData::EventWithPayload(id, p))
+            .boxed();
+        let tc = arb_logical_clock()
+            .prop_map(|lc| LogEntryData::TraceClock(lc))
+            .boxed();
+        fc.prop_union(eid).or(eid_wp).or(tc)
+    }
+
+    pub fn arb_log_entry() -> impl Strategy<Value = ReportLogEntry> {
+        (
+            arb_session_id(),
+            arb_fragment_id(),
+            arb_fragment_index(),
+            arb_probe_id(),
+            arb_log_entry_data(),
+            arb_datetime(),
+        )
+            .prop_map(
+                |(session_id, fragment_id, fragment_index, probe_id, data, receive_time)| {
+                    ReportLogEntry {
+                        session_id,
+                        fragment_id,
+                        fragment_index,
+                        probe_id,
+                        data,
+                        receive_time,
+                    }
+                },
+            )
+    }
+
     #[test]
     fn report_e2e() {
         let mut storage1 = vec![0; 1024];
@@ -143,9 +589,9 @@ mod test {
         .unwrap();
 
         p1.record_event(EventId::new(1).unwrap());
-        let mut report1 = vec![0; 512];
-        let n_bytes = p1.report(&mut report1).unwrap();
-        let mut o_report = Report::try_from(&report1[..n_bytes]).unwrap();
+        let mut report_dest = vec![0; 512];
+        let n_bytes = p1.report(&mut report_dest).unwrap();
+        let mut o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -161,15 +607,15 @@ mod test {
                     epoch: ProbeEpoch(0),
                     ticks: ProbeTicks(0),
                 }],
-                event_log: vec![Event::Event(EventId::new(1).unwrap())],
+                event_log: vec![EventLogEntry::Event(EventId::new(1).unwrap())],
             }
         );
 
         let snap = p1.produce_snapshot().unwrap();
         p2.record_event(EventId::new(2).unwrap());
         p2.merge_snapshot(&snap).unwrap();
-        let n_bytes = p1.report(&mut report1).unwrap();
-        o_report = Report::try_from(&report1[..n_bytes]).unwrap();
+        let n_bytes = p1.report(&mut report_dest).unwrap();
+        o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -179,21 +625,24 @@ mod test {
                     epoch: ProbeEpoch(1),
                     ticks: ProbeTicks(1),
                 },
-                seq_num: 0,
+                seq_num: 1,
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(1).unwrap(),
                     epoch: ProbeEpoch(0),
                     ticks: ProbeTicks(0),
                 }],
-                event_log: vec![Event::TraceClock(LogicalClock {
-                    id: ProbeId::new(1).unwrap(),
-                    epoch: ProbeEpoch(1),
-                    ticks: ProbeTicks(1),
-                })],
+                event_log: vec![
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT),
+                    EventLogEntry::TraceClock(LogicalClock {
+                        id: ProbeId::new(1).unwrap(),
+                        epoch: ProbeEpoch(1),
+                        ticks: ProbeTicks(1),
+                    })
+                ],
             }
         );
-        let n_bytes = p2.report(&mut report1).unwrap();
-        o_report = Report::try_from(&report1[..n_bytes]).unwrap();
+        let n_bytes = p2.report(&mut report_dest).unwrap();
+        o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -210,13 +659,13 @@ mod test {
                     ticks: ProbeTicks(0),
                 }],
                 event_log: vec![
-                    Event::Event(EventId::new(2).unwrap()),
-                    Event::TraceClock(LogicalClock {
+                    EventLogEntry::Event(EventId::new(2).unwrap()),
+                    EventLogEntry::TraceClock(LogicalClock {
                         id: ProbeId::new(2).unwrap(),
                         epoch: ProbeEpoch(1),
                         ticks: ProbeTicks(1),
                     }),
-                    Event::TraceClock(LogicalClock {
+                    EventLogEntry::TraceClock(LogicalClock {
                         id: ProbeId::new(1).unwrap(),
                         epoch: ProbeEpoch(0),
                         ticks: ProbeTicks(0),

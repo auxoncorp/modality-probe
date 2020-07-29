@@ -3,9 +3,9 @@ use std::{
     io::{Read, Write},
 };
 
-use super::{LogEntry, LogFileRow, ReadError};
+use super::{LogFileRow, ReadError, ReportLogEntry};
 
-pub fn write_log_entries<'a, W: Write, E: IntoIterator<Item = &'a LogEntry>>(
+pub fn write_log_entries<'a, W: Write, E: IntoIterator<Item = &'a ReportLogEntry>>(
     w: &mut W,
     entries: E,
     include_header_row: bool,
@@ -29,16 +29,15 @@ impl From<csv::Error> for ReadError {
     }
 }
 
-pub fn read_log_entries<R: Read>(r: &mut R) -> Result<Vec<LogEntry>, ReadError> {
+pub fn read_log_entries<R: Read>(r: &mut R) -> Result<Vec<ReportLogEntry>, ReadError> {
     let mut csv = csv::Reader::from_reader(r);
     csv.deserialize()
-        .map(|line| Ok(LogEntry::try_from(&line?)?))
+        .map(|line| Ok(ReportLogEntry::try_from(&line?)?))
         .collect()
 }
 
 #[cfg(test)]
 mod test {
-
     use proptest::prelude::*;
 
     proptest! {

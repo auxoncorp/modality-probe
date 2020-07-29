@@ -94,7 +94,7 @@ impl LogEntry {
 
     /// Convert to an event id.
     pub fn interpret_as_event_id(&self) -> Option<EventId> {
-        EventId::new(self.0)
+        EventId::new(self.0).or_else(|| EventId::new_internal(self.0))
     }
 }
 
