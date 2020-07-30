@@ -1,9 +1,5 @@
 use crate::{get_cursor_index, Entry};
 use core::iter::Iterator;
-<<<<<<< HEAD
-use core::mem::size_of;
-=======
->>>>>>> report-unity
 use core::mem::MaybeUninit;
 
 #[cfg(not(feature = "std"))]

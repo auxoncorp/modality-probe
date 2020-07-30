@@ -42,24 +42,19 @@ const_assert_eq!(4, align_of::<CausalSnapshot>());
 const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
-const_assert_eq!(
-    6 + size_of::<ProbeId>()
-        + size_of::<u32>()
-        + size_of::<FixedSliceVec<'_, LogicalClock>>()
-        + size_of::<RaceLog<'_>>()
-        + size_of::<LogicalClock>()
-        + size_of::<usize>()
-        + size_of::<u16>(),
-    size_of::<DynamicHistory>()
-);
-
 /// Manages the core of a probe in-memory implementation
 /// backed by runtime-sized arrays of current logical clocks
 /// and probe log items
+/// 
+/// Note: overwrite_priority, probe_id, and log must be accessed by the debug collector.
+/// No non-repr(C) fields or usizes (including refs or slices) should be put before those fields,
+/// as that would result in the offsets of those fields to change depending on the architecture.
 #[derive(Debug)]
 #[repr(C)]
 pub struct DynamicHistory<'a> {
+    pub(crate) overwrite_priority: OverwritePriorityLevel,
     pub(crate) probe_id: ProbeId,
+    pub(crate) log: RaceLog<'a>,
     /// The number of events seen since the current
     /// probe's logical clock last increased.
     pub(crate) event_count: u32,
@@ -67,10 +62,13 @@ pub struct DynamicHistory<'a> {
     ///   * The first clock is always that of the local probe id
     pub(crate) clocks: FixedSliceVec<'a, LogicalClock>,
     pub(crate) self_clock: LogicalClock,
-    pub(crate) log: RaceLog<'a>,
     pub(crate) read_cursor: usize,
     pub(crate) report_seq_num: u16,
 }
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct OverwritePriorityLevel(pub u32);
 
 #[derive(Debug)]
 struct ClocksFullError;
@@ -152,6 +150,7 @@ impl<'a> DynamicHistory<'a> {
                 "The History.clocks field should always contain a clock for this probe instance",
             );
         let history = DynamicHistory {
+            overwrite_priority: OverwritePriorityLevel(0),
             read_cursor: 0,
             report_seq_num: 0,
             event_count: 0,
