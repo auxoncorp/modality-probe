@@ -20,6 +20,7 @@ std = ["serde", "proptest", "schemars", "proptest-derive"]
 members = [
   "modality-probe-cli",
   "collectors/modality-probe-udp-collector",
+  "collectors/modality-probe-debug-collector",
   "collectors/modality-probe-collector-common",
 ]
 exclude = ["debian-package", "./collectors", "race-buffer"]
