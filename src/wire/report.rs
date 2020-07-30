@@ -4,6 +4,9 @@
 
 use crate::{log::LogEntry, wire::le_bytes, LogicalClock, ProbeId};
 use core::mem;
+use static_assertions::assert_eq_size;
+
+assert_eq_size!(LogEntry, u32);
 
 /// Everything that can go wrong when attempting to interpret a
 /// report from the wire representation

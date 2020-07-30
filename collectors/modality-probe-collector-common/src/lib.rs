@@ -4,10 +4,13 @@ use modality_probe::{
     wire::{le_bytes, ReportWireError, WireReport},
     EventId, LogicalClock, ProbeId,
 };
+use static_assertions::assert_eq_size;
 use std::convert::{TryFrom, TryInto};
 use std::mem;
 
 pub mod csv;
+
+assert_eq_size!(LogEntry, u32);
 
 macro_rules! newtype {
    ($(#[$meta:meta])* pub struct $name:ident(pub $t:ty);) => {
@@ -39,9 +42,9 @@ newtype! {
 }
 
 newtype! {
-    /// A log fragment
+    /// A log sequence number
     #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
-    pub struct FragmentId(pub u16);
+    pub struct SequenceNumber(pub u16);
 }
 
 #[derive(Debug)]
@@ -75,11 +78,11 @@ pub struct ReportLogEntry {
     /// The session in which this entry was made. Used to qualify the id field.
     pub session_id: SessionId,
 
-    /// The fragment to which this entry belongs
-    pub fragment_id: FragmentId,
+    /// The sequence number to which this entry belongs
+    pub sequence_number: SequenceNumber,
 
-    /// Where this entry occurs within the fragment
-    pub fragment_index: u32,
+    /// Where this entry occurs within the sequence number
+    pub sequence_index: u32,
 
     /// The probe that supplied this entry
     pub probe_id: ProbeId,
@@ -117,8 +120,8 @@ impl From<EventLogEntry> for LogEntryData {
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
 struct LogFileRow {
     session_id: u32,
-    fragment_id: u16,
-    fragment_index: u32,
+    sequence_number: u16,
+    sequence_index: u32,
     receive_time: DateTime<Utc>,
     probe_id: u32,
     fc_probe_id: Option<u32>,
@@ -135,8 +138,8 @@ impl From<&ReportLogEntry> for LogFileRow {
     fn from(e: &ReportLogEntry) -> LogFileRow {
         LogFileRow {
             session_id: e.session_id.0,
-            fragment_id: e.fragment_id.0,
-            fragment_index: e.fragment_index,
+            sequence_number: e.sequence_number.0,
+            sequence_index: e.sequence_index,
             probe_id: e.probe_id.get_raw(),
             fc_probe_id: match e.data {
                 LogEntryData::FrontierClock(lc) => Some(lc.id.get_raw()),
@@ -180,8 +183,8 @@ impl From<&ReportLogEntry> for LogFileRow {
 pub enum ReadError {
     InvalidContent {
         session_id: SessionId,
-        fragment_id: FragmentId,
-        fragment_index: u32,
+        sequence_number: SequenceNumber,
+        sequence_index: u32,
         message: &'static str,
     },
     Serialization(Box<dyn std::error::Error>),
@@ -192,8 +195,8 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
 
     fn try_from(l: &LogFileRow) -> Result<ReportLogEntry, Self::Error> {
         let session_id: SessionId = l.session_id.into();
-        let fragment_id: FragmentId = l.fragment_id.into();
-        let fragment_index: u32 = l.fragment_index;
+        let sequence_number: SequenceNumber = l.sequence_number.into();
+        let sequence_index: u32 = l.sequence_index;
 
         let data = if let Some(fc_probe_id) = l.fc_probe_id {
             match (l.fc_probe_epoch, l.fc_probe_clock) {
@@ -203,8 +206,8 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                             id: fc_probe_id.try_into().map_err(|_e|
                                 ReadError::InvalidContent {
                                     session_id,
-                                    fragment_id,
-                                    fragment_index,
+                                    sequence_number,
+                                    sequence_index,
                                     message: "When fc_probe_id is present, it must be a valid modality_probe::ProbeId",
                                 })?,
                             epoch: epoch.into(),
@@ -215,16 +218,16 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                 (None, _) => {
                     return Err(ReadError::InvalidContent {
                         session_id,
-                        fragment_id,
-                        fragment_index,
+                        sequence_number,
+                        sequence_index,
                         message: "When fc_probe_id is present, fc_probe_epoch must also be present",
                     });
                 },
                 (_, None) => {
                     return Err(ReadError::InvalidContent {
                         session_id,
-                        fragment_id,
-                        fragment_index,
+                        sequence_number,
+                        sequence_index,
                         message: "When fc_probe_id is present, fc_probe_clock must also be present",
                     });
                 },
@@ -233,43 +236,43 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
             if l.fc_probe_id.is_some() {
                 return Err(ReadError::InvalidContent {
                     session_id,
-                    fragment_id,
-                    fragment_index,
+                    sequence_number,
+                    sequence_index,
                     message: "When event_id is present, fc_probe_id must be empty",
                 });
             } else if l.fc_probe_epoch.is_some() {
                 return Err(ReadError::InvalidContent {
                     session_id,
-                    fragment_id,
-                    fragment_index,
+                    sequence_number,
+                    sequence_index,
                     message: "When event_id is present, fc_probe_epoch must be empty",
                 });
             } else if l.fc_probe_clock.is_some() {
                 return Err(ReadError::InvalidContent {
                     session_id,
-                    fragment_id,
-                    fragment_index,
+                    sequence_number,
+                    sequence_index,
                     message: "When event_id is present, fc_probe_clock must be empty",
                 });
             } else if l.tc_probe_id.is_some() {
                 return Err(ReadError::InvalidContent {
                     session_id,
-                    fragment_id,
-                    fragment_index,
+                    sequence_number,
+                    sequence_index,
                     message: "When event_id is present, tc_probe_id must be empty",
                 });
             } else if l.tc_probe_epoch.is_some() {
                 return Err(ReadError::InvalidContent {
                     session_id,
-                    fragment_id,
-                    fragment_index,
+                    sequence_number,
+                    sequence_index,
                     message: "When event_id is present, tc_probe_epoch must be empty",
                 });
             } else if l.tc_probe_clock.is_some() {
                 return Err(ReadError::InvalidContent {
                     session_id,
-                    fragment_id,
-                    fragment_index,
+                    sequence_number,
+                    sequence_index,
                     message: "When event_id is present, tc_probe_clock must be empty",
                 });
             }
@@ -278,8 +281,8 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                 .try_into()
                 .map_err(|_e| ReadError::InvalidContent {
                     session_id,
-                    fragment_id,
-                    fragment_index,
+                    sequence_number,
+                    sequence_index,
                     message: "Invalid event id",
                 })?;
 
@@ -296,8 +299,8 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                             id: tc_probe_id.try_into().map_err(|_e|
                                 ReadError::InvalidContent {
                                     session_id,
-                                    fragment_id,
-                                    fragment_index,
+                                    sequence_number,
+                                    sequence_index,
                                     message: "When tc_probe_id is present, it must be a valid modality_probe::ProbeId",
                                 })?,
                             epoch: epoch.into(),
@@ -308,16 +311,16 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                 (None, _) => {
                     return Err(ReadError::InvalidContent {
                         session_id,
-                        fragment_id,
-                        fragment_index,
+                        sequence_number,
+                        sequence_index,
                         message: "When tc_probe_id is present, tc_probe_epoch must also be present",
                     });
                 },
                 (_, None) => {
                     return Err(ReadError::InvalidContent {
                         session_id,
-                        fragment_id,
-                        fragment_index,
+                        sequence_number,
+                        sequence_index,
                         message: "When tc_probe_id is present, tc_probe_clock must also be present",
                     });
                 },
@@ -325,23 +328,23 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
         } else {
             return Err(ReadError::InvalidContent {
                 session_id,
-                fragment_id,
-                fragment_index,
+                sequence_number,
+                sequence_index,
                 message: "Either fc_probe_id, event_id, or tc_probe_id must be preset",
             });
         };
 
         Ok(ReportLogEntry {
             session_id,
-            fragment_id,
-            fragment_index,
+            sequence_number,
+            sequence_index,
             probe_id: l
                 .probe_id
                 .try_into()
                 .map_err(|_e| ReadError::InvalidContent {
                     session_id,
-                    fragment_id,
-                    fragment_index,
+                    sequence_number,
+                    sequence_index,
                     message: "probe_id must be a valid modality_probe::ProbeId",
                 })?,
             data,
@@ -357,31 +360,31 @@ pub fn add_log_report_to_entries(
     log_entries_buffer: &mut Vec<ReportLogEntry>,
 ) {
     let probe_id = log_report.probe_id;
-    let fragment_id = log_report.seq_num.into();
-    let mut fragment_index = 0;
+    let sequence_number = log_report.seq_num.into();
+    let mut sequence_index = 0;
 
     for fc in &log_report.frontier_clocks {
         log_entries_buffer.push(ReportLogEntry {
             session_id,
-            fragment_id,
-            fragment_index,
+            sequence_number,
+            sequence_index,
             probe_id,
             data: LogEntryData::FrontierClock(*fc),
             receive_time,
         });
-        fragment_index += 1;
+        sequence_index += 1;
     }
 
     for event in &log_report.event_log {
         log_entries_buffer.push(ReportLogEntry {
             session_id,
-            fragment_id,
-            fragment_index,
+            sequence_number,
+            sequence_index,
             probe_id,
             data: LogEntryData::from(*event),
             receive_time,
         });
-        fragment_index += 1;
+        sequence_index += 1;
     }
 }
 
@@ -469,6 +472,78 @@ enum Next {
     DontKnow,
 }
 
+impl Report {
+    pub fn write_into_le_bytes(&self, bytes: &mut [u8]) -> Result<usize, ReportWireError> {
+        let mut wire = WireReport::new_unchecked(bytes);
+        wire.check_len()?;
+        wire.set_fingerprint();
+        wire.set_probe_id(self.probe_id);
+        wire.set_clock(modality_probe::pack_clock_word(
+            self.probe_clock.epoch,
+            self.probe_clock.ticks,
+        ));
+        wire.set_seq_num(self.seq_num);
+        wire.set_n_clocks(self.frontier_clocks.len() as _);
+
+        let num_u32_entries: usize = self
+            .event_log
+            .iter()
+            .map(|e| match e {
+                EventLogEntry::Event(_) => 1,
+                EventLogEntry::EventWithPayload(_, _) => 2,
+                EventLogEntry::TraceClock(_) => {
+                    mem::size_of::<LogicalClock>() / mem::size_of::<u32>()
+                }
+            })
+            .sum();
+
+        wire.set_n_log_entries(num_u32_entries as _);
+        wire.check_payload_len()?;
+
+        let payload = wire.payload_mut();
+        let n_clock_bytes = self.frontier_clocks.len() * mem::size_of::<LogicalClock>();
+        for (src_clock, dest_bytes) in self
+            .frontier_clocks
+            .iter()
+            .zip(payload[..n_clock_bytes].chunks_exact_mut(mem::size_of::<LogicalClock>()))
+        {
+            let (entry_a, entry_b) = LogEntry::clock(*src_clock);
+            le_bytes::write_u32(&mut dest_bytes[..4], entry_a.raw());
+            le_bytes::write_u32(&mut dest_bytes[4..8], entry_b.raw());
+        }
+
+        let mut byte_cursor = n_clock_bytes;
+        for src_entry in self.event_log.iter() {
+            match src_entry {
+                EventLogEntry::Event(id) => {
+                    let entry = LogEntry::event(*id);
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                }
+                EventLogEntry::EventWithPayload(id, p) => {
+                    let (entry_a, entry_b) = LogEntry::event_with_payload(*id, *p);
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry_a.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry_b.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                }
+                EventLogEntry::TraceClock(lc) => {
+                    let (entry_a, entry_b) = LogEntry::clock(*lc);
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry_a.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry_b.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                }
+            }
+        }
+
+        Ok(WireReport::<&[u8]>::buffer_len(
+            self.frontier_clocks.len(),
+            num_u32_entries as _,
+        ))
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
@@ -481,11 +556,11 @@ pub(crate) mod test {
         any::<u32>().prop_map_into()
     }
 
-    pub fn arb_fragment_id() -> impl Strategy<Value = FragmentId> {
+    pub fn arb_sequence_number() -> impl Strategy<Value = SequenceNumber> {
         any::<u16>().prop_map_into()
     }
 
-    pub fn arb_fragment_index() -> impl Strategy<Value = u32> {
+    pub fn arb_sequence_index() -> impl Strategy<Value = u32> {
         any::<u32>()
     }
 
@@ -552,18 +627,18 @@ pub(crate) mod test {
     pub fn arb_log_entry() -> impl Strategy<Value = ReportLogEntry> {
         (
             arb_session_id(),
-            arb_fragment_id(),
-            arb_fragment_index(),
+            arb_sequence_number(),
+            arb_sequence_index(),
             arb_probe_id(),
             arb_log_entry_data(),
             arb_datetime(),
         )
             .prop_map(
-                |(session_id, fragment_id, fragment_index, probe_id, data, receive_time)| {
+                |(session_id, sequence_number, sequence_index, probe_id, data, receive_time)| {
                     ReportLogEntry {
                         session_id,
-                        fragment_id,
-                        fragment_index,
+                        sequence_number,
+                        sequence_index,
                         probe_id,
                         data,
                         receive_time,
@@ -591,7 +666,7 @@ pub(crate) mod test {
         p1.record_event(EventId::new(1).unwrap());
         let mut report_dest = vec![0; 512];
         let n_bytes = p1.report(&mut report_dest).unwrap();
-        let mut o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
+        let o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -611,11 +686,15 @@ pub(crate) mod test {
             }
         );
 
+        let bytes_written = o_report.write_into_le_bytes(&mut report_dest[..]).unwrap();
+        let i_report = Report::try_from(&report_dest[..bytes_written]).unwrap();
+        assert_eq!(o_report, i_report);
+
         let snap = p1.produce_snapshot().unwrap();
         p2.record_event(EventId::new(2).unwrap());
         p2.merge_snapshot(&snap).unwrap();
         let n_bytes = p1.report(&mut report_dest).unwrap();
-        o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
+        let o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -641,8 +720,14 @@ pub(crate) mod test {
                 ],
             }
         );
+
+        let bytes_written = o_report.write_into_le_bytes(&mut report_dest[..]).unwrap();
+        let i_report = Report::try_from(&report_dest[..bytes_written]).unwrap();
+        assert_eq!(o_report, i_report);
+
+        p2.record_event_with_payload(EventId::new(8).unwrap(), 10);
         let n_bytes = p2.report(&mut report_dest).unwrap();
-        o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
+        let o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -669,9 +754,14 @@ pub(crate) mod test {
                         id: ProbeId::new(1).unwrap(),
                         epoch: ProbeEpoch(0),
                         ticks: ProbeTicks(0),
-                    })
+                    }),
+                    EventLogEntry::EventWithPayload(EventId::new(8).unwrap(), 10),
                 ],
             }
         );
+
+        let bytes_written = o_report.write_into_le_bytes(&mut report_dest[..]).unwrap();
+        let i_report = Report::try_from(&report_dest[..bytes_written]).unwrap();
+        assert_eq!(o_report, i_report);
     }
 }

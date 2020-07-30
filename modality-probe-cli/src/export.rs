@@ -312,7 +312,7 @@ fn add_internal_events(
     let nil_uuid = Uuid::nil();
     for ie in Events::internal_events() {
         let ev = EventMeta {
-            uuid: nil_uuid,
+            component_id: nil_uuid,
             id: ie.id.0,
             name: ie.name,
             type_hint: if ie.type_hint.is_empty() {
@@ -362,18 +362,18 @@ name = "two"
 id = "bba61171-e4b5-4db4-8cbb-8b4f4a581ca2"
 "#;
     const PROBE_ONE_CONTENT: &'static str = "
-uuid,id,name,description,tags,file,line
+component_id,id,name,description,tags,file,line
 bba61171-e4b5-4db4-8cbb-8b4f4a581cb1,1,PROBE_ONE,probe one,example,examples/event-recording.rs,26";
     const PROBE_TWO_CONTENT: &'static str = "
-uuid,id,name,description,tags,file,line
+component_id,id,name,description,tags,file,line
 bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,PROBE_TWO,probe two,example,examples/event-recording.rs,26";
 
     const EVENT_ONE_CONTENT: &'static str = "
-uuid,id,name,description,tags,type_hint,file,line
+component_id,id,name,description,tags,type_hint,file,line
 bba61171-e4b5-4db4-8cbb-8b4f4a581cb1,1,TEST_ONE,test event one,,,,
 ";
     const EVENT_TWO_CONTENT: &'static str = "
-uuid,id,name,description,tags,type_hint,file,line
+component_id,id,name,description,tags,type_hint,file,line
 bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,
 ";
 
@@ -411,7 +411,8 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,
                 (
                     1,
                     ProbeMeta {
-                        uuid: Uuid::parse_str("bba61171-e4b5-4db4-8cbb-8b4f4a581cb1").unwrap(),
+                        component_id: Uuid::parse_str("bba61171-e4b5-4db4-8cbb-8b4f4a581cb1")
+                            .unwrap(),
                         id: 1,
                         name: "PROBE_ONE".to_string(),
                         description: "probe one".to_string(),
@@ -422,7 +423,8 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,
                 (
                     2,
                     ProbeMeta {
-                        uuid: Uuid::parse_str("bba61171-e4b5-4db4-8cbb-8b4f4a581cb2").unwrap(),
+                        component_id: Uuid::parse_str("bba61171-e4b5-4db4-8cbb-8b4f4a581cb2")
+                            .unwrap(),
                         id: 2,
                         name: "PROBE_TWO".to_string(),
                         description: "probe two".to_string(),
@@ -441,7 +443,8 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,
                         1,
                     ),
                     EventMeta {
-                        uuid: Uuid::parse_str("bba61171-e4b5-4db4-8cbb-8b4f4a581cb1").unwrap(),
+                        component_id: Uuid::parse_str("bba61171-e4b5-4db4-8cbb-8b4f4a581cb1")
+                            .unwrap(),
                         id: 1,
                         name: "TEST_ONE".to_string(),
                         description: "test event one".to_string(),
@@ -457,7 +460,8 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,
                         2,
                     ),
                     EventMeta {
-                        uuid: Uuid::parse_str("bba61171-e4b5-4db4-8cbb-8b4f4a581cb2").unwrap(),
+                        component_id: Uuid::parse_str("bba61171-e4b5-4db4-8cbb-8b4f4a581cb2")
+                            .unwrap(),
                         id: 2,
                         name: "TEST_TWO".to_string(),
                         description: "test event two".to_string(),

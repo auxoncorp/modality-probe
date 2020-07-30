@@ -66,11 +66,12 @@ impl Events {
                 component_id,
                 id: EventId(modality_probe::EventId::EVENT_LOG_ITEMS_MISSED.get_raw()),
                 name: "INTERNAL_EVENT_LOG_ITEMS_MISSED".to_string(),
-                description: "n log items were overwritten without successfully getting \
-                    reported to the collector, where n is the payload"
+                description: "Some log items were overwritten without successfully getting \
+                    reported to the collector, the number of missed entries is stored\
+                    in the payload"
                     .to_string(),
                 tags: "internal".to_string(),
-                type_hint: String::new(),
+                type_hint: "u32".to_string(),
                 file: String::new(),
                 line: String::new(),
             },
@@ -93,6 +94,20 @@ impl Events {
                     "The probe did not have enough memory reserved to store enough logical \
                     clocks to track all of the unique neighbors that attempt to communicate with it"
                         .to_string(),
+                tags: "internal".to_string(),
+                type_hint: String::new(),
+                file: String::new(),
+                line: String::new(),
+            },
+            Event {
+                component_id,
+                id: EventId(
+                    modality_probe::EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE.get_raw(),
+                ),
+                name: "EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE".to_string(),
+                description: "The report destination buffer is too small to fit a header \
+                    and/or the frontier clocks"
+                    .to_string(),
                 tags: "internal".to_string(),
                 type_hint: String::new(),
                 file: String::new(),

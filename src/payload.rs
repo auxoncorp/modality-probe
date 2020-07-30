@@ -211,7 +211,7 @@ where
             num_read += 1;
         }
     }
-    return (num_written, num_read, clocks_overflowed);
+    (num_written, num_read, clocks_overflowed)
 }
 
 /// Push frontier clocks to output

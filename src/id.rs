@@ -187,7 +187,8 @@ impl EventId {
     /// for external analysis.
     pub const EVENT_PRODUCED_EXTERNAL_REPORT: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 1) });
-    /// N log entries were overwritten before getting reported, where n is the payload of this event
+    /// Some log entries were overwritten before getting reported, the number of missed
+    /// entries is stored in the payload.
     pub const EVENT_LOG_ITEMS_MISSED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 2) });
     /// A logical clock's count reached the maximum trackable value

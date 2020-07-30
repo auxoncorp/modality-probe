@@ -427,7 +427,7 @@ mod test {
                     (
                         1,
                         ProbeMeta {
-                            uuid: uuids[0].clone(),
+                            component_id: uuids[0].clone(),
                             id: 1,
                             name: "one".to_string(),
                             description: "one".to_string(),
@@ -438,7 +438,7 @@ mod test {
                     (
                         2,
                         ProbeMeta {
-                            uuid: uuids[1].clone(),
+                            component_id: uuids[1].clone(),
                             id: 2,
                             name: "two".to_string(),
                             description: "two".to_string(),
@@ -449,7 +449,7 @@ mod test {
                     (
                         3,
                         ProbeMeta {
-                            uuid: uuids[2].clone(),
+                            component_id: uuids[2].clone(),
                             id: 3,
                             name: "three".to_string(),
                             description: "three".to_string(),
@@ -460,7 +460,7 @@ mod test {
                     (
                         4,
                         ProbeMeta {
-                            uuid: uuids[3].clone(),
+                            component_id: uuids[3].clone(),
                             id: 4,
                             name: "four".to_string(),
                             description: "four".to_string(),
@@ -475,7 +475,7 @@ mod test {
                     (
                         (comp_uuid, 1),
                         EventMeta {
-                            uuid: uuids[0].clone(),
+                            component_id: uuids[0].clone(),
                             id: 1,
                             name: "one".to_string(),
                             type_hint: None,
@@ -488,7 +488,7 @@ mod test {
                     (
                         (comp_uuid, 2),
                         EventMeta {
-                            uuid: uuids[1].clone(),
+                            component_id: uuids[1].clone(),
                             id: 2,
                             name: "two".to_string(),
                             type_hint: None,
@@ -501,7 +501,7 @@ mod test {
                     (
                         (comp_uuid, 3),
                         EventMeta {
-                            uuid: uuids[2].clone(),
+                            component_id: uuids[2].clone(),
                             id: 3,
                             name: "three".to_string(),
                             type_hint: None,
@@ -514,7 +514,7 @@ mod test {
                     (
                         (comp_uuid, 4),
                         EventMeta {
-                            uuid: uuids[3].clone(),
+                            component_id: uuids[3].clone(),
                             id: 4,
                             name: "four".to_string(),
                             type_hint: None,

@@ -17,7 +17,7 @@ pub struct ReportEvent {
 /// A row in the events.csv for a component.
 #[derive(PartialEq, Debug, Clone, Deserialize)]
 pub struct EventMeta {
-    pub uuid: Uuid,
+    pub component_id: Uuid,
     pub id: u32,
     pub name: String,
     pub type_hint: Option<String>,
@@ -36,7 +36,7 @@ impl EventMeta {
 /// A row in probes.csv for a component.
 #[derive(PartialEq, Debug, Clone, Deserialize)]
 pub struct ProbeMeta {
-    pub uuid: Uuid,
+    pub component_id: Uuid,
     pub id: u32,
     pub name: String,
     pub description: String,

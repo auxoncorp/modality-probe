@@ -262,18 +262,21 @@ impl<'a> DynamicHistory<'a> {
             report.set_n_clocks(clocks_len as u16);
 
             let mut payload = report.payload_mut();
-            let (n_items_written, n_items_read, _did_clocks_overflow) = write_report_payload(
+            let (n_items_written, n_items_read, did_clocks_overflow) = write_report_payload(
                 self.log.iter(self.read_cursor),
                 &mut FrontierClocksFSV::new(&mut self.clocks),
                 &mut PayloadOutputByteSlice::new(&mut payload),
             );
             report.set_n_log_entries(n_items_written as u32);
 
-            // TODO(nspringer@auxon.io): - use did_clocks_overflow
-
-            // TODO(nspringer@auxon.io): - change to racebuffer sequence number add once racebuffer looping changes land
+            // TODO(nspringer@auxon.io): change to racebuffer sequence number
+            // once racebuffer looping changes land
             self.read_cursor += n_items_read;
             report.set_n_log_entries(n_items_written as u32);
+
+            if did_clocks_overflow {
+                self.record_event(EventId::EVENT_NUM_CLOCKS_OVERFLOWED);
+            }
         }
 
         self.report_seq_num = self.report_seq_num.wrapping_add(1);

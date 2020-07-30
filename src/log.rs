@@ -81,8 +81,9 @@ impl LogEntry {
         (self.0 & EVENT_WITH_PAYLOAD_MASK) == EVENT_WITH_PAYLOAD_MASK
     }
 
+    /// Get the underlying value as a convenient primitive
     #[inline]
-    pub(crate) fn raw(self) -> u32 {
+    pub fn raw(self) -> u32 {
         self.0
     }
 
@@ -93,8 +94,10 @@ impl LogEntry {
     }
 
     /// Convert to an event id.
+    #[inline]
     pub fn interpret_as_event_id(&self) -> Option<EventId> {
-        EventId::new(self.0).or_else(|| EventId::new_internal(self.0))
+        let id = self.0 & !EVENT_WITH_PAYLOAD_MASK;
+        EventId::new(id).or_else(|| EventId::new_internal(id))
     }
 }
 

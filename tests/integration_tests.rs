@@ -103,8 +103,13 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     let payload_len = log_report.payload_len();
     let payload = &log_report.payload()[..payload_len];
     assert_eq!(payload_len, core::mem::size_of::<LogicalClock>());
+    let item = unsafe {
+        log::LogEntry::new_unchecked(u32::from_le_bytes([
+            payload[0], payload[1], payload[2], payload[3],
+        ]))
+    };
     assert_eq!(
-        u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]),
+        item.interpret_as_logical_clock_probe_id(),
         probe_id_foo.get_raw(),
         "clock probe ids should match"
     );
