@@ -12,7 +12,7 @@ cargo clean
 
 (
     cd examples
-    rm -f Component.toml probes.csv events.csv generated_ids/mod.rs
+    rm -rf example-component generated_ids/mod.rs
 )
 
 (

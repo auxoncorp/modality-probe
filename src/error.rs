@@ -46,26 +46,17 @@ pub enum StorageSetupError {
     NullDestination,
 }
 
-/// The errors than can occur when distributing (exporting a serialized
-/// version of) a probe's causal history for use by some other probe instance.
+/// The errors than can occur when producing a probe's
+/// causal history for use by some other probe instance.
 ///
-/// Returned in the error cases for the `distribute_snapshot` and
-/// `distribute_fixed_size_snapshot` functions
+/// Returned in the error cases for the `produce_snapshot` and
+/// `produce_snapshot_bytes` functions.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DistributeError {
+pub enum ProduceError {
     /// The destination that is receiving the history is not big enough.
     ///
     /// Indicates that the end user should provide a larger destination buffer.
     InsufficientDestinationSize,
-    /// An unexpected error occurred while writing out causal history.
-    ///
-    /// Indicates a logical error in the implementation of this library
-    /// (or its dependencies).
-    Encoding,
-    /// A reporting transaction is in progress. Cannot
-    /// do mutating operations on the agent until calling
-    /// `finish_chunked_report`.
-    ReportLockConflict,
 }
 
 /// The errors than can occur when merging in the causal history from some
@@ -78,16 +69,12 @@ pub enum MergeError {
     /// The local probe does not have enough space to track all
     /// of direct neighbors attempting to communicate with it.
     ExceededAvailableClocks,
-    /// The the external history we attempted to merge was encoded
-    /// in an invalid fashion.
-    ExternalHistoryEncoding,
+    /// The the external history source buffer we attempted to merge
+    /// was insufficiently sized for a valid causal snapshot.
+    InsufficientSourceSize,
     /// The external history violated a semantic rule of the protocol,
     /// such as by having a probe_id out of the allowed value range.
     ExternalHistorySemantics,
-    /// A reporting transaction is in progress. Cannot
-    /// do mutating operations on the agent until calling
-    /// `finish_chunked_report`.
-    ReportLockConflict,
 }
 /// The error relating to using the `report` method to
 /// produce a full causal history log report.
@@ -97,17 +84,6 @@ pub enum ReportError {
     ///
     /// Indicates that the end user should provide a larger destination buffer.
     InsufficientDestinationSize,
-    /// An unexpected error occurred while writing out the report.
-    ///
-    /// Indicates a logical error in the implementation of this library
-    /// (or its dependencies).
-    Encoding,
-    /// The probe encountered a problem dealing with extension metadata
-    Extension,
-    /// A reporting transaction is in progress. Cannot
-    /// do mutating operations on the agent until calling
-    /// `finish_chunked_report`.
-    ReportLockConflict,
 }
 
 /// General purpose error that captures all errors that arise
@@ -127,9 +103,9 @@ pub enum ModalityProbeError {
     InvalidProbeId,
     /// An error relating to the initialization of an ModalityProbe instance.
     InitializationError(InitializationError),
-    /// The errors than can occur when using the `distribute_snapshot`
-    /// and `distribute_fixed_size_snapshot` functions.
-    DistributeError(DistributeError),
+    /// The errors than can occur when using the `produce_snapshot`
+    /// and `produce_snapshot_bytes` functions.
+    ProduceError(ProduceError),
     /// The errors than can occur when using the `merge_snapshot`
     /// and `merge_fixed_size_snapshot` functions.
     MergeError(MergeError),
@@ -159,10 +135,10 @@ impl From<InitializationError> for ModalityProbeError {
     }
 }
 
-impl From<DistributeError> for ModalityProbeError {
+impl From<ProduceError> for ModalityProbeError {
     #[inline]
-    fn from(e: DistributeError) -> Self {
-        ModalityProbeError::DistributeError(e)
+    fn from(e: ProduceError) -> Self {
+        ModalityProbeError::ProduceError(e)
     }
 }
 

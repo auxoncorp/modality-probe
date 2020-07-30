@@ -1,5 +1,5 @@
 use crate::{
-    component::{ComponentHasherExt, ComponentUuId},
+    component::{ComponentHasherExt, ComponentUuid},
     error::GracefulExit,
     exit_error,
 };
@@ -19,7 +19,7 @@ pub struct ProbeId(pub u32);
 #[derivative(PartialEq, Hash, PartialOrd)]
 pub struct Probe {
     #[derivative(PartialEq = "ignore", PartialOrd = "ignore", Hash = "ignore")]
-    pub uuid: ComponentUuId,
+    pub component_id: ComponentUuid,
     pub id: ProbeId,
     pub name: String,
     pub description: String,
@@ -37,7 +37,7 @@ impl Probe {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Hash, Debug)]
 pub struct Probes {
     pub path: PathBuf,
     pub probes: Vec<Probe>,
@@ -79,16 +79,6 @@ impl Probes {
         writer.flush().unwrap_or_exit("Can't flush probes writer");
     }
 
-    pub fn next_available_probe_id(&self) -> u32 {
-        // Probe IDs are NonZeroU32, and therefore start at 1
-        1 + self
-            .probes
-            .iter()
-            .map(|probe| probe.id.0)
-            .max()
-            .unwrap_or(0)
-    }
-
     pub fn validate_ids(&self) {
         self.probes.iter().for_each(|probe| {
             if modality_probe::ProbeId::new(probe.id.0).is_none() {
@@ -118,6 +108,14 @@ impl Probes {
         for p in self.probes.iter() {
             p.instrumentation_hash(state);
         }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Probe> {
+        self.probes.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Probe> {
+        self.probes.iter_mut()
     }
 }
 

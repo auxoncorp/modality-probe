@@ -30,11 +30,11 @@ cli = ["structopt"]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
-modality-probe = { path = ".." }
+modality-probe = { path = "../../", features = ["std"] }
+modality-probe-collector-common = { path = "../modality-probe-collector-common" }
 rust-lcm-codec = "0.2.1"
 static_assertions = "1.1.0"
 structopt = { version = "0.3", optional = true }
-util = { path = "../util" }
 
 [build-dependencies]
 rust-lcm-codegen = "0.2.1"
@@ -45,4 +45,5 @@ lazy_static = "1.4.0"
 proc-graph = "0.1.0"
 proptest = "0.9"
 tempfile = "3"
-modality-probe = { path = ".." }
+pretty_assertions = "0.6"
+modality-probe = { path = "../../" }

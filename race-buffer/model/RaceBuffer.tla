@@ -293,6 +293,13 @@ InvReadBufferNotTooBig ==
 InvStoredPrefixNotSuffix == 
   storedPrefix.type = "NONE" \/ storedPrefix.type = "PREFIX"
 
+(* The overwrite cursor is incremented by 2 when overwriting a double entry.
+   Therefore, it should never point to a suffix. *)
+InvOverwriteCursorNotOnSuffix ==
+    IF owcurs >= BufCapacity 
+    THEN ~(Read(owcurs).type = "SUFFIX")
+    ELSE TRUE
+
 (* Check that every non-nil entry is at the correct index in the read buffer *)
 InvCorrectIndices == 
   IF Size(rbuf) > 0 
@@ -307,5 +314,14 @@ InvConsistentDoubles ==
     /\ ~(rbuf[0].type = "SUFFIX" \/ rbuf[Size(rbuf)-1].type = "PREFIX")
     /\ \A i \in 0..(Size(rbuf)-2): 
           rbuf[i].type = "PREFIX" <=> rbuf[i+1].type = "SUFFIX"
+
+Invariants == 
+  /\ InvRcursBehindWcurs
+  /\ InvWcursBehindOwcurs
+  /\ InvReadBufferNotTooBig
+  /\ InvStoredPrefixNotSuffix
+  /\ InvOverwriteCursorNotOnSuffix
+  /\ InvCorrectIndices
+  /\ InvConsistentDoubles
 
 =============================================================================

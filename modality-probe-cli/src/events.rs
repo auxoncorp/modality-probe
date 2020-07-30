@@ -1,5 +1,5 @@
 use crate::{
-    component::{ComponentHasherExt, ComponentUuId},
+    component::{ComponentHasherExt, ComponentUuid},
     error::GracefulExit,
     exit_error,
 };
@@ -19,7 +19,7 @@ pub struct EventId(pub u32);
 #[derivative(PartialEq, Hash, PartialOrd)]
 pub struct Event {
     #[derivative(PartialEq = "ignore", PartialOrd = "ignore", Hash = "ignore")]
-    pub uuid: ComponentUuId,
+    pub component_id: ComponentUuid,
     pub id: EventId,
     pub name: String,
     pub description: String,
@@ -39,7 +39,7 @@ impl Event {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, PartialEq, PartialOrd, Hash, Debug)]
 pub struct Events {
     pub path: PathBuf,
     pub events: Vec<Event>,
@@ -48,10 +48,10 @@ pub struct Events {
 impl Events {
     /// The events reserved for internal use
     pub fn internal_events() -> Vec<Event> {
-        let uuid = ComponentUuId::nil();
+        let component_id = ComponentUuid::nil();
         vec![
             Event {
-                uuid,
+                component_id,
                 id: EventId(modality_probe::EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw()),
                 name: "INTERNAL_EVENT_PRODUCED_EXTERNAL_REPORT".to_string(),
                 description: "The probe produced a log report for transmission to \
@@ -63,18 +63,20 @@ impl Events {
                 line: String::new(),
             },
             Event {
-                uuid,
-                id: EventId(modality_probe::EventId::EVENT_LOG_OVERFLOWED.get_raw()),
-                name: "INTERNAL_EVENT_LOG_OVERFLOWED".to_string(),
-                description: "There was not sufficient room in memory to store all desired events or clock data"
+                component_id,
+                id: EventId(modality_probe::EventId::EVENT_LOG_ITEMS_MISSED.get_raw()),
+                name: "INTERNAL_EVENT_LOG_ITEMS_MISSED".to_string(),
+                description: "Some log items were overwritten without successfully getting \
+                    reported to the collector, the number of missed entries is stored\
+                    in the payload"
                     .to_string(),
                 tags: "internal".to_string(),
-                type_hint: String::new(),
+                type_hint: "u32".to_string(),
                 file: String::new(),
                 line: String::new(),
             },
             Event {
-                uuid,
+                component_id,
                 id: EventId(modality_probe::EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_LOGICAL_CLOCK_OVERFLOWED".to_string(),
                 description: "A logical clock's count reached the maximum trackable value"
@@ -85,11 +87,26 @@ impl Events {
                 line: String::new(),
             },
             Event {
-                uuid,
+                component_id,
                 id: EventId(modality_probe::EventId::EVENT_NUM_CLOCKS_OVERFLOWED.get_raw()),
                 name: "INTERNAL_EVENT_NUM_CLOCKS_OVERFLOWED".to_string(),
-                description: "The probe did not have enough memory reserved to store enough logical \
+                description:
+                    "The probe did not have enough memory reserved to store enough logical \
                     clocks to track all of the unique neighbors that attempt to communicate with it"
+                        .to_string(),
+                tags: "internal".to_string(),
+                type_hint: String::new(),
+                file: String::new(),
+                line: String::new(),
+            },
+            Event {
+                component_id,
+                id: EventId(
+                    modality_probe::EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE.get_raw(),
+                ),
+                name: "EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE".to_string(),
+                description: "The report destination buffer is too small to fit a header \
+                    and/or the frontier clocks"
                     .to_string(),
                 tags: "internal".to_string(),
                 type_hint: String::new(),
@@ -188,6 +205,14 @@ impl Events {
         for e in self.events.iter() {
             e.instrumentation_hash(state);
         }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Event> {
+        self.events.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Event> {
+        self.events.iter_mut()
     }
 }
 

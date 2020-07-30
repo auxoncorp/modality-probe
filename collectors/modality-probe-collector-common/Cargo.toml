@@ -1,0 +1,16 @@
+[package]
+name = "modality-probe-collector-common"
+version = "0.1.0"
+authors = ["dan pittman <dan@auxon.io>"]
+edition = "2018"
+
+[dependencies]
+static_assertions = "1.1.0"
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+csv = "1.1"
+modality-probe = { path = "../../", features = ["std"] }
+
+[dev-dependencies]
+proptest = "0.9"
+pretty_assertions = "0.6"

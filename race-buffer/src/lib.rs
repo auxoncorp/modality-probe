@@ -141,11 +141,11 @@ pub mod tests {
 
     impl reader::Snapper<OrderedEntry> for RawPtrSnapper<'_> {
         fn snap_wcurs(&self) -> Result<usize, Box<dyn Error>> {
-            unsafe { Ok(self.0.as_ref().unwrap().read_wcurs()) }
+            unsafe { Ok(self.0.as_ref().unwrap().get_wcurs()) }
         }
 
         fn snap_owcurs(&self) -> Result<usize, Box<dyn Error>> {
-            unsafe { Ok(self.0.as_ref().unwrap().read_owcurs()) }
+            unsafe { Ok(self.0.as_ref().unwrap().get_owcurs()) }
         }
 
         fn snap_storage(&self, index: usize) -> Result<OrderedEntry, Box<dyn Error>> {

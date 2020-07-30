@@ -1,4 +1,3 @@
-use pretty_assertions::assert_eq;
 use std::fs::{self, File};
 use std::io::Write;
 
@@ -63,7 +62,7 @@ fn stable_uuid() {
     // Hashes should be added, UUID is stable
     let component_content = fs::read_to_string(&component_path).unwrap();
     println!("{}", component_content);
-    assert_eq!(component_content, COMPONENT_TOML);
+    assert!(component_content.contains(COMPONENT_TOML));
 
     let out = run_cli(&vec![
         "manifest-gen",
@@ -82,17 +81,16 @@ fn stable_uuid() {
     // Nothing changes on successive runs
     let component_content = fs::read_to_string(&component_path).unwrap();
     println!("{}", component_content);
-    assert_eq!(component_content, COMPONENT_TOML);
+    assert!(component_content.contains(COMPONENT_TOML));
 }
 
 const COMPONENT_TOML: &'static str = r#"name = "my-component"
-uuid = "fa46ca95-c6fd-4020-b6a7-4323cfa084be"
+id = "fa46ca95-c6fd-4020-b6a7-4323cfa084be"
 code_hash = "f4d29eefe0ec8137637fdc5e586539371d9784274aa3874b9c1b06ed3f2697cc"
-instrumentation_hash = "415871cc51857eb34fcce398a920fb5b3b43aa5a4a067d458938fe2f9ba7892a"
 "#;
 
 const COMPONENT_TOML_WO_HASHES: &'static str = r#"name = "my-component"
-uuid = "fa46ca95-c6fd-4020-b6a7-4323cfa084be"
+id = "fa46ca95-c6fd-4020-b6a7-4323cfa084be"
 "#;
 
 const C_SRC: &'static str = r#"

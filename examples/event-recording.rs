@@ -3,9 +3,9 @@
 //! Before building this example, run:
 //!
 //! ```
-//! modality-probe manifest-gen --output-path . ./
+//! modality-probe manifest-gen --file-extension="rs" --output-path example-component .
 //!
-//! modality-probe header-gen --lang Rust --probes probes.csv --events events.csv --output-path generated_ids/mod.rs
+//! modality-probe header-gen --lang Rust --output-path generated_ids/mod.rs example-component
 //! ```
 
 // The generated identifiers
@@ -13,7 +13,7 @@ mod generated_ids;
 
 use crate::generated_ids::*;
 use modality_probe::{
-    try_expect, try_initialize_at, try_record, try_record_w_u32, BulkReporter, ModalityProbe,
+    try_expect, try_initialize_at, try_record, try_record_w_u32, ModalityProbe, Probe,
 };
 use std::net::UdpSocket;
 use std::{thread, time};

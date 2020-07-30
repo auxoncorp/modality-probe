@@ -4,12 +4,13 @@
 use std::{collections::HashMap, hash::Hash};
 
 use err_derive::Error;
+use uuid::Uuid;
 
 pub mod digraph;
 pub mod graph_event;
 pub mod meta;
 
-use crate::{
+use crate::graph::{
     graph_event::{GraphEvent, GraphSegment},
     meta::{EventMeta, ProbeMeta, ReportEvent},
 };
@@ -73,7 +74,8 @@ pub trait GraphWithWeightsBuilder<'a> {
 /// descriptions, &c.
 pub struct Cfg {
     pub probes: HashMap<u32, ProbeMeta>,
-    pub events: HashMap<u32, EventMeta>,
+    pub events: HashMap<(Uuid, u32), EventMeta>,
+    pub probes_to_components: HashMap<u32, Uuid>,
 }
 
 /// `complete` builds a complete causal graph from the given data. The
@@ -106,11 +108,16 @@ where
     for res in log {
         let event: ReportEvent = res.map_err(|e| Error::ItemError(format!("{}", e)))?;
         if event.lc_probe_id.is_none() && event.lc_clock.is_none() {
-            if let Some(meta_ev) = cfg.events.get(
-                &event
+            let comp_uuid = cfg
+                .probes_to_components
+                .get(&event.probe_id)
+                .ok_or_else(|| Error::InconsistentData("missing component id"))?;
+            if let Some(meta_ev) = cfg.events.get(&(
+                *comp_uuid,
+                event
                     .event_id
                     .ok_or_else(|| Error::InconsistentData("missing event id"))?,
-            ) {
+            )) {
                 let location = cfg
                     .probes
                     .get(&event.probe_id)
@@ -276,11 +283,16 @@ where
         let event: ReportEvent = res.map_err(|e| Error::ItemError(format!("{}", e)))?;
 
         if event.lc_probe_id.is_none() && event.lc_clock.is_none() {
-            if let Some(meta_ev) = cfg.events.get(
-                &event
+            let comp_uuid = cfg
+                .probes_to_components
+                .get(&event.probe_id)
+                .ok_or_else(|| Error::InconsistentData("missing component id"))?;
+            if let Some(meta_ev) = cfg.events.get(&(
+                *comp_uuid,
+                event
                     .event_id
                     .ok_or_else(|| Error::InconsistentData("missing event id"))?,
-            ) {
+            )) {
                 let weight = graph.upsert_node(&meta_ev.name, 0);
                 *weight += 1;
 
@@ -386,9 +398,20 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{digraph::Digraph, graph_event::*, meta::*};
+    use uuid::Uuid;
+
+    use crate::graph::{digraph::Digraph, graph_event::*, meta::*};
 
     use super::{Cfg, Error};
+
+    fn four_uuids() -> [Uuid; 4] {
+        [
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+        ]
+    }
 
     //   1
     //  / \   |
@@ -396,12 +419,15 @@ mod test {
     //  \ /   V
     //   4
     fn diamond() -> (Cfg, Vec<ReportEvent>) {
+        let uuids = four_uuids();
+        let comp_uuid = Uuid::new_v4();
         (
             Cfg {
                 probes: vec![
                     (
                         1,
                         ProbeMeta {
+                            component_id: uuids[0].clone(),
                             id: 1,
                             name: "one".to_string(),
                             description: "one".to_string(),
@@ -412,6 +438,7 @@ mod test {
                     (
                         2,
                         ProbeMeta {
+                            component_id: uuids[1].clone(),
                             id: 2,
                             name: "two".to_string(),
                             description: "two".to_string(),
@@ -422,6 +449,7 @@ mod test {
                     (
                         3,
                         ProbeMeta {
+                            component_id: uuids[2].clone(),
                             id: 3,
                             name: "three".to_string(),
                             description: "three".to_string(),
@@ -432,6 +460,7 @@ mod test {
                     (
                         4,
                         ProbeMeta {
+                            component_id: uuids[3].clone(),
                             id: 4,
                             name: "four".to_string(),
                             description: "four".to_string(),
@@ -444,8 +473,9 @@ mod test {
                 .collect(),
                 events: vec![
                     (
-                        1,
+                        (comp_uuid, 1),
                         EventMeta {
+                            component_id: uuids[0].clone(),
                             id: 1,
                             name: "one".to_string(),
                             type_hint: None,
@@ -456,8 +486,9 @@ mod test {
                         },
                     ),
                     (
-                        2,
+                        (comp_uuid, 2),
                         EventMeta {
+                            component_id: uuids[1].clone(),
                             id: 2,
                             name: "two".to_string(),
                             type_hint: None,
@@ -468,8 +499,9 @@ mod test {
                         },
                     ),
                     (
-                        3,
+                        (comp_uuid, 3),
                         EventMeta {
+                            component_id: uuids[2].clone(),
                             id: 3,
                             name: "three".to_string(),
                             type_hint: None,
@@ -480,8 +512,9 @@ mod test {
                         },
                     ),
                     (
-                        4,
+                        (comp_uuid, 4),
                         EventMeta {
+                            component_id: uuids[3].clone(),
                             id: 4,
                             name: "four".to_string(),
                             type_hint: None,
@@ -491,6 +524,14 @@ mod test {
                             line: None,
                         },
                     ),
+                ]
+                .into_iter()
+                .collect(),
+                probes_to_components: vec![
+                    (1, comp_uuid),
+                    (2, comp_uuid),
+                    (3, comp_uuid),
+                    (4, comp_uuid),
                 ]
                 .into_iter()
                 .collect(),
