@@ -26,7 +26,11 @@ pub const MIN_HISTORY_SIZE_BYTES: usize = size_of::<DynamicHistory>()
     + MIN_CLOCKS_LEN * size_of::<LogicalClock>()
     + MIN_LOG_LEN * size_of::<LogEntry>();
 
+#[cfg(target_pointer_width = "32")]
+const_assert_eq!(align_of::<u64>(), align_of::<DynamicHistory>());
+#[cfg(not(target_pointer_width = "32"))]
 const_assert_eq!(align_of::<usize>(), align_of::<DynamicHistory>());
+
 const_assert_eq!(4, align_of::<LogicalClock>());
 const_assert_eq!(4, align_of::<LogEntry>());
 
@@ -44,25 +48,25 @@ const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
 #[cfg(target_pointer_width = "32")]
 const_assert_eq!(
-    2 + size_of::<ProbeId>()
+    4 + size_of::<ProbeId>()
         + size_of::<u32>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
         + size_of::<LogicalClock>()
         + size_of::<RaceLog<'_>>()
         + size_of::<usize>()
-        + size_of::<u16>(),
+        + size_of::<u64>(),
     size_of::<DynamicHistory>()
 );
 
 #[cfg(not(target_pointer_width = "32"))]
 const_assert_eq!(
-    6 + size_of::<ProbeId>()
+    size_of::<ProbeId>()
         + size_of::<u32>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
         + size_of::<LogicalClock>()
         + size_of::<RaceLog<'_>>()
         + size_of::<usize>()
-        + size_of::<u16>(),
+        + size_of::<u64>(),
     size_of::<DynamicHistory>()
 );
 
@@ -81,7 +85,7 @@ pub struct DynamicHistory<'a> {
     pub(crate) self_clock: LogicalClock,
     pub(crate) log: RaceLog<'a>,
     pub(crate) read_cursor: usize,
-    pub(crate) report_seq_num: u16,
+    pub(crate) report_seq_num: u64,
 }
 
 #[derive(Debug)]

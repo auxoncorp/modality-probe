@@ -91,6 +91,16 @@ pub mod le_bytes {
         read_bytes!(u32, 4, bytes)
     }
 
+    /// Reads a u64 from `bytes`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `bytes.len() < 8`.
+    #[inline]
+    pub fn read_u64(bytes: &[u8]) -> u64 {
+        read_bytes!(u64, 8, bytes)
+    }
+
     /// Writes a u16 `value` to `bytes`.
     ///
     /// # Panics
@@ -109,6 +119,16 @@ pub mod le_bytes {
     #[inline]
     pub fn write_u32(bytes: &mut [u8], value: u32) {
         write_bytes!(u32, 4, value, bytes);
+    }
+
+    /// Writes a u64 `value` to `bytes`.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `bytes.len() < 8`.
+    #[inline]
+    pub fn write_u64(bytes: &mut [u8], value: u64) {
+        write_bytes!(u64, 8, value, bytes);
     }
 }
 
@@ -147,6 +167,28 @@ mod tests {
             assert_eq!(value, expected_value);
             let mut wbytes = [!b0, !b1, !b2, !b3];
             le_bytes::write_u32(&mut wbytes[0..4], expected_value);
+            assert_eq!(rbytes, wbytes);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn le_u64(
+            b0 in proptest::num::u8::ANY,
+            b1 in proptest::num::u8::ANY,
+            b2 in proptest::num::u8::ANY,
+            b3 in proptest::num::u8::ANY,
+            b4 in proptest::num::u8::ANY,
+            b5 in proptest::num::u8::ANY,
+            b6 in proptest::num::u8::ANY,
+            b7 in proptest::num::u8::ANY,
+        ) {
+            let expected_value = u64::from_le_bytes([b0, b1, b2, b3, b4, b5, b6, b7]);
+            let rbytes = [b0, b1, b2, b3, b4, b5, b6, b7];
+            let value = le_bytes::read_u64(&rbytes[0..8]);
+            assert_eq!(value, expected_value);
+            let mut wbytes = [!b0, !b1, !b2, !b3, !b4, !b5, !b6, !b7];
+            le_bytes::write_u64(&mut wbytes[0..8], expected_value);
             assert_eq!(rbytes, wbytes);
         }
     }

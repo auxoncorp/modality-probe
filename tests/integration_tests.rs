@@ -190,7 +190,7 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
     assert!(probe.try_record_event(EventId::MAX_USER_ID).is_ok());
 
     // Only room for a header, hard error since we can't log a single event
-    let mut report_dest = [0u8; 20 + mem::size_of::<log::LogEntry>() - 1];
+    let mut report_dest = [0u8; 26 + mem::size_of::<log::LogEntry>() - 1];
     assert_eq!(
         report_dest.len(),
         wire::WireReport::<&[u8]>::header_len() + mem::size_of::<log::LogEntry>() - 1
@@ -201,7 +201,7 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
     );
 
     // Not enough room for the frontier clocks, only a single event
-    let mut report_dest = [0u8; 20 + mem::size_of::<log::LogEntry>()];
+    let mut report_dest = [0u8; 26 + mem::size_of::<log::LogEntry>()];
     let bytes_written = probe.report(&mut report_dest)?;
     let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
 

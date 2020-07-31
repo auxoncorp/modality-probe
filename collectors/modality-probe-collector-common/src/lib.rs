@@ -42,9 +42,9 @@ newtype! {
 }
 
 newtype! {
-    /// A log sequence number
+    /// A log report sequence number
     #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
-    pub struct SequenceNumber(pub u16);
+    pub struct SequenceNumber(pub u64);
 }
 
 #[derive(Debug)]
@@ -60,7 +60,7 @@ impl From<ReportWireError> for SerializationError {
 pub struct Report {
     pub probe_id: ProbeId,
     pub probe_clock: LogicalClock,
-    pub seq_num: u16,
+    pub seq_num: u64,
     pub frontier_clocks: Vec<LogicalClock>,
     pub event_log: Vec<EventLogEntry>,
 }
@@ -120,7 +120,7 @@ impl From<EventLogEntry> for LogEntryData {
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
 struct LogFileRow {
     session_id: u32,
-    sequence_number: u16,
+    sequence_number: u64,
     sequence_index: u32,
     receive_time: DateTime<Utc>,
     probe_id: u32,
@@ -557,7 +557,7 @@ pub(crate) mod test {
     }
 
     pub fn arb_sequence_number() -> impl Strategy<Value = SequenceNumber> {
-        any::<u16>().prop_map_into()
+        any::<u64>().prop_map_into()
     }
 
     pub fn arb_sequence_index() -> impl Strategy<Value = u32> {
