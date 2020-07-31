@@ -26,7 +26,7 @@ mod history;
 mod id;
 pub mod log;
 mod macros;
-mod payload;
+pub mod payload;
 pub mod wire;
 
 /// Snapshot of causal history for transmission around the system.
@@ -197,8 +197,9 @@ impl PartialOrd for LogicalClock {
     }
 }
 
+/// The clock count components of a logical clock
 #[derive(PartialEq, Eq)]
-pub(crate) struct OrdClock(pub ProbeEpoch, pub ProbeTicks);
+pub struct OrdClock(pub ProbeEpoch, pub ProbeTicks);
 
 impl PartialOrd for OrdClock {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {

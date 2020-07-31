@@ -62,7 +62,7 @@ pub struct DynamicHistory<'a> {
     ///   * The first clock is always that of the local probe id
     pub(crate) clocks: FixedSliceVec<'a, LogicalClock>,
     pub(crate) self_clock: LogicalClock,
-    pub(crate) read_cursor: usize,
+    pub(crate) read_cursor: u32,
     pub(crate) report_seq_num: u16,
 }
 
@@ -112,7 +112,7 @@ impl<'a> DynamicHistory<'a> {
             );
             assert!(
                 clocks_ptr as usize + history.clocks.capacity() * size_of::<LogicalClock>()
-                    <= history.log.as_slice().as_ptr() as usize,
+                    <= history.log.get_slice().as_ptr() as usize,
                 "log pointer should not overlap clock bytes"
             );
         }
@@ -135,9 +135,13 @@ impl<'a> DynamicHistory<'a> {
         }
         let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
         let mut clocks = FixedSliceVec::from_bytes(clocks_region);
-        let log = RaceLog::new_from_bytes(log_region)
+        // Create new racebuffer, using full log region instead of rounding to power of 2 length for
+        // optimized indexing
+        // Note: point of future improvement - a heuristic could be used to determine whether or not the memory cost
+        // of rounding the log's storage space outweighs the runtime cost of using mod operations for indexing
+        let log = RaceLog::new_from_bytes(log_region, false)
             .map_err(|_| StorageSetupError::UnderMinimumAllowedSize)?;
-        if clocks.capacity() < MIN_CLOCKS_LEN || log.capacity() < MIN_LOG_LEN {
+        if clocks.capacity() < MIN_CLOCKS_LEN || (log.capacity() as usize) < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         clocks
@@ -267,13 +271,12 @@ impl<'a> DynamicHistory<'a> {
                 &mut FrontierClocksFSV::new(&mut self.clocks),
                 &mut PayloadOutputByteSlice::new(&mut payload),
             );
+            // Buffer cannot store more than u32::MAX/2 items, so n_items_written will always fit into u32
             report.set_n_log_entries(n_items_written as u32);
 
-            // TODO(nspringer@auxon.io): change to racebuffer sequence number
-            // once racebuffer looping changes land
-            self.read_cursor += n_items_read;
-            report.set_n_log_entries(n_items_written as u32);
-
+            // Wrapping add
+            // Buffer cannot store more than u32::MAX/2 items, so n_items_read will always fit into u32
+            self.read_cursor = self.log.seqn_add(self.read_cursor, n_items_read as u32);
             if did_clocks_overflow {
                 self.record_event(EventId::EVENT_NUM_CLOCKS_OVERFLOWED);
             }
