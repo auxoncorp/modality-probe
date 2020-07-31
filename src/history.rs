@@ -42,12 +42,25 @@ const_assert_eq!(4, align_of::<CausalSnapshot>());
 const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
+#[cfg(target_pointer_width = "32")]
+const_assert_eq!(
+    2 + size_of::<ProbeId>()
+        + size_of::<u32>()
+        + size_of::<FixedSliceVec<'_, LogicalClock>>()
+        + size_of::<LogicalClock>()
+        + size_of::<RaceLog<'_>>()
+        + size_of::<usize>()
+        + size_of::<u16>(),
+    size_of::<DynamicHistory>()
+);
+
+#[cfg(not(target_pointer_width = "32"))]
 const_assert_eq!(
     6 + size_of::<ProbeId>()
         + size_of::<u32>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
-        + size_of::<RaceLog<'_>>()
         + size_of::<LogicalClock>()
+        + size_of::<RaceLog<'_>>()
         + size_of::<usize>()
         + size_of::<u16>(),
     size_of::<DynamicHistory>()

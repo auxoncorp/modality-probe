@@ -251,14 +251,14 @@ bool test_now(void) {
     if (instant_b.clock.epoch != 1) {
             passed = false;
     }
-    if (instant_b.clock.ticks != 3) {
+    if (instant_b.clock.ticks != 2) {
         passed = false;
     }
     /*
-     * Note that the event count is 1 after a report call because ModalityProbe
+     * Note that the event count is 2 after a report call because ModalityProbe
      * internally records an event after producing a report.
      */
-    if (instant_b.event_count != 1) {
+    if (instant_b.event_count != 2) {
         passed = false;
     }
 
