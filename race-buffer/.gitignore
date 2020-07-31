@@ -1,0 +1,8 @@
+*.out
+*.pdf
+*.dvi
+*.tex
+*.check
+model/metadir
+model/tla2tools.jar
+/target/

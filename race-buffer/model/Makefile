@@ -24,7 +24,7 @@ tla2tools.jar:
 	(grep -q "\-\-algorithm" $*.tla && ${PLUSCAL} $*.tla) || true
 
 	@ echo "\n\n-------------- TLC ------------------"
-	${TLC} -deadlock -workers ${WORKERS} -metadir metadir/check/$* $*.tla 2>&1 | tee $@.tmp
+	${TLC} -workers ${WORKERS} -metadir metadir/check/$* $*.tla 2>&1 | tee $@.tmp
 	@ echo "-------------------------------------\n\n"
 	@! grep "Error:" $@.tmp
 	mv $@.tmp $@
