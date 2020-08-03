@@ -466,6 +466,7 @@ impl TryFrom<&[u8]> for Report {
     }
 }
 
+#[derive(Debug)]
 enum Next {
     Clock(ProbeId),
     Payload(EventId),
