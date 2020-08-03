@@ -176,7 +176,6 @@ impl From<ProbeTicks> for u16 {
     }
 }
 
-
 /// Pack the epoch and clock into a u32
 #[inline]
 pub fn pack_clock_word(epoch: ProbeEpoch, ticks: ProbeTicks) -> u32 {

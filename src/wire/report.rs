@@ -33,11 +33,10 @@ impl core::fmt::Display for ReportWireError {
             ReportWireError::InvalidFingerprint => f.write_str("Invalid Fingerprint"),
             ReportWireError::MissingHeader => f.write_str("Missing Header"),
             ReportWireError::IncompletePayload => f.write_str("Incomplete Payload"),
-            ReportWireError::InvalidProbeId(x) => write!(f, "Invalid Probe Id: 0x{:x}", x)
+            ReportWireError::InvalidProbeId(x) => write!(f, "Invalid Probe Id: 0x{:x}", x),
         }
     }
 }
-
 
 /// A read/write wrapper around a report buffer
 #[derive(Debug, Clone)]
