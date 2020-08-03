@@ -128,12 +128,6 @@ impl PartialOrd for CausalSnapshot {
 #[cfg_attr(feature = "std", derive(Arbitrary))]
 pub struct ProbeEpoch(pub u16);
 
-impl From<u16> for ProbeEpoch {
-    fn from(epoch: u16) -> Self {
-        ProbeEpoch(epoch)
-    }
-}
-
 impl ProbeEpoch {
     /// The maximum value a probe epoch can inhabit.
     pub const MAX: Self = ProbeEpoch(u16::MAX);

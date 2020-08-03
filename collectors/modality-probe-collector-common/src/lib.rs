@@ -1,8 +1,5 @@
 use chrono::prelude::*;
 use err_derive::Error;
-use std::convert::TryFrom;
-use std::mem;
-
 use modality_probe::{
     log::LogEntry,
     wire::{le_bytes, ReportWireError, WireReport},
