@@ -4,6 +4,9 @@
 //! use, these errors should be as tiny
 //! and precise as possible.
 
+#[cfg(feature = "std")]
+use core::fmt::Display;
+
 /// Error that indicates an invalid event id was detected.
 ///
 ///
@@ -11,12 +14,32 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InvalidEventId;
 
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidEventId {}
+
+#[cfg(feature = "std")]
+impl Display for InvalidEventId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Invalid Event Id")
+    }
+}
+
 /// Error that indicates an invalid probe id was detected.
 ///
 ///
 /// probe ids must be greater than 0 and less than ProbeId::MAX_ID
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InvalidProbeId;
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidProbeId {}
+
+#[cfg(feature = "std")]
+impl Display for InvalidProbeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Invalid Probe Id")
+    }
+}
 
 /// An error relating to the initialization
 /// of an ModalityProbe instance from parts.
@@ -27,6 +50,32 @@ pub enum InitializationError {
     InvalidProbeId,
     /// A problem with the backing memory setup.
     StorageSetupError(StorageSetupError),
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for InitializationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            InitializationError::InvalidProbeId => None,
+            InitializationError::StorageSetupError(e) => Some(e),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Display for InitializationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InitializationError::InvalidProbeId => f.write_str("Invalid Probe Id"),
+            InitializationError::StorageSetupError(_) => f.write_str("Storage Setup Error"),
+        }
+    }
+}
+
+impl From<StorageSetupError> for InitializationError {
+    fn from(e: StorageSetupError) -> Self {
+        InitializationError::StorageSetupError(e)
+    }
 }
 
 /// An error relating to the initialization
@@ -46,6 +95,24 @@ pub enum StorageSetupError {
     NullDestination,
 }
 
+#[cfg(feature = "std")]
+impl std::error::Error for StorageSetupError {}
+
+#[cfg(feature = "std")]
+impl Display for StorageSetupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorageSetupError::UnderMinimumAllowedSize => {
+                f.write_str("Storage under minimum allowed size")
+            }
+            StorageSetupError::ExceededMaximumAddressableSize => {
+                f.write_str("Storage exceeds maximum addressable size")
+            }
+            StorageSetupError::NullDestination => f.write_str("Null destination pointer"),
+        }
+    }
+}
+
 /// The errors than can occur when producing a probe's
 /// causal history for use by some other probe instance.
 ///
@@ -57,6 +124,16 @@ pub enum ProduceError {
     ///
     /// Indicates that the end user should provide a larger destination buffer.
     InsufficientDestinationSize,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ProduceError {}
+
+#[cfg(feature = "std")]
+impl Display for ProduceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Insufficient destination size")
+    }
 }
 
 /// The errors than can occur when merging in the causal history from some
@@ -76,6 +153,23 @@ pub enum MergeError {
     /// such as by having a probe_id out of the allowed value range.
     ExternalHistorySemantics,
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for MergeError {}
+
+#[cfg(feature = "std")]
+impl Display for MergeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MergeError::ExceededAvailableClocks => f.write_str("Exceeded available clocks"),
+            MergeError::InsufficientSourceSize => f.write_str("Insufficient source size"),
+            MergeError::ExternalHistorySemantics => {
+                f.write_str("External history semantic violation")
+            }
+        }
+    }
+}
+
 /// The error relating to using the `report` method to
 /// produce a full causal history log report.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -84,6 +178,20 @@ pub enum ReportError {
     ///
     /// Indicates that the end user should provide a larger destination buffer.
     InsufficientDestinationSize,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ReportError {}
+
+#[cfg(feature = "std")]
+impl Display for ReportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReportError::InsufficientDestinationSize => {
+                f.write_str("Insufficient destination size")
+            }
+        }
+    }
 }
 
 /// General purpose error that captures all errors that arise
@@ -112,6 +220,34 @@ pub enum ModalityProbeError {
     /// The error relating to using the `report` method to
     /// produce a full causal history log report.
     ReportError(ReportError),
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ModalityProbeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ModalityProbeError::InvalidEventId => None,
+            ModalityProbeError::InvalidProbeId => None,
+            ModalityProbeError::InitializationError(e) => Some(e),
+            ModalityProbeError::ProduceError(e) => Some(e),
+            ModalityProbeError::MergeError(e) => Some(e),
+            ModalityProbeError::ReportError(e) => Some(e),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Display for ModalityProbeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModalityProbeError::InvalidEventId => f.write_str("Invalid Event Id"),
+            ModalityProbeError::InvalidProbeId => f.write_str("Invalid Probe Id"),
+            ModalityProbeError::InitializationError(_) => f.write_str("Initialization Error"),
+            ModalityProbeError::ProduceError(_) => f.write_str("Produce Snapshot Error"),
+            ModalityProbeError::MergeError(_) => f.write_str("Merge Snapshot Error"),
+            ModalityProbeError::ReportError(_) => f.write_str("Report Error"),
+        }
+    }
 }
 
 impl From<InvalidEventId> for ModalityProbeError {
