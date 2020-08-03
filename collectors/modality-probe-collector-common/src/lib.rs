@@ -1,4 +1,8 @@
 use chrono::prelude::*;
+use err_derive::Error;
+use std::convert::TryFrom;
+use std::mem;
+
 use modality_probe::{
     log::LogEntry,
     wire::{le_bytes, ReportWireError, WireReport},
@@ -47,13 +51,16 @@ newtype! {
     pub struct SequenceNumber(pub u64);
 }
 
-#[derive(Debug)]
-pub struct SerializationError;
+#[derive(Debug, Error)]
+pub enum SerializationError {
+    #[error(display = "Invalid probe id {:?}", _0)]
+    InvalidProbeId(LogEntry),
 
-impl From<ReportWireError> for SerializationError {
-    fn from(_: ReportWireError) -> Self {
-        SerializationError
-    }
+    #[error(display = "Invalid event id {:?}", _0)]
+    InvalidEventId(LogEntry),
+
+    #[error(display = "Report wire error")]
+    ReportWireError(#[error(source)] ReportWireError),
 }
 
 #[derive(Debug, PartialEq)]
@@ -431,19 +438,19 @@ impl TryFrom<&[u8]> for Report {
                     if raw_entry.has_clock_bit_set() {
                         interpret_next_as = Next::Clock(
                             ProbeId::new(raw_entry.interpret_as_logical_clock_probe_id())
-                                .ok_or_else(|| SerializationError)?,
+                                .ok_or_else(|| SerializationError::InvalidProbeId(raw_entry))?,
                         );
                     } else if raw_entry.has_event_with_payload_bit_set() {
                         interpret_next_as = Next::Payload(
                             raw_entry
                                 .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError)?,
+                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
                         );
                     } else {
                         owned_report.event_log.push(EventLogEntry::Event(
                             raw_entry
                                 .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError)?,
+                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
                         ));
                     }
                 }
