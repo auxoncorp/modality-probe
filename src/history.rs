@@ -48,7 +48,7 @@ const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
 #[cfg(target_pointer_width = "32")]
 const_assert_eq!(
-    4 + size_of::<ProbeId>()
+    size_of::<ProbeId>()
         + size_of::<u32>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
         + size_of::<LogicalClock>()
