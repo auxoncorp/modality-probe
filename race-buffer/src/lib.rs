@@ -61,7 +61,6 @@ fn num_missed(read_seqn: u32, overwrite_seqn: u32, write_seqn: u32, seqn_mod: u3
     }
 }
 
-
 /// A single entry which may have been missed
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum PossiblyMissed<E>

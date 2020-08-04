@@ -52,7 +52,11 @@ impl OrderedEntry {
 
     // Invariant: Check if entries all have correct index
     pub(crate) fn entries_correct_index(rbuf: &[PossiblyMissed<OrderedEntry>]) -> bool {
-        for (idx, entry) in rbuf.iter().enumerate().filter(|(_, e)| **e != PossiblyMissed::Missed) {
+        for (idx, entry) in rbuf
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| **e != PossiblyMissed::Missed)
+        {
             if entry.assume_not_missed().to_index() != idx as u32 {
                 return false;
             }

@@ -1,9 +1,10 @@
 //! The writer of the RaceBuffer, which contains the actual buffer. Entries can be synchronously written and read/iterated
 //! from this struct.
-use crate::{get_seqn_index, get_seqn_mod, num_missed, seqn_add, Entry, SEQN_MOD_MAX, PossiblyMissed};
+use crate::{
+    get_seqn_index, get_seqn_mod, num_missed, seqn_add, Entry, PossiblyMissed, SEQN_MOD_MAX,
+};
 use core::iter::Iterator;
 use core::mem::size_of;
-use core::mem::transmute;
 use core::mem::MaybeUninit;
 use core::sync::atomic::fence;
 use core::sync::atomic::Ordering;
@@ -196,7 +197,7 @@ where
     #[inline]
     pub fn read(&self, mut read_seqn: u32) -> PossiblyMissed<E> {
         if read_seqn >= self.get_seqn_mod() {
-            read_seqn = read_seqn % self.get_seqn_mod();
+            read_seqn %= self.get_seqn_mod();
         }
         let num_missed = num_missed(
             read_seqn,
@@ -235,16 +236,20 @@ where
         {
             unsafe {
                 (
-                    transmute(&self.storage[overwrite_seqn_index..]),
-                    transmute(&self.storage[..write_seqn_index]),
+                    &*(&self.storage[overwrite_seqn_index..] as *const [MaybeUninit<E>]
+                        as *const [E]),
+                    &*(&self.storage[..write_seqn_index] as *const [MaybeUninit<E>]
+                        as *const [E]),
                 )
             }
         } else {
             // Present entries do not cross end of storage, second slice has 0 length
             unsafe {
                 (
-                    transmute(&self.storage[overwrite_seqn_index..write_seqn_index]),
-                    transmute(&self.storage[write_seqn_index..write_seqn_index]),
+                    &*(&self.storage[overwrite_seqn_index..write_seqn_index]
+                        as *const [MaybeUninit<E>] as *const [E]),
+                    &*(&self.storage[write_seqn_index..write_seqn_index]
+                        as *const [MaybeUninit<E>] as *const [E]),
                 )
             }
         }
