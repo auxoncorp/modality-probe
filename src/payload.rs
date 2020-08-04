@@ -2,7 +2,7 @@
 use crate::history::DynamicHistory;
 use crate::log::LogEntry;
 use crate::{EventId, LogicalClock, ProbeId};
-use race_buffer::writer::PossiblyMissed;
+use race_buffer::PossiblyMissed;
 
 use fixed_slice_vec::FixedSliceVec;
 
