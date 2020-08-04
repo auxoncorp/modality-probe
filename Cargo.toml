@@ -21,8 +21,9 @@ members = [
   "modality-probe-cli",
   "collectors/modality-probe-udp-collector",
   "collectors/modality-probe-collector-common",
+  "race-buffer",
 ]
-exclude = ["debian-package", "./collectors", "race-buffer"]
+exclude = ["debian-package", "./collectors", "race-buffer/model"]
 
 [dependencies]
 static_assertions = "1.1.0"
