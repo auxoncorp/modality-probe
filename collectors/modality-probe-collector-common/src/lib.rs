@@ -499,8 +499,6 @@ impl Report {
             return Err(SerializationError::TooManyFrontierClocks(
                 self.frontier_clocks.len(),
             ));
-        } else if self.event_log.len() > std::u32::MAX as usize {
-            return Err(SerializationError::TooManyLogEntries(self.event_log.len()));
         }
 
         let mut wire = WireReport::new_unchecked(bytes);
@@ -525,6 +523,10 @@ impl Report {
                 }
             })
             .sum();
+
+        if num_u32_entries > std::u32::MAX as usize {
+            return Err(SerializationError::TooManyLogEntries(num_u32_entries));
+        }
 
         wire.set_n_log_entries(num_u32_entries as _);
         wire.check_payload_len()?;
