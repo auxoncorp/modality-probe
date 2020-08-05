@@ -170,14 +170,21 @@ impl<'a> DynamicHistory<'a> {
 
     #[inline]
     fn merge_overwritten_clock(&mut self, overwritten: OverwrittenEntry) {
-        if let OverwrittenEntry::Double(one, two) = overwritten {
-            // If what we get out of the log is a clock, merge it into clocks list
-            if one.has_clock_bit_set() {
-                if let Some(id) = ProbeId::new(one.interpret_as_logical_clock_probe_id()) {
-                    let (epoch, ticks) = crate::unpack_clock_word(two.raw());
-                    self.merge_clock(LogicalClock { id, epoch, ticks });
+        match overwritten {
+            OverwrittenEntry::Double(one, two) => {
+                // If what we get out of the log is a clock, merge it into clocks list
+                if one.has_clock_bit_set() {
+                    if let Some(id) = ProbeId::new(one.interpret_as_logical_clock_probe_id()) {
+                        let (epoch, ticks) = crate::unpack_clock_word(two.raw());
+                        self.merge_clock(LogicalClock { id, epoch, ticks });
+                    }
                 }
+                self.log_items_missed = self.log_items_missed.saturating_add(2)
             }
+            OverwrittenEntry::Single(_) => {
+                self.log_items_missed = self.log_items_missed.saturating_add(1)
+            }
+            OverwrittenEntry::None => (),
         }
     }
 
