@@ -72,33 +72,33 @@ impl<'a> LogEntryRingBuffer<'a> {
     }
 
     #[inline]
-    pub fn write_event(&mut self, event_id: EventId) -> OverwrittenEntry {
-        self.write_entry(LogEntry::event(event_id))
+    pub fn push_event(&mut self, event_id: EventId) -> OverwrittenEntry {
+        self.push_entry(LogEntry::event(event_id))
     }
 
     #[inline]
-    pub fn write_event_with_payload(
+    pub fn push_event_with_payload(
         &mut self,
         event_id: EventId,
         payload: u32,
     ) -> (OverwrittenEntry, OverwrittenEntry) {
         let (first, second) = LogEntry::event_with_payload(event_id, payload);
-        let first_overwritten = self.write_entry(first);
-        let second_overwritten = self.write_entry(second);
+        let first_overwritten = self.push_entry(first);
+        let second_overwritten = self.push_entry(second);
         (first_overwritten, second_overwritten)
     }
 
     #[inline]
-    pub fn write_clock(&mut self, clock: LogicalClock) -> (OverwrittenEntry, OverwrittenEntry) {
+    pub fn push_clock(&mut self, clock: LogicalClock) -> (OverwrittenEntry, OverwrittenEntry) {
         let (first, second) = LogEntry::clock(clock);
-        let first_overwritten = self.write_entry(first);
-        let second_overwritten = self.write_entry(second);
+        let first_overwritten = self.push_entry(first);
+        let second_overwritten = self.push_entry(second);
         (first_overwritten, second_overwritten)
     }
 
     /// Write a single entry to the RingBuffer head (newest)
     #[inline]
-    fn write_entry(&mut self, value: LogEntry) -> OverwrittenEntry {
+    fn push_entry(&mut self, value: LogEntry) -> OverwrittenEntry {
         let overwritten_entry = if (self.len > 0) && (self.write_at == self.read_from) {
             // About to overwrite the tail
             let tail_entry = unsafe { self.storage[self.read_from].as_ptr().read() };
@@ -129,7 +129,7 @@ impl<'a> LogEntryRingBuffer<'a> {
 
     /// Read a single entry from the RingBuffer tail (oldest)
     #[inline]
-    pub fn read_entry(&mut self) -> Option<LogEntry> {
+    pub fn pop_entry(&mut self) -> Option<LogEntry> {
         if self.is_empty() {
             None
         } else {
@@ -167,7 +167,7 @@ impl<'a> Iterator for LogEntryRingBuffer<'a> {
     type Item = LogEntry;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.read_entry()
+        self.pop_entry()
     }
 }
 
@@ -225,7 +225,7 @@ mod tests {
         assert!(rb.is_empty());
         assert_ne!(rb.capacity(), 0);
         for i in 0..rb.capacity() {
-            assert_eq!(rb.write_entry(entry(i as u32 + 1)), OverwrittenEntry::None);
+            assert_eq!(rb.push_entry(entry(i as u32 + 1)), OverwrittenEntry::None);
         }
         assert!(rb.is_full());
     }
@@ -238,22 +238,22 @@ mod tests {
         assert!(!rb.is_full());
         assert_eq!(rb.capacity(), 4);
 
-        assert_eq!(rb.write_entry(entry(1)), OverwrittenEntry::None);
-        assert_eq!(rb.write_entry(entry(2)), OverwrittenEntry::None);
+        assert_eq!(rb.push_entry(entry(1)), OverwrittenEntry::None);
+        assert_eq!(rb.push_entry(entry(2)), OverwrittenEntry::None);
         assert_eq!(rb.len(), 2);
         assert_eq!(rb.as_slice(), [entry(1), entry(2)]);
 
-        assert_eq!(rb.write_entry(entry(3)), OverwrittenEntry::None);
-        assert_eq!(rb.write_entry(entry(4)), OverwrittenEntry::None);
+        assert_eq!(rb.push_entry(entry(3)), OverwrittenEntry::None);
+        assert_eq!(rb.push_entry(entry(4)), OverwrittenEntry::None);
         assert_eq!(rb.len(), 4);
         assert_eq!(rb.as_slice(), [entry(1), entry(2), entry(3), entry(4)]);
 
         // Next two single-item entries overwrite the oldest two single-item entries
         assert_eq!(
-            rb.write_event(EventId::new(5).unwrap()),
+            rb.push_event(EventId::new(5).unwrap()),
             OverwrittenEntry::Single(entry(1))
         );
-        assert_eq!(rb.write_entry(entry(6)), OverwrittenEntry::Single(entry(2)));
+        assert_eq!(rb.push_entry(entry(6)), OverwrittenEntry::Single(entry(2)));
         assert_eq!(rb.len(), 4);
         assert_eq!(rb.as_slice(), [entry(5), entry(6), entry(3), entry(4)]);
 
@@ -261,7 +261,7 @@ mod tests {
         let eid = EventId::new(7).unwrap();
         let payload = 8;
         assert_eq!(
-            rb.write_event_with_payload(eid, payload),
+            rb.push_event_with_payload(eid, payload),
             (
                 OverwrittenEntry::Single(entry(3)),
                 OverwrittenEntry::Single(entry(4)),
@@ -278,11 +278,8 @@ mod tests {
         );
 
         // Overwrite the next two single-item entries
-        assert_eq!(rb.write_entry(entry(9)), OverwrittenEntry::Single(entry(5)));
-        assert_eq!(
-            rb.write_entry(entry(10)),
-            OverwrittenEntry::Single(entry(6))
-        );
+        assert_eq!(rb.push_entry(entry(9)), OverwrittenEntry::Single(entry(5)));
+        assert_eq!(rb.push_entry(entry(10)), OverwrittenEntry::Single(entry(6)));
         assert_eq!(
             rb.as_slice(),
             [
@@ -295,7 +292,7 @@ mod tests {
 
         // Next single-item entry overwrites the oldest double-item entry
         assert_eq!(
-            rb.write_entry(entry(11)),
+            rb.push_entry(entry(11)),
             OverwrittenEntry::Double(entry(7 | EVENT_WITH_PAYLOAD_MASK), entry(8))
         );
         assert_eq!(rb.as_slice(), [entry(9), entry(10), entry(11), entry(8)]);
@@ -307,7 +304,7 @@ mod tests {
             ticks: 13.into(),
         };
         assert_eq!(
-            rb.write_clock(clock),
+            rb.push_clock(clock),
             (OverwrittenEntry::None, OverwrittenEntry::Single(entry(9)))
         );
         assert_eq!(
@@ -329,31 +326,31 @@ mod tests {
         assert_eq!(rb.capacity(), 4);
 
         // Writes advance the head
-        assert_eq!(rb.write_entry(entry(1)), OverwrittenEntry::None);
-        assert_eq!(rb.write_entry(entry(2)), OverwrittenEntry::None);
-        assert_eq!(rb.write_entry(entry(3)), OverwrittenEntry::None);
-        assert_eq!(rb.write_entry(entry(4)), OverwrittenEntry::None);
+        assert_eq!(rb.push_entry(entry(1)), OverwrittenEntry::None);
+        assert_eq!(rb.push_entry(entry(2)), OverwrittenEntry::None);
+        assert_eq!(rb.push_entry(entry(3)), OverwrittenEntry::None);
+        assert_eq!(rb.push_entry(entry(4)), OverwrittenEntry::None);
         assert_eq!(rb.as_slice(), [entry(1), entry(2), entry(3), entry(4)]);
         assert!(!rb.is_empty());
         assert!(rb.is_full());
 
         // Overwrites work
-        assert_eq!(rb.write_entry(entry(5)), OverwrittenEntry::Single(entry(1)));
+        assert_eq!(rb.push_entry(entry(5)), OverwrittenEntry::Single(entry(1)));
         assert_eq!(rb.as_slice(), [entry(5), entry(2), entry(3), entry(4)]);
         assert!(!rb.is_empty());
         assert!(rb.is_full());
 
         // Reads advance the tail
         assert_eq!(rb.len(), 4);
-        assert_eq!(rb.read_entry(), Some(entry(2)));
+        assert_eq!(rb.pop_entry(), Some(entry(2)));
         assert_eq!(rb.len(), 3);
-        assert_eq!(rb.read_entry(), Some(entry(3)));
+        assert_eq!(rb.pop_entry(), Some(entry(3)));
         assert_eq!(rb.len(), 2);
-        assert_eq!(rb.read_entry(), Some(entry(4)));
+        assert_eq!(rb.pop_entry(), Some(entry(4)));
         assert_eq!(rb.len(), 1);
-        assert_eq!(rb.read_entry(), Some(entry(5)));
+        assert_eq!(rb.pop_entry(), Some(entry(5)));
 
-        assert_eq!(rb.read_entry(), None);
+        assert_eq!(rb.pop_entry(), None);
         assert!(rb.is_empty());
         assert!(!rb.is_full());
     }
@@ -365,7 +362,7 @@ mod tests {
         assert!(rb.is_empty());
         assert_ne!(rb.capacity(), 0);
         for i in 0..rb.capacity() {
-            assert_eq!(rb.write_entry(entry(i as u32 + 1)), OverwrittenEntry::None);
+            assert_eq!(rb.push_entry(entry(i as u32 + 1)), OverwrittenEntry::None);
         }
         assert!(rb.is_full());
         assert_eq!(rb.as_slice(), [entry(1), entry(2), entry(3), entry(4)]);

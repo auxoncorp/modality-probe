@@ -219,5 +219,48 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
     Ok(())
 }
 
-// TODO - test overflowing num buckets
-// TODO - test overflowing log
+#[test]
+fn report_missed_log_items() -> Result<(), ModalityProbeError> {
+    const NUM_STORAGE_BYTES: usize = 512;
+    let mut storage = [0u8; NUM_STORAGE_BYTES];
+    let probe = ModalityProbe::try_initialize_at(&mut storage, 1)?;
+    let event = EventId::new(2).unwrap();
+
+    // Should be repeatable, counts are cleared on each report
+    for iter_idx in 0..3 {
+        for _ in 0..NUM_STORAGE_BYTES * 2 {
+            probe.record_event(event);
+        }
+
+        let mut report_dest = [0u8; 1024];
+        let bytes_written = probe.report(&mut report_dest)?;
+        let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+
+        assert_eq!(log_report.n_clocks(), 1);
+        assert_eq!(log_report.n_log_entries(), 90);
+
+        let offset = log_report.n_clocks() as usize * mem::size_of::<LogicalClock>();
+        let log_bytes = &log_report.payload()[offset..];
+
+        // First event with payload should indicate how many missed items
+        let raw_event =
+            u32::from_le_bytes([log_bytes[0], log_bytes[1], log_bytes[2], log_bytes[3]]);
+        let raw_payload =
+            u32::from_le_bytes([log_bytes[4], log_bytes[5], log_bytes[6], log_bytes[7]]);
+        let log_event = unsafe { log::LogEntry::new_unchecked(raw_event) };
+        assert_eq!(
+            log_event.interpret_as_event_id().unwrap(),
+            EventId::EVENT_LOG_ITEMS_MISSED
+        );
+
+        // The first time around, the log does not contain:
+        // EventId::EVENT_PRODUCED_EXTERNAL_REPORT
+        if iter_idx == 0 {
+            assert_eq!(raw_payload, 934);
+        } else {
+            assert_eq!(raw_payload, 935);
+        }
+    }
+
+    Ok(())
+}

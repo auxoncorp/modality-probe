@@ -196,7 +196,7 @@ impl<'a> DynamicHistory<'a> {
     #[inline]
     pub(crate) fn record_event(&mut self, event_id: EventId) {
         // N.B. point for future improvement - basic compression here
-        let overwritten = self.log.write_event(event_id);
+        let overwritten = self.log.push_event(event_id);
         self.merge_overwritten_clock(overwritten);
         self.event_count = self.event_count.saturating_add(1);
     }
@@ -209,7 +209,7 @@ impl<'a> DynamicHistory<'a> {
     #[inline]
     pub(crate) fn record_event_with_payload(&mut self, event_id: EventId, payload: u32) {
         let (first_overwritten, second_overwritten) =
-            self.log.write_event_with_payload(event_id, payload);
+            self.log.push_event_with_payload(event_id, payload);
         self.merge_overwritten_clock(first_overwritten);
         self.merge_overwritten_clock(second_overwritten);
         self.event_count = self.event_count.saturating_add(1);
@@ -256,13 +256,6 @@ impl<'a> DynamicHistory<'a> {
                     .to_le_bytes(),
             );
         } else {
-            if self.log_items_missed != 0 {
-                self.record_event_with_payload(
-                    EventId::EVENT_LOG_ITEMS_MISSED,
-                    self.log_items_missed,
-                );
-            }
-
             let clocks_len = self.clocks.len();
             report.set_seq_num(self.report_seq_num);
             report.set_n_clocks(clocks_len as u16);
@@ -278,9 +271,16 @@ impl<'a> DynamicHistory<'a> {
                 dest_bytes[4..8].copy_from_slice(&second.raw().to_le_bytes());
             }
 
+            // If we need to report missed items, account for the event with payload
+            let n_log_entries_ready_to_report = if self.log_items_missed != 0 {
+                2 + self.log.len()
+            } else {
+                self.log.len()
+            };
+
             let n_log_entries_possible = cmp::min(
                 payload.len() - (clocks_len * size_of::<LogicalClock>()),
-                self.log.len(),
+                n_log_entries_ready_to_report,
             );
 
             let mut did_clocks_overflow = false;
@@ -288,6 +288,17 @@ impl<'a> DynamicHistory<'a> {
             let mut clock_id = None;
             let clocks = &mut self.clocks;
             let mut byte_cursor = clocks_len * size_of::<LogicalClock>();
+
+            if self.log_items_missed != 0 {
+                let (first, second) = LogEntry::event_with_payload(
+                    EventId::EVENT_LOG_ITEMS_MISSED,
+                    self.log_items_missed,
+                );
+                let dest_bytes = &mut payload[byte_cursor..byte_cursor + 2 * size_of::<LogEntry>()];
+                dest_bytes[0..4].copy_from_slice(&first.raw().to_le_bytes());
+                dest_bytes[4..8].copy_from_slice(&second.raw().to_le_bytes());
+                byte_cursor += 2 * size_of::<LogEntry>();
+            }
 
             while let Some(entry) = self.log.next() {
                 let dest_bytes = &mut payload[byte_cursor..byte_cursor + size_of::<LogEntry>()];
@@ -411,7 +422,7 @@ impl<'a> DynamicHistory<'a> {
     #[inline]
     fn write_clocks_to_log(&mut self, clocks: &[LogicalClock]) {
         for c in clocks.iter() {
-            let (first_overwritten, second_overwritten) = self.log.write_clock(*c);
+            let (first_overwritten, second_overwritten) = self.log.push_clock(*c);
             self.merge_overwritten_clock(first_overwritten);
             self.merge_overwritten_clock(second_overwritten);
         }
