@@ -293,9 +293,18 @@ impl<'a> DynamicHistory<'a> {
                 let dest_bytes = &mut payload[byte_cursor..byte_cursor + size_of::<LogEntry>()];
 
                 if entry.has_clock_bit_set() {
+                    // Make sure there's room for the second-item epoch/ticks
                     if n_copied <= n_log_entries_possible - 2 {
                         dest_bytes.copy_from_slice(&entry.raw().to_le_bytes());
                         clock_id = ProbeId::new(entry.interpret_as_logical_clock_probe_id());
+                        n_copied += 1;
+                    } else {
+                        break;
+                    }
+                } else if entry.has_event_with_payload_bit_set() {
+                    // Make sure there's room for the second-item payload
+                    if n_copied <= n_log_entries_possible - 2 {
+                        dest_bytes.copy_from_slice(&entry.raw().to_le_bytes());
                         n_copied += 1;
                     } else {
                         break;
