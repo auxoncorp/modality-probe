@@ -67,10 +67,7 @@ impl<'a> RestartSequenceCounter<'a> {
     }
 
     pub fn is_tracking_restarts(&self) -> bool {
-        match &self.provider {
-            RestartCounterProvider::NoRestartTracking => false,
-            _ => true,
-        }
+        !matches!(&self.provider, RestartCounterProvider::NoRestartTracking)
     }
 
     pub fn next_sequence_id(&mut self, probe_id: ProbeId) -> u16 {
@@ -88,5 +85,20 @@ impl<'a> fmt::Debug for RestartCounterProvider<'a> {
             RestartCounterProvider::Rust(_) => write!(f, "RestartCounterProvider::Rust")?,
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_restart_tracking() {
+        let mut rsc = RestartSequenceCounter::new(RestartCounterProvider::NoRestartTracking);
+        assert_eq!(rsc.is_tracking_restarts(), false);
+        assert_eq!(
+            rsc.next_sequence_id(ProbeId::new(1).unwrap()),
+            NO_RESTART_TRACKING_SEQUENCE_NUMBER
+        );
     }
 }
