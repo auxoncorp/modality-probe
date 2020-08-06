@@ -140,6 +140,17 @@ impl<'a> LogEntryRingBuffer<'a> {
         }
     }
 
+    /// Read a single entry from the RingBuffer tail (oldest) without advancing
+    /// the read cursor
+    #[inline]
+    pub fn peek_entry(&mut self) -> Option<LogEntry> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(unsafe { self.storage[self.read_from].as_ptr().read() })
+        }
+    }
+
     #[inline]
     pub fn clear(&mut self) {
         unsafe {
@@ -340,17 +351,29 @@ mod tests {
         assert!(!rb.is_empty());
         assert!(rb.is_full());
 
+        // Can peek at the current read cursor/tail, does not advance the tail
+        assert_eq!(rb.len(), 4);
+        assert_eq!(rb.peek_entry(), Some(entry(2)));
+        assert_eq!(rb.peek_entry(), Some(entry(2)));
+        assert_eq!(rb.peek_entry(), Some(entry(2)));
+
         // Reads advance the tail
         assert_eq!(rb.len(), 4);
+        assert_eq!(rb.peek_entry(), Some(entry(2)));
         assert_eq!(rb.pop_entry(), Some(entry(2)));
         assert_eq!(rb.len(), 3);
+        assert_eq!(rb.peek_entry(), Some(entry(3)));
         assert_eq!(rb.pop_entry(), Some(entry(3)));
         assert_eq!(rb.len(), 2);
         assert_eq!(rb.pop_entry(), Some(entry(4)));
+
         assert_eq!(rb.len(), 1);
+        assert_eq!(rb.peek_entry(), Some(entry(5)));
+        assert_eq!(rb.peek_entry(), Some(entry(5)));
         assert_eq!(rb.pop_entry(), Some(entry(5)));
 
         assert_eq!(rb.pop_entry(), None);
+        assert_eq!(rb.peek_entry(), None);
         assert!(rb.is_empty());
         assert!(!rb.is_full());
     }

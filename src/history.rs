@@ -303,36 +303,45 @@ impl<'a> DynamicHistory<'a> {
                 n_copied += 2;
             }
 
-            while let Some(entry) = self.log.next() {
+            // We peek the next entry so that we never throw away the first item
+            // in a double-item log entry if we decide to bail out early due
+            // hitting the destination buffer capacity
+            while let Some(peeked_entry) = self.log.peek_entry() {
                 if n_copied >= n_log_entries_possible {
                     break;
                 }
 
                 let dest_bytes = &mut payload[byte_cursor..byte_cursor + size_of::<LogEntry>()];
 
-                if !found_multi_item && entry.has_clock_bit_set() {
+                if !found_multi_item && peeked_entry.has_clock_bit_set() {
                     // Make sure there's room for the second-item epoch/ticks
                     if n_copied <= n_log_entries_possible - 2 {
-                        dest_bytes.copy_from_slice(&entry.raw().to_le_bytes());
-                        clock_id = ProbeId::new(entry.interpret_as_logical_clock_probe_id());
+                        dest_bytes.copy_from_slice(&peeked_entry.raw().to_le_bytes());
+                        clock_id = ProbeId::new(peeked_entry.interpret_as_logical_clock_probe_id());
                         n_copied += 1;
                         found_multi_item = true;
                     } else {
+                        // Not enough space for the second item in the double-item entry,
+                        // break out of the loop here, and don't consume
+                        // the first peeked item
                         break;
                     }
-                } else if !found_multi_item && entry.has_event_with_payload_bit_set() {
+                } else if !found_multi_item && peeked_entry.has_event_with_payload_bit_set() {
                     // Make sure there's room for the second-item payload
                     if n_copied <= n_log_entries_possible - 2 {
-                        dest_bytes.copy_from_slice(&entry.raw().to_le_bytes());
+                        dest_bytes.copy_from_slice(&peeked_entry.raw().to_le_bytes());
                         n_copied += 1;
                         found_multi_item = true;
                     } else {
+                        // Not enough space for the second item in the double-item entry,
+                        // break out of the loop here, and don't consume
+                        // the first peeked item
                         break;
                     }
                 } else {
-                    dest_bytes.copy_from_slice(&entry.raw().to_le_bytes());
+                    dest_bytes.copy_from_slice(&peeked_entry.raw().to_le_bytes());
                     if let Some(id) = clock_id {
-                        let (epoch, ticks) = crate::unpack_clock_word(entry.raw());
+                        let (epoch, ticks) = crate::unpack_clock_word(peeked_entry.raw());
                         if Self::merge_clocks(clocks, LogicalClock { id, epoch, ticks }).is_err() {
                             did_clocks_overflow = true;
                         }
@@ -341,6 +350,12 @@ impl<'a> DynamicHistory<'a> {
                     found_multi_item = false;
                     n_copied += 1;
                 }
+
+                // We know we have at least enough space for the
+                // next item (if it's a double item entry) at this point, so
+                // it's now safe to pop the currently peek'd entry from our log.
+                let consumed_entry = self.log.pop_entry();
+                debug_assert_eq!(consumed_entry, Some(peeked_entry));
 
                 byte_cursor += size_of::<LogEntry>();
             }
