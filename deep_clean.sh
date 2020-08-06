@@ -21,7 +21,7 @@ cargo clean
 )
 
 (
-    cd debian-package
+    cd package/debian
     cargo clean
     rm -f Cargo.lock
 )
