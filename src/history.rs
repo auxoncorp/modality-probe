@@ -287,6 +287,7 @@ impl<'a> DynamicHistory<'a> {
             let mut did_clocks_overflow = false;
             let mut n_copied = 0;
             let mut clock_id = None;
+            let mut found_multi_item = false;
             let clocks = &mut self.clocks;
             let mut byte_cursor = clock_bytes;
 
@@ -309,20 +310,22 @@ impl<'a> DynamicHistory<'a> {
 
                 let dest_bytes = &mut payload[byte_cursor..byte_cursor + size_of::<LogEntry>()];
 
-                if entry.has_clock_bit_set() {
+                if !found_multi_item && entry.has_clock_bit_set() {
                     // Make sure there's room for the second-item epoch/ticks
                     if n_copied <= n_log_entries_possible - 2 {
                         dest_bytes.copy_from_slice(&entry.raw().to_le_bytes());
                         clock_id = ProbeId::new(entry.interpret_as_logical_clock_probe_id());
                         n_copied += 1;
+                        found_multi_item = true;
                     } else {
                         break;
                     }
-                } else if entry.has_event_with_payload_bit_set() {
+                } else if !found_multi_item && entry.has_event_with_payload_bit_set() {
                     // Make sure there's room for the second-item payload
                     if n_copied <= n_log_entries_possible - 2 {
                         dest_bytes.copy_from_slice(&entry.raw().to_le_bytes());
                         n_copied += 1;
+                        found_multi_item = true;
                     } else {
                         break;
                     }
@@ -335,6 +338,7 @@ impl<'a> DynamicHistory<'a> {
                         }
                         clock_id = None;
                     }
+                    found_multi_item = false;
                     n_copied += 1;
                 }
 
