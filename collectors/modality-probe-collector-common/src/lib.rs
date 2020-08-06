@@ -735,6 +735,7 @@ pub(crate) mod test {
         let mut p1 = modality_probe::ModalityProbe::new_with_storage(
             &mut storage1,
             ProbeId::new(1).unwrap(),
+            RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
 
@@ -742,6 +743,7 @@ pub(crate) mod test {
         let mut p2 = modality_probe::ModalityProbe::new_with_storage(
             &mut storage2,
             ProbeId::new(2).unwrap(),
+            RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
 
@@ -764,7 +766,10 @@ pub(crate) mod test {
                     epoch: ProbeEpoch(0),
                     ticks: ProbeTicks(0),
                 }],
-                event_log: vec![EventLogEntry::Event(EventId::new(1).unwrap())],
+                event_log: vec![
+                    EventLogEntry::EventWithPayload(EventId::EVENT_PROBE_INITIALIZED, 1),
+                    EventLogEntry::Event(EventId::new(1).unwrap())
+                ],
             }
         );
 
@@ -826,6 +831,7 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }],
                 event_log: vec![
+                    EventLogEntry::EventWithPayload(EventId::EVENT_PROBE_INITIALIZED, 2),
                     EventLogEntry::Event(EventId::new(2).unwrap()),
                     EventLogEntry::TraceClock(LogicalClock {
                         id: ProbeId::new(2).unwrap(),

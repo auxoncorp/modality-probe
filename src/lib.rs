@@ -21,12 +21,17 @@ use static_assertions::{assert_cfg, const_assert};
 pub use error::*;
 use history::DynamicHistory;
 pub use id::*;
+pub use restart_counter::{
+    next_sequence_id_fn, CRestartCounterProvider, RestartCounter, RestartCounterProvider,
+    RustRestartCounterProvider,
+};
 
 mod error;
 mod history;
 mod id;
 pub mod log;
 mod macros;
+mod restart_counter;
 mod ring;
 pub mod wire;
 
@@ -240,8 +245,10 @@ impl LogicalClock {
     /// Increment the logical clock by one. If the clock portion overflows,
     /// clock wraps around and epoch is incremented. Epoch and clock both wrap
     /// around to 1.
+    ///
+    /// Returns true if the clock portion did overflow, otherwise returns false.
     #[inline]
-    pub fn increment(&mut self) {
+    pub fn increment(&mut self) -> bool {
         let (new_clock, overflow) = self.ticks.0.overflowing_add(1);
         self.ticks = ProbeTicks(max(new_clock, 1));
         if overflow {
@@ -251,6 +258,7 @@ impl LogicalClock {
         // This handles both wrapping around to 1 and going from the zero epoch
         // (uninitialized) to epoch 1
         self.epoch = ProbeEpoch(max(self.epoch.0, 1));
+        overflow
     }
 
     /// Put the clock into a byte array, probe id first, where the two
@@ -319,7 +327,6 @@ pub trait Probe {
 /// * Recording events from primitive ids with just-in-time validation.
 /// * Initialization with variable-sized memory backing.
 /// * Can produce and merge transparent snapshots
-#[derive(Debug)]
 #[repr(C)]
 pub struct ModalityProbe<'a> {
     history: &'a mut DynamicHistory<'a>,
@@ -345,10 +352,11 @@ impl<'a> ModalityProbe<'a> {
     pub fn try_initialize_at(
         memory: &'a mut [u8],
         probe_id: u32,
+        restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut ModalityProbe<'a>, InitializationError> {
         let probe_id = ProbeId::try_from(probe_id)
             .map_err(|_: InvalidProbeId| InitializationError::InvalidProbeId)?;
-        ModalityProbe::initialize_at(memory, probe_id)
+        ModalityProbe::initialize_at(memory, probe_id, restart_counter)
             .map_err(InitializationError::StorageSetupError)
     }
 
@@ -368,9 +376,10 @@ impl<'a> ModalityProbe<'a> {
     pub fn initialize_at(
         memory: &'a mut [u8],
         probe_id: ProbeId,
+        restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut ModalityProbe<'a>, StorageSetupError> {
         match embed(memory, |history_memory| {
-            ModalityProbe::new_with_storage(history_memory, probe_id)
+            ModalityProbe::new_with_storage(history_memory, probe_id, restart_counter)
         }) {
             Ok(v) => Ok(v),
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
@@ -396,10 +405,15 @@ impl<'a> ModalityProbe<'a> {
     pub fn new_with_storage(
         history_memory: &'a mut [u8],
         probe_id: ProbeId,
+        restart_counter: RestartCounterProvider<'a>,
     ) -> Result<ModalityProbe<'a>, StorageSetupError> {
-        let t = ModalityProbe::<'a> {
-            history: DynamicHistory::new_at(history_memory, probe_id)?,
+        let mut t = ModalityProbe::<'a> {
+            history: DynamicHistory::new_at(history_memory, probe_id, restart_counter)?,
         };
+        t.record_event_with_payload(
+            EventId::EVENT_PROBE_INITIALIZED,
+            t.history.probe_id.get_raw(),
+        );
         Ok(t)
     }
 

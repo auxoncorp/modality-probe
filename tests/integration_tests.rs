@@ -26,7 +26,11 @@ fn probe_lifecycle_does_not_panic() -> Result<(), ModalityProbeError> {
 
     let mut backend = Buffer::new(1024);
     let mut storage = [0u8; 1024];
-    let probe = ModalityProbe::initialize_at(&mut storage, probe_id)?;
+    let probe = ModalityProbe::initialize_at(
+        &mut storage,
+        probe_id,
+        RestartCounterProvider::NoRestartTracking,
+    )?;
 
     let p = probe.produce_snapshot()?;
     let q = probe.produce_snapshot()?;
@@ -60,12 +64,20 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
     let probe_id_bar = 2.try_into()?;
 
     let mut storage_foo = [0u8; 1024];
-    let probe_foo = ModalityProbe::initialize_at(&mut storage_foo, probe_id_foo)?;
+    let probe_foo = ModalityProbe::initialize_at(
+        &mut storage_foo,
+        probe_id_foo,
+        RestartCounterProvider::NoRestartTracking,
+    )?;
     let snap_foo_a = probe_foo.produce_snapshot()?;
 
     // Re-initialize a probe with no previous history
     let mut storage_bar = [0u8; 1024];
-    let probe_bar = ModalityProbe::initialize_at(&mut storage_bar, probe_id_bar)?;
+    let probe_bar = ModalityProbe::initialize_at(
+        &mut storage_bar,
+        probe_id_bar,
+        RestartCounterProvider::NoRestartTracking,
+    )?;
     assert!(probe_bar.merge_snapshot(&snap_foo_a).is_ok());
     let snap_bar_b = probe_bar.produce_snapshot()?;
 
@@ -86,7 +98,11 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
 fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     let mut storage_foo = [0u8; 1024];
     let probe_id_foo = 123.try_into()?;
-    let mut probe = ModalityProbe::new_with_storage(&mut storage_foo, probe_id_foo)?;
+    let mut probe = ModalityProbe::new_with_storage(
+        &mut storage_foo,
+        probe_id_foo,
+        RestartCounterProvider::NoRestartTracking,
+    )?;
     let mut backend = [0u8; 1024];
 
     probe.record_event(EventId::new(1).unwrap());
@@ -101,13 +117,14 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
         1,
         "Should have 1 clock bucket for own self"
     );
-    assert_eq!(log_report.n_log_entries(), 1);
+    // When a probe inits, it logs an internal event with payload
+    assert_eq!(log_report.n_log_entries(), 2);
 
     let payload_len = log_report.payload_len();
     let payload = &log_report.payload()[..payload_len];
     assert_eq!(
         payload_len,
-        mem::size_of::<LogicalClock>() + mem::size_of::<log::LogEntry>()
+        core::mem::size_of::<LogicalClock>() + (2 * core::mem::size_of::<log::LogEntry>())
     );
     let item = unsafe {
         log::LogEntry::new_unchecked(u32::from_le_bytes([
@@ -168,15 +185,34 @@ fn all_allowed_events() -> Result<(), ModalityProbeError> {
 #[test]
 fn try_initialize_handles_raw_probe_ids() {
     let mut storage = [0u8; 512];
-    assert!(ModalityProbe::try_initialize_at(&mut storage, 0).is_err());
-    assert!(ModalityProbe::try_initialize_at(&mut storage, ProbeId::MAX_ID + 1).is_err());
-    assert!(ModalityProbe::try_initialize_at(&mut storage, 1).is_ok());
+    assert!(ModalityProbe::try_initialize_at(
+        &mut storage,
+        0,
+        RestartCounterProvider::NoRestartTracking
+    )
+    .is_err());
+    assert!(ModalityProbe::try_initialize_at(
+        &mut storage,
+        ProbeId::MAX_ID + 1,
+        RestartCounterProvider::NoRestartTracking
+    )
+    .is_err());
+    assert!(ModalityProbe::try_initialize_at(
+        &mut storage,
+        1,
+        RestartCounterProvider::NoRestartTracking
+    )
+    .is_ok());
 }
 
 #[test]
 fn try_record_event_raw_probe_ids() -> Result<(), ModalityProbeError> {
     let mut storage = [0u8; 512];
-    let probe = ModalityProbe::try_initialize_at(&mut storage, 1)?;
+    let probe = ModalityProbe::try_initialize_at(
+        &mut storage,
+        1,
+        RestartCounterProvider::NoRestartTracking,
+    )?;
     assert!(probe.try_record_event(0).is_err());
     assert!(probe.try_record_event(EventId::MAX_USER_ID).is_ok());
     // Allowed to record internal events
@@ -192,7 +228,11 @@ fn try_record_event_raw_probe_ids() -> Result<(), ModalityProbeError> {
 #[test]
 fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
     let mut storage = [0u8; 512];
-    let probe = ModalityProbe::try_initialize_at(&mut storage, 1)?;
+    let probe = ModalityProbe::try_initialize_at(
+        &mut storage,
+        1,
+        RestartCounterProvider::NoRestartTracking,
+    )?;
     assert!(probe.try_record_event(0).is_err());
     assert!(probe.try_record_event(EventId::MAX_USER_ID).is_ok());
 
@@ -230,7 +270,11 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
 fn report_missed_log_items() -> Result<(), ModalityProbeError> {
     const NUM_STORAGE_BYTES: usize = 512;
     let mut storage = [0u8; NUM_STORAGE_BYTES];
-    let probe = ModalityProbe::try_initialize_at(&mut storage, 1)?;
+    let probe = ModalityProbe::try_initialize_at(
+        &mut storage,
+        1,
+        RestartCounterProvider::NoRestartTracking,
+    )?;
     let event = EventId::new(2).unwrap();
 
     // Should be repeatable, counts are cleared on each report
@@ -244,7 +288,7 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
         let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         assert_eq!(log_report.n_clocks(), 1);
-        assert_eq!(log_report.n_log_entries(), 92);
+        assert_eq!(log_report.n_log_entries(), 86);
 
         let offset = log_report.n_clocks() as usize * mem::size_of::<LogicalClock>();
         let log_bytes = &log_report.payload()[offset..];
@@ -263,9 +307,9 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
         // The first time around, the log does not contain:
         // EventId::EVENT_PRODUCED_EXTERNAL_REPORT
         if iter_idx == 0 {
-            assert_eq!(raw_payload, 934);
+            assert_eq!(raw_payload, 942);
         } else {
-            assert_eq!(raw_payload, 935);
+            assert_eq!(raw_payload, 941);
         }
     }
 
@@ -284,7 +328,10 @@ proptest! {
         // so that we can have a total of at least 2 events
 
         let mut storage = [0u8; 512];
-        let probe = ModalityProbe::try_initialize_at(&mut storage, 1).unwrap();
+        let probe = ModalityProbe::try_initialize_at(
+            &mut storage,
+            1,
+            RestartCounterProvider::NoRestartTracking).unwrap();
         let event_a = EventId::new(2).unwrap();
         let event_b = EventId::new(3).unwrap();
 
@@ -345,5 +392,63 @@ proptest! {
         }
         // else the second-to-last item is a two-item log entry,
         // and therefor the last item can be anything (event payload, or clock)
+    }
+}
+
+#[test]
+fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
+    let mut next_id_provider = PersistentRestartProvider {
+        next_seq_id: 100,
+        count: 0,
+    };
+
+    // When a probe is tracking restarts, then it gets the initial epoch portion
+    // of the clock from the implementation
+    {
+        let provider = RestartCounterProvider::Rust(RustRestartCounterProvider {
+            iface: &mut next_id_provider,
+        });
+
+        let probe_id = 1u32.try_into()?;
+        let mut storage = [0u8; 1024];
+        let probe = ModalityProbe::initialize_at(&mut storage, probe_id, provider)?;
+
+        let now = probe.now();
+        assert_eq!(now.clock.epoch.0, 100);
+        assert_eq!(now.clock.ticks.0, 0);
+    }
+    assert_eq!(next_id_provider.next_seq_id, 101);
+    assert_eq!(next_id_provider.count, 1);
+
+    {
+        let provider = RestartCounterProvider::Rust(RustRestartCounterProvider {
+            iface: &mut next_id_provider,
+        });
+
+        let probe_id = 1u32.try_into()?;
+        let mut storage = [0u8; 1024];
+        let probe = ModalityProbe::initialize_at(&mut storage, probe_id, provider)?;
+
+        let now = probe.now();
+        assert_eq!(now.clock.epoch.0, 101);
+        assert_eq!(now.clock.ticks.0, 0);
+    }
+    assert_eq!(next_id_provider.next_seq_id, 102);
+    assert_eq!(next_id_provider.count, 2);
+
+    Ok(())
+}
+
+struct PersistentRestartProvider {
+    next_seq_id: u16,
+    count: usize,
+}
+
+impl RestartCounter for PersistentRestartProvider {
+    fn next_sequence_id(&mut self, _probe_id: ProbeId) -> u16 {
+        let next = self.next_seq_id;
+        self.next_seq_id += 1;
+        self.count += 1;
+        next
     }
 }

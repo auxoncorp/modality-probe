@@ -14,6 +14,7 @@ mod generated_ids;
 use crate::generated_ids::*;
 use modality_probe::{
     try_expect, try_initialize_at, try_record, try_record_w_u32, ModalityProbe, Probe,
+    RestartCounterProvider,
 };
 use std::net::UdpSocket;
 use std::{thread, time};
@@ -26,6 +27,7 @@ fn main() {
     let probe = try_initialize_at!(
         &mut storage,
         PROBE_ID_FOO,
+        RestartCounterProvider::NoRestartTracking,
         tags!("example"),
         "Example probe"
     )

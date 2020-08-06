@@ -11,10 +11,10 @@ STATIC_SIZE(modality_probe_logical_clock, sizeof(uint64_t));
 STATIC_SIZE(modality_probe_instant, 12);
 STATIC_SIZE(modality_probe_causal_snapshot, 12);
 
-static size_t DEFAULT_PROBE_SIZE = 7000;
-static size_t DEFAULT_LOG_STORAGE = 4096;
-static uint32_t DEFAULT_PROBE_ID = 314;
-static uint32_t EVENT_A = 100;
+static const size_t DEFAULT_PROBE_SIZE = 7000;
+static const size_t DEFAULT_LOG_STORAGE = 4096;
+static const uint32_t DEFAULT_PROBE_ID = 314;
+static const uint32_t EVENT_A = 100;
 
 #define ERROR_CHECK(err, passed) \
     do { \
@@ -28,7 +28,13 @@ bool test_backend_piping(void) {
     bool passed = true;
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
     modality_probe * t = MODALITY_PROBE_NULL_INITIALIZER;
-    modality_probe_error result = modality_probe_initialize(destination, DEFAULT_PROBE_SIZE, DEFAULT_PROBE_ID, &t);
+    modality_probe_error result = modality_probe_initialize(
+            destination,
+            DEFAULT_PROBE_SIZE,
+            DEFAULT_PROBE_ID,
+            NULL,
+            NULL,
+            &t);
     ERROR_CHECK(result, passed);
 
     uint8_t * log_storage = (uint8_t*)malloc(DEFAULT_LOG_STORAGE);
@@ -73,6 +79,8 @@ bool test_event_recording(void) {
             destination,
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
+            NULL,
+            NULL,
             &t,
             MODALITY_TAGS(tag 1, tag 2),
             "desc");
@@ -123,12 +131,24 @@ bool test_merge(void) {
     uint8_t * destination_a = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
     uint8_t * snap_bytes = (uint8_t*) malloc(sizeof(modality_probe_causal_snapshot));
     modality_probe * probe_a;
-    modality_probe_error result = modality_probe_initialize(destination_a, DEFAULT_PROBE_SIZE, DEFAULT_PROBE_ID, &probe_a);
+    modality_probe_error result = modality_probe_initialize(
+            destination_a,
+            DEFAULT_PROBE_SIZE,
+            DEFAULT_PROBE_ID,
+            NULL,
+            NULL,
+            &probe_a);
     ERROR_CHECK(result, passed);
     uint8_t * destination_b = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
     uint32_t probe_b_id = DEFAULT_PROBE_ID + 1;
     modality_probe * probe_b;
-    result = modality_probe_initialize(destination_b, DEFAULT_PROBE_SIZE, probe_b_id, &probe_b);
+    result = modality_probe_initialize(
+            destination_b,
+            DEFAULT_PROBE_SIZE,
+            probe_b_id,
+            NULL,
+            NULL,
+            &probe_b);
     ERROR_CHECK(result, passed);
     result = modality_probe_record_event(probe_a, EVENT_A);
     ERROR_CHECK(result, passed);
@@ -188,32 +208,44 @@ bool test_now(void) {
     bool passed = true;
     uint8_t * destination_a = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
     modality_probe * probe_a;
-    modality_probe_error result = modality_probe_initialize(destination_a, DEFAULT_PROBE_SIZE, DEFAULT_PROBE_ID, &probe_a);
+    modality_probe_error result = modality_probe_initialize(
+            destination_a,
+            DEFAULT_PROBE_SIZE,
+            DEFAULT_PROBE_ID,
+            NULL,
+            NULL,
+            &probe_a);
     ERROR_CHECK(result, passed);
     modality_probe_instant instant_a = modality_probe_now(probe_a);
     /* modality_probe_instant should have the correct id and start at 0 logical clock count and 0 event count */
-    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.ticks != 0 || instant_a.event_count != 0) {
+    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.ticks != 0 || instant_a.event_count != 1) {
         passed = false;
     }
 
     uint8_t * destination_b = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
     uint32_t probe_b_id = DEFAULT_PROBE_ID + 1;
     modality_probe * probe_b;
-    result = modality_probe_initialize(destination_b, DEFAULT_PROBE_SIZE, probe_b_id, &probe_b);
+    result = modality_probe_initialize(
+            destination_b,
+            DEFAULT_PROBE_SIZE,
+            probe_b_id,
+            NULL,
+            NULL,
+            &probe_b);
     ERROR_CHECK(result, passed);
 
     /* Recording an event should tick the event_count of the seen instant */
     result = modality_probe_record_event(probe_a, EVENT_A);
     ERROR_CHECK(result, passed);
     instant_a = modality_probe_now(probe_a);
-    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.ticks != 0 || instant_a.event_count != 1) {
+    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.ticks != 0 || instant_a.event_count != 2) {
         passed = false;
     }
     /* Recording an event should tick the event_count of the seen instant */
     result = modality_probe_record_event(probe_a, EVENT_A);
     ERROR_CHECK(result, passed);
     instant_a = modality_probe_now(probe_a);
-    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.ticks != 0 || instant_a.event_count != 2) {
+    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.ticks != 0 || instant_a.event_count != 3) {
         passed = false;
     }
     modality_probe_causal_snapshot snap_a;
@@ -229,7 +261,7 @@ bool test_now(void) {
     }
 
     modality_probe_instant instant_b = modality_probe_now(probe_b);
-    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 0 ||instant_b.clock.ticks != 0 || instant_b.event_count != 0) {
+    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 0 ||instant_b.clock.ticks != 0 || instant_b.event_count != 1) {
         passed = false;
     }
     modality_probe_merge_snapshot(probe_b, &snap_a);
@@ -260,7 +292,7 @@ bool test_now(void) {
         passed = false;
     }
     if (instant_b.clock.epoch != 1) {
-            passed = false;
+        passed = false;
     }
     if (instant_b.clock.ticks != 2) {
         passed = false;
@@ -273,8 +305,53 @@ bool test_now(void) {
         passed = false;
     }
 
-    free(probe_a);
-    free(probe_b);
+    free(destination_a);
+    free(destination_b);
+    return passed;
+}
+
+static int g_next_seq_id = 100;
+static bool g_next_seq_id_fn_was_called = false;
+static uint16_t next_persistent_sequence_id(uint32_t probe_id, void *user_state)
+{
+    assert(probe_id ==  DEFAULT_PROBE_ID);
+    assert(user_state == (void*) 1);
+    g_next_seq_id_fn_was_called = true;
+
+    const uint16_t next_seq_id = (uint16_t) g_next_seq_id;
+    g_next_seq_id += 1;
+    return next_seq_id;
+}
+
+bool test_persistent_restart_sequence_id(void) {
+    bool passed = true;
+
+    uint8_t * destination = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
+    modality_probe * probe;
+    modality_probe_error result = modality_probe_initialize(
+            destination,
+            DEFAULT_PROBE_SIZE,
+            DEFAULT_PROBE_ID,
+            &next_persistent_sequence_id,
+            (void*) 1,
+            &probe);
+    ERROR_CHECK(result, passed);
+
+    /* When a probe is tracking restarts, then it gets the initial epoch portion
+     * of the clock from the implementation
+     */
+    modality_probe_instant instant = modality_probe_now(probe);
+
+    if (instant.clock.id != DEFAULT_PROBE_ID || instant.clock.epoch != 100 || instant.clock.ticks != 0 || instant.event_count != 1) {
+        passed = false;
+    }
+
+    free(destination);
+
+    if (g_next_seq_id_fn_was_called != true) {
+        passed = false;
+    }
+
     return passed;
 }
 
@@ -294,6 +371,7 @@ int main(void) {
     run_test(test_event_recording, "test_event_recording", &passed);
     run_test(test_merge, "test_merge", &passed);
     run_test(test_now, "test_now", &passed);
+    run_test(test_persistent_restart_sequence_id, "test_persistent_restart_sequence_id", &passed);
     if (!passed) {
         fprintf(stderr, "FAILED c test suite\n");
         exit(1);

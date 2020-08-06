@@ -13,6 +13,7 @@ use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_ass
 
 use crate::{
     log::LogEntry,
+    restart_counter::{RestartCounterProvider, RestartSequenceCounter},
     ring::{LogEntryRingBuffer, OverwrittenEntry},
     wire::{report::WireReport, WireCausalSnapshot},
     CausalSnapshot, EventId, LogicalClock, MergeError, ModalityProbeInstant, OrdClock, ProbeEpoch,
@@ -26,10 +27,9 @@ pub const MIN_HISTORY_SIZE_BYTES: usize = size_of::<DynamicHistory>()
     + MIN_CLOCKS_LEN * size_of::<LogicalClock>()
     + MIN_LOG_LEN * size_of::<LogEntry>();
 
-#[cfg(target_pointer_width = "32")]
+// Struct alignment is the maximum alignment of
+// all of its fields, thus we're 8-byte aligned
 const_assert_eq!(align_of::<u64>(), align_of::<DynamicHistory>());
-#[cfg(not(target_pointer_width = "32"))]
-const_assert_eq!(align_of::<usize>(), align_of::<DynamicHistory>());
 
 const_assert_eq!(4, align_of::<LogicalClock>());
 const_assert_eq!(4, align_of::<LogEntry>());
@@ -46,6 +46,23 @@ const_assert_eq!(4, align_of::<CausalSnapshot>());
 const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
+#[cfg(target_pointer_width = "32")]
+const_assert_eq!(
+    size_of::<ProbeId>()
+        + size_of::<u32>()
+        + size_of::<FixedSliceVec<'_, LogicalClock>>()
+        + size_of::<LogicalClock>()
+        + size_of::<LogEntryRingBuffer<'_>>()
+        + size_of::<u32>()
+        + size_of::<u64>()
+        + size_of::<RestartSequenceCounter<'_>>(),
+    size_of::<DynamicHistory>()
+);
+
+// On 64-bit, size is rounded up to the nearest multiple of its alignment:
+// size of the fields is 116 bytes, which rounds up to
+// the next 8-byte alignment at 120 bytes (a difference of 4 bytes)
+#[cfg(not(target_pointer_width = "32"))]
 const_assert_eq!(
     4 + size_of::<ProbeId>()
         + size_of::<u32>()
@@ -53,7 +70,8 @@ const_assert_eq!(
         + size_of::<LogicalClock>()
         + size_of::<LogEntryRingBuffer<'_>>()
         + size_of::<u32>()
-        + size_of::<u64>(),
+        + size_of::<u64>()
+        + size_of::<RestartSequenceCounter<'_>>(),
     size_of::<DynamicHistory>()
 );
 
@@ -73,6 +91,7 @@ pub struct DynamicHistory<'a> {
     pub(crate) log: LogEntryRingBuffer<'a>,
     pub(crate) log_items_missed: u32,
     pub(crate) report_seq_num: u64,
+    pub(crate) restart_counter: RestartSequenceCounter<'a>,
 }
 
 #[derive(Debug)]
@@ -81,9 +100,10 @@ struct ClocksFullError;
 impl<'a> DynamicHistory<'a> {
     #[inline]
     pub fn new_at(
-        destination: &mut [u8],
+        destination: &'a mut [u8],
         probe_id: ProbeId,
-    ) -> Result<&mut DynamicHistory, StorageSetupError> {
+        restart_counter: RestartCounterProvider<'a>,
+    ) -> Result<&'a mut DynamicHistory<'a>, StorageSetupError> {
         let remaining_bytes = destination.len();
         if remaining_bytes < MIN_HISTORY_SIZE_BYTES {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
@@ -92,7 +112,7 @@ impl<'a> DynamicHistory<'a> {
             return Err(StorageSetupError::NullDestination);
         }
         let history = match fixed_slice_vec::single::embed(destination, |dynamic_region_slice| {
-            DynamicHistory::new(dynamic_region_slice, probe_id)
+            DynamicHistory::new(dynamic_region_slice, probe_id, restart_counter)
         }) {
             Ok(v) => Ok(v),
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
@@ -129,6 +149,7 @@ impl<'a> DynamicHistory<'a> {
     fn new(
         dynamic_region_slice: &'a mut [u8],
         probe_id: ProbeId,
+        restart_counter: RestartCounterProvider<'a>,
     ) -> Result<Self, StorageSetupError> {
         let max_n_clocks = cmp::max(
             MIN_CLOCKS_LEN,
@@ -153,7 +174,7 @@ impl<'a> DynamicHistory<'a> {
             .expect(
                 "The History.clocks field should always contain a clock for this probe instance",
             );
-        let history = DynamicHistory {
+        let mut history = DynamicHistory {
             report_seq_num: 0,
             event_count: 0,
             self_clock: LogicalClock {
@@ -165,7 +186,14 @@ impl<'a> DynamicHistory<'a> {
             clocks,
             log,
             log_items_missed: 0,
+            restart_counter: RestartSequenceCounter::new(restart_counter),
+            //_reserved_for_alignment: 0,
         };
+        if history.restart_counter.is_tracking_restarts() {
+            let next_persistent_epoch = history.restart_counter.next_sequence_id(history.probe_id);
+            history.self_clock.epoch = next_persistent_epoch.into();
+        }
+
         Ok(history)
     }
 
@@ -221,8 +249,20 @@ impl<'a> DynamicHistory<'a> {
     fn increment_local_clock(&mut self) {
         // N.B. We rely on the fact that the first member of the clocks
         // collection is always the clock for this probe
-        self.self_clock.increment();
+        let did_overflow = self.self_clock.increment();
         self.event_count = 0;
+
+        if did_overflow && self.restart_counter.is_tracking_restarts() {
+            let next_persistent_epoch = self.restart_counter.next_sequence_id(self.probe_id);
+            self.self_clock.epoch = next_persistent_epoch.into();
+        }
+
+        if did_overflow {
+            self.record_event_with_payload(
+                EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
+                self.self_clock.epoch.0 as u32,
+            );
+        }
     }
 
     #[inline]
@@ -509,6 +549,21 @@ impl<'a> DynamicHistory<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::{RestartCounter, RustRestartCounterProvider};
+
+    struct PersistentRestartProvider {
+        next_seq_id: u16,
+        count: usize,
+    }
+
+    impl RestartCounter for PersistentRestartProvider {
+        fn next_sequence_id(&mut self, _probe_id: ProbeId) -> u16 {
+            let next = self.next_seq_id;
+            self.next_seq_id += 1;
+            self.count += 1;
+            next
+        }
+    }
 
     #[test]
     fn epoch_rollover() {
@@ -526,7 +581,12 @@ mod test {
 
         {
             let mut storage_a = [0u8; 512];
-            let h = DynamicHistory::new_at(&mut storage_a, probe_a).unwrap();
+            let h = DynamicHistory::new_at(
+                &mut storage_a,
+                probe_a,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .unwrap();
 
             h.merge_clock(lc(probe_b, 1, 1));
             assert_eq!(find_clock(&h, probe_b), Some(lc(probe_b, 1, 1)));
@@ -562,7 +622,12 @@ mod test {
         // repeated restarts)
         {
             let mut storage_a = [0u8; 512];
-            let h = DynamicHistory::new_at(&mut storage_a, probe_a).unwrap();
+            let h = DynamicHistory::new_at(
+                &mut storage_a,
+                probe_a,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .unwrap();
 
             h.merge_clock(lc(probe_b, ProbeEpoch::MAX.0 - 2, 1));
             h.merge_clock(lc(probe_b, 2, 1));
@@ -572,7 +637,12 @@ mod test {
         // But not outside the threshold
         {
             let mut storage_a = [0u8; 512];
-            let h = DynamicHistory::new_at(&mut storage_a, probe_a).unwrap();
+            let h = DynamicHistory::new_at(
+                &mut storage_a,
+                probe_a,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .unwrap();
 
             h.merge_clock(lc(probe_b, ProbeEpoch::MAX.0 - 2, 1));
             h.merge_clock(lc(probe_b, 5, 1));
@@ -587,7 +657,12 @@ mod test {
     fn merged_clocks_overflow_error_event() {
         let probe_id = ProbeId::new(1).unwrap();
         let mut storage = [0u8; 512];
-        let h = DynamicHistory::new_at(&mut storage, probe_id).unwrap();
+        let h = DynamicHistory::new_at(
+            &mut storage,
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
 
         let lc = |id: ProbeId, epoch: u16, clock: u16| LogicalClock {
             id,
@@ -694,5 +769,61 @@ mod test {
         assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
         // 2: EventId::EVENT_PRODUCED_EXTERNAL_REPORT + user event
         assert_eq!(log_report.n_log_entries(), 2);
+    }
+
+    #[test]
+    fn persistent_epoch() {
+        let probe_a = ProbeId::new(1).unwrap();
+
+        let mut next_id_provider = PersistentRestartProvider {
+            next_seq_id: 100,
+            count: 0,
+        };
+
+        // When a probe is tracking restarts, then it gets the initial epoch portion
+        // of the clock from the implementation
+        {
+            let provider = RestartCounterProvider::Rust(RustRestartCounterProvider {
+                iface: &mut next_id_provider,
+            });
+
+            let mut storage_a = [0u8; 512];
+            let h = DynamicHistory::new_at(&mut storage_a, probe_a, provider).unwrap();
+
+            let now = h.now();
+            assert_eq!(now.clock.epoch.0, 100);
+            assert_eq!(now.clock.ticks.0, 0);
+        }
+        assert_eq!(next_id_provider.next_seq_id, 101);
+        assert_eq!(next_id_provider.count, 1);
+
+        {
+            let provider = RestartCounterProvider::Rust(RustRestartCounterProvider {
+                iface: &mut next_id_provider,
+            });
+
+            let mut storage_a = [0u8; 512];
+            let h = DynamicHistory::new_at(&mut storage_a, probe_a, provider).unwrap();
+
+            let now = h.now();
+            assert_eq!(now.clock.epoch.0, 101);
+            assert_eq!(now.clock.ticks.0, 0);
+
+            // Go to the very edge of the clock's range
+            h.self_clock.ticks = ProbeTicks::MAX;
+            let now = h.now();
+            assert_eq!(now.clock.epoch.0, 101);
+            assert_eq!(now.clock.ticks, ProbeTicks::MAX);
+
+            // Bump the clock, triggering an overflow
+            h.increment_local_clock();
+
+            // The overflow should have caused another sequence id retrieval
+            let now = h.now();
+            assert_eq!(now.clock.epoch.0, 102);
+            assert_eq!(now.clock.ticks.0, 1);
+        }
+        assert_eq!(next_id_provider.next_seq_id, 103);
+        assert_eq!(next_id_provider.count, 3);
     }
 }

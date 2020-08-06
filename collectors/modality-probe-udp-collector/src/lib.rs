@@ -797,7 +797,7 @@ mod tests {
                         assert_eq!(EventLogEntry::EventWithPayload(event, payload), event_foo);
                     } else if event == bar_id {
                         assert_eq!(EventLogEntry::EventWithPayload(event, payload), event_bar);
-                    } else {
+                    } else if event != modality_probe::EventId::EVENT_PROBE_INITIALIZED {
                         // it's that the model implementation of
                         // EventId doesn't or out the marker bits on
                         // read.
@@ -837,9 +837,12 @@ mod tests {
            + 'static {
         move |id_to_sender, _receiver| {
             let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
-            let mut probe =
-                modality_probe::ModalityProbe::new_with_storage(&mut probe_storage, probe_id)
-                    .expect("Could not make probe");
+            let mut probe = modality_probe::ModalityProbe::new_with_storage(
+                &mut probe_storage,
+                probe_id,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .expect("Could not make probe");
             let mut causal_history_blob = vec![0u8; SNAPSHOT_BYTES_SIZE];
             for _ in 0..n_messages {
                 match per_iteration_event {
@@ -897,9 +900,12 @@ mod tests {
            + 'static {
         move |id_to_sender, receiver| {
             let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
-            let mut probe =
-                modality_probe::ModalityProbe::new_with_storage(&mut probe_storage, probe_id)
-                    .expect("Could not make probe");
+            let mut probe = modality_probe::ModalityProbe::new_with_storage(
+                &mut probe_storage,
+                probe_id,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .expect("Could not make probe");
 
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
@@ -975,9 +981,12 @@ mod tests {
            + 'static {
         move |_id_to_sender, receiver| {
             let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
-            let mut probe =
-                modality_probe::ModalityProbe::new_with_storage(&mut probe_storage, probe_id)
-                    .expect("Could not make probe");
+            let mut probe = modality_probe::ModalityProbe::new_with_storage(
+                &mut probe_storage,
+                probe_id,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .expect("Could not make probe");
 
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
