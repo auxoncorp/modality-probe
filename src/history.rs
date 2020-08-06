@@ -278,8 +278,9 @@ impl<'a> DynamicHistory<'a> {
                 self.log.len()
             };
 
+            let clock_bytes = clocks_len * size_of::<LogicalClock>();
             let n_log_entries_possible = cmp::min(
-                payload.len() - (clocks_len * size_of::<LogicalClock>()),
+                (payload.len() - clock_bytes) / size_of::<LogEntry>(),
                 n_log_entries_ready_to_report,
             );
 
@@ -287,7 +288,7 @@ impl<'a> DynamicHistory<'a> {
             let mut n_copied = 0;
             let mut clock_id = None;
             let clocks = &mut self.clocks;
-            let mut byte_cursor = clocks_len * size_of::<LogicalClock>();
+            let mut byte_cursor = clock_bytes;
 
             if self.log_items_missed != 0 {
                 let (first, second) = LogEntry::event_with_payload(
@@ -298,9 +299,14 @@ impl<'a> DynamicHistory<'a> {
                 dest_bytes[0..4].copy_from_slice(&first.raw().to_le_bytes());
                 dest_bytes[4..8].copy_from_slice(&second.raw().to_le_bytes());
                 byte_cursor += 2 * size_of::<LogEntry>();
+                n_copied += 2;
             }
 
             while let Some(entry) = self.log.next() {
+                if n_copied >= n_log_entries_possible {
+                    break;
+                }
+
                 let dest_bytes = &mut payload[byte_cursor..byte_cursor + size_of::<LogEntry>()];
 
                 if entry.has_clock_bit_set() {
