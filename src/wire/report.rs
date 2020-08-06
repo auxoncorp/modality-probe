@@ -377,6 +377,40 @@ mod tests {
     }
 
     #[test]
+    fn round_trip() {
+        let mut bytes = [0xFF; 512];
+
+        let wire_size = {
+            let mut r = WireReport::new_unchecked(&mut bytes[..]);
+            assert_eq!(r.check_len(), Ok(()));
+            r.set_fingerprint();
+            r.set_probe_id(ProbeId::new(100).unwrap());
+            r.set_clock(0xAAAA_BBBB);
+            r.set_seq_num(123);
+            r.set_n_clocks(2);
+            r.set_n_log_entries(3);
+            let payload_len = r.payload_len();
+            (&mut r.payload_mut()[..payload_len]).copy_from_slice(&PAYLOAD_BYTES[..]);
+            assert_eq!(r.check_fingerprint(), Ok(()));
+            assert_eq!(r.check_payload_len(), Ok(()));
+            WireReport::<&[u8]>::header_len() + payload_len
+        };
+
+        let r = WireReport::new(&bytes[..wire_size]).unwrap();
+        assert_eq!(r.fingerprint(), WireReport::<&[u8]>::FINGERPRINT);
+        assert_eq!(r.probe_id().unwrap().get_raw(), 100);
+        assert_eq!(r.clock(), 0xAAAA_BBBB);
+        assert_eq!(r.seq_num(), 123);
+        assert_eq!(r.n_clocks(), 2);
+        assert_eq!(r.n_log_entries(), 3);
+        assert_eq!(
+            r.payload_len(),
+            (2 * mem::size_of::<LogicalClock>()) + (3 * mem::size_of::<LogEntry>())
+        );
+        assert_eq!(r.payload(), &PAYLOAD_BYTES[..]);
+    }
+
+    #[test]
     fn invalid_fingerprint() {
         let bytes = [0xFF; 26];
         let r = WireReport::new(&bytes[..]);

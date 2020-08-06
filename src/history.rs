@@ -539,4 +539,56 @@ mod test {
             );
         }
     }
+
+    #[test]
+    fn merged_clocks_overflow_error_event() {
+        let probe_id = ProbeId::new(1).unwrap();
+        let mut storage = [0u8; 512];
+        let h = DynamicHistory::new_at(&mut storage, probe_id).unwrap();
+
+        let lc = |id: ProbeId, epoch: u16, clock: u16| LogicalClock {
+            id,
+            epoch: ProbeEpoch(epoch),
+            ticks: ProbeTicks(clock),
+        };
+
+        assert!(h.clocks.capacity() * 4 <= core::u16::MAX as usize);
+        for i in 1..h.clocks.capacity() * 4 {
+            let other_probe = ProbeId::new(i as u32).unwrap();
+            h.merge_clock(lc(other_probe, 0, i as u16));
+        }
+
+        // Make sure we've filled up the clocks
+        assert_eq!(h.clocks.len(), h.clocks.capacity());
+
+        // When we generate a report, it should contain the merged clocks overflow event
+        let mut report_dest = [0_u8; 512];
+        let bytes_written = h.report(&mut report_dest).unwrap();
+        let log_report = WireReport::new(&report_dest[..bytes_written]).unwrap();
+
+        assert_eq!(log_report.n_clocks() as usize, h.clocks.capacity());
+        assert_eq!(log_report.n_log_entries(), 17);
+
+        let offset = log_report.n_clocks() as usize * size_of::<LogicalClock>();
+        let log_bytes = &log_report.payload()[offset..];
+
+        let found_internal_event = log_bytes
+            .chunks_exact(size_of::<LogEntry>())
+            .map(|bytes| crate::wire::le_bytes::read_u32(bytes))
+            .map(|word| unsafe { LogEntry::new_unchecked(word) })
+            .find(|log_entry| {
+                if let Some(ev) = log_entry.interpret_as_event_id() {
+                    if ev == EventId::EVENT_NUM_CLOCKS_OVERFLOWED {
+                        assert!(!log_entry.has_event_with_payload_bit_set());
+                        assert!(!log_entry.has_clock_bit_set());
+                        return true;
+                    }
+                }
+                false
+            });
+        assert_eq!(
+            found_internal_event,
+            Some(LogEntry::event(EventId::EVENT_NUM_CLOCKS_OVERFLOWED))
+        );
+    }
 }
