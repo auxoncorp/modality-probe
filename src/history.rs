@@ -187,7 +187,6 @@ impl<'a> DynamicHistory<'a> {
             log,
             log_items_missed: 0,
             restart_counter: RestartSequenceCounter::new(restart_counter),
-            //_reserved_for_alignment: 0,
         };
         if history.restart_counter.is_tracking_restarts() {
             let next_persistent_epoch = history.restart_counter.next_sequence_id(history.probe_id);
