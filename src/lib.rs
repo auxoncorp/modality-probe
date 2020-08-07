@@ -623,78 +623,51 @@ mod tests {
         );
     }
 
+    fn oc_cmp_eq(ordering: Ordering, left: (u16, u16), right: (u16, u16)) {
+        assert_eq!(
+            Some(ordering),
+            OrdClock(left.0.into(), left.1.into())
+                .partial_cmp(&OrdClock(right.0.into(), right.1.into()))
+        )
+    }
+
     #[test]
     fn ord_clock_basics() {
         // Symmetrical ordering
-        assert_eq!(
-            Some(Ordering::Equal),
-            OrdClock(0.into(), 0.into()).partial_cmp(&OrdClock(0.into(), 0.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Equal),
-            OrdClock(1.into(), 1.into()).partial_cmp(&OrdClock(1.into(), 1.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Equal),
-            OrdClock(2.into(), 2.into()).partial_cmp(&OrdClock(2.into(), 2.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Greater),
-            OrdClock(0.into(), 1.into()).partial_cmp(&OrdClock(0.into(), 0.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Greater),
-            OrdClock(0.into(), 2.into()).partial_cmp(&OrdClock(0.into(), 2.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Greater),
-            OrdClock(1.into(), 0.into()).partial_cmp(&OrdClock(0.into(), 0.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Greater),
-            OrdClock(2.into(), 0.into()).partial_cmp(&OrdClock(1.into(), 0.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Less),
-            OrdClock(0.into(), 0.into()).partial_cmp(&OrdClock(0.into(), 1.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Less),
-            OrdClock(0.into(), 1.into()).partial_cmp(&OrdClock(0.into(), 2.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Less),
-            OrdClock(0.into(), 0.into()).partial_cmp(&OrdClock(1.into(), 0.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Less),
-            OrdClock(1.into(), 0.into()).partial_cmp(&OrdClock(2.into(), 0.into()))
-        );
+        use Ordering::*;
+        oc_cmp_eq(Equal, (0, 0), (0, 0));
+        oc_cmp_eq(Equal, (1, 1), (1, 1));
+        oc_cmp_eq(Equal, (2, 2), (2, 2));
+
+        oc_cmp_eq(Greater, (0, 1), (0, 0));
+        oc_cmp_eq(Greater, (0, 2), (0, 0));
+        oc_cmp_eq(Greater, (0, 2), (0, 1));
+
+        oc_cmp_eq(Greater, (1, 0), (0, 0));
+        oc_cmp_eq(Greater, (2, 0), (0, 0));
+        oc_cmp_eq(Greater, (2, 0), (1, 0));
+
+        oc_cmp_eq(Less, (0, 0), (0, 1));
+        oc_cmp_eq(Less, (0, 0), (0, 2));
+
+        oc_cmp_eq(Less, (0, 0), (1, 0));
+        oc_cmp_eq(Less, (0, 0), (2, 0));
+        oc_cmp_eq(Less, (1, 0), (2, 0));
 
         // Consider epoch first and foremost, and ticks only when epochs are equal.
-        assert_eq!(
-            Some(Ordering::Greater),
-            OrdClock(1.into(), 1.into()).partial_cmp(&OrdClock(0.into(), 99.into()))
-        );
-        assert_eq!(
-            Some(Ordering::Less),
-            OrdClock(1.into(), 99.into()).partial_cmp(&OrdClock(2.into(), 0.into()))
-        );
+        oc_cmp_eq(Greater, (1, 1), (0, 99));
+        oc_cmp_eq(Less, (1, 99), (2, 0));
 
         // When one epoch is near the bottom of the range and the other is near the top,
         // we assume that the epoch near the bottom has wrapped around (and is actually ahead)
-        assert_eq!(
-            Some(Ordering::Greater),
-            OrdClock(0.into(), 0.into())
-                .partial_cmp(&OrdClock(ProbeEpoch(core::u16::MAX), 0.into()))
-        );
-        for bot in 0..=ProbeEpoch::WRAPAROUND_THRESHOLD_BOTTOM.0 {
-            for top in ProbeEpoch::WRAPAROUND_THRESHOLD_TOP.0..core::u16::MAX {
-                assert_eq!(
-                    Some(Ordering::Greater),
-                    OrdClock(ProbeEpoch(bot), 0.into())
-                        .partial_cmp(&OrdClock(ProbeEpoch(top), 0.into()))
-                );
+        oc_cmp_eq(Greater, (0, 0), (core::u16::MAX, 0));
+        for left in 0..=ProbeEpoch::WRAPAROUND_THRESHOLD_BOTTOM.0 {
+            for right in ProbeEpoch::WRAPAROUND_THRESHOLD_TOP.0..core::u16::MAX {
+                // In this narrow range, even though the underlying numerical epoch value
+                // of the left is less than that of the right, it is considered greater due
+                // to wraparound awareness
+                assert!(left < right);
+                oc_cmp_eq(Greater, (left, 0), (right, 0));
             }
         }
     }
