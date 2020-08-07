@@ -233,6 +233,25 @@ impl<'a> DynamicHistory<'a> {
     }
 
     pub(crate) fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
+        // If there are no events in the log to report
+        // (excluding the expected EventId::EVENT_PRODUCED_EXTERNAL_REPORT),
+        // then set bytes_written to zero to indicate the log is drained
+        match self.log.len() {
+            0 => return Ok(0),
+            1 => {
+                if let Some(peeked_entry) = self.log.peek_entry() {
+                    if !peeked_entry.has_clock_bit_set()
+                        && !peeked_entry.has_event_with_payload_bit_set()
+                        && peeked_entry.interpret_as_event_id()
+                            == Some(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    {
+                        return Ok(0);
+                    }
+                }
+            }
+            _ => (),
+        }
+
         // If we can't store at least a header and one event, it's a hard error
         if destination.len() < WireReport::<&[u8]>::buffer_len(0, 1) {
             return Err(ReportError::InsufficientDestinationSize);
@@ -609,5 +628,67 @@ mod test {
             found_internal_event,
             Some(LogEntry::event(EventId::EVENT_NUM_CLOCKS_OVERFLOWED))
         );
+    }
+
+    #[test]
+    fn drain_report_until_completion() {
+        let probe_id = ProbeId::new(1).unwrap();
+        let mut storage = [0u8; 1024];
+        let h = DynamicHistory::new_at(&mut storage, probe_id).unwrap();
+
+        for i in 0..h.log.capacity() {
+            h.record_event(EventId::new(i as u32 + 1).unwrap());
+        }
+        assert_eq!(h.log.len(), h.log.capacity());
+
+        const EXPECTED_LOG_CAPACITY: usize = 204;
+        assert_eq!(h.log.capacity(), EXPECTED_LOG_CAPACITY);
+
+        // Each report (excluding the first, and until drained) adds an
+        // extra internal event: EventId::EVENT_PRODUCED_EXTERNAL_REPORT.
+        const EXPECTED_LOG_ENTRIES: usize = EXPECTED_LOG_CAPACITY + 4;
+
+        // Drain into a buffer that is ~1/4 of the log buffer capacity
+        let report_buffer_size =
+            WireReport::<&[u8]>::buffer_len(h.clocks.len(), h.log.capacity() / 4);
+        let mut report_dest = vec![0_u8; report_buffer_size];
+
+        let mut reported_log_entries = 0;
+
+        // First four reports should be filled to buffer capacity
+        for _ in 0..4 {
+            let bytes_written = h.report(&mut report_dest).unwrap();
+            assert_eq!(bytes_written, report_buffer_size);
+            let log_report = WireReport::new(&report_dest[..bytes_written]).unwrap();
+            assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
+            assert_eq!(log_report.n_log_entries(), 51);
+            reported_log_entries += log_report.n_log_entries() as usize;
+        }
+
+        // One more to get the remainder
+        let bytes_written = h.report(&mut report_dest).unwrap();
+        assert_eq!(bytes_written, 50);
+        let log_report = WireReport::new(&report_dest[..bytes_written]).unwrap();
+        assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
+        assert_eq!(log_report.n_log_entries(), 4);
+        reported_log_entries += log_report.n_log_entries() as usize;
+
+        assert_eq!(reported_log_entries, EXPECTED_LOG_ENTRIES);
+
+        // The log has been drained, always returns zero bytes until
+        // something gets pushed to the log
+        for _ in 0..10 {
+            let bytes_written = h.report(&mut report_dest).unwrap();
+            assert_eq!(bytes_written, 0);
+        }
+
+        // A new entry means more data to report
+        h.record_event(EventId::new(1234).unwrap());
+        let bytes_written = h.report(&mut report_dest).unwrap();
+        assert_ne!(bytes_written, 0);
+        let log_report = WireReport::new(&report_dest[..bytes_written]).unwrap();
+        assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
+        // 2: EventId::EVENT_PRODUCED_EXTERNAL_REPORT + user event
+        assert_eq!(log_report.n_log_entries(), 2);
     }
 }
