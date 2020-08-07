@@ -42,5 +42,5 @@ jobs:
 
       - name: Generate debian package
         run: |
-          cd debian-package
+          cd package/debian/
           ./build.sh
