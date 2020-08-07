@@ -2,6 +2,7 @@ use core::{
     cmp,
     convert::TryFrom,
     mem::{align_of, size_of},
+    num::NonZeroUsize,
 };
 
 use fixed_slice_vec::{
@@ -232,12 +233,14 @@ impl<'a> DynamicHistory<'a> {
         }
     }
 
-    pub(crate) fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
-        // If there are no events in the log to report
-        // (excluding the expected EventId::EVENT_PRODUCED_EXTERNAL_REPORT),
-        // then set bytes_written to zero to indicate the log is drained
+    pub(crate) fn report(
+        &mut self,
+        destination: &mut [u8],
+    ) -> Result<Option<NonZeroUsize>, ReportError> {
+        // The log has been drained if there are no events report
+        // (excluding the expected EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
         match self.log.len() {
-            0 => return Ok(0),
+            0 => return Ok(None),
             1 => {
                 if let Some(peeked_entry) = self.log.peek_entry() {
                     if !peeked_entry.has_clock_bit_set()
@@ -245,7 +248,7 @@ impl<'a> DynamicHistory<'a> {
                         && peeked_entry.interpret_as_event_id()
                             == Some(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                     {
-                        return Ok(0);
+                        return Ok(None);
                     }
                 }
             }
@@ -390,7 +393,9 @@ impl<'a> DynamicHistory<'a> {
         self.record_event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT);
         self.log_items_missed = 0;
 
-        Ok(WireReport::<&[u8]>::header_len() + report.payload_len())
+        Ok(NonZeroUsize::new(
+            WireReport::<&[u8]>::header_len() + report.payload_len(),
+        ))
     }
 
     #[inline]
@@ -601,8 +606,8 @@ mod test {
 
         // When we generate a report, it should contain the merged clocks overflow event
         let mut report_dest = [0_u8; 512];
-        let bytes_written = h.report(&mut report_dest).unwrap();
-        let log_report = WireReport::new(&report_dest[..bytes_written]).unwrap();
+        let bytes_written = h.report(&mut report_dest).unwrap().unwrap();
+        let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         assert_eq!(log_report.n_clocks() as usize, h.clocks.capacity());
         assert_eq!(log_report.n_log_entries(), 17);
@@ -657,18 +662,18 @@ mod test {
 
         // First four reports should be filled to buffer capacity
         for _ in 0..4 {
-            let bytes_written = h.report(&mut report_dest).unwrap();
-            assert_eq!(bytes_written, report_buffer_size);
-            let log_report = WireReport::new(&report_dest[..bytes_written]).unwrap();
+            let bytes_written = h.report(&mut report_dest).unwrap().unwrap();
+            assert_eq!(bytes_written.get(), report_buffer_size);
+            let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
             assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
             assert_eq!(log_report.n_log_entries(), 51);
             reported_log_entries += log_report.n_log_entries() as usize;
         }
 
         // One more to get the remainder
-        let bytes_written = h.report(&mut report_dest).unwrap();
-        assert_eq!(bytes_written, 50);
-        let log_report = WireReport::new(&report_dest[..bytes_written]).unwrap();
+        let bytes_written = h.report(&mut report_dest).unwrap().unwrap();
+        assert_eq!(bytes_written.get(), 50);
+        let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
         assert_eq!(log_report.n_log_entries(), 4);
         reported_log_entries += log_report.n_log_entries() as usize;
@@ -679,14 +684,13 @@ mod test {
         // something gets pushed to the log
         for _ in 0..10 {
             let bytes_written = h.report(&mut report_dest).unwrap();
-            assert_eq!(bytes_written, 0);
+            assert_eq!(bytes_written, None);
         }
 
         // A new entry means more data to report
         h.record_event(EventId::new(1234).unwrap());
-        let bytes_written = h.report(&mut report_dest).unwrap();
-        assert_ne!(bytes_written, 0);
-        let log_report = WireReport::new(&report_dest[..bytes_written]).unwrap();
+        let bytes_written = h.report(&mut report_dest).unwrap().unwrap();
+        let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
         // 2: EventId::EVENT_PRODUCED_EXTERNAL_REPORT + user event
         assert_eq!(log_report.n_log_entries(), 2);

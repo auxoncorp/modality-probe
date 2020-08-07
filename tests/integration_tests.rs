@@ -90,8 +90,8 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     let mut backend = [0u8; 1024];
 
     probe.record_event(EventId::new(1).unwrap());
-    let bytes_written = probe.report(&mut backend)?;
-    let log_report = wire::WireReport::new(&backend[..bytes_written])
+    let bytes_written = probe.report(&mut backend)?.unwrap();
+    let log_report = wire::WireReport::new(&backend[..bytes_written.get()])
         .expect("Could not read from bulk report format bytes");
     assert_eq!(Ok(ProbeId::try_from(123).unwrap()), log_report.probe_id());
     assert_eq!(log_report.seq_num(), 0);
@@ -125,8 +125,8 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
 
     // Another report should bump the sequence number
     probe.record_event(EventId::new(2).unwrap());
-    let bytes_written = probe.report(&mut backend)?;
-    let log_report = wire::WireReport::new(&backend[..bytes_written]).unwrap();
+    let bytes_written = probe.report(&mut backend)?.unwrap();
+    let log_report = wire::WireReport::new(&backend[..bytes_written.get()]).unwrap();
     assert_eq!(Ok(ProbeId::try_from(123).unwrap()), log_report.probe_id());
     assert_eq!(log_report.seq_num(), 1);
 
@@ -209,8 +209,8 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
 
     // Not enough room for the frontier clocks, only a single event
     let mut report_dest = [0u8; 26 + mem::size_of::<log::LogEntry>()];
-    let bytes_written = probe.report(&mut report_dest)?;
-    let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+    let bytes_written = probe.report(&mut report_dest)?.unwrap();
+    let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
     // Only a single internal event is logged
     assert_eq!(log_report.n_clocks(), 0);
@@ -240,8 +240,8 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
         }
 
         let mut report_dest = [0u8; 1024];
-        let bytes_written = probe.report(&mut report_dest)?;
-        let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+        let bytes_written = probe.report(&mut report_dest)?.unwrap();
+        let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         assert_eq!(log_report.n_clocks(), 1);
         assert_eq!(log_report.n_log_entries(), 92);
@@ -299,8 +299,8 @@ proptest! {
             wire::WireReport::<&[u8]>::header_len() + (3 * mem::size_of::<LogicalClock>());
         let mut report_dest = vec![0u8; min_report_size + report_buffer_space];
 
-        let bytes_written = probe.report(&mut report_dest).unwrap();
-        let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+        let bytes_written = probe.report(&mut report_dest).unwrap().unwrap();
+        let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         // Should have some clocks, and at least two entries
         prop_assert!(log_report.n_clocks() > 0);

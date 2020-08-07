@@ -143,7 +143,7 @@ pub unsafe fn modality_probe_report(
         log_report_destination,
         log_report_destination_size_bytes,
     )) {
-        Ok(b) => b,
+        Ok(b) => b.map(|nonzero| nonzero.get()).unwrap_or(0),
         Err(e) => report_error_to_modality_probe_error(e),
     };
 

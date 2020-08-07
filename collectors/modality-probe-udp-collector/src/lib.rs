@@ -867,9 +867,14 @@ mod tests {
             let log_report_bytes = probe
                 .report(&mut log_report_storage)
                 .expect("Could not write log report in broadcaster");
-            socket
-                .send_to(&log_report_storage[..log_report_bytes], collector_addr)
-                .expect("Could not send log report to server");
+            if let Some(log_report_bytes) = log_report_bytes {
+                socket
+                    .send_to(
+                        &log_report_storage[..log_report_bytes.get()],
+                        collector_addr,
+                    )
+                    .expect("Could not send log report to server");
+            }
         }
     }
 
@@ -942,9 +947,14 @@ mod tests {
                         let log_report_bytes = probe
                             .report(&mut log_report_storage)
                             .expect("Could not write log report in relayer");
-                        socket
-                            .send_to(&log_report_storage[..log_report_bytes], collector_addr)
-                            .expect("Could not send log report to server");
+                        if let Some(log_report_bytes) = log_report_bytes {
+                            socket
+                                .send_to(
+                                    &log_report_storage[..log_report_bytes.get()],
+                                    collector_addr,
+                                )
+                                .expect("Could not send log report to server");
+                        }
                     }
                 }
                 messages_received += 1;
@@ -996,12 +1006,14 @@ mod tests {
                     let log_report_bytes = probe
                         .report(&mut log_report_storage)
                         .expect("Could not write log report in sink");
-                    socket
-                        .send_to(
-                            &log_report_storage[..log_report_bytes],
-                            send_log_report_every_n_messages.collector_addr,
-                        )
-                        .expect("Could not send log report to server");
+                    if let Some(log_report_bytes) = log_report_bytes {
+                        socket
+                            .send_to(
+                                &log_report_storage[..log_report_bytes.get()],
+                                send_log_report_every_n_messages.collector_addr,
+                            )
+                            .expect("Could not send log report to server");
+                    }
                 }
                 messages_received += 1;
             }
