@@ -143,7 +143,7 @@ impl<'a> LogEntryRingBuffer<'a> {
     /// Read a single entry from the RingBuffer tail (oldest) without advancing
     /// the read cursor
     #[inline]
-    pub fn peek_entry(&mut self) -> Option<LogEntry> {
+    pub fn peek_entry(&self) -> Option<LogEntry> {
         if self.is_empty() {
             None
         } else {
@@ -161,6 +161,7 @@ impl<'a> LogEntryRingBuffer<'a> {
 
         self.len = 0;
         self.write_at = 0;
+        self.read_from = 0;
     }
 
     #[inline]
@@ -239,6 +240,12 @@ mod tests {
             assert_eq!(rb.push_entry(entry(i as u32 + 1)), OverwrittenEntry::None);
         }
         assert!(rb.is_full());
+
+        rb.clear();
+        assert!(!rb.is_full());
+        assert_eq!(rb.len, 0);
+        assert_eq!(rb.read_from, 0);
+        assert_eq!(rb.write_at, 0);
     }
 
     #[test]
