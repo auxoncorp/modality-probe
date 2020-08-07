@@ -237,20 +237,18 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
     assert!(probe.try_record_event(EventId::MAX_USER_ID).is_ok());
 
     // Only room for a header, hard error since we can't log a single event
-    let mut report_dest = [0u8; 26 + mem::size_of::<log::LogEntry>() - 1];
-    assert_eq!(
-        report_dest.len(),
-        wire::WireReport::<&[u8]>::header_len() + mem::size_of::<log::LogEntry>() - 1
-    );
+    let mut report_dest =
+        vec![0u8; wire::WireReport::<&[u8]>::header_len() + mem::size_of::<log::LogEntry>() - 1];
     assert_eq!(
         probe.report(&mut report_dest),
         Err(ReportError::InsufficientDestinationSize)
     );
 
     // Not enough room for the frontier clocks, only a single event
-    let mut report_dest = [0u8; 26 + mem::size_of::<log::LogEntry>()];
-    let bytes_written = probe.report(&mut report_dest)?.unwrap();
-    let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
+    let mut report_dest =
+        vec![0u8; wire::WireReport::<&[u8]>::header_len() + mem::size_of::<log::LogEntry>()];
+    let bytes_written = probe.report(&mut report_dest)?;
+    let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
 
     // Only a single internal event is logged
     assert_eq!(log_report.n_clocks(), 0);
@@ -416,6 +414,11 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         let now = probe.now();
         assert_eq!(now.clock.epoch.0, 100);
         assert_eq!(now.clock.ticks.0, 0);
+
+        let mut report_dest = [0u8; 512];
+        let bytes_written = probe.report(&mut report_dest)?;
+        let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+        assert_eq!(log_report.persistent_epoch_counting(), true);
     }
     assert_eq!(next_id_provider.next_seq_id, 101);
     assert_eq!(next_id_provider.count, 1);
@@ -432,6 +435,11 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         let now = probe.now();
         assert_eq!(now.clock.epoch.0, 101);
         assert_eq!(now.clock.ticks.0, 0);
+
+        let mut report_dest = [0u8; 512];
+        let bytes_written = probe.report(&mut report_dest)?;
+        let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+        assert_eq!(log_report.persistent_epoch_counting(), true);
     }
     assert_eq!(next_id_provider.next_seq_id, 102);
     assert_eq!(next_id_provider.count, 2);

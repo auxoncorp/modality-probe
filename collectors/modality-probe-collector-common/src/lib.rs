@@ -77,6 +77,7 @@ pub struct Report {
     pub probe_id: ProbeId,
     pub probe_clock: LogicalClock,
     pub seq_num: SequenceNumber,
+    pub persistent_epoch_counting: bool,
     pub frontier_clocks: Vec<LogicalClock>,
     pub event_log: Vec<EventLogEntry>,
 }
@@ -414,6 +415,7 @@ impl TryFrom<&[u8]> for Report {
             probe_id: id,
             probe_clock: LogicalClock { id, epoch, ticks },
             seq_num: report.seq_num().into(),
+            persistent_epoch_counting: report.persistent_epoch_counting(),
             frontier_clocks: vec![],
             event_log: vec![],
         };
@@ -723,6 +725,7 @@ pub(crate) mod test {
                     probe_id,
                     probe_clock,
                     seq_num,
+                    persistent_epoch_counting: false,
                     frontier_clocks,
                     event_log,
                 }
@@ -761,6 +764,7 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 },
                 seq_num: 0.into(),
+                persistent_epoch_counting: false,
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(1).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -792,6 +796,7 @@ pub(crate) mod test {
                     ticks: ProbeTicks(1),
                 },
                 seq_num: 1.into(),
+                persistent_epoch_counting: false,
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(1).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -825,6 +830,7 @@ pub(crate) mod test {
                     ticks: ProbeTicks(1),
                 },
                 seq_num: 0.into(),
+                persistent_epoch_counting: false,
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(2).unwrap(),
                     epoch: ProbeEpoch(0),

@@ -196,6 +196,7 @@ mod tests {
                 ticks: ProbeTicks(1),
             },
             seq_num: 1.into(),
+            persistent_epoch_counting: false,
             frontier_clocks: vec![LogicalClock {
                 id: ProbeId::new(2).unwrap(),
                 epoch: ProbeEpoch(0),

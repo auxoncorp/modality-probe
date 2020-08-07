@@ -304,6 +304,7 @@ impl<'a> DynamicHistory<'a> {
         report.set_fingerprint();
         report.set_probe_id(self.probe_id);
         report.set_clock(crate::pack_clock_word(self_clock.epoch, self_clock.ticks));
+        report.set_persistent_epoch_counting(self.restart_counter.is_tracking_restarts());
 
         // We can't store at least the frontier clocks and a single two-word item
         if report.as_ref().len() < WireReport::<&[u8]>::buffer_len(self.clocks.len(), 2) {
