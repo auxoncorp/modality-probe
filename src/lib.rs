@@ -215,8 +215,10 @@ impl PartialOrd for LogicalClock {
     }
 }
 
+/// A wraparound-aware ordering comparison helper
+/// for the clock components.
 #[derive(PartialEq, Eq)]
-pub(crate) struct OrdClock(pub ProbeEpoch, pub ProbeTicks);
+pub struct OrdClock(pub ProbeEpoch, pub ProbeTicks);
 
 impl PartialOrd for OrdClock {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -619,5 +621,81 @@ mod tests {
                 prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
             }
         );
+    }
+
+    #[test]
+    fn ord_clock_basics() {
+        // Symmetrical ordering
+        assert_eq!(
+            Some(Ordering::Equal),
+            OrdClock(0.into(), 0.into()).partial_cmp(&OrdClock(0.into(), 0.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Equal),
+            OrdClock(1.into(), 1.into()).partial_cmp(&OrdClock(1.into(), 1.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Equal),
+            OrdClock(2.into(), 2.into()).partial_cmp(&OrdClock(2.into(), 2.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Greater),
+            OrdClock(0.into(), 1.into()).partial_cmp(&OrdClock(0.into(), 0.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Greater),
+            OrdClock(0.into(), 2.into()).partial_cmp(&OrdClock(0.into(), 2.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Greater),
+            OrdClock(1.into(), 0.into()).partial_cmp(&OrdClock(0.into(), 0.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Greater),
+            OrdClock(2.into(), 0.into()).partial_cmp(&OrdClock(1.into(), 0.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Less),
+            OrdClock(0.into(), 0.into()).partial_cmp(&OrdClock(0.into(), 1.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Less),
+            OrdClock(0.into(), 1.into()).partial_cmp(&OrdClock(0.into(), 2.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Less),
+            OrdClock(0.into(), 0.into()).partial_cmp(&OrdClock(1.into(), 0.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Less),
+            OrdClock(1.into(), 0.into()).partial_cmp(&OrdClock(2.into(), 0.into()))
+        );
+
+        // Consider epoch first and foremost, and ticks only when epochs are equal.
+        assert_eq!(
+            Some(Ordering::Greater),
+            OrdClock(1.into(), 1.into()).partial_cmp(&OrdClock(0.into(), 99.into()))
+        );
+        assert_eq!(
+            Some(Ordering::Less),
+            OrdClock(1.into(), 99.into()).partial_cmp(&OrdClock(2.into(), 0.into()))
+        );
+
+        // When one epoch is near the bottom of the range and the other is near the top,
+        // we assume that the epoch near the bottom has wrapped around (and is actually ahead)
+        assert_eq!(
+            Some(Ordering::Greater),
+            OrdClock(0.into(), 0.into())
+                .partial_cmp(&OrdClock(ProbeEpoch(core::u16::MAX), 0.into()))
+        );
+        for bot in 0..=ProbeEpoch::WRAPAROUND_THRESHOLD_BOTTOM.0 {
+            for top in ProbeEpoch::WRAPAROUND_THRESHOLD_TOP.0..core::u16::MAX {
+                assert_eq!(
+                    Some(Ordering::Greater),
+                    OrdClock(ProbeEpoch(bot), 0.into())
+                        .partial_cmp(&OrdClock(ProbeEpoch(top), 0.into()))
+                );
+            }
+        }
     }
 }
