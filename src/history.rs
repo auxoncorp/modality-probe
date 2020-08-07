@@ -46,7 +46,8 @@ const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
 const_assert_eq!(
-    4 + size_of::<ProbeId>()
+    size_of::<ProbeId>()
+        + size_of::<u32>()
         + size_of::<u32>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
         + size_of::<LogicalClock>()
@@ -62,6 +63,9 @@ const_assert_eq!(
 #[derive(Debug)]
 pub struct DynamicHistory<'a> {
     pub(crate) probe_id: ProbeId,
+    /// Determines the types of entries that can be written to the log at a given time
+    /// Note: currently not in use
+    pub(crate) write_priority_level: u32,
     /// The number of events seen since the current
     /// probe's logical clock last increased.
     pub(crate) event_count: u32,
@@ -154,6 +158,7 @@ impl<'a> DynamicHistory<'a> {
             );
         let history = DynamicHistory {
             report_seq_num: 0,
+            write_priority_level: 0,
             event_count: 0,
             self_clock: LogicalClock {
                 id: probe_id,
