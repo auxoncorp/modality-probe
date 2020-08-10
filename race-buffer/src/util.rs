@@ -1,5 +1,5 @@
 use super::*;
-use std::error::Error;
+use std::fmt;
 use std::sync::atomic::{fence, Ordering};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -49,48 +49,59 @@ impl OrderedEntry {
     pub(crate) fn is_suffix(&self) -> bool {
         self.0 >= Self::SUFFIX_TAG && self.0 < Self::PREFIX_TAG
     }
+}
 
+#[derive(Copy, Clone)]
+pub(crate) enum OutputOrderedEntry {
+    Present(OrderedEntry),
+    Missed(u64),
+}
+
+impl OutputOrderedEntry {
     // Invariant: Check if entries all have correct index
-    pub(crate) fn entries_correct_index(rbuf: &[PossiblyMissed<OrderedEntry>]) -> bool {
-        for (idx, entry) in rbuf
-            .iter()
-            .enumerate()
-            .filter(|(_, e)| **e != PossiblyMissed::Missed)
-        {
-            if entry.assume_not_missed().to_index() != idx as u32 {
-                return false;
+    pub(crate) fn entries_correct_index(rbuf: &[OutputOrderedEntry]) -> bool {
+        let mut current_index = 0;
+        for output_entry in rbuf.iter() {
+            match output_entry {
+                OutputOrderedEntry::Missed(n) => current_index += n,
+                OutputOrderedEntry::Present(entry) => {
+                    if entry.to_index() as u64 != current_index {
+                        return false;
+                    }
+                    current_index += 1;
+                }
             }
         }
-        return true;
+        true
     }
 
     // Invariant: Check if entries all have correct index
-    pub(crate) fn double_entries_consistent(rbuf: &[PossiblyMissed<OrderedEntry>]) -> bool {
+    pub(crate) fn double_entries_consistent(rbuf: &[OutputOrderedEntry]) -> bool {
         if rbuf.len() == 0 {
             return true;
         }
-        if let PossiblyMissed::Entry(first_entry) = rbuf[0] {
+        if let OutputOrderedEntry::Present(first_entry) = rbuf[0] {
             if first_entry.is_suffix() {
                 return false;
             }
         }
-        if let PossiblyMissed::Entry(last_entry) = rbuf.last().unwrap() {
+        if let OutputOrderedEntry::Present(last_entry) = rbuf.last().unwrap() {
             if last_entry.is_prefix_unchecked() {
                 return false;
             }
         }
         for i in 0..(rbuf.len() - 1) {
             match rbuf[i] {
-                PossiblyMissed::Missed => {
-                    if let PossiblyMissed::Entry(next) = rbuf[i + 1] {
+                OutputOrderedEntry::Missed(_) => {
+                    if let OutputOrderedEntry::Present(next) = rbuf[i + 1] {
                         if next.is_suffix() {
                             return false;
                         }
                     }
                 }
-                PossiblyMissed::Entry(current) => {
+                OutputOrderedEntry::Present(current) => {
                     if current.is_prefix_unchecked() {
-                        if let PossiblyMissed::Entry(next) = rbuf[i + 1] {
+                        if let OutputOrderedEntry::Present(next) = rbuf[i + 1] {
                             if !next.is_suffix() {
                                 return false;
                             }
@@ -105,30 +116,43 @@ impl OrderedEntry {
     }
 }
 
-pub(crate) struct RawPtrSnapper<'a>(*const writer::RaceBuffer<'a, OrderedEntry>);
+pub(crate) struct RawPtrSnapper<'a>(*const RaceBuffer<'a, OrderedEntry>);
 
 impl<'a> RawPtrSnapper<'a> {
-    pub(crate) fn new(ptr: *const writer::RaceBuffer<'a, OrderedEntry>) -> RawPtrSnapper<'a> {
+    pub(crate) fn new(ptr: *const RaceBuffer<'a, OrderedEntry>) -> RawPtrSnapper<'a> {
         RawPtrSnapper(ptr)
     }
 }
 
-impl reader::Snapper<OrderedEntry> for RawPtrSnapper<'_> {
-    fn snap_write_seqn(&self) -> Result<u32, Box<dyn Error>> {
+#[derive(Debug)]
+pub(crate) struct RawPtrSnapperError;
+
+impl fmt::Display for RawPtrSnapperError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Error snapping using raw pointer")
+    }
+}
+
+impl std::error::Error for RawPtrSnapperError {}
+
+impl async_reader::Snapper<OrderedEntry> for RawPtrSnapper<'_> {
+    type Error = RawPtrSnapperError;
+
+    fn snap_write_seqn(&self) -> Result<u64, RawPtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
         unsafe { Ok(self.0.as_ref().unwrap().get_write_seqn()) }
     }
 
-    fn snap_overwrite_seqn(&self) -> Result<u32, Box<dyn Error>> {
+    fn snap_overwrite_seqn(&self) -> Result<u64, RawPtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
         unsafe { Ok(self.0.as_ref().unwrap().get_overwrite_seqn()) }
     }
 
-    fn snap_storage(&self, index: u32) -> Result<OrderedEntry, Box<dyn Error>> {
+    fn snap_storage(&self, index: usize) -> Result<OrderedEntry, RawPtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
-        unsafe { Ok(self.0.as_ref().unwrap().read_storage(index)) }
+        unsafe { Ok(self.0.as_ref().unwrap().read_storage(index as u64)) }
     }
 }

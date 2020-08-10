@@ -60,13 +60,13 @@ const_assert_eq!(
 
 #[cfg(not(target_pointer_width = "32"))]
 const_assert_eq!(
-    4 + size_of::<ProbeId>()
+    size_of::<ProbeId>()
         + size_of::<u32>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
         + size_of::<LogicalClock>()
         + size_of::<RaceLog<'_>>()
         + size_of::<u64>()
-        + size_of::<u32>(),
+        + size_of::<u64>(),
     size_of::<DynamicHistory>()
 );
 
@@ -85,7 +85,7 @@ pub struct DynamicHistory<'a> {
     pub(crate) self_clock: LogicalClock,
     pub(crate) log: RaceLog<'a>,
     pub(crate) report_seq_num: u64,
-    pub(crate) read_cursor: u32,
+    pub(crate) read_cursor: u64,
 }
 
 #[derive(Debug)]
@@ -293,7 +293,7 @@ impl<'a> DynamicHistory<'a> {
 
             // Wrapping add
             // Buffer cannot store more than u32::MAX/2 items, so n_items_read will always fit into u32
-            self.read_cursor = self.log.seqn_add(self.read_cursor, n_items_read as u32);
+            self.read_cursor += n_items_read as u64; 
             if did_clocks_overflow {
                 self.record_event(EventId::EVENT_NUM_CLOCKS_OVERFLOWED);
             }
