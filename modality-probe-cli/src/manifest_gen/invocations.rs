@@ -1,6 +1,7 @@
 use crate::manifest_gen::{
     c_parser::CParser,
     file_path::{self, FilePath},
+    id_gen::IdGen,
     in_source_event::InSourceEvent,
     in_source_probe::InSourceProbe,
     parser::{self, Parser},
@@ -9,6 +10,7 @@ use crate::manifest_gen::{
 use crate::{
     component::{ComponentHash, ComponentHasher, ComponentHasherExt},
     events::{Event, EventId, Events},
+    exit_error,
     lang::Lang,
     probes::{ProbeId, Probes},
     warn,
@@ -239,7 +241,9 @@ impl Invocations {
         Ok(())
     }
 
-    pub fn merge_probes_into(&self, probe_id_offset: Option<u32>, mf_probes: &mut Probes) {
+    pub fn merge_probes_into(&self, mut probe_id_gen: IdGen, mf_probes: &mut Probes) {
+        let mut existing_probe_ids: Vec<u32> = mf_probes.iter().map(|p| p.id.0).collect();
+
         let mf_path = mf_probes.path.clone();
         self.probes.iter().for_each(|src_probe| {
             mf_probes
@@ -287,15 +291,15 @@ impl Invocations {
                 });
         });
 
-        let probe_id_offset = probe_id_offset.unwrap_or(0);
-        let mut next_available_probe_id: u32 = match mf_probes.next_available_probe_id() {
-            id if probe_id_offset > id => probe_id_offset,
-            id => id,
-        };
-
         self.probes.iter().for_each(|src_probe| {
+            let next_probe_id = Self::generate_probe_id(
+                &mut probe_id_gen,
+                src_probe.canonical_name().as_str(),
+                &mut existing_probe_ids,
+            );
+
             if mf_probes.probes.iter().find(|t| src_probe.eq(t)).is_none() {
-                let probe = src_probe.to_probe(ProbeId(next_available_probe_id));
+                let probe = src_probe.to_probe(next_probe_id);
                 println!(
                     "Adding probe {}, ID {} to {}",
                     probe.name,
@@ -303,7 +307,6 @@ impl Invocations {
                     mf_path.display(),
                 );
                 mf_probes.probes.push(probe);
-                next_available_probe_id += 1;
             }
         });
 
@@ -478,6 +481,31 @@ impl Invocations {
                 }
             });
     }
+
+    fn generate_probe_id(
+        gen: &mut IdGen,
+        probe_name: &str,
+        existing_probe_ids: &mut Vec<u32>,
+    ) -> ProbeId {
+        let mut max_tries = std::u16::MAX;
+        loop {
+            let next_id = gen.hashed_id(probe_name);
+
+            let id_already_taken = existing_probe_ids.iter().any(|&id| id == next_id.get());
+            let is_valid_probe_id = modality_probe::ProbeId::new(next_id.get()).is_some();
+
+            if !id_already_taken && is_valid_probe_id {
+                existing_probe_ids.push(next_id.get());
+                return ProbeId(next_id.get());
+            }
+
+            // Escape hatch
+            max_tries = max_tries.saturating_sub(1);
+            if max_tries == 0 {
+                exit_error!("manifest-gen", "Exceeded the ProbeId hashing retry limit");
+            }
+        }
+    }
 }
 
 fn is_hidden(entry: &DirEntry) -> bool {
@@ -587,12 +615,14 @@ impl From<file_path::Error> for CreationError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::component::ComponentUuId;
+    use crate::component::ComponentUuid;
     use crate::events::Event;
     use crate::manifest_gen::event_metadata::EventMetadata;
+    use crate::manifest_gen::id_gen::NonZeroIdRange;
     use crate::manifest_gen::probe_metadata::ProbeMetadata;
     use crate::manifest_gen::type_hint::TypeHint;
     use crate::probes::Probe;
+    use core::num::NonZeroU32;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -721,7 +751,7 @@ mod tests {
             },
         };
         let in_mf_probe = Probe {
-            uuid: ComponentUuId::nil(),
+            component_id: ComponentUuid::nil(),
             id: ProbeId(1),
             name: "location_a".to_string(),
             description: String::new(),
@@ -738,11 +768,17 @@ mod tests {
             path: PathBuf::new(),
             probes: vec![in_mf_probe.clone()],
         };
-        invcs.merge_probes_into(None, &mut mf_probes);
+        let probe_id_range = NonZeroIdRange::new(
+            NonZeroU32::new(1).unwrap(),
+            NonZeroU32::new(modality_probe::ProbeId::MAX_ID).unwrap(),
+        )
+        .unwrap();
+        let probe_id_gen = IdGen::new(probe_id_range);
+        invcs.merge_probes_into(probe_id_gen, &mut mf_probes);
         assert_eq!(
             mf_probes.probes,
             vec![Probe {
-                uuid: ComponentUuId::nil(),
+                component_id: ComponentUuid::nil(),
                 id: ProbeId(1),
                 name: "location_a".to_string(),
                 description: String::new(),
@@ -768,7 +804,7 @@ mod tests {
             },
         };
         let in_mf_probe = Probe {
-            uuid: ComponentUuId::nil(),
+            component_id: ComponentUuid::nil(),
             id: ProbeId(1),
             name: "location_a".to_string(),
             description: String::new(),
@@ -785,11 +821,17 @@ mod tests {
             path: PathBuf::new(),
             probes: vec![in_mf_probe.clone()],
         };
-        invcs.merge_probes_into(None, &mut mf_probes);
+        let probe_id_range = NonZeroIdRange::new(
+            NonZeroU32::new(1).unwrap(),
+            NonZeroU32::new(modality_probe::ProbeId::MAX_ID).unwrap(),
+        )
+        .unwrap();
+        let probe_id_gen = IdGen::new(probe_id_range);
+        invcs.merge_probes_into(probe_id_gen, &mut mf_probes);
         assert_eq!(
             mf_probes.probes,
             vec![Probe {
-                uuid: ComponentUuId::nil(),
+                component_id: ComponentUuid::nil(),
                 id: ProbeId(1),
                 name: "location_a".to_string(),
                 description: "desc".to_string(),
@@ -885,7 +927,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
-            uuid: ComponentUuId::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -906,7 +948,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
-            uuid: ComponentUuId::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -935,7 +977,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
-            uuid: ComponentUuId::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -956,7 +998,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
-            uuid: ComponentUuId::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -985,7 +1027,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
-            uuid: ComponentUuId::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -1006,7 +1048,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
-            uuid: ComponentUuId::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -1035,7 +1077,7 @@ mod tests {
             },
         };
         let in_mf_event = Event {
-            uuid: ComponentUuId::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: String::new(),
@@ -1056,7 +1098,7 @@ mod tests {
         invcs.merge_events_into(None, &mut mf_events);
         let mut expected = Events::internal_events();
         expected.push(Event {
-            uuid: ComponentUuId::nil(),
+            component_id: ComponentUuid::nil(),
             id: EventId(1),
             name: "event_a".to_string(),
             description: "desc".to_string(),

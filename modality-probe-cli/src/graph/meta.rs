@@ -1,5 +1,6 @@
-//! The ser/de types for events, and event and probe metadata.
+//! The ser/de types for report events and event and probe metadata.
 use serde::Deserialize;
+use uuid::Uuid;
 
 /// A row in the columnar report collection.
 #[derive(Debug, Clone, Deserialize)]
@@ -14,8 +15,9 @@ pub struct ReportEvent {
 }
 
 /// A row in the events.csv for a component.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Deserialize)]
 pub struct EventMeta {
+    pub component_id: Uuid,
     pub id: u32,
     pub name: String,
     pub type_hint: Option<String>,
@@ -32,8 +34,9 @@ impl EventMeta {
 }
 
 /// A row in probes.csv for a component.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(PartialEq, Debug, Clone, Deserialize)]
 pub struct ProbeMeta {
+    pub component_id: Uuid,
     pub id: u32,
     pub name: String,
     pub description: String,

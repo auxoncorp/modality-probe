@@ -4,6 +4,9 @@
 //! use, these errors should be as tiny
 //! and precise as possible.
 
+#[cfg(feature = "std")]
+use core::fmt::Display;
+
 /// Error that indicates an invalid event id was detected.
 ///
 ///
@@ -11,12 +14,32 @@
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InvalidEventId;
 
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidEventId {}
+
+#[cfg(feature = "std")]
+impl Display for InvalidEventId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Invalid Event Id")
+    }
+}
+
 /// Error that indicates an invalid probe id was detected.
 ///
 ///
 /// probe ids must be greater than 0 and less than ProbeId::MAX_ID
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InvalidProbeId;
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidProbeId {}
+
+#[cfg(feature = "std")]
+impl Display for InvalidProbeId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Invalid Probe Id")
+    }
+}
 
 /// An error relating to the initialization
 /// of an ModalityProbe instance from parts.
@@ -27,6 +50,32 @@ pub enum InitializationError {
     InvalidProbeId,
     /// A problem with the backing memory setup.
     StorageSetupError(StorageSetupError),
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for InitializationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            InitializationError::InvalidProbeId => None,
+            InitializationError::StorageSetupError(e) => Some(e),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Display for InitializationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InitializationError::InvalidProbeId => f.write_str("Invalid Probe Id"),
+            InitializationError::StorageSetupError(_) => f.write_str("Storage Setup Error"),
+        }
+    }
+}
+
+impl From<StorageSetupError> for InitializationError {
+    fn from(e: StorageSetupError) -> Self {
+        InitializationError::StorageSetupError(e)
+    }
 }
 
 /// An error relating to the initialization
@@ -46,26 +95,45 @@ pub enum StorageSetupError {
     NullDestination,
 }
 
-/// The errors than can occur when distributing (exporting a serialized
-/// version of) a probe's causal history for use by some other probe instance.
+#[cfg(feature = "std")]
+impl std::error::Error for StorageSetupError {}
+
+#[cfg(feature = "std")]
+impl Display for StorageSetupError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorageSetupError::UnderMinimumAllowedSize => {
+                f.write_str("Storage under minimum allowed size")
+            }
+            StorageSetupError::ExceededMaximumAddressableSize => {
+                f.write_str("Storage exceeds maximum addressable size")
+            }
+            StorageSetupError::NullDestination => f.write_str("Null destination pointer"),
+        }
+    }
+}
+
+/// The errors than can occur when producing a probe's
+/// causal history for use by some other probe instance.
 ///
-/// Returned in the error cases for the `distribute_snapshot` and
-/// `distribute_fixed_size_snapshot` functions
+/// Returned in the error cases for the `produce_snapshot` and
+/// `produce_snapshot_bytes` functions.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DistributeError {
+pub enum ProduceError {
     /// The destination that is receiving the history is not big enough.
     ///
     /// Indicates that the end user should provide a larger destination buffer.
     InsufficientDestinationSize,
-    /// An unexpected error occurred while writing out causal history.
-    ///
-    /// Indicates a logical error in the implementation of this library
-    /// (or its dependencies).
-    Encoding,
-    /// A reporting transaction is in progress. Cannot
-    /// do mutating operations on the agent until calling
-    /// `finish_chunked_report`.
-    ReportLockConflict,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ProduceError {}
+
+#[cfg(feature = "std")]
+impl Display for ProduceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Insufficient destination size")
+    }
 }
 
 /// The errors than can occur when merging in the causal history from some
@@ -78,17 +146,30 @@ pub enum MergeError {
     /// The local probe does not have enough space to track all
     /// of direct neighbors attempting to communicate with it.
     ExceededAvailableClocks,
-    /// The the external history we attempted to merge was encoded
-    /// in an invalid fashion.
-    ExternalHistoryEncoding,
+    /// The the external history source buffer we attempted to merge
+    /// was insufficiently sized for a valid causal snapshot.
+    InsufficientSourceSize,
     /// The external history violated a semantic rule of the protocol,
     /// such as by having a probe_id out of the allowed value range.
     ExternalHistorySemantics,
-    /// A reporting transaction is in progress. Cannot
-    /// do mutating operations on the agent until calling
-    /// `finish_chunked_report`.
-    ReportLockConflict,
 }
+
+#[cfg(feature = "std")]
+impl std::error::Error for MergeError {}
+
+#[cfg(feature = "std")]
+impl Display for MergeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MergeError::ExceededAvailableClocks => f.write_str("Exceeded available clocks"),
+            MergeError::InsufficientSourceSize => f.write_str("Insufficient source size"),
+            MergeError::ExternalHistorySemantics => {
+                f.write_str("External history semantic violation")
+            }
+        }
+    }
+}
+
 /// The error relating to using the `report` method to
 /// produce a full causal history log report.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -97,17 +178,20 @@ pub enum ReportError {
     ///
     /// Indicates that the end user should provide a larger destination buffer.
     InsufficientDestinationSize,
-    /// An unexpected error occurred while writing out the report.
-    ///
-    /// Indicates a logical error in the implementation of this library
-    /// (or its dependencies).
-    Encoding,
-    /// The probe encountered a problem dealing with extension metadata
-    Extension,
-    /// A reporting transaction is in progress. Cannot
-    /// do mutating operations on the agent until calling
-    /// `finish_chunked_report`.
-    ReportLockConflict,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ReportError {}
+
+#[cfg(feature = "std")]
+impl Display for ReportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ReportError::InsufficientDestinationSize => {
+                f.write_str("Insufficient destination size")
+            }
+        }
+    }
 }
 
 /// General purpose error that captures all errors that arise
@@ -127,15 +211,43 @@ pub enum ModalityProbeError {
     InvalidProbeId,
     /// An error relating to the initialization of an ModalityProbe instance.
     InitializationError(InitializationError),
-    /// The errors than can occur when using the `distribute_snapshot`
-    /// and `distribute_fixed_size_snapshot` functions.
-    DistributeError(DistributeError),
+    /// The errors than can occur when using the `produce_snapshot`
+    /// and `produce_snapshot_bytes` functions.
+    ProduceError(ProduceError),
     /// The errors than can occur when using the `merge_snapshot`
     /// and `merge_fixed_size_snapshot` functions.
     MergeError(MergeError),
     /// The error relating to using the `report` method to
     /// produce a full causal history log report.
     ReportError(ReportError),
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for ModalityProbeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ModalityProbeError::InvalidEventId => None,
+            ModalityProbeError::InvalidProbeId => None,
+            ModalityProbeError::InitializationError(e) => Some(e),
+            ModalityProbeError::ProduceError(e) => Some(e),
+            ModalityProbeError::MergeError(e) => Some(e),
+            ModalityProbeError::ReportError(e) => Some(e),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl Display for ModalityProbeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModalityProbeError::InvalidEventId => f.write_str("Invalid Event Id"),
+            ModalityProbeError::InvalidProbeId => f.write_str("Invalid Probe Id"),
+            ModalityProbeError::InitializationError(_) => f.write_str("Initialization Error"),
+            ModalityProbeError::ProduceError(_) => f.write_str("Produce Snapshot Error"),
+            ModalityProbeError::MergeError(_) => f.write_str("Merge Snapshot Error"),
+            ModalityProbeError::ReportError(_) => f.write_str("Report Error"),
+        }
+    }
 }
 
 impl From<InvalidEventId> for ModalityProbeError {
@@ -159,10 +271,10 @@ impl From<InitializationError> for ModalityProbeError {
     }
 }
 
-impl From<DistributeError> for ModalityProbeError {
+impl From<ProduceError> for ModalityProbeError {
     #[inline]
-    fn from(e: DistributeError) -> Self {
-        ModalityProbeError::DistributeError(e)
+    fn from(e: ProduceError) -> Self {
+        ModalityProbeError::ProduceError(e)
     }
 }
 

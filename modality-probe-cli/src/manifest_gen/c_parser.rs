@@ -376,7 +376,6 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (input, _) =
         tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
-
     let (args, _storage) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let (args, _storage_size) =

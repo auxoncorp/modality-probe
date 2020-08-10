@@ -187,9 +187,9 @@ impl EventId {
     /// for external analysis.
     pub const EVENT_PRODUCED_EXTERNAL_REPORT: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 1) });
-    // Note - this will be changed to "EVENT_LOG_ITEMS_MISSED" once RaceBuffer is used for log storage
-    /// There was not sufficient room in memory to store all desired events or clock data
-    pub const EVENT_LOG_OVERFLOWED: EventId =
+    /// Some log entries were overwritten before getting reported, the number of missed
+    /// entries is stored in the payload.
+    pub const EVENT_LOG_ITEMS_MISSED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 2) });
     /// A logical clock's count reached the maximum trackable value
     pub const EVENT_LOGICAL_CLOCK_OVERFLOWED: EventId =
@@ -199,13 +199,17 @@ impl EventId {
     /// neighbors that attempt to communicate with it.
     pub const EVENT_NUM_CLOCKS_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 4) });
+    /// The report destination buffer is too small to fit a header and/or the frontier clocks
+    pub const EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 5) });
 
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[
         EventId::EVENT_PRODUCED_EXTERNAL_REPORT,
-        EventId::EVENT_LOG_OVERFLOWED,
+        EventId::EVENT_LOG_ITEMS_MISSED,
         EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
         EventId::EVENT_NUM_CLOCKS_OVERFLOWED,
+        EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE,
     ];
 
     /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
@@ -389,6 +393,7 @@ pub use prop::*;
 #[cfg(test)]
 pub(crate) mod id_tests {
     use super::*;
+    use crate::{ProbeEpoch, ProbeTicks};
     use proptest::prelude::*;
 
     #[test]
@@ -418,6 +423,14 @@ pub(crate) mod id_tests {
         pub(crate) fn gen_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> ProbeId {
             raw_id.try_into().unwrap()
         }
+    }
+
+    pub(crate) fn gen_probe_epoch() -> impl Strategy<Value = ProbeEpoch> {
+        any::<ProbeEpoch>()
+    }
+
+    pub(crate) fn gen_probe_ticks() -> impl Strategy<Value = ProbeTicks> {
+        any::<ProbeTicks>()
     }
 
     prop_compose! {
