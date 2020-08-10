@@ -7,6 +7,9 @@ jobs:
     name: Linux
     runs-on: ubuntu-latest
     steps:
+      - name: Install system packages
+        run: sudo apt-get install -y libusb-1.0-0-dev
+
       - name: Checkout sources
         uses: actions/checkout@v2
 
@@ -25,6 +28,14 @@ jobs:
           toolchain: nightly
           override: true
           components: rustfmt, clippy
+
+      # Used by debug-collector tests to generate binaries
+      - name: Install thumbv7em-none-eabihf target
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: thumbv7em-none-eabihf
+          override: true
 
       - name: Fetch dependencies
         uses: actions-rs/cargo@v1
@@ -83,6 +94,14 @@ jobs:
           toolchain: nightly
           override: true
           components: rustfmt, clippy
+
+      # Used by debug-collector tests to generate binaries
+      - name: Install thumbv7em-none-eabihf target
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: thumbv7em-none-eabihf
+          override: true
 
       - name: Fetch dependencies
         uses: actions-rs/cargo@v1

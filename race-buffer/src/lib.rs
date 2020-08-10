@@ -1,8 +1,4 @@
-//! RaceBuffer, a single producer, single consumer, shared memory ring buffer which maintains
-//! consistency while operating under race conditions.
 #![cfg_attr(not(feature = "std"), no_std)]
-#![deny(warnings)]
-#![deny(missing_docs)]
 
 use core::cmp::PartialEq;
 use core::marker::Copy;
@@ -40,9 +36,6 @@ pub mod async_reader;
 pub mod buffer;
 pub use buffer::RaceBuffer;
 
-#[cfg(feature = "std")]
-#[cfg(test)]
-mod util;
 
 #[cfg(feature = "std")]
 #[cfg(test)]
@@ -55,14 +48,13 @@ pub mod tests {
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;
-    use util::*;
 
     // Perform many reads and writes concurrently,
     // check if read buffer is in order and consistent
     #[test]
-    fn random_writes() {
+    fn test_basic() {
         const NUM_WRITES: u32 = 160;
-        const STORAGE_CAP: usize = 8;
+        const STORAGE_CAP: usize = 15;
 
         let (ptr_s, ptr_r) = crossbeam::crossbeam_channel::bounded(0);
         let barr_r = Arc::new(Barrier::new(2));
@@ -109,7 +101,7 @@ pub mod tests {
     // Perform many reads and writes concurrently with random timeouts,
     // check if read buffer is in order and consistent
     #[test]
-    fn random_writes_timeouts() {
+    fn test_random() {
         const NUM_WRITES: u32 = 100_000;
         const STORAGE_CAP: usize = 8;
 
@@ -138,6 +130,7 @@ pub mod tests {
                             buf.push(OrderedEntry::from_index(i));
                         }
                     }
+
                     let sleep_time: u64 = rng.gen::<u64>() % 1000;
                     std::thread::sleep(Duration::from_nanos(sleep_time));
                 }
@@ -170,5 +163,41 @@ pub mod tests {
             });
         })
         .unwrap();
+    }
+
+    /// Test backing storage size rounding and minimum size enforcement
+    #[test]
+    fn test_init_sizes() {
+        // Ensure minimum storage size is checked
+        let mut too_small_storage =
+            [MaybeUninit::<OrderedEntry>::uninit(); writer::MIN_STORAGE_CAP - 1];
+        assert!(writer::RaceBuffer::new(&mut too_small_storage[..], false).is_err());
+        assert!(writer::RaceBuffer::new(&mut too_small_storage[..], true).is_err());
+
+        let input_sizes = [5, 6, 7, 8, 9, 12, 16];
+
+        let output_sizes: Vec<usize> = input_sizes
+            .iter()
+            .map(|size| {
+                let mut storage = vec![MaybeUninit::<OrderedEntry>::uninit(); *size];
+                writer::RaceBuffer::new(&mut storage[..], false)
+                    .unwrap()
+                    .get_slice()
+                    .len()
+            })
+            .collect();
+        assert_eq!(&input_sizes[..], &output_sizes[..]);
+
+        let rounded_output_sizes: Vec<usize> = input_sizes
+            .iter()
+            .map(|size| {
+                let mut storage = vec![MaybeUninit::<OrderedEntry>::uninit(); *size];
+                writer::RaceBuffer::new(&mut storage[..], true)
+                    .unwrap()
+                    .get_slice()
+                    .len()
+            })
+            .collect();
+        assert_eq!(&[4, 4, 4, 8, 8, 8, 16][..], &rounded_output_sizes[..]);
     }
 }

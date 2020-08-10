@@ -2,6 +2,7 @@
 
 use core::mem;
 use modality_probe::*;
+use proptest::prelude::*;
 use std::convert::{TryFrom, TryInto};
 
 struct Buffer {
@@ -219,5 +220,124 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
     Ok(())
 }
 
-// TODO - test overflowing num buckets
-// TODO - test overflowing log
+#[test]
+fn report_missed_log_items() -> Result<(), ModalityProbeError> {
+    const NUM_STORAGE_BYTES: usize = 512;
+    let mut storage = [0u8; NUM_STORAGE_BYTES];
+    let probe = ModalityProbe::try_initialize_at(&mut storage, 1)?;
+    let event = EventId::new(2).unwrap();
+
+    // Should be repeatable, counts are cleared on each report
+    for iter_idx in 0..3 {
+        for _ in 0..NUM_STORAGE_BYTES * 2 {
+            probe.record_event(event);
+        }
+
+        let mut report_dest = [0u8; 1024];
+        let bytes_written = probe.report(&mut report_dest)?;
+        let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+
+        assert_eq!(log_report.n_clocks(), 1);
+        assert_eq!(log_report.n_log_entries(), 92);
+
+        let offset = log_report.n_clocks() as usize * mem::size_of::<LogicalClock>();
+        let log_bytes = &log_report.payload()[offset..];
+
+        // First event with payload should indicate how many missed items
+        let raw_event =
+            u32::from_le_bytes([log_bytes[0], log_bytes[1], log_bytes[2], log_bytes[3]]);
+        let raw_payload =
+            u32::from_le_bytes([log_bytes[4], log_bytes[5], log_bytes[6], log_bytes[7]]);
+        let log_event = unsafe { log::LogEntry::new_unchecked(raw_event) };
+        assert_eq!(
+            log_event.interpret_as_event_id().unwrap(),
+            EventId::EVENT_LOG_ITEMS_MISSED
+        );
+
+        // The first time around, the log does not contain:
+        // EventId::EVENT_PRODUCED_EXTERNAL_REPORT
+        if iter_idx == 0 {
+            assert_eq!(raw_payload, 934);
+        } else {
+            assert_eq!(raw_payload, 935);
+        }
+    }
+
+    Ok(())
+}
+
+proptest! {
+    #[test]
+    fn reports_never_end_between_multi_log_items(
+        num_events in 1_usize..256_usize,
+        num_events_with_payload in 1_usize..256_usize,
+        report_buffer_space in 0_usize..256_usize,
+        event_payload in proptest::num::u32::ANY,
+    ) {
+        // num_events and num_events_with_payload set to at least 1
+        // so that we can have a total of at least 2 events
+
+        let mut storage = [0u8; 512];
+        let probe = ModalityProbe::try_initialize_at(&mut storage, 1).unwrap();
+        let event_a = EventId::new(2).unwrap();
+        let event_b = EventId::new(3).unwrap();
+
+        for _ in 0..num_events {
+            probe.record_event(event_a);
+        }
+        for _ in 0..num_events_with_payload {
+            probe.record_event_with_payload(event_b, event_payload);
+        }
+
+        let min_report_size =
+            wire::WireReport::<&[u8]>::header_len() + (3 * mem::size_of::<LogicalClock>());
+        let mut report_dest = vec![0u8; min_report_size + report_buffer_space];
+
+        let bytes_written = probe.report(&mut report_dest).unwrap();
+        let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+
+        // Should have some clocks, and at least two entries
+        prop_assert!(log_report.n_clocks() > 0);
+        prop_assert!(log_report.n_log_entries() >= 2);
+
+        let offset = log_report.n_clocks() as usize * mem::size_of::<LogicalClock>();
+        let log_bytes = &log_report.payload()[offset..];
+        assert_eq!(log_bytes.len() % mem::size_of::<log::LogEntry>(), 0);
+
+        let tail_index = log_report.n_log_entries() as usize * mem::size_of::<log::LogEntry>();
+        let last_item = u32::from_le_bytes([
+            log_bytes[tail_index - 4],
+            log_bytes[tail_index - 3],
+            log_bytes[tail_index - 2],
+            log_bytes[tail_index - 1],
+        ]);
+        let last_item = unsafe { log::LogEntry::new_unchecked(last_item) };
+
+        let tail_index = tail_index - mem::size_of::<log::LogEntry>();
+        let second_to_last_item = u32::from_le_bytes([
+            log_bytes[tail_index - 4],
+            log_bytes[tail_index - 3],
+            log_bytes[tail_index - 2],
+            log_bytes[tail_index - 1],
+        ]);
+        let second_to_last_item = unsafe { log::LogEntry::new_unchecked(second_to_last_item) };
+
+        // If the second-to-last item is not a two-item log entry
+        if !second_to_last_item.has_clock_bit_set()
+            && !second_to_last_item.has_event_with_payload_bit_set() {
+            // Then the last item also must not be the start of a multi-item entry
+            prop_assert!(
+                !last_item.has_clock_bit_set(),
+                "Last item has clock bit set: 0x{:X}",
+                last_item.raw()
+            );
+            prop_assert!(
+                !last_item.has_event_with_payload_bit_set(),
+                "Last item has event with payload bit set: 0x{:X}",
+                last_item.raw()
+            );
+        }
+        // else the second-to-last item is a two-item log entry,
+        // and therefor the last item can be anything (event payload, or clock)
+    }
+}

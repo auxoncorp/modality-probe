@@ -3,62 +3,39 @@ EXTENDS Naturals, Sequences, FiniteSets, TLC
 
 CONSTANTS 
   BufCapacity, (* Capacity of backing storage *)
-  (* Wrapping modulus for sequence numbers - once sequence numbers reach this number, they wrap to 0. 
-     Usually, this would be the closest multiple of BufCapacity to the integer maximum, but it can 
-     be lowered for testing. *)
-  SeqNMod, 
-  TotalNumWrites  (* Number of writes to execute *)
 
-ASSUME BufCapacity \in (Nat \ 0..2) (* Buffer capacity is at least 3 *)
-ASSUME SeqNMod % BufCapacity = 0 (* Sequence number modulus must be a multiple of buffer capacity *)
-ASSUME SeqNMod >= BufCapacity * 2 (* Sequence number modulus must be at least twice buffer capacity *)
+  NumWrites  (* Number of writes to execute *)
+
+ASSUME Assumption == BufCapacity \in (Nat \ 0..2) (* Buffer capacity is at least 3 *)
 
 -----------------------------------------------------------------------------
 
 VARIABLES 
   wpc, (* Writer's program counter *)
   buf, (* Backing storage *)
-  writeSeqN, (* Write sequence number - Sequence number of next written entry *)
-  overwriteSeqN, (* Overwrite sequence number - Sequence number of next entry to be overwritten *)
-  numWrites, (* Total number of writes that have occurred *)
+  wcurs, (* Write cursor - Points to next write position *)
+  owcurs, (* Overwrite cursor - Marks where space is allocated for the writer to write freely *)
 
   rpc, (* Reader's program counter *)
   rbuf, (* Buffer of entries already read *)
   bufSnap, (* Intermediate buffer used to store a snapshot of entries being read *)
-  readSeqN, (* Read sequence number - Points to next read position *)
-  overwriteSeqNSnap, (* Value of overwrite sequence number observed at beginning of/right after read *)
-  writeSeqNSnap, (* Value of write sequence number observed at beginning of/right after read *)
+  rcurs, (* Read cursor - Points to next read position *)
+  wcursSnap, (* Value of write cursor observed at beginning of read *)
   storedPrefix, (* Prefix to be written to read buffer once suffix is read *)
   processingIndex (* Index of next entry in bufSnap to process *)
 
 -----------------------------------------------------------------------------
 
-(* Construct an entry structure - Index field is only used to check *)
-(* ordering in the reader's output buffer *)
-Entry(sn, t) == [seqn |-> sn, type |-> t]
-
-(* Get index in backing storage based on given sequence number *)
-BufIndex(seqn) == seqn % BufCapacity
-
-(* Add increment to sequence number, looping at the sequence number modulus.
-   The increment will always be less than the modulus. *)
-SeqNAdd(seqn, incr) == 
-  IF SeqNMod - seqn > incr
-  THEN seqn + incr
-  ELSE incr - (SeqNMod - seqn)
-
-(* Subtract decr to sequence number, looping at the sequence number modulus.
-   The decrement will always be less than the modulus. *)
-SeqNSub(seqn, decr) == 
-  IF seqn >= decr
-  THEN seqn - decr
-  ELSE SeqNMod - (decr - seqn)
-
------------------------------------------------------------------------------
-
 (* Writer helpers *)
 
-(* Get entry in storage position of given sequence number *)
+(* Construct an entry structure - Index field is only used to check *)
+(* ordering in the reader's output buffer *)
+Entry(i, t) == [index |-> i, type |-> t]
+
+(* Get index in backing storage based on given cursor *)
+BufIndex(i) == i % BufCapacity
+
+(* Get entry in storage position of given cursor *)
 Read(i) == buf[BufIndex(i)]
 
 (* Write a single entry of given type at given index *)
@@ -77,46 +54,45 @@ WriteEntry(i) ==
        THEN Write(i, "SUFFIX")
        ELSE WriteNewEntry(i)
 
-(* Overwrite old entry by incrementing overwrite sequence number *)
+(* Overwrite old entry by incrementing overwrite cursor *)
 OverwriteOldEntry == 
-    IF Read(overwriteSeqN).type = "PREFIX" 
-    THEN overwriteSeqN' = SeqNAdd(overwriteSeqN, 2)
-    ELSE overwriteSeqN' = SeqNAdd(overwriteSeqN, 1)
+    IF owcurs < BufCapacity 
+    THEN owcurs' = owcurs + 1
+    ELSE IF Read(owcurs).type = "PREFIX" 
+         THEN owcurs' = owcurs + 2
+         ELSE owcurs' = owcurs + 1
 
 -----------------------------------------------------------------------------
 
 (* Writer steps *)
 
-(* If the write sequence number has looped around the buffer to reach the overwrite sequence number (mod buffer capacity), 
-   then another entry must be overwritten to allocate space for more writes *)
+(* If the write cursor has reached the overwrite cursor, then another entry 
+   must be overwritten to allocate space for more writes *)
 Overwrite == 
     /\ wpc = "overwrite"
-    /\ IF writeSeqN = SeqNAdd(overwriteSeqN, BufCapacity)
+    /\ IF wcurs = owcurs 
        THEN OverwriteOldEntry
-       ELSE UNCHANGED overwriteSeqN
-    /\ wpc' = "writeStep"
-    /\ UNCHANGED writeSeqN
+       ELSE UNCHANGED owcurs
+    /\ wpc' = "write"
+    /\ UNCHANGED wcurs
     /\ UNCHANGED buf
-    /\ UNCHANGED numWrites
 
-(* Write a single entry or half of a double entry *)
+(* Writer either writes nil entry at wcurs or transitions to OverwriteSuf in
+   the case that a double entry is being overwritten *)
 WriteStep == 
-  /\ wpc = "writeStep"
-  /\ WriteEntry(numWrites)
-  /\ wpc' = "incrWriteSeqN"
-  /\ UNCHANGED writeSeqN
-  /\ UNCHANGED overwriteSeqN
-  /\ numWrites' = numWrites + 1
+  /\ wpc = "write"
+  /\ WriteEntry(wcurs)
+  /\ wpc' = "incrWriteCursor"
+  /\ UNCHANGED wcurs
+  /\ UNCHANGED owcurs
 
-(* Increment the write sequence number by 1 *)
-IncrWriteSeqN ==
-  /\ wpc = "incrWriteSeqN"
-  /\ writeSeqN' = SeqNAdd(writeSeqN, 1)
+(* Increment the write cursor by 1 *)
+IncrWriteCursor ==
+  /\ wpc = "incrWriteCursor"
+  /\ wcurs' = wcurs + 1
   /\ wpc'= "overwrite"
-  /\ UNCHANGED overwriteSeqN
+  /\ UNCHANGED owcurs
   /\ UNCHANGED buf
-  /\ UNCHANGED numWrites
-
 
 -----------------------------------------------------------------------------
 
@@ -124,24 +100,22 @@ IncrWriteSeqN ==
 
 WriterInit == 
   /\ wpc = "overwrite"
-  /\ writeSeqN = 0
-  /\ overwriteSeqN = 0
+  /\ wcurs = 0
+  /\ owcurs = 0
   /\ buf = <<>>
-  /\ numWrites = 0
 
 (* Wait when reader takes steps *)
 WriterWait ==
   /\ UNCHANGED wpc
-  /\ UNCHANGED writeSeqN
+  /\ UNCHANGED wcurs
   /\ UNCHANGED buf
-  /\ UNCHANGED overwriteSeqN
-  /\ UNCHANGED numWrites
+  /\ UNCHANGED owcurs
 
 (* Take appropriate step based on wpc *)
 WriterStep ==
   \/ Overwrite
   \/ WriteStep
-  \/ IncrWriteSeqN
+  \/ IncrWriteCursor
 
 -----------------------------------------------------------------------------
 
@@ -150,22 +124,16 @@ WriterStep ==
 (* Return number of keys in a function *)
 Size(f) == Cardinality(DOMAIN f)
 
-(* Calculate the sequence number value of the first item read during this read *)
-FirstRead(rc, snapLen) == SeqNSub(rc, snapLen)
+(* Calculate the cursor value of the first item read during this read *)
+FirstRead(rc, snapLen) == rc - snapLen
 
 (* Return number of entries past rc overwritten based on given owc *)
-NMissed(rsn, owsn, wsn) == 
-  IF owsn <= wsn /\ wsn < rsn
-  THEN owsn + (SeqNMod - rsn)
-  ELSE IF rsn < owsn /\ (owsn < wsn \/ wsn < rsn)
-       THEN owsn - rsn
-       ELSE 0
+Overlap(owc, rc) == IF owc < (rc + BufCapacity) THEN 0 ELSE owc - (rc + BufCapacity)
 
 (* Return number of entries past first read overwritten (Maximum is snap buffer size) *)
-NMissedDuringRead(rsn, owsn, wsn, snapLen) == 
-  IF NMissed(FirstRead(rsn, snapLen), owsn, wsn) <= snapLen 
-  THEN NMissed(FirstRead(rsn, snapLen), owsn, wsn)
-  ELSE snapLen
+OverlapRead(owc, rc, snapLen) == IF Overlap(owc, FirstRead(rc, snapLen)) <= snapLen 
+                                 THEN Overlap(owc, FirstRead(rc, snapLen)) 
+                                 ELSE snapLen
 
 (* Append given entry to reader's buffer *)
 AppendEntry(rb, entry) == 
@@ -180,93 +148,71 @@ AppendMissed(rb, n) ==
 
 (* Reader Steps*)
   
-(* At the start of a read, reader takes a snapshot of the overwrite sequence number *)
-SnapOverwriteSeqN == 
-  /\ rpc = "snapOverwriteSeqN"
-  /\ overwriteSeqNSnap' = overwriteSeqN
-  /\ UNCHANGED writeSeqNSnap
+(* At the start of a read, reader takes a snapshot of the write cursor and appends
+   nil entries to the read buffer if any entries were missed between reads *)
+SnapWriteCursor == 
+  /\ rpc = "snapWriteCursor"
+  /\ wcursSnap' = wcurs
   /\ UNCHANGED rbuf
-  /\ UNCHANGED readSeqN
-  /\ rpc' = "snapWriteSeqN"
+  /\ UNCHANGED rcurs
+  /\ rpc' = "snapOverwriteCursor"
   /\ bufSnap' = <<>>
   /\ UNCHANGED storedPrefix
   /\ UNCHANGED processingIndex
 
-(* Observe the current value of the write sequence number, and based on that value,
-   append any missed entries to reader's buffer and update reader's sequence number *)
-SnapWriteSeqN ==
-  /\ rpc = "snapWriteSeqN"
-  /\ UNCHANGED overwriteSeqNSnap
-  /\ writeSeqNSnap' = writeSeqN
-  /\ IF NMissed(readSeqN, overwriteSeqNSnap, writeSeqN) > 0 /\ ~(storedPrefix.type = "NONE")
-     THEN /\ rbuf' = AppendMissed(rbuf, NMissed(readSeqN, overwriteSeqNSnap, writeSeqN) + 1)
+(* Observe the current value of the overwrite cursor, and based on that value,
+   append any missed entries to reader's buffer and update reader's cursor *)
+SnapOverwriteCursor ==
+  /\ rpc = "snapOverwriteCursor"
+  /\ UNCHANGED wcursSnap
+  /\ IF Overlap(owcurs, rcurs) > 0 /\ ~(storedPrefix.type = "NONE")
+     THEN /\ rbuf' = AppendMissed(rbuf, Overlap(owcurs, rcurs) + 1)
           /\ storedPrefix' = Entry(0, "NONE")
-     ELSE /\ rbuf' = AppendMissed(rbuf, NMissed(readSeqN, overwriteSeqNSnap, writeSeqN))
+     ELSE /\ rbuf' = AppendMissed(rbuf, Overlap(owcurs, rcurs))
           /\ UNCHANGED storedPrefix
-  /\ readSeqN' = SeqNAdd(readSeqN, NMissed(readSeqN, overwriteSeqNSnap, writeSeqN))
+  /\ rcurs' = rcurs + Overlap(owcurs, rcurs)
   /\ rpc' = "snapEntry"
   /\ bufSnap' = <<>>
   /\ UNCHANGED processingIndex
 
-(* Take a snapshot of a single entry, then move on to next entry until read sequence number reaches
-   write sequence number *)
+(* Take a snapshot of a single entry, then move on to next entry until read cursor reaches
+   write cursor *)
 SnapEntry == 
   /\ rpc = "snapEntry"
-  /\ IF readSeqN = writeSeqNSnap
-     THEN /\ rpc' = "snapOverwriteSeqNAfter"
+  /\ IF rcurs >= wcursSnap
+     THEN /\ rpc' = "processOverwritten"
           /\ UNCHANGED bufSnap
-          /\ UNCHANGED readSeqN
+          /\ UNCHANGED rcurs
      ELSE /\ UNCHANGED rpc
-          /\ bufSnap' = (Size(bufSnap) :> Read(readSeqN)) @@ bufSnap
-          /\ readSeqN' = SeqNAdd(readSeqN, 1)
-  /\ UNCHANGED overwriteSeqNSnap
-  /\ UNCHANGED writeSeqNSnap
+          /\ bufSnap' = (Size(bufSnap) :> Read(rcurs)) @@ bufSnap
+          /\ rcurs' = rcurs + 1
+  /\ UNCHANGED wcursSnap
   /\ UNCHANGED rbuf
   /\ UNCHANGED processingIndex
   /\ UNCHANGED storedPrefix
-
-(* Immediately after a read, reader takes a snapshot of the overwrite sequence number *)
-SnapOverwriteSeqNAfter == 
-  /\ rpc = "snapOverwriteSeqNAfter"
-  /\ overwriteSeqNSnap' = overwriteSeqN
-  /\ UNCHANGED rbuf
-  /\ UNCHANGED readSeqN
-  /\ rpc' = "processOverwritten"
-  /\ UNCHANGED bufSnap
-  /\ UNCHANGED storedPrefix
-  /\ UNCHANGED processingIndex
-  /\ UNCHANGED writeSeqNSnap
 
 (* Calculate how entries from previous read might have been overwritten based
-   on snapshots of write and overwrite sequence numbers. Append that many missed values to the
+   on current value of overwrite cursor. Append that many missed values to the
    reader's buffer, potentially replacing a stored prefix with a missed value *)
 ProcessOverwritten == 
   /\ rpc = "processOverwritten"
   /\ rpc' = "processEntry"
-  /\ processingIndex' = NMissedDuringRead(readSeqN, overwriteSeqNSnap, writeSeqN, Size(bufSnap))
-  /\ IF /\ ~(storedPrefix.type = "NONE") 
-        /\ NMissedDuringRead(readSeqN, overwriteSeqNSnap, writeSeqN, Size(bufSnap)) > 0
-     THEN /\ rbuf' = AppendMissed(
-                       rbuf, 
-                       NMissedDuringRead(readSeqN, overwriteSeqNSnap, writeSeqN, Size(bufSnap)) + 1
-                     )
-          /\ storedPrefix' = Entry(0, "NONE")
-     ELSE /\ rbuf' = AppendMissed(
-                       rbuf, 
-                       NMissedDuringRead(readSeqN, overwriteSeqNSnap, writeSeqN, Size(bufSnap))
-                     )
+  /\ processingIndex' = OverlapRead(owcurs, rcurs, Size(bufSnap))
+  /\ IF ~(storedPrefix.type = "NONE") /\ OverlapRead(owcurs, rcurs, Size(bufSnap)) > 0
+     THEN /\ rbuf' = AppendMissed(rbuf, OverlapRead(owcurs, rcurs, Size(bufSnap)) + 1)
+          /\ storedPrefix = Entry(0, "NONE")
+     ELSE /\ rbuf' = AppendMissed(rbuf, OverlapRead(owcurs, rcurs, Size(bufSnap)))
           /\ UNCHANGED storedPrefix
   /\ UNCHANGED bufSnap
-  /\ UNCHANGED readSeqN
-  /\ UNCHANGED overwriteSeqNSnap
-  /\ UNCHANGED writeSeqNSnap
+  /\ UNCHANGED rcurs
+  /\ UNCHANGED wcursSnap
   
 (* Process a single entry in the buffer snapshot by either storing it in the reader's 
    buffer or as a stored prefix *)
 ProcessEntry == 
   /\ rpc = "processEntry"
   /\ IF processingIndex = Size(bufSnap)
-     THEN /\ rpc' = "snapOverwriteSeqN"
+     THEN /\ rpc' = "snapWriteCursor"
           /\ UNCHANGED processingIndex
           /\ UNCHANGED rbuf
           /\ UNCHANGED storedPrefix
@@ -281,21 +227,19 @@ ProcessEntry ==
              ELSE /\ rbuf' = AppendEntry(AppendEntry(rbuf, storedPrefix), bufSnap[processingIndex])
                   /\ storedPrefix' = Entry(0, "NONE")
   /\ UNCHANGED bufSnap
-  /\ UNCHANGED readSeqN
-  /\ UNCHANGED overwriteSeqNSnap
-  /\ UNCHANGED writeSeqNSnap
+  /\ UNCHANGED rcurs
+  /\ UNCHANGED wcursSnap
 
 -----------------------------------------------------------------------------
 
 (* Reader *)
 
 ReaderInit ==
-  /\ rpc = "snapWriteSeqN"
+  /\ rpc = "snapWriteCursor"
   /\ rbuf = <<>>
   /\ bufSnap = <<>>
-  /\ readSeqN = 0
-  /\ overwriteSeqNSnap = 0
-  /\ writeSeqNSnap = 0 
+  /\ rcurs = 0
+  /\ wcursSnap = 0
   /\ storedPrefix = Entry(0, "NONE")
   /\ processingIndex = 0
 
@@ -304,18 +248,16 @@ ReaderWait ==
   /\ UNCHANGED rpc
   /\ UNCHANGED rbuf
   /\ UNCHANGED bufSnap
-  /\ UNCHANGED readSeqN
-  /\ UNCHANGED overwriteSeqNSnap
-  /\ UNCHANGED writeSeqNSnap
+  /\ UNCHANGED rcurs
+  /\ UNCHANGED wcursSnap
   /\ UNCHANGED storedPrefix
   /\ UNCHANGED processingIndex
 
 (* Take appropriate step based on rpc *)
 ReaderStep == 
-  \/ SnapWriteSeqN
-  \/ SnapOverwriteSeqN
+  \/ SnapWriteCursor
+  \/ SnapOverwriteCursor
   \/ SnapEntry
-  \/ SnapOverwriteSeqNAfter
   \/ ProcessOverwritten
   \/ ProcessEntry  
 
@@ -325,38 +267,39 @@ Init ==
   /\ ReaderInit
   /\ WriterInit
 
-(* Either take reader step or writer step. Stop writer after writeSeqN reaches numWrites *)
+(* Either take reader step or writer step. Stop writer after wcurs reaches numWrites *)
 Next ==
-  \/ (WriterWait /\ ReaderStep) 
-  \/ /\ ReaderWait 
-     /\ WriterStep 
-     /\ numWrites < TotalNumWrites 
-     /\ numWrites - Size(rbuf) < SeqNMod - 1
-     /\ ~(SeqNAdd(writeSeqN, 1) = overwriteSeqNSnap)
+  \/ WriterWait /\ ReaderStep 
+  \/ ReaderWait /\ WriterStep /\ wcurs < NumWrites
 
 -----------------------------------------------------------------------------
 
 (* Invariants *)
+
+(* Read cursor cannot overtake write cursor *)
+InvRcursBehindWcurs ==
+  rcurs <= wcurs
+
+(* Write cursor cannot overtake overwrite cursor *)
+InvWcursBehindOwcurs ==
+  wcurs <= owcurs
+
+(* Reader's buffer cannot contain more elements than reader's cursor value *)
+InvReadBufferNotTooBig ==
+  Size(rbuf) <= rcurs
 
 (* Since suffixes could possibly be interpreted as prefixes, ensure that suffixes
    are stored as a prefix *)
 InvStoredPrefixNotSuffix == 
   storedPrefix.type = "NONE" \/ storedPrefix.type = "PREFIX"
 
-(* The overwrite sequence number is incremented by 2 when overwriting a double entry.
-   Therefore, it should never point to a suffix. *)
-InvOverwriteSeqNNotOnSuffix ==
-    IF overwriteSeqN > BufCapacity 
-    THEN ~(Read(overwriteSeqN).type = "SUFFIX")
-    ELSE TRUE
-
 (* Check that every non-nil entry is at the correct index in the read buffer *)
 InvCorrectIndices == 
   IF Size(rbuf) > 0 
-  THEN \A i \in 0..(Size(rbuf)-1): rbuf[i].seqn = i \/ rbuf[i].type = "MISSED"
+  THEN \A i \in 0..(Size(rbuf)-1): rbuf[i].index = i \/ rbuf[i].type = "MISSED"
   ELSE TRUE
 
-(* Check that every prefix has a suffix and vice versa *)
+(* Check that every prefix has a suffix and vice versa*)
 InvConsistentDoubles == 
   CASE Size(rbuf) = 0 -> TRUE
   [] Size(rbuf) = 1 -> ~(rbuf[0].type = "SUFFIX" \/ rbuf[Size(rbuf)-1].type = "PREFIX")

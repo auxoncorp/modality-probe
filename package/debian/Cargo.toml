@@ -13,25 +13,25 @@ name = "debian_package"
 path = "src/lib.rs"
 
 [dependencies]
-modality-probe-cli = { path = "../modality-probe-cli" }
-modality-probe-capi = { path = "../modality-probe-capi" }
-modality-probe-udp-collector = { path = "../collectors/modality-probe-udp-collector" }
+modality-probe-cli = { path = "../../modality-probe-cli" }
+modality-probe-capi = { path = "../../modality-probe-capi" }
+modality-probe-udp-collector = { path = "../../collectors/modality-probe-udp-collector" }
 
 [package.metadata.deb]
 name = "modality-probe"
 extended-description = ""
-license-file = ["../LICENSE", "0"]
+license-file = ["../../LICENSE", "0"]
 maintainer = "Auxon <help@auxon.io>"
 section = "devel"
 priority = "optional"
 triggers-file = "triggers"
 depends = "$auto"
 assets = [
-    ["../target/release/modality-probe", "usr/bin/", "755"],
-    ["../target/release/modality-probe-udp-collector", "usr/bin/", "755"],
-    ["../modality-probe-capi/target/release/libmodality_probe.a", "usr/lib/", "644"],
-    ["../modality-probe-capi/target/release/libmodality_probe.so", "usr/lib/", "644"],
-    ["../modality-probe-capi/include/*.h", "usr/include/modality/", "644"],
+    ["../../target/release/modality-probe", "usr/bin/", "755"],
+    ["../../target/release/modality-probe-udp-collector", "usr/bin/", "755"],
+    ["../../modality-probe-capi/target/release/libmodality_probe.a", "usr/lib/", "644"],
+    ["../../modality-probe-capi/target/release/libmodality_probe.so", "usr/lib/", "644"],
+    ["../../modality-probe-capi/include/*.h", "usr/include/modality/", "644"],
     ["target/man1/*", "usr/share/man/man1/", "644"],
     ["target/completions/modality-probe.bash", "usr/share/bash-completion/completions/modality-probe", "644"],
     ["target/completions/modality-probe-udp-collector.bash", "usr/share/bash-completion/completions/modality-probe-udp-collector", "644"],
