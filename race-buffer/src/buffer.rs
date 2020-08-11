@@ -273,6 +273,11 @@ where
         (self.write_seqn - start_seqn) as usize
     }
 
+    /// Return true if there are no items to read
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Get capacity of buffer storage
     #[inline]
     pub fn capacity(&self) -> usize {

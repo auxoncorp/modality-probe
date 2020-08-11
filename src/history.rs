@@ -46,13 +46,27 @@ const_assert_eq!(4, align_of::<CausalSnapshot>());
 const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
+#[cfg(target_pointer_width = "64")]
 const_assert_eq!(
-    size_of::<ProbeId>()
+    size_of::<RaceLog<'_>>()
+        + size_of::<ProbeId>()
         + size_of::<u32>()
-        + size_of::<FixedSliceVec<'_, LogicalClock>>()
+        + size_of::<u64>()
         + size_of::<LogicalClock>()
-        + size_of::<RaceLog<'_>>()
-        + size_of::<u64>(),
+        + size_of::<FixedSliceVec<'_, LogicalClock>>(),
+    size_of::<DynamicHistory>()
+);
+
+// Additional padding required for size to be multiple of 8
+#[cfg(target_pointer_width = "32")]
+const_assert_eq!(
+    size_of::<RaceLog<'_>>()
+        + size_of::<ProbeId>()
+        + size_of::<u32>()
+        + size_of::<u64>()
+        + size_of::<LogicalClock>()
+        + size_of::<FixedSliceVec<'_, LogicalClock>>()
+        + 4,
     size_of::<DynamicHistory>()
 );
 
@@ -62,16 +76,16 @@ const_assert_eq!(
 #[derive(Debug)]
 #[repr(C)]
 pub struct DynamicHistory<'a> {
+    pub(crate) log: RaceLog<'a>,
     pub(crate) probe_id: ProbeId,
     /// The number of events seen since the current
     /// probe's logical clock last increased.
     pub(crate) event_count: u32,
+    pub(crate) report_seq_num: u64,
+    pub(crate) self_clock: LogicalClock,
     /// Invariants:
     ///   * The first clock is always that of the local probe id
     pub(crate) clocks: FixedSliceVec<'a, LogicalClock>,
-    pub(crate) self_clock: LogicalClock,
-    pub(crate) log: RaceLog<'a>,
-    pub(crate) report_seq_num: u64,
 }
 
 #[derive(Debug)]

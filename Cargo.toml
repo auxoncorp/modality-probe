@@ -21,6 +21,7 @@ members = [
   "modality-probe-cli",
   "collectors/modality-probe-udp-collector",
   "collectors/modality-probe-collector-common",
+  "race-buffer"
 ]
 exclude = ["./package", "./collectors"]
 
