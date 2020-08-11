@@ -26,7 +26,6 @@ mod history;
 mod id;
 pub mod log;
 mod macros;
-mod ring;
 pub mod wire;
 
 /// Snapshot of causal history for transmission around the system.

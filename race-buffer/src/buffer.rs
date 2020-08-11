@@ -267,7 +267,13 @@ where
         }
     }
 
-    /// Get capacity of buffer
+    /// Get the number of items currently in the buffer which have not been read yet
+    pub fn len(&self) -> usize {
+        let start_seqn = self.read_seqn.max(self.overwrite_seqn);
+        (self.write_seqn - start_seqn) as usize
+    }
+
+    /// Get capacity of buffer storage
     #[inline]
     pub fn capacity(&self) -> usize {
         self.storage.len()
