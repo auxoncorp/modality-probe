@@ -18,7 +18,7 @@ use proptest_derive::Arbitrary;
 use static_assertions::{assert_cfg, const_assert};
 
 pub use error::*;
-use history::DynamicHistory;
+pub use history::{DynamicHistory, OverwritePriorityLevel};
 pub use id::*;
 
 mod error;
@@ -302,7 +302,8 @@ pub trait Probe {
 #[derive(Debug)]
 #[repr(C)]
 pub struct ModalityProbe<'a> {
-    history: &'a mut DynamicHistory<'a>,
+    /// Publicly accessible for direct access by debug-collector
+    pub history: &'a mut DynamicHistory<'a>,
 }
 
 impl<'a> ModalityProbe<'a> {

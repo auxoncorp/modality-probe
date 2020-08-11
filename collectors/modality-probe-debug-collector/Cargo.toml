@@ -12,6 +12,8 @@ parse_duration = "2.1.0"
 probe-rs = "0.7.1"
 maplit = "1.0.2"
 tempfile = "3.1.0"
+field-offset = "0.3.1"
+num = "0.3.0"
 
 modality-probe = { path = "../.." }
 modality-probe-collector-common = { path = "../modality-probe-collector-common" }

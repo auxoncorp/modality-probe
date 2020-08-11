@@ -473,6 +473,78 @@ enum Next {
 }
 
 impl Report {
+    /// Try to create a report from a list of log entries
+    pub fn try_from_log(
+        source_clock: LogicalClock,
+        seq_num: u16,
+        n_frontier_clocks: usize,
+        log: &[LogEntry],
+    ) -> Result<Self, SerializationError> {
+        let mut owned_report = Report {
+            probe_id: source_clock.id,
+            probe_clock: source_clock,
+            seq_num,
+            frontier_clocks: vec![],
+            event_log: vec![],
+        };
+
+        // 2 entries per clock
+        let n_clock_entries = n_frontier_clocks * 2;
+        let mut probe_id = None;
+        for clock_entry in &log[..n_clock_entries] {
+            match probe_id {
+                None => probe_id = ProbeId::new(clock_entry.interpret_as_logical_clock_probe_id()),
+                Some(id) => {
+                    let (epoch, ticks) = modality_probe::unpack_clock_word(clock_entry.raw());
+                    owned_report
+                        .frontier_clocks
+                        .push(LogicalClock { id, epoch, ticks });
+                    probe_id = None;
+                }
+            }
+        }
+
+        let mut interpret_next_as = Next::DontKnow;
+        for entry in &log[n_clock_entries..] {
+            match interpret_next_as {
+                Next::DontKnow => {
+                    if entry.has_clock_bit_set() {
+                        interpret_next_as = Next::Clock(
+                            ProbeId::new(entry.interpret_as_logical_clock_probe_id())
+                                .ok_or_else(|| SerializationError)?,
+                        );
+                    } else if entry.has_event_with_payload_bit_set() {
+                        interpret_next_as = Next::Payload(
+                            entry
+                                .interpret_as_event_id()
+                                .ok_or_else(|| SerializationError)?,
+                        );
+                    } else {
+                        owned_report.event_log.push(EventLogEntry::Event(
+                            entry
+                                .interpret_as_event_id()
+                                .ok_or_else(|| SerializationError)?,
+                        ));
+                    }
+                }
+                Next::Clock(id) => {
+                    let (epoch, ticks) = modality_probe::unpack_clock_word(entry.raw());
+                    owned_report
+                        .event_log
+                        .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
+                    interpret_next_as = Next::DontKnow;
+                }
+                Next::Payload(id) => {
+                    owned_report
+                        .event_log
+                        .push(EventLogEntry::EventWithPayload(id, entry.raw()));
+                    interpret_next_as = Next::DontKnow;
+                }
+            }
+        }
+        Ok(owned_report)
+    }
+
     pub fn write_into_le_bytes(&self, bytes: &mut [u8]) -> Result<usize, ReportWireError> {
         let mut wire = WireReport::new_unchecked(bytes);
         wire.check_len()?;

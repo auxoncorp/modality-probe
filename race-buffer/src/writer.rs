@@ -53,16 +53,19 @@ where
 #[derive(Debug)]
 #[repr(C)]
 /// Struct used to write to buffer
+/// 
+/// Note: write_seqn, overwrite_seqn, and storage are public because 
+/// they are accessed by the RaceBufferReader
 pub struct RaceBuffer<'a, E>
 where
     E: Entry,
 {
     /// Sequence number of the next entry to be written
-    write_seqn: u32,
+    pub write_seqn: u32,
     /// Sequence number of the next entry to be overwritten
-    overwrite_seqn: u32,
+    pub overwrite_seqn: u32,
     /// Backing storage
-    storage: &'a mut [MaybeUninit<E>],
+    pub storage: &'a mut [MaybeUninit<E>],
     /// Sequence number modulus for wrapping to 0
     seqn_mod: u32,
     /// Indicates if backing storage should be truncated to a power of 2 length

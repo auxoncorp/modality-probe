@@ -9,214 +9,377 @@ use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::thread::sleep;
 use std::time::Duration;
-// NOTE: will be used once log processing is implemented
-//use core::slice::Iter as SliceIter;
-//use core::slice::IterMut as SliceIterMut;
+use std::convert::TryFrom;
 
+use field_offset::offset_of;
+use num::traits::Unsigned;
 use probe_rs::{MemoryInterface, Session};
 
-// NOTE: will be used once log processing is implemented
-//use modality_probe::log_processing::{init_processed_clocks, process_log, LogProcOutput};
-use modality_probe::compact_log::CompactLogItem;
-use modality_probe::ProbeId;
-use modality_probe_udp_collector::add_log_report_to_entries;
+use modality_probe::log::LogEntry;
+use modality_probe::payload::{
+    write_report_payload, ClocksOverflowedError, FrontierClocks, PayloadOutput,
+};
+use modality_probe::{
+    DynamicHistory, LogicalClock, ModalityProbe, OrdClock, OverwritePriorityLevel, ProbeEpoch,
+    ProbeId, ProbeTicks,
+};
+use modality_probe_collector_common::{
+    add_log_report_to_entries, csv::write_log_entries, Report, ReportLogEntry, SessionId,
+};
 use race_buffer::reader::{RaceBufferReader, Snapper};
-use util::alloc_log_report::LogReport;
-use util::model::{LogEntry, SegmentId, SessionId};
+use race_buffer::writer::RaceBuffer;
+use race_buffer::PossiblyMissed;
 
-type Result<T> = std::result::Result<T, Box<dyn Error>>;
+type DynResult<T> = std::result::Result<T, Box<dyn Error>>;
 
-// NOTE: These may be changed once RaceBuffer is implemented into ekt
-// Address offsets of each needed field of the DynamicHistory struct, which is located in modality-probe/src/history.rs
-const PROBE_ID_OFFSET: u32 = 0x0;
-const WCURS_OFFSET: u32 = 0x4;
-const OWCURS_OFFSET: u32 = 0x8;
-const LOG_STORAGE_ADDR_OFFSET: u32 = 0xc;
-const LOG_STORAGE_CAP_OFFSET: u32 = 0x10;
-
-// NOTE: will be used once log processing is implemented
-/*
-pub struct LogProcOutputVec<'a, T>(&'a mut Vec<T>);
-
-impl<T, I, M> LogProcOutput<T, I, M> for LogProcOutputVec<'_, T>
+// Offset of pointer to DynamicHistory in ModalityProbe struct, which is located in modality-probe/src/lib.rs
+fn history_ptr_offset<W>() -> W
 where
-    I: Iterator<Item = &T>,
-    M: Iterator<Item = &mut T>,
+    W: Word,
 {
-    fn push(&mut self, item: T) {
+    offset_of!(ModalityProbe => history)
+        .get_byte_offset()
+        .into()
+}
+
+// Address offsets of each needed field of the DynamicHistory struct, which is located in modality-probe/src/history.rs
+fn overwrite_priority_offset<W>() -> W
+where
+    W: Word,
+{
+    W::try_from(offset_of!(DynamicHistory => overwrite_priority)
+        .get_byte_offset()).expect("Offset cannot be greater than a word on the target system")
+}
+
+fn probe_id_offset<W>() -> W
+where
+    W: Word,
+{
+    offset_of!(DynamicHistory => probe_id)
+        .get_byte_offset()
+        .into()
+}
+
+fn write_seqn_offset<W>() -> W
+where
+    W: Word,
+{
+    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => write_seqn)
+        .get_byte_offset()
+        .into()
+}
+
+fn overwrite_seqn_offset<W>() -> W
+where
+    W: Word,
+{
+    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => overwrite_seqn)
+        .get_byte_offset()
+        .into()
+}
+
+fn log_storage_addr_offset<W>() -> W
+where
+    W: Word,
+{
+    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => storage)
+        .get_byte_offset()
+        .into()
+}
+
+fn log_storage_cap_offset<W>() -> W
+where
+    W: Word,
+{
+    // Assume storage addr is a u32
+    log_storage_addr_offset() + size_of::<u32>().into()
+}
+
+/// Log payload output backed by a Vector
+struct PayloadOutputVec<'a>(&'a mut Vec<LogEntry>);
+
+impl PayloadOutput for PayloadOutputVec<'_> {
+    fn push(&mut self, item: LogEntry) {
         self.0.push(item)
     }
 
     fn free_capacity(&mut self) -> usize {
         usize::MAX
     }
+}
 
-    fn iter(&mut self) -> SliceIter<'_, T> {
-        self.0.iter()
+/// Reported clocks list backed by a vector
+struct FrontierClocksVec<'a>(&'a mut Vec<LogicalClock>);
+
+impl FrontierClocks for FrontierClocksVec<'_> {
+    fn merge_clock(&mut self, ext_clock: LogicalClock) -> Result<(), ClocksOverflowedError> {
+        let mut existed = false;
+        for c in self.0.iter_mut() {
+            if c.id == ext_clock.id {
+                if OrdClock(ext_clock.epoch, ext_clock.ticks) > OrdClock(c.epoch, c.ticks) {
+                    c.epoch = ext_clock.epoch;
+                    c.ticks = ext_clock.ticks;
+                }
+                existed = true;
+            }
+        }
+        if !existed {
+            self.0.push(ext_clock);
+        }
+        Ok(())
     }
 
-    fn iter_mut(&mut self) -> SliceIterMut<'_, T> {
-        self.0.iter_mut()
+    fn as_slice(&self) -> &[LogicalClock] {
+        self.0.as_slice()
     }
-}*/
+}
 
 /// Configuration for running collector
 #[derive(Debug, PartialEq)]
-pub struct Config {
+pub struct Config<W>
+where
+    W: Word,
+{
     pub session_id: SessionId,
     pub big_endian: bool,
     pub attach_target: Option<String>,
     pub gdb_addr: Option<SocketAddrV4>,
     pub interval: Duration,
     pub output_path: PathBuf,
-    pub probe_addrs: Vec<ProbeAddr>,
+    pub probe_addrs: Vec<ProbeAddr<W>>,
 }
 
 /// Struct representing a probe address, either the address of the probe itself or of
 /// a pointer to the probe
 #[derive(Debug, PartialEq)]
-pub enum ProbeAddr {
-    Addr(u32),
-    PtrAddr(u32),
+pub enum ProbeAddr<W>
+where
+    W: Word,
+{
+    Addr(W),
+    PtrAddr(W),
 }
+
+pub trait Word: Unsigned + TryFrom<usize> + std::fmt::Debug {}
+
+impl Word for u32 {}
+
+impl Word for u64 {}
 
 /// Trait used to specify backend used to access device memory
-pub trait MemoryReader {
-    fn read32(&mut self, addr: u32) -> Result<u32>;
+pub trait MemoryAccessor {
+    type TargetWord: Word;
+
+    fn read_32(&mut self, addr: Self::TargetWord) -> DynResult<u32>;
+    fn read_word(&mut self, addr: Self::TargetWord) -> DynResult<Self::TargetWord>;
+    fn write_32(&mut self, addr: Self::TargetWord, data: u32) -> DynResult<()>;
 }
 
-/// MemoryReader that uses probe-rs to access device memory
+/// MemoryAccessor that uses probe-rs to access device memory
 struct ProbeRsReader(Session);
 
-impl MemoryReader for ProbeRsReader {
-    fn read32(&mut self, addr: u32) -> Result<u32> {
+impl MemoryAccessor for ProbeRsReader {
+    type TargetWord = u32;
+    fn read_word(&mut self, addr: Self::TargetWord) -> DynResult<Self::TargetWord> {
+        self.read_32(addr)
+    }
+    fn read_32(&mut self, addr: u32) -> DynResult<u32> {
         let mut core = self.0.core(0)?;
         Ok(core.read_word_32(addr)?)
+    }
+    fn write_32(&mut self, addr: u32, data: u32) -> DynResult<()> {
+        let mut core = self.0.core(0)?;
+        Ok(core.write_word_32(addr, data)?)
     }
 }
 
 /// Struct used to take snapshots of RaceBuffer on device
-struct MemorySnapper {
+struct MemorySnapper<W>
+where
+    W: Word,
+{
     /// Reader used to read device memory
-    mem_reader: Rc<RefCell<dyn MemoryReader>>,
+    mem_accessor: Rc<RefCell<dyn MemoryAccessor<TargetWord = W>>>,
     /// Address of RaceBuffer backing storage
-    storage_addr: u32,
+    storage_addr: W,
     /// Address of RaceBuffer write cursor
-    wcurs_addr: u32,
+    write_seqn_addr: W,
     /// Address of RaceBuffer overwrite cursor
-    owcurs_addr: u32,
+    overwrite_seqn_addr: W,
 }
 
-impl Snapper<CompactLogItem> for MemorySnapper {
-    fn snap_wcurs(&self) -> Result<usize> {
-        Ok(self.mem_reader.borrow_mut().read32(self.wcurs_addr)? as usize)
+impl<W> Snapper<LogEntry> for MemorySnapper<W>
+where
+    W: Word,
+{
+    fn snap_write_seqn(&self) -> DynResult<u32> {
+        self.mem_accessor.borrow_mut().read_32(self.write_seqn_addr)
     }
 
-    fn snap_owcurs(&self) -> Result<usize> {
-        Ok(self.mem_reader.borrow_mut().read32(self.owcurs_addr)? as usize)
-    }
-
-    fn snap_storage(&self, index: usize) -> Result<CompactLogItem> {
-        let raw: u32 = self
-            .mem_reader
+    fn snap_overwrite_seqn(&self) -> DynResult<u32> {
+        self.mem_accessor
             .borrow_mut()
-            .read32(self.storage_addr + ((size_of::<CompactLogItem>() * index) as u32))?;
-        Ok(CompactLogItem::from_raw(raw))
+            .read_32(self.overwrite_seqn_addr)
+    }
+
+    fn snap_storage(&self, index: u32) -> DynResult<LogEntry> {
+        let raw: u32 = self
+            .mem_accessor
+            .borrow_mut()
+            .read_32(self.storage_addr + (size_of::<LogEntry>() as u32 * index))?;
+        // Safe because entry is already in memory as a valid LogEntry
+        Ok(unsafe { LogEntry::new_unchecked(raw) })
+    }
+}
+
+/// Used to write to probe's "overwrite_priority" field
+struct PriorityWriter<W>
+where
+    W: Word,
+{
+    /// Memory accessor used to write to device memoryt
+    mem_accessor: Rc<RefCell<dyn MemoryAccessor<TargetWord = W>>>,
+    /// Address of priority field
+    priority_field_addr: W,
+}
+
+impl<W> PriorityWriter<W>
+where
+    W: Word,
+{
+    fn write(&mut self, level: OverwritePriorityLevel) -> DynResult<()> {
+        self.mem_accessor
+            .borrow_mut()
+            .write_32(self.priority_field_addr, level.0)
     }
 }
 
 /// Log collector for a single probe
-pub struct Collector {
-    /// ID of corresponding probe
-    id: ProbeId,
-    /// Buffer that logs are read into before being processed into a report
-    rbuf: Vec<Option<CompactLogItem>>,
+pub struct Collector<W>
+where
+    W: Word,
+{
+    /// Sequence number of next report
+    seq_num: u16,
     /// Reader used to read the probe's RaceBuffer
-    reader: RaceBufferReader<CompactLogItem, MemorySnapper>,
-    // NOTE: will be used once log processing is implemented
-    ///// Processed clocks backing storage
-    //clocks: Vec<LogicalClock>,
+    reader: RaceBufferReader<LogEntry, MemorySnapper<W>>,
+    /// Processed clocks backing storage
+    clocks: Vec<LogicalClock>,
+    /// Used to write to the probe's "overwrite_priority" field
+    priority_writer: PriorityWriter<W>,
 }
 
-impl Collector {
+impl<W> Collector<W>
+where
+    W: Word,
+{
     /// Initialize collector by reading probe information
     pub fn initialize(
-        probe_addr: &ProbeAddr,
-        mem_reader: Rc<RefCell<dyn MemoryReader>>,
-    ) -> Result<Self> {
+        probe_addr: &ProbeAddr<W>,
+        mem_accessor: Rc<RefCell<dyn MemoryAccessor<TargetWord = W>>>,
+    ) -> DynResult<Self> {
         let addr = match *probe_addr {
             ProbeAddr::Addr(addr) => addr,
             // Read storage address from pointer
-            ProbeAddr::PtrAddr(addr) => mem_reader.borrow_mut().read32(addr)?,
+            ProbeAddr::PtrAddr(addr) => mem_accessor.borrow_mut().read_word(addr)?,
         };
-        let mut mem_reader_borrowed = mem_reader.borrow_mut();
+        let mut mem_accessor_borrowed = mem_accessor.borrow_mut();
         // Get address of DynamicHistory
-        let hist_addr = mem_reader_borrowed.read32(addr)?;
+        let hist_addr = mem_accessor_borrowed.read_word(addr + history_ptr_offset())?;
         // Read DynamicHistory fields
-        let id_raw = mem_reader_borrowed.read32(hist_addr + PROBE_ID_OFFSET)?;
+        let id_raw = mem_accessor_borrowed.read_32(hist_addr + probe_id_offset())?;
         let id =
             ProbeId::new(id_raw).ok_or_else(|| "Read invalid probe ID from device".to_string())?;
-        let buf_addr = mem_reader_borrowed.read32(hist_addr + LOG_STORAGE_ADDR_OFFSET)?;
-        let buf_cap = mem_reader_borrowed.read32(hist_addr + LOG_STORAGE_CAP_OFFSET)?;
-        let wcurs_addr = hist_addr + WCURS_OFFSET;
-        let owcurs_addr = hist_addr + OWCURS_OFFSET;
-        drop(mem_reader_borrowed);
+        let buf_addr = mem_accessor_borrowed.read_word(hist_addr + log_storage_addr_offset())?;
+        let buf_cap = mem_accessor_borrowed.read_word(hist_addr + log_storage_cap_offset())?;
+        let write_seqn_addr = hist_addr + write_seqn_offset();
+        let overwrite_seqn_addr = hist_addr + overwrite_seqn_offset();
+        let priority_field_addr = hist_addr + overwrite_priority_offset();
+        drop(mem_accessor_borrowed);
 
-        // NOTE: will be used once log processing is implemented
-        //let clocks = Vec::new();
-        //init_processed_clocks(LogProcOutputVec(&mut clocks), LogicalClock { id, count: 0 });
+        // Initialize frontier clocks with self clock set to 0
+        let mut clocks = Vec::new();
+        // Clocks should not overflow in Vec; result can be unwrapped
+        FrontierClocksVec(&mut clocks)
+            .merge_clock(LogicalClock {
+                id,
+                epoch: ProbeEpoch(0),
+                ticks: ProbeTicks(0),
+            })
+            .unwrap();
 
+        let priority_mem_accessor = mem_accessor.clone();
         Ok(Self {
-            id,
-            rbuf: Vec::new(),
+            seq_num: 0,
             reader: RaceBufferReader::new(
                 MemorySnapper {
-                    mem_reader,
+                    mem_accessor,
                     storage_addr: buf_addr,
-                    wcurs_addr,
-                    owcurs_addr,
+                    write_seqn_addr,
+                    overwrite_seqn_addr,
                 },
-                buf_cap as usize,
+                buf_cap,
             ),
-            // NOTE: will be used once log processing is implemented
-            //clocks,
+            clocks,
+            priority_writer: PriorityWriter {
+                mem_accessor: priority_mem_accessor,
+                priority_field_addr,
+            },
         })
     }
 
     /// Collect all new logs, return a report
-    pub fn collect_report(&mut self) -> Result<LogReport> {
+    pub fn collect_report(&mut self) -> DynResult<Report> {
         // Perform a RaceBuffer read
-        self.collect()?;
-        let processed_log = Vec::new();
+        let mut rbuf = Vec::new();
+        self.retrieve_logs(&mut rbuf)?;
 
-        // NOTE: will be used once log processing is implemented
-        /*let num_read = process_log(
-            self.rbuf.iter(),
-            LogProcOutputVec(&mut self.clocks),
-            LogProcOutputVec(&mut processed_log),
+        let n_frontier_clocks = self.clocks.len();
+        let mut processed_log = Vec::new();
+        let (_n_entries_written, n_entries_read, did_clocks_overflow) = write_report_payload(
+            rbuf.iter().copied(),
+            &mut FrontierClocksVec(&mut self.clocks),
+            &mut PayloadOutputVec(&mut processed_log),
         );
-        self.rbuf.drain(0..num_read);*/
+        // Should be able to process all items, clocks should not overflow
+        debug_assert_eq!(n_entries_read, rbuf.len());
+        debug_assert!(!did_clocks_overflow);
 
-        match LogReport::try_from_log(self.id, processed_log.into_iter(), &[]) {
-            Ok(report) => Ok(report),
-            Err(_) => Err("Error creating report".to_string().into()),
+        match Report::try_from_log(
+            self.clocks[0],
+            self.seq_num,
+            n_frontier_clocks,
+            &processed_log[..],
+        ) {
+            Ok(report) => {
+                self.seq_num += 1;
+                Ok(report)
+            }
+            Err(_) => Err("Error serializing report".to_string().into()),
         }
     }
 
-    /// Perform a read on the device's RaceBuffer
-    fn collect(&mut self) -> Result<()> {
-        self.reader.read(&mut self.rbuf)
+    /// Write to "write priority" field in probe
+    pub fn set_overwrite_priority(&mut self, level: OverwritePriorityLevel) -> DynResult<()> {
+        self.priority_writer.write(level)
     }
 
-    /// Get reference to read buffer of given collector
-    #[cfg(test)]
-    pub(crate) fn get_rbuf(&self) -> &Vec<Option<CompactLogItem>> {
-        &self.rbuf
+    /// Perform a racebuffer read
+    pub(crate) fn retrieve_logs(
+        &mut self,
+        rbuf: &mut Vec<PossiblyMissed<LogEntry>>,
+    ) -> DynResult<u32> {
+        self.reader.read(rbuf)
     }
 }
 
 /// Open memory reader based on config
-fn open_memory_reader(c: &Config) -> Result<Rc<RefCell<dyn MemoryReader>>> {
+fn open_memory_reader<W>(
+    c: &Config<W>,
+) -> DynResult<Rc<RefCell<dyn MemoryAccessor<TargetWord = W>>>>
+where
+    W: Word,
+{
     Ok(Rc::new(RefCell::new(match c.attach_target.as_ref() {
         Some(target) => {
             let session = Session::auto_attach(target)?;
@@ -228,13 +391,16 @@ fn open_memory_reader(c: &Config) -> Result<Rc<RefCell<dyn MemoryReader>>> {
 }
 
 /// Initialize collectors of each probe based on config
-fn initialize_collectors(
-    c: &Config,
-    mem_reader: Rc<RefCell<dyn MemoryReader>>,
-) -> Result<Vec<Collector>> {
+fn initialize_collectors<W>(
+    c: &Config<W>,
+    mem_accessor: Rc<RefCell<dyn MemoryAccessor<TargetWord = W>>>,
+) -> DynResult<Vec<Collector<W>>>
+where
+    W: Word,
+{
     let mut collectors = Vec::new();
     for probe_addr in c.probe_addrs.iter() {
-        collectors.push(Collector::initialize(probe_addr, mem_reader.clone())?);
+        collectors.push(Collector::initialize(probe_addr, mem_accessor.clone())?);
     }
     Ok(collectors)
 }
@@ -242,27 +408,24 @@ fn initialize_collectors(
 /// Write report to given file
 fn report_to_file(
     out: &mut File,
-    report: LogReport,
+    report: Report,
     session_id: SessionId,
     include_header_row: bool,
-    initial_segment_id: SegmentId,
-) -> Result<u32> {
-    let mut entries: Vec<LogEntry> = Vec::new();
-    let next_segment_id = add_log_report_to_entries(
-        &report,
-        session_id,
-        initial_segment_id,
-        Utc::now(),
-        &mut entries,
-    );
-    util::write_csv_log_entries(out, &entries, include_header_row)?;
-    Ok(next_segment_id)
+) -> DynResult<()> {
+    let mut entries: Vec<ReportLogEntry> = Vec::new();
+
+    add_log_report_to_entries(&report, session_id, Utc::now(), &mut entries);
+    write_log_entries(out, &entries, include_header_row)?;
+    Ok(())
 }
 
 /// Run debug collector with given config
-pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<()> {
-    let mem_reader = open_memory_reader(c)?;
-    let mut collectors = initialize_collectors(c, mem_reader)?;
+pub fn run<W>(c: &Config<W>, shutdown_receiver: Receiver<()>) -> DynResult<()>
+where
+    W: Word,
+{
+    let mem_accessor = open_memory_reader(c)?;
+    let mut collectors = initialize_collectors(c, mem_accessor)?;
 
     let mut needs_csv_headers = !c.output_path.exists() || c.output_path.metadata()?.len() == 0;
     let mut out = std::fs::OpenOptions::new()
@@ -270,20 +433,13 @@ pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<()> {
         .create(true)
         .open(&c.output_path)?;
 
-    let mut next_segment_id = 0;
     loop {
         if shutdown_receiver.try_recv().is_ok() {
             break;
         }
         for collector in &mut collectors {
             let report = collector.collect_report()?;
-            next_segment_id = report_to_file(
-                &mut out,
-                report,
-                c.session_id,
-                needs_csv_headers,
-                next_segment_id.into(),
-            )?;
+            report_to_file(&mut out, report, c.session_id, needs_csv_headers)?;
             needs_csv_headers = false;
         }
         sleep(c.interval);
@@ -296,12 +452,30 @@ pub mod tests {
     use super::*;
     use maplit::hashmap;
     use std::collections::HashMap;
+    use std::convert::TryInto;
 
-    use modality_probe::LogicalClock;
+    use modality_probe::EventId;
+    use modality_probe_collector_common::EventLogEntry;
 
-    struct HashMapMemReader(HashMap<u32, u32>);
+    struct DirectMemAccessor;
 
-    impl HashMapMemReader {
+    impl MemoryAccessor for DirectMemAccessor {
+
+        fn write_32(&mut self, addr: u32, data: u32) -> DynResult<()> {
+            let ptr = addr as usize as *mut u32;
+            unsafe { *ptr = data };
+            Ok(())
+        }
+
+        fn read_32(&mut self, addr: u32) -> DynResult<u32> {
+            let ptr = addr as usize as *const u32;
+            Ok(unsafe { *ptr })
+        }
+    }
+
+    struct HashMapMemAccessor(HashMap<u32, u32>);
+
+    impl HashMapMemAccessor {
         const PROBE_PTR_ADDR: u32 = 0x0;
         const PROBE_ADDR: u32 = 0x4;
         const HIST_ADDR: u32 = 0x8;
@@ -309,144 +483,136 @@ pub mod tests {
 
         fn new(
             probe_id: ProbeId,
-            wcurs: u32,
-            owcurs: u32,
-            buf_contents: &Vec<CompactLogItem>,
+            write_seqn: u32,
+            overwrite_seqn: u32,
+            buf_contents: &Vec<LogEntry>,
         ) -> Self {
             let map = hashmap! {
                 Self::PROBE_PTR_ADDR => Self::PROBE_ADDR,
-                Self::PROBE_ADDR => Self::HIST_ADDR,
-                Self::HIST_ADDR + PROBE_ID_OFFSET => probe_id.get().into(),
-                Self::HIST_ADDR + LOG_STORAGE_ADDR_OFFSET => Self::STORAGE_ADDR,
-                Self::HIST_ADDR + LOG_STORAGE_CAP_OFFSET => buf_contents.len() as u32,
-                Self::HIST_ADDR + WCURS_OFFSET => wcurs,
-                Self::HIST_ADDR + OWCURS_OFFSET => owcurs
+                Self::PROBE_ADDR + history_ptr_offset() => Self::HIST_ADDR,
+                Self::HIST_ADDR + probe_id_offset() => probe_id.get().into(),
+                Self::HIST_ADDR + log_storage_addr_offset() => Self::STORAGE_ADDR,
+                Self::HIST_ADDR + log_storage_cap_offset() => buf_contents.len() as u32,
+                Self::HIST_ADDR + write_seqn_offset() => write_seqn,
+                Self::HIST_ADDR + overwrite_seqn_offset() => overwrite_seqn
             };
-            let mut reader = HashMapMemReader(map);
+            let mut reader = HashMapMemAccessor(map);
             reader.overwrite_buffer(&buf_contents);
             reader
         }
 
-        fn overwrite_buffer(&mut self, buf_contents: &Vec<CompactLogItem>) {
+        fn overwrite_buffer(&mut self, buf_contents: &Vec<LogEntry>) {
             for (index, entry) in buf_contents.iter().enumerate() {
                 self.0
                     .insert(Self::STORAGE_ADDR + 4 * (index as u32), entry.raw());
             }
         }
 
-        /*fn set_wcurs(&mut self, new_wcurs: u32) {
-            self.0.insert(Self::HIST_ADDR + WCURS_OFFSET, new_wcurs);
+        fn set_write_seqn(&mut self, new_write_seqn: u32) {
+            self.0
+                .insert(Self::HIST_ADDR + write_seqn_offset(), new_write_seqn);
         }
 
-        fn set_owcurs(&mut self, new_owcurs: u32) {
-            self.0.insert(Self::HIST_ADDR + OWCURS_OFFSET, new_owcurs);
-        }*/
+        fn set_overwrite_seqn(&mut self, new_overwrite_seqn: u32) {
+            self.0.insert(
+                Self::HIST_ADDR + overwrite_seqn_offset(),
+                new_overwrite_seqn,
+            );
+        }
     }
 
-    impl MemoryReader for HashMapMemReader {
-        fn read32(&mut self, addr: u32) -> Result<u32> {
+    impl MemoryAccessor for HashMapMemAccessor {
+        fn read_32(&mut self, addr: u32) -> DynResult<u32> {
             Ok(*self.0.get(&addr).unwrap())
         }
+
+        fn write_32(&mut self, _: u32, _: u32) -> DynResult<()> {
+            unimplemented!()
+        }
+    }
+
+    fn lc(probe_id: u32, epoch: u16, ticks: u16) -> LogicalClock {
+        LogicalClock {
+            id: probe_id.try_into().unwrap(),
+            epoch: epoch.into(),
+            ticks: ticks.into(),
+        }
+    }
+
+    fn ev(id: u32) -> EventId {
+        EventId::new(id).unwrap()
     }
 
     #[test]
     fn initialization_and_retrieval() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
             probe_id,
             4,
             4,
             &mut vec![
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .0,
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .1,
-                CompactLogItem::from_raw(3),
-                CompactLogItem::from_raw(4),
+                LogEntry::clock(lc(pid_raw, 0, 1)).0,
+                LogEntry::clock(lc(pid_raw, 0, 1)).1,
+                LogEntry::event(ev(3)),
+                LogEntry::event(ev(4)),
             ],
         )));
 
         let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
         )
         .unwrap();
-        collector.collect().unwrap();
+        let mut rbuf = Vec::new();
+        collector.retrieve_logs(&mut rbuf).unwrap();
         assert_eq!(
-            &collector.get_rbuf()[..],
+            &rbuf[..],
             &mut vec![
-                Some(
-                    CompactLogItem::clock(LogicalClock {
-                        id: probe_id,
-                        count: 1,
-                    })
-                    .0
-                ),
-                Some(
-                    CompactLogItem::clock(LogicalClock {
-                        id: probe_id,
-                        count: 1,
-                    })
-                    .1
-                ),
-                Some(CompactLogItem::from_raw(3)),
-                Some(CompactLogItem::from_raw(4)),
+                PossiblyMissed::Entry(LogEntry::clock(lc(pid_raw, 0, 1)).0),
+                PossiblyMissed::Entry(LogEntry::clock(lc(pid_raw, 0, 1)).1),
+                PossiblyMissed::Entry(LogEntry::event(EventId::new(3).unwrap())),
+                PossiblyMissed::Entry(LogEntry::event(EventId::new(4).unwrap())),
             ][..]
         )
     }
 
-    /* The following tests require log processing
     /// Create simple report
     #[test]
     fn basic_collection() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
             probe_id,
             4,
+            0,
             &mut vec![
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .0,
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .1,
-                CompactLogItem::from_raw(3),
-                CompactLogItem::from_raw(4),
+                LogEntry::clock(lc(pid_raw, 0, 1)).0,
+                LogEntry::clock(lc(pid_raw, 0, 1)).1,
+                LogEntry::event(ev(3)),
+                LogEntry::event(ev(4)),
             ],
         )));
 
         let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
         )
         .unwrap();
         let report = collector.collect_report().unwrap();
 
         assert_eq!(
             report,
-            LogReport {
+            Report {
                 probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![LogicalClock {
-                        id: probe_id,
-                        count: 1
-                    }],
-                    events: vec![
-                        LogEvent::Event(EventId::new(3).unwrap()),
-                        LogEvent::Event(EventId::new(4).unwrap()),
-                    ]
-                }]
+                probe_clock: lc(pid_raw, 0, 1),
+                seq_num: 0,
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(ev(4))
+                ],
             }
         )
     }
@@ -454,449 +620,162 @@ pub mod tests {
     /// Check that local clock is implied at start
     #[test]
     fn no_clocks_available() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
             probe_id,
             4,
+            0,
             &mut vec![
-                CompactLogItem::from_raw(1),
-                CompactLogItem::from_raw(2),
-                CompactLogItem::from_raw(3),
-                CompactLogItem::from_raw(4),
+                LogEntry::event(ev(1)),
+                LogEntry::event(ev(2)),
+                LogEntry::event(ev(3)),
+                LogEntry::event(ev(4)),
             ],
         )));
 
         let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
         )
         .unwrap();
         let report = collector.collect_report().unwrap();
         assert_eq!(
             report,
-            LogReport {
+            Report {
                 probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![LogicalClock {
-                        id: probe_id,
-                        count: 0
-                    }],
-                    events: vec![
-                        LogEvent::Event(EventId::new(1).unwrap()),
-                        LogEvent::Event(EventId::new(2).unwrap()),
-                        LogEvent::Event(EventId::new(3).unwrap()),
-                        LogEvent::Event(EventId::new(4).unwrap()),
-                    ]
-                }]
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: 0,
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(ev(4))
+                ],
             }
         )
     }
 
-    /// Put clocks before and after nils at start
+    /// Put clocks before missed at start
     #[test]
-    fn nils_at_start() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
+    fn missed_at_start() {
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
             probe_id,
             6,
+            2,
             &mut vec![
-                CompactLogItem::from_raw(5),
-                CompactLogItem::from_raw(6),
-                CompactLogItem::from_raw(3),
-                CompactLogItem::from_raw(4),
+                LogEntry::event(ev(5)),
+                LogEntry::event(ev(6)),
+                LogEntry::event(ev(3)),
+                LogEntry::event(ev(4)),
             ],
         )));
 
         let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
         )
         .unwrap();
         let report = collector.collect_report().unwrap();
 
         assert_eq!(
             report,
-            LogReport {
+            Report {
                 probe_id,
-                extension_bytes: vec![],
-                segments: vec![
-                    OwnedLogSegment {
-                        clocks: vec![LogicalClock {
-                            id: probe_id,
-                            count: 0
-                        }],
-                        events: vec![LogEvent::EventWithPayload(EventId::EVENT_LOG_OVERFLOWED, 2)]
-                    },
-                    OwnedLogSegment {
-                        clocks: vec![LogicalClock {
-                            id: probe_id,
-                            count: 0
-                        }],
-                        events: vec![
-                            LogEvent::Event(EventId::new(3).unwrap()),
-                            LogEvent::Event(EventId::new(4).unwrap()),
-                            LogEvent::Event(EventId::new(5).unwrap()),
-                            LogEvent::Event(EventId::new(6).unwrap()),
-                        ]
-                    }
-                ]
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: 0,
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::EventWithPayload(EventId::EVENT_LOG_ITEMS_MISSED, 2),
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(ev(4)),
+                    EventLogEntry::Event(ev(5)),
+                    EventLogEntry::Event(ev(6))
+                ],
             }
         )
-    }
-
-    /// Put clocks before and after nils at start, even when clocks come after
-    #[test]
-    fn nils_then_clocks() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let other_id = ProbeId::new(2).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
-            probe_id,
-            6,
-            &mut vec![
-                CompactLogItem::from_raw(1),
-                CompactLogItem::from_raw(2),
-                CompactLogItem::clock(LogicalClock {
-                    id: other_id,
-                    count: 1,
-                })
-                .0,
-                CompactLogItem::clock(LogicalClock {
-                    id: other_id,
-                    count: 1,
-                })
-                .1,
-            ],
-        )));
-
-        let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
-        )
-        .unwrap();
-        let report = collector.collect_report().unwrap();
-        assert_eq!(
-            report,
-            LogReport {
-                probe_id,
-                extension_bytes: vec![],
-                segments: vec![
-                    OwnedLogSegment {
-                        clocks: vec![LogicalClock {
-                            id: probe_id,
-                            count: 0
-                        }],
-                        events: vec![LogEvent::EventWithPayload(EventId::EVENT_LOG_OVERFLOWED, 2)]
-                    },
-                    OwnedLogSegment {
-                        clocks: vec![LogicalClock {
-                            id: probe_id,
-                            count: 0
-                        }],
-                        events: vec![]
-                    },
-                    OwnedLogSegment {
-                        clocks: vec![
-                            LogicalClock {
-                                id: probe_id,
-                                count: 0
-                            },
-                            LogicalClock {
-                                id: other_id,
-                                count: 1
-                            }
-                        ],
-                        events: vec![
-                            LogEvent::Event(EventId::new(1).unwrap()),
-                            LogEvent::Event(EventId::new(2).unwrap()),
-                        ]
-                    }
-                ]
-            }
-        )
-    }
-
-    /// Leave clocks at end in read buffer
-    #[test]
-    fn clocks_at_end() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let other_id = ProbeId::new(2).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
-            probe_id,
-            4,
-            &mut vec![
-                CompactLogItem::from_raw(1),
-                CompactLogItem::from_raw(2),
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .0,
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .1,
-            ],
-        )));
-
-        let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
-        )
-        .unwrap();
-        let report = collector.collect_report().unwrap();
-        assert_eq!(
-            report,
-            LogReport {
-                probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![LogicalClock {
-                        id: probe_id,
-                        count: 0
-                    },],
-                    events: vec![
-                        LogEvent::Event(EventId::new(1).unwrap()),
-                        LogEvent::Event(EventId::new(2).unwrap()),
-                    ]
-                },]
-            }
-        );
-
-        mem_reader.borrow_mut().overwrite_buffer(&vec![
-            CompactLogItem::clock(LogicalClock {
-                id: other_id,
-                count: 1,
-            })
-            .0,
-            CompactLogItem::clock(LogicalClock {
-                id: other_id,
-                count: 1,
-            })
-            .1,
-            CompactLogItem::from_raw(3),
-            CompactLogItem::from_raw(4),
-        ]);
-        mem_reader.borrow_mut().set_wcurs(8);
-
-        let second_report = collector.collect_report().unwrap();
-        assert_eq!(
-            second_report,
-            LogReport {
-                probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![
-                        LogicalClock {
-                            id: probe_id,
-                            count: 1
-                        },
-                        LogicalClock {
-                            id: other_id,
-                            count: 1
-                        },
-                    ],
-                    events: vec![
-                        LogEvent::Event(EventId::new(3).unwrap()),
-                        LogEvent::Event(EventId::new(4).unwrap()),
-                    ]
-                },]
-            }
-        );
     }
 
     /// Imply clocks at start of read if not present
     #[test]
     fn imply_multiple_clocks() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let other_id = ProbeId::new(2).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let other_id_raw = 2;
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
             probe_id,
             8,
+            0,
             &mut vec![
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .0,
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .1,
-                CompactLogItem::clock(LogicalClock {
-                    id: other_id,
-                    count: 1,
-                })
-                .0,
-                CompactLogItem::clock(LogicalClock {
-                    id: other_id,
-                    count: 1,
-                })
-                .1,
-                CompactLogItem::from_raw(1),
-                CompactLogItem::from_raw(2),
-                CompactLogItem::from_raw(3),
-                CompactLogItem::from_raw(4),
+                LogEntry::clock(lc(pid_raw, 0, 1)).0,
+                LogEntry::clock(lc(pid_raw, 0, 1)).1,
+                LogEntry::clock(lc(other_id_raw, 0, 1)).0,
+                LogEntry::clock(lc(other_id_raw, 0, 1)).1,
+                LogEntry::event(ev(1)),
+                LogEntry::event(ev(2)),
+                LogEntry::event(ev(3)),
+                LogEntry::event(ev(4)),
             ],
         )));
 
         let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
         )
         .unwrap();
         let report = collector.collect_report().unwrap();
         assert_eq!(
             report,
-            LogReport {
+            Report {
                 probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![
-                        LogicalClock {
-                            id: probe_id,
-                            count: 1
-                        },
-                        LogicalClock {
-                            id: other_id,
-                            count: 1
-                        },
-                    ],
-                    events: vec![
-                        LogEvent::Event(EventId::new(1).unwrap()),
-                        LogEvent::Event(EventId::new(2).unwrap()),
-                        LogEvent::Event(EventId::new(3).unwrap()),
-                        LogEvent::Event(EventId::new(4).unwrap()),
-                    ]
-                },]
+                probe_clock: lc(pid_raw, 0, 1),
+                seq_num: 0,
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
+                    EventLogEntry::TraceClock(lc(other_id_raw, 0, 1)),
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(ev(4))
+                ],
             }
         );
 
-        mem_reader.borrow_mut().overwrite_buffer(&vec![
-            CompactLogItem::from_raw(5),
-            CompactLogItem::from_raw(6),
-            CompactLogItem::from_raw(7),
-            CompactLogItem::from_raw(8),
-            CompactLogItem::from_raw(9),
-            CompactLogItem::from_raw(10),
-            CompactLogItem::from_raw(11),
-            CompactLogItem::from_raw(12),
+        mem_accessor.borrow_mut().overwrite_buffer(&vec![
+            LogEntry::event(ev(5)),
+            LogEntry::event(ev(6)),
+            LogEntry::event(ev(7)),
+            LogEntry::event(ev(8)),
+            LogEntry::event(ev(9)),
+            LogEntry::event(ev(10)),
+            LogEntry::event(ev(11)),
+            LogEntry::event(ev(12)),
         ]);
-        mem_reader.borrow_mut().set_wcurs(16);
+        mem_accessor.borrow_mut().set_write_seqn(16);
+        mem_accessor.borrow_mut().set_overwrite_seqn(8);
 
         let second_report = collector.collect_report().unwrap();
         assert_eq!(
             second_report,
-            LogReport {
+            Report {
                 probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![
-                        LogicalClock {
-                            id: probe_id,
-                            count: 1
-                        },
-                        LogicalClock {
-                            id: other_id,
-                            count: 1
-                        },
-                    ],
-                    events: vec![
-                        LogEvent::Event(EventId::new(5).unwrap()),
-                        LogEvent::Event(EventId::new(6).unwrap()),
-                        LogEvent::Event(EventId::new(7).unwrap()),
-                        LogEvent::Event(EventId::new(8).unwrap()),
-                        LogEvent::Event(EventId::new(9).unwrap()),
-                        LogEvent::Event(EventId::new(10).unwrap()),
-                        LogEvent::Event(EventId::new(11).unwrap()),
-                        LogEvent::Event(EventId::new(12).unwrap()),
-                    ]
-                },]
-            }
-        );
-    }
-
-    /// Leave clocks at end in read buffer, even if report will be empty
-    #[test]
-    fn clocks_end_empty_report() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let other_id = ProbeId::new(2).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
-            probe_id,
-            4,
-            &mut vec![
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .0,
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .1,
-                CompactLogItem::clock(LogicalClock {
-                    id: other_id,
-                    count: 1,
-                })
-                .0,
-                CompactLogItem::clock(LogicalClock {
-                    id: other_id,
-                    count: 1,
-                })
-                .1,
-            ],
-        )));
-
-        let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
-        )
-        .unwrap();
-        let report = collector.collect_report().unwrap();
-        assert_eq!(
-            report,
-            LogReport {
-                probe_id,
-                extension_bytes: vec![],
-                segments: vec![]
-            }
-        );
-
-        mem_reader.borrow_mut().overwrite_buffer(&vec![
-            CompactLogItem::from_raw(1),
-            CompactLogItem::from_raw(2),
-            CompactLogItem::from_raw(3),
-            CompactLogItem::from_raw(4),
-        ]);
-        mem_reader.borrow_mut().set_wcurs(8);
-
-        let second_report = collector.collect_report().unwrap();
-        assert_eq!(
-            second_report,
-            LogReport {
-                probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![
-                        LogicalClock {
-                            id: probe_id,
-                            count: 1
-                        },
-                        LogicalClock {
-                            id: other_id,
-                            count: 1
-                        },
-                    ],
-                    events: vec![
-                        LogEvent::Event(EventId::new(1).unwrap()),
-                        LogEvent::Event(EventId::new(2).unwrap()),
-                        LogEvent::Event(EventId::new(3).unwrap()),
-                        LogEvent::Event(EventId::new(4).unwrap()),
-                    ]
-                },]
+                probe_clock: lc(pid_raw, 0, 1),
+                seq_num: 1,
+                frontier_clocks: vec![lc(pid_raw, 0, 1), lc(other_id_raw, 0, 1)],
+                event_log: vec![
+                    EventLogEntry::Event(ev(5)),
+                    EventLogEntry::Event(ev(6)),
+                    EventLogEntry::Event(ev(7)),
+                    EventLogEntry::Event(ev(8)),
+                    EventLogEntry::Event(ev(9)),
+                    EventLogEntry::Event(ev(10)),
+                    EventLogEntry::Event(ev(11)),
+                    EventLogEntry::Event(ev(12))
+                ],
             }
         );
     }
@@ -904,266 +783,165 @@ pub mod tests {
     /// Return empty report when no logs read
     #[test]
     fn empty_read() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
             probe_id,
             0,
+            0,
             &mut vec![
-                CompactLogItem::from_raw(1),
-                CompactLogItem::from_raw(2),
-                CompactLogItem::from_raw(3),
-                CompactLogItem::from_raw(4),
+                LogEntry::event(ev(1)),
+                LogEntry::event(ev(1)),
+                LogEntry::event(ev(1)),
+                LogEntry::event(ev(1)),
             ],
         )));
 
         let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
         )
         .unwrap();
         let report = collector.collect_report().unwrap();
         assert_eq!(
             report,
-            LogReport {
+            Report {
                 probe_id,
-                extension_bytes: vec![],
-                segments: vec![]
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: 0,
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![],
             }
         );
     }
 
-    /// Leave nils at end in read buffer
-    #[test]
-    fn nils_at_end() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
-            probe_id,
-            4,
-            &mut vec![
-                CompactLogItem::NIL_VAL,
-                CompactLogItem::NIL_VAL,
-                CompactLogItem::NIL_VAL,
-                CompactLogItem::NIL_VAL,
-            ],
-        )));
-
-        let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
-        )
-        .unwrap();
-        let report = collector.collect_report().unwrap();
-        assert_eq!(
-            report,
-            LogReport {
-                probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![LogicalClock {
-                        id: probe_id,
-                        count: 0
-                    },],
-                    events: vec![]
-                }]
-            }
-        );
-
-        mem_reader.borrow_mut().overwrite_buffer(&vec![
-            CompactLogItem::clock(LogicalClock {
-                id: probe_id,
-                count: 1,
-            })
-            .0,
-            CompactLogItem::clock(LogicalClock {
-                id: probe_id,
-                count: 1,
-            })
-            .1,
-            CompactLogItem::from_raw(1),
-            CompactLogItem::from_raw(2),
-        ]);
-        mem_reader.borrow_mut().set_wcurs(8);
-
-        let second_report = collector.collect_report().unwrap();
-        assert_eq!(
-            second_report,
-            LogReport {
-                probe_id,
-                extension_bytes: vec![],
-                segments: vec![
-                    OwnedLogSegment {
-                        clocks: vec![LogicalClock {
-                            id: probe_id,
-                            count: 0
-                        },],
-                        events: vec![LogEvent::EventWithPayload(EventId::EVENT_LOG_OVERFLOWED, 4)]
-                    },
-                    OwnedLogSegment {
-                        clocks: vec![LogicalClock {
-                            id: probe_id,
-                            count: 0
-                        },],
-                        events: vec![]
-                    },
-                    OwnedLogSegment {
-                        clocks: vec![LogicalClock {
-                            id: probe_id,
-                            count: 1
-                        },],
-                        events: vec![
-                            LogEvent::Event(EventId::new(1).unwrap()),
-                            LogEvent::Event(EventId::new(2).unwrap()),
-                        ]
-                    },
-                ]
-            }
-        );
-    }
-
-    /// Leave clock in read buffer if prefix is last element
+    /// Clock not read if only prefix has been written
     #[test]
     fn split_clock_between_reads() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
             probe_id,
             4,
+            0,
             &mut vec![
-                CompactLogItem::from_raw(1),
-                CompactLogItem::from_raw(2),
-                CompactLogItem::from_raw(3),
-                CompactLogItem::clock(LogicalClock {
-                    id: probe_id,
-                    count: 1,
-                })
-                .0,
+                LogEntry::event(ev(1)),
+                LogEntry::event(ev(2)),
+                LogEntry::event(ev(3)),
+                LogEntry::clock(lc(pid_raw, 0, 1)).0,
             ],
         )));
 
         let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
         )
         .unwrap();
         let report = collector.collect_report().unwrap();
         assert_eq!(
             report,
-            LogReport {
+            Report {
                 probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![LogicalClock {
-                        id: probe_id,
-                        count: 0
-                    },],
-                    events: vec![
-                        LogEvent::Event(EventId::new(1).unwrap()),
-                        LogEvent::Event(EventId::new(2).unwrap()),
-                        LogEvent::Event(EventId::new(3).unwrap()),
-                    ]
-                }]
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: 0,
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::Event(ev(3))
+                ],
             }
         );
 
-        mem_reader.borrow_mut().overwrite_buffer(&vec![
-            CompactLogItem::clock(LogicalClock {
-                id: probe_id,
-                count: 1,
-            })
-            .1,
-            CompactLogItem::from_raw(4),
-            CompactLogItem::from_raw(5),
-            CompactLogItem::from_raw(6),
+        mem_accessor.borrow_mut().overwrite_buffer(&vec![
+            LogEntry::clock(lc(pid_raw, 0, 1)).1,
+            LogEntry::event(ev(4)),
+            LogEntry::event(ev(5)),
+            LogEntry::event(ev(6)),
         ]);
-        mem_reader.borrow_mut().set_wcurs(8);
+        mem_accessor.borrow_mut().set_write_seqn(8);
+        mem_accessor.borrow_mut().set_overwrite_seqn(4);
 
         let second_report = collector.collect_report().unwrap();
         assert_eq!(
             second_report,
-            LogReport {
+            Report {
                 probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![LogicalClock {
-                        id: probe_id,
-                        count: 1
-                    },],
-                    events: vec![
-                        LogEvent::Event(EventId::new(4).unwrap()),
-                        LogEvent::Event(EventId::new(5).unwrap()),
-                        LogEvent::Event(EventId::new(6).unwrap()),
-                    ]
-                }]
+                probe_clock: lc(pid_raw, 0, 1),
+                seq_num: 1,
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
+                    EventLogEntry::Event(ev(4)),
+                    EventLogEntry::Event(ev(5)),
+                    EventLogEntry::Event(ev(6)),
+                ],
             }
         );
     }
 
-    /// Leave event with payload in read buffer if prefix is last element
+    /// Event with payload not read if only prefix has been written
     #[test]
     fn split_payload_event_between_reads() {
-        let probe_id = ProbeId::new(1).unwrap();
-        let mem_reader = Rc::new(RefCell::new(HashMapMemReader::new(
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
             probe_id,
             4,
+            0,
             &mut vec![
-                CompactLogItem::from_raw(1),
-                CompactLogItem::from_raw(2),
-                CompactLogItem::from_raw(3),
-                CompactLogItem::event_with_payload(EventId::new(4).unwrap(), 5).0,
+                LogEntry::event(ev(1)),
+                LogEntry::event(ev(2)),
+                LogEntry::event(ev(3)),
+                LogEntry::event_with_payload(ev(4), 5).0,
             ],
         )));
 
         let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemReader::PROBE_ADDR),
-            mem_reader.clone() as Rc<RefCell<dyn MemoryReader>>,
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
         )
         .unwrap();
         let report = collector.collect_report().unwrap();
         assert_eq!(
             report,
-            LogReport {
+            Report {
                 probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![LogicalClock {
-                        id: probe_id,
-                        count: 0
-                    },],
-                    events: vec![
-                        LogEvent::Event(EventId::new(1).unwrap()),
-                        LogEvent::Event(EventId::new(2).unwrap()),
-                        LogEvent::Event(EventId::new(3).unwrap()),
-                    ]
-                }]
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: 0,
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::Event(ev(3))
+                ],
             }
         );
 
-        mem_reader.borrow_mut().overwrite_buffer(&vec![
-            CompactLogItem::event_with_payload(EventId::new(4).unwrap(), 5).1,
-            CompactLogItem::from_raw(6),
-            CompactLogItem::from_raw(7),
-            CompactLogItem::from_raw(8),
+        mem_accessor.borrow_mut().overwrite_buffer(&vec![
+            LogEntry::event_with_payload(ev(4), 5).1,
+            LogEntry::event(ev(6)),
+            LogEntry::event(ev(7)),
+            LogEntry::event(ev(8)),
         ]);
-        mem_reader.borrow_mut().set_wcurs(8);
+        mem_accessor.borrow_mut().set_write_seqn(8);
+        mem_accessor.borrow_mut().set_overwrite_seqn(4);
 
         let second_report = collector.collect_report().unwrap();
         assert_eq!(
             second_report,
-            LogReport {
+            Report {
                 probe_id,
-                extension_bytes: vec![],
-                segments: vec![OwnedLogSegment {
-                    clocks: vec![LogicalClock {
-                        id: probe_id,
-                        count: 0
-                    },],
-                    events: vec![
-                        LogEvent::EventWithPayload(EventId::new(4).unwrap(), 5),
-                        LogEvent::Event(EventId::new(6).unwrap()),
-                        LogEvent::Event(EventId::new(7).unwrap()),
-                        LogEvent::Event(EventId::new(8).unwrap()),
-                    ]
-                }]
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: 1,
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::EventWithPayload(ev(4), 5),
+                    EventLogEntry::Event(ev(6)),
+                    EventLogEntry::Event(ev(7)),
+                    EventLogEntry::Event(ev(8)),
+                ],
             }
         );
-    }*/
+    }
 }

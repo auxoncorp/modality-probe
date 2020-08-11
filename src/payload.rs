@@ -2,7 +2,7 @@
 use crate::history::DynamicHistory;
 use crate::log::LogEntry;
 use crate::{EventId, LogicalClock, ProbeId};
-use race_buffer::writer::PossiblyMissed;
+use race_buffer::PossiblyMissed;
 
 use fixed_slice_vec::FixedSliceVec;
 
@@ -41,11 +41,7 @@ impl fmt::Debug for ClocksOverflowedError {
 /// collector uses an expandable Vec.
 pub trait FrontierClocks {
     /// Merge clock into reported clocks
-    fn merge_clock(
-        &mut self,
-        external_id: ProbeId,
-        external_clock: u32,
-    ) -> Result<(), ClocksOverflowedError>;
+    fn merge_clock(&mut self, ext_clock: LogicalClock) -> Result<(), ClocksOverflowedError>;
     /// Get underlying slice
     fn as_slice(&self) -> &[LogicalClock];
 }
@@ -83,22 +79,8 @@ impl<'a, 'b> FrontierClocksFSV<'a, 'b> {
 }
 
 impl FrontierClocks for FrontierClocksFSV<'_, '_> {
-    fn merge_clock(
-        &mut self,
-        external_id: ProbeId,
-        external_clock: u32,
-    ) -> Result<(), ClocksOverflowedError> {
-        let (epoch, ticks) = crate::unpack_clock_word(external_clock);
-        if DynamicHistory::merge_clocks(
-            &mut self.0,
-            LogicalClock {
-                id: external_id,
-                epoch,
-                ticks,
-            },
-        )
-        .is_err()
-        {
+    fn merge_clock(&mut self, ext_clock: LogicalClock) -> Result<(), ClocksOverflowedError> {
+        if DynamicHistory::merge_clocks(&mut self.0, ext_clock).is_err() {
             Err(ClocksOverflowedError)
         } else {
             Ok(())
@@ -110,8 +92,11 @@ impl FrontierClocks for FrontierClocksFSV<'_, '_> {
     }
 }
 
+/// Return value for whether or not the frontier clocks list overflowed while writing report payload
 pub type DidClocksOverflow = bool;
+/// Return value for how many entries were read from the log
 pub type NumEntriesRead = usize;
+/// Return value how many entries were written to a report's payload, not including frontier clocks
 pub type NumEntriesWritten = usize;
 
 /// Process as much of the given log iterator as possible into a report, outputting the report into output.
@@ -176,11 +161,13 @@ where
             // Creating probe ID is safe because the entry was written into the log as a legitimate ID
             // Note: If clocks_overflowed is already true, then merge_clock is guaranteed to return an error, meaning
             // clocks_overflowed will stay true
+            let (epoch, ticks) = crate::unpack_clock_word(clock_suffix.raw());
             clocks_overflowed = frontier_clocks
-                .merge_clock(
-                    ProbeId::new(cur_entry.interpret_as_logical_clock_probe_id()).unwrap(),
-                    clock_suffix.raw(),
-                )
+                .merge_clock(LogicalClock {
+                    id: ProbeId::new(cur_entry.interpret_as_logical_clock_probe_id()).unwrap(),
+                    ticks,
+                    epoch,
+                })
                 .is_err();
             // Push will not panic, as free capacity is known to be at least 2
             output.push(cur_entry);
@@ -265,7 +252,11 @@ mod tests {
         let mut frontier_clocks_arr = [MaybeUninit::<LogicalClock>::uninit(); 2];
         let mut frontier_clocks = FixedSliceVec::new(&mut frontier_clocks_arr);
         FrontierClocksFSV(&mut frontier_clocks)
-            .merge_clock(probe_id, 0)
+            .merge_clock(LogicalClock {
+                id: probe_id,
+                ticks: ProbeTicks(0),
+                epoch: ProbeEpoch(0),
+            })
             .unwrap();
 
         let log = [
@@ -354,7 +345,11 @@ mod tests {
         let mut frontier_clocks_arr = [MaybeUninit::<LogicalClock>::uninit(); 2];
         let mut frontier_clocks = FixedSliceVec::new(&mut frontier_clocks_arr);
         FrontierClocksFSV(&mut frontier_clocks)
-            .merge_clock(probe_id, 0)
+            .merge_clock(LogicalClock {
+                id: probe_id,
+                ticks: ProbeTicks(0),
+                epoch: ProbeEpoch(0),
+            })
             .unwrap();
 
         let log = [
