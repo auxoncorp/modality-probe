@@ -19,6 +19,7 @@ std = ["serde", "proptest", "schemars", "proptest-derive"]
 [workspace]
 members = [
   "modality-probe-cli",
+  "modality-probe-graph",
   "collectors/modality-probe-udp-collector",
   "collectors/modality-probe-collector-common",
 ]
