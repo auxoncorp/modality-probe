@@ -3,7 +3,7 @@ use err_derive::Error;
 use modality_probe::{
     log::LogEntry,
     wire::{le_bytes, ReportWireError, WireReport},
-    EventId, LogicalClock, ProbeId,
+    EventId, LogicalClock, ProbeEpoch, ProbeId, ProbeTicks,
 };
 use static_assertions::assert_eq_size;
 use std::convert::{TryFrom, TryInto};
@@ -134,20 +134,56 @@ impl From<EventLogEntry> for LogEntryData {
 
 /// A row in a collected trace.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
-struct LogFileRow {
-    session_id: u32,
-    sequence_number: u64,
-    sequence_index: u32,
-    receive_time: DateTime<Utc>,
-    probe_id: u32,
-    fc_probe_id: Option<u32>,
-    fc_probe_epoch: Option<u16>,
-    fc_probe_clock: Option<u16>,
-    event_id: Option<u32>,
-    event_payload: Option<u32>,
-    tc_probe_id: Option<u32>,
-    tc_probe_epoch: Option<u16>,
-    tc_probe_clock: Option<u16>,
+pub struct LogFileRow {
+    pub session_id: u32,
+    pub sequence_number: u64,
+    pub sequence_index: u32,
+    pub receive_time: DateTime<Utc>,
+    pub probe_id: u32,
+    pub fc_probe_id: Option<u32>,
+    pub fc_probe_epoch: Option<u16>,
+    pub fc_probe_clock: Option<u16>,
+    pub event_id: Option<u32>,
+    pub event_payload: Option<u32>,
+    pub tc_probe_id: Option<u32>,
+    pub tc_probe_epoch: Option<u16>,
+    pub tc_probe_clock: Option<u16>,
+}
+
+impl LogFileRow {
+    pub fn packed_tc_clock(&self) -> Option<u32> {
+        if self.tc_probe_epoch.is_some() && self.tc_probe_clock.is_some() {
+            Some(modality_probe::pack_clock_word(
+                ProbeEpoch::from(self.tc_probe_epoch.expect("just checked epoch presence")),
+                ProbeTicks::from(self.tc_probe_clock.expect("just checked clock presence")),
+            ))
+        } else {
+            None
+        }
+    }
+
+    pub fn packed_fc_clock(&self) -> Option<u32> {
+        if self.fc_probe_epoch.is_some() && self.fc_probe_clock.is_some() {
+            Some(modality_probe::pack_clock_word(
+                ProbeEpoch::from(self.fc_probe_epoch.expect("just checked epoch presence")),
+                ProbeTicks::from(self.fc_probe_clock.expect("just checked clock presence")),
+            ))
+        } else {
+            None
+        }
+    }
+
+    pub fn is_trace_clock(&self) -> bool {
+        self.tc_probe_id.is_some() && self.tc_probe_epoch.is_some() && self.tc_probe_clock.is_some()
+    }
+
+    pub fn is_frontier_clock(&self) -> bool {
+        self.fc_probe_id.is_some() && self.fc_probe_epoch.is_some() && self.fc_probe_clock.is_some()
+    }
+
+    pub fn is_event(&self) -> bool {
+        self.event_id.is_some()
+    }
 }
 
 impl From<&ReportLogEntry> for LogFileRow {
@@ -195,7 +231,7 @@ impl From<&ReportLogEntry> for LogFileRow {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ReadError {
     InvalidContent {
         session_id: SessionId,
@@ -203,7 +239,7 @@ pub enum ReadError {
         sequence_index: u32,
         message: &'static str,
     },
-    Serialization(Box<dyn std::error::Error>),
+    Serialization(String),
 }
 
 impl TryFrom<&LogFileRow> for ReportLogEntry {
