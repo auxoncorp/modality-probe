@@ -35,6 +35,7 @@ sha3 = "0.9"
 hex = "0.4"
 derivative = "2.1"
 err-derive = "0.2.4"
+modality-probe-collector-common = { path = "../collectors/modality-probe-collector-common" }
 
 [dependencies.modality-probe]
 path = "../"
