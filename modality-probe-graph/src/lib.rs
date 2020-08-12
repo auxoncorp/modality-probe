@@ -1,17 +1,25 @@
-//! A simple directed graph type that compliles node and edge lists.
+//! `modality-probe-graph` is a library that builds different types of node
+//! and edge lists from a columnar, unordered collection of log
+//! reports like the one that modality-probe-udp-collector creates.
 use std::{collections::HashMap, hash::Hash};
+
+use err_derive::Error;
 
 use modality_probe::{EventId, LogicalClock, ProbeId};
 use modality_probe_collector_common::{EventLogEntry, Report, SequenceNumber};
 
-use crate::graph::Error;
-
+/// A trait for the inner graph type of `EventDiagraph`. This enables
+/// a custom inner graph that can be purpose built for a use-case, but
+/// allows said graph to still be built by `EventDigraph`.
 pub trait Graph {
+    /// Add a node / vertex to the inner graph.
     fn add_node(&mut self, node: GraphEvent);
+    /// Add an edge to the inner graph.
     fn add_edge(&mut self, source: GraphEvent, target: GraphEvent);
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
+/// A node in the event digraph.
 pub struct GraphEvent {
     id: EventId,
     clock: LogicalClock,
@@ -21,9 +29,31 @@ pub struct GraphEvent {
     seq_idx: usize,
 }
 
+/// Errors returned by the `EventDigraph` methods.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// Encountered an error when using the writer when exporting a
+    /// graph in a textual format.
+    #[error(display = "Formatting graph failed: {}", _0)]
+    Io(String),
+    /// The graph builders iterate over a `Result` to leave room for
+    /// deserialization; if a builder encounters a `Err`, this error
+    /// is returned with that error's `display` implementaion inside.
+    #[error(display = "An item in the log iterator was an error variant: {}", _0)]
+    ItemError(String),
+    /// Encountered an unexpected inconsistency in the graph data.
+    #[error(display = "Encountered an inconsistency in the graph data: {}", _0)]
+    InconsistentData(&'static str),
+}
+
+/// A type that eats Modality Probe reports and stuffs them into its
+/// inner graph type.
 #[derive(Debug, PartialEq, Eq)]
 pub struct EventDigraph<G: Graph> {
-    graph: G,
+    /// The EventDigraph retains ownership of the inner graph, but
+    /// must make it available so that its purpose-built functionality
+    /// is accessible.
+    pub graph: G,
 
     // When a foreign trace clock is the last thing in a report chunk,
     // we need to look up and hold on to the last event before that
@@ -53,6 +83,7 @@ impl<G: Graph> EventDigraph<G> {
         }
     }
 
+    /// Turn a report into nodes and edges on the graph.
     pub fn add_report(&mut self, report: &Report) -> Result<(), Error> {
         let probe_id = report.probe_id;
         let seq_num = report.seq_num;

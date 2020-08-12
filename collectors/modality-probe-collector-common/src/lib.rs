@@ -1,13 +1,18 @@
+use std::{
+    convert::{TryFrom, TryInto},
+    iter::Peekable,
+    mem,
+};
+
 use chrono::prelude::*;
 use err_derive::Error;
+use static_assertions::assert_eq_size;
+
 use modality_probe::{
     log::LogEntry,
     wire::{le_bytes, ReportWireError, WireReport},
     EventId, LogicalClock, ProbeEpoch, ProbeId, ProbeTicks,
 };
-use static_assertions::assert_eq_size;
-use std::convert::{TryFrom, TryInto};
-use std::mem;
 
 pub mod csv;
 
@@ -184,6 +189,163 @@ impl LogFileRow {
 
     pub fn is_event(&self) -> bool {
         self.event_id.is_some()
+    }
+}
+
+pub struct ReportIter<I, E>
+where
+    I: Iterator<Item = Result<LogFileRow, E>>,
+    E: std::error::Error,
+{
+    report_items: Peekable<I>,
+    // If this iterator encounters an error while accumulating a
+    // report, it stops in place, rendering it unusable. By storing
+    // that error, we can keep the iterator from being used again by
+    // just returning that error for any `next` calls.
+    error: Option<ReadError>,
+}
+
+impl<I, E> ReportIter<I, E>
+where
+    I: Iterator<Item = Result<LogFileRow, E>>,
+    E: std::error::Error,
+{
+    pub fn new(report_items: Peekable<I>) -> Self {
+        ReportIter {
+            report_items,
+            error: None,
+        }
+    }
+}
+
+impl<I, E> Iterator for ReportIter<I, E>
+where
+    I: Iterator<Item = Result<LogFileRow, E>>,
+    E: std::error::Error,
+    for<'a> &'a E: Into<ReadError>,
+{
+    type Item = Result<Report, ReadError>;
+    fn next(&mut self) -> Option<Result<Report, ReadError>> {
+        if self.error.is_some() {
+            return self.error.clone().map(Err);
+        }
+
+        let next = match self.report_items.peek() {
+            Some(Ok(e)) => e,
+            Some(Err(e)) => return Some(Err(e.into())),
+            None => return None,
+        };
+        let probe_id = match ProbeId::new(next.probe_id) {
+            Some(id) => id,
+            None => {
+                self.error = Some(ReadError::InvalidContent {
+                    session_id: SessionId(next.session_id),
+                    sequence_number: SequenceNumber(next.sequence_number),
+                    sequence_index: next.sequence_index,
+                    message: "invalid probe id",
+                });
+                return self.error.clone().map(Err);
+            }
+        };
+
+        let seq_num = next.sequence_number;
+        let mut report = Report {
+            probe_id,
+            probe_clock: LogicalClock {
+                id: probe_id,
+                epoch: ProbeEpoch(0),
+                ticks: ProbeTicks(0),
+            },
+            seq_num: SequenceNumber(next.sequence_number),
+            frontier_clocks: Vec::new(),
+            event_log: Vec::new(),
+        };
+
+        loop {
+            let next = match self.report_items.peek() {
+                Some(Ok(e)) => e,
+                Some(Err(e)) => return Some(Err(e.into())),
+                None => return Some(Ok(report)),
+            };
+            if next.probe_id != probe_id.get_raw() || next.sequence_number != seq_num {
+                return Some(Ok(report));
+            }
+
+            // we peeked at this item above.
+            let e = self.report_items.next().unwrap().unwrap();
+            if e.is_frontier_clock() {
+                let id = match ProbeId::new(e.probe_id) {
+                    Some(id) => id,
+                    None => {
+                        self.error = Some(ReadError::InvalidContent {
+                            session_id: SessionId(e.session_id),
+                            sequence_number: SequenceNumber(e.sequence_number),
+                            sequence_index: e.sequence_index,
+                            message: "invalid probe id",
+                        });
+                        return self.error.clone().map(Err);
+                    }
+                };
+                let epoch = ProbeEpoch(e.fc_probe_epoch.expect("already checked fc epoch"));
+                let ticks = ProbeTicks(e.fc_probe_clock.expect("already checked fc clock"));
+                if id == report.probe_id {
+                    report.probe_clock = LogicalClock { id, epoch, ticks };
+                }
+                report
+                    .frontier_clocks
+                    .push(LogicalClock { id, epoch, ticks });
+            } else if e.is_trace_clock() {
+                let id = match ProbeId::new(e.tc_probe_id.expect("already checked tc probe id")) {
+                    Some(id) => id,
+                    None => {
+                        self.error = Some(ReadError::InvalidContent {
+                            session_id: SessionId(e.session_id),
+                            sequence_number: SequenceNumber(e.sequence_number),
+                            sequence_index: e.sequence_index,
+                            message: "invalid probe id",
+                        });
+                        return self.error.clone().map(Err);
+                    }
+                };
+                let epoch = ProbeEpoch(e.tc_probe_epoch.expect("already checked fc epoch"));
+                let ticks = ProbeTicks(e.tc_probe_clock.expect("already checked fc clock"));
+                report
+                    .event_log
+                    .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
+                if id == report.probe_id {
+                    report.probe_clock = LogicalClock { id, epoch, ticks };
+                }
+            } else {
+                if let Some(eid) = e.event_id {
+                    let id = match EventId::new(eid) {
+                        Some(id) => id,
+                        None => {
+                            self.error = Some(ReadError::InvalidContent {
+                                session_id: SessionId(e.session_id),
+                                sequence_number: SequenceNumber(e.sequence_number),
+                                sequence_index: e.sequence_index,
+                                message: "invalid event id",
+                            });
+                            return self.error.clone().map(Err);
+                        }
+                    };
+                    report
+                        .event_log
+                        .push(if let Some(payload) = e.event_payload {
+                            EventLogEntry::EventWithPayload(id, payload)
+                        } else {
+                            EventLogEntry::Event(id)
+                        });
+                } else {
+                    return Some(Err(ReadError::InvalidContent {
+                        session_id: SessionId(e.session_id),
+                        sequence_number: SequenceNumber(e.sequence_number),
+                        sequence_index: e.sequence_index,
+                        message: "missing an event id",
+                    }));
+                }
+            }
+        }
     }
 }
 

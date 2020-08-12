@@ -4,7 +4,8 @@ version = "0.3.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
     "Russell Mull <russell@auxon.io>",
-    "Jon Lamb <jon@auxon.io>"
+    "Jon Lamb <jon@auxon.io>",
+    "dan pittman <dan@auxon.io>"
 ]
 edition = "2018"
 license = "Apache-2.0"
