@@ -138,21 +138,33 @@ impl std::error::Error for RawPtrSnapperError {}
 impl async_reader::Snapper<OrderedEntry> for RawPtrSnapper<'_> {
     type Error = RawPtrSnapperError;
 
-    fn snap_write_seqn(&self) -> Result<u64, RawPtrSnapperError> {
+    fn snap_write_seqn_high(&self) -> Result<u32, RawPtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
-        unsafe { Ok(self.0.as_ref().unwrap().get_write_seqn()) }
+        unsafe { Ok(self.0.as_ref().unwrap().get_write_seqn().high) }
     }
 
-    fn snap_overwrite_seqn(&self) -> Result<u64, RawPtrSnapperError> {
+    fn snap_write_seqn_low(&self) -> Result<u32, RawPtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
-        unsafe { Ok(self.0.as_ref().unwrap().get_overwrite_seqn()) }
+        unsafe { Ok(self.0.as_ref().unwrap().get_write_seqn().low) }
+    }
+
+    fn snap_overwrite_seqn_high(&self) -> Result<u32, RawPtrSnapperError> {
+        // Ensure reads are not reordered
+        fence(Ordering::Acquire);
+        unsafe { Ok(self.0.as_ref().unwrap().get_overwrite_seqn().high) }
+    }
+
+    fn snap_overwrite_seqn_low(&self) -> Result<u32, RawPtrSnapperError> {
+        // Ensure reads are not reordered
+        fence(Ordering::Acquire);
+        unsafe { Ok(self.0.as_ref().unwrap().get_overwrite_seqn().low) }
     }
 
     fn snap_storage(&self, index: usize) -> Result<OrderedEntry, RawPtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
-        unsafe { Ok(self.0.as_ref().unwrap().read_storage(index as u64)) }
+        unsafe { Ok(self.0.as_ref().unwrap().read_storage((index as u64).into())) }
     }
 }

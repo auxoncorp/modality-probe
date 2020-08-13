@@ -1,12 +1,14 @@
 //! The writer of the RaceBuffer, which contains the actual buffer. Entries can be synchronously written and read/iterated
 //! from this struct.
-use crate::{get_seqn_index, num_missed, Entry};
+use crate::{get_seqn_index, num_missed, Entry, SeqNum};
 //use core::iter::Iterator;
 use core::fmt;
 use core::mem::size_of;
 use core::mem::MaybeUninit;
 use core::sync::atomic::fence;
 use core::sync::atomic::Ordering;
+use core::cmp::max;
+
 
 /// Minimum allowed capacity of backing storage
 pub const MIN_STORAGE_CAP: usize = 4;
@@ -59,14 +61,14 @@ where
     E: Entry,
 {
     /// Sequence number of the next entry to be written
-    write_seqn: u64,
+    write_seqn: SeqNum,
     /// Sequence number of the next entry to be overwritten
-    overwrite_seqn: u64,
+    overwrite_seqn: SeqNum,
     /// Backing storage
     storage: &'a mut [MaybeUninit<E>],
     /// Sequence number of next entry to be read from buffer
     /// Note: when using RaceReader, this field is not used
-    read_seqn: u64,
+    read_seqn: SeqNum,
     /// Indicates if backing storage should be truncated to a power of 2 length
     /// in order to use optimized indexing
     use_base_2_indexing: bool,
@@ -90,10 +92,10 @@ where
             storage.len()
         };
         Ok(RaceBuffer {
-            write_seqn: 0,
-            overwrite_seqn: 0,
+            write_seqn: 0.into(),
+            overwrite_seqn: 0.into(),
             storage: &mut storage[..truncated_len],
-            read_seqn: 0,
+            read_seqn: 0.into(),
             use_base_2_indexing,
         })
     }
@@ -129,14 +131,14 @@ where
 
     /// Get value of backing storage corresponding at index corresponding to given sequence number
     #[inline]
-    pub(crate) unsafe fn read_storage(&self, seqn: u64) -> E {
+    pub(crate) unsafe fn read_storage(&self, seqn: SeqNum) -> E {
         self.storage[get_seqn_index(self.capacity(), seqn, self.use_base_2_indexing)].assume_init()
     }
 
     /// Read entry at given sequence number
     /// Returns None if entry has not been written yet
     /// Note: read_seqn should not point at a double-entry suffix
-    fn read_at(&self, read_seqn: u64) -> Option<WholeEntry<E>> {
+    fn read_at(&self, read_seqn: SeqNum) -> Option<WholeEntry<E>> {
         if read_seqn < self.overwrite_seqn || read_seqn >= self.write_seqn {
             None
         } else {
@@ -155,7 +157,7 @@ where
 
     /// Write to storage at index corresponding to given sequence number
     #[inline]
-    fn write_to_storage(&mut self, seqn: u64, entry: E) {
+    fn write_to_storage(&mut self, seqn: SeqNum, entry: E) {
         self.storage[get_seqn_index(self.capacity(), seqn, self.use_base_2_indexing)] =
             MaybeUninit::new(entry);
     }
@@ -163,24 +165,23 @@ where
     /// Write single entry to buffer
     pub fn push(&mut self, entry: E) -> Option<WholeEntry<E>> {
         // Overwrite when write sequence number is 1 buffer capacity ahead of overwrite sequence number.
-        let overwritten = if self.write_seqn == self.overwrite_seqn + self.capacity() as u64 {
-            // Reading storage directly in front of overwrite sequence number is safe because write cursor is ahead of
-            // that entry, and the overwrite sequence number is behind it
-            let overwritten = self.read_at(self.overwrite_seqn).unwrap();
-            self.overwrite_seqn += overwritten.size();
-            // Prevent writes from getting reordered
-            fence(Ordering::Release);
-            Some(overwritten)
-        } else {
-            None
-        };
+        let possible_overwritten =
+            if self.write_seqn == self.overwrite_seqn + self.capacity() as u64 {
+                // Reading storage directly in front of overwrite sequence number is safe because write cursor is ahead of
+                // that entry, and the overwrite sequence number is behind it
+                let overwritten = self.read_at(self.overwrite_seqn).unwrap();
+                self.overwrite_seqn.increment(overwritten.size().into());
+                // Prevent writes from getting reordered
+                Some(overwritten)
+            } else {
+                None
+            };
         self.write_to_storage(self.write_seqn, entry);
         // Prevent writes from getting reordered
         fence(Ordering::Release);
-        self.write_seqn += 1;
+        self.write_seqn.increment(1.into());
         // Prevent writes from getting reordered
-        fence(Ordering::Release);
-        overwritten
+        possible_overwritten
     }
 
     /// Write double entry in single borrow, returning overwritten entry
@@ -196,7 +197,7 @@ where
 
     /// Return number of items missed between tail and oldest entry present in the buffer, or 0 if tail is currently present
     pub fn num_missed(&self) -> u64 {
-        num_missed(self.read_seqn, self.overwrite_seqn)
+        num_missed(self.read_seqn, self.overwrite_seqn).into()
     }
 
     /// Read the entry at tail, or the oldest entry present in the buffer if tail has already been overwritten.
@@ -206,7 +207,7 @@ where
             None
         } else {
             // Read at read_seqn unless already overwritten
-            let next_seqn = u64::max(self.read_seqn, self.overwrite_seqn);
+            let next_seqn = max(self.read_seqn, self.overwrite_seqn);
             self.read_at(next_seqn)
         }
     }
@@ -221,14 +222,14 @@ where
         } else {
             0
         };
-        self.read_seqn = u64::max(self.read_seqn + increment, self.overwrite_seqn + increment);
+        self.read_seqn = max(self.read_seqn + increment, self.overwrite_seqn + increment);
         tail
     }
 
     /// Create iterator over the entries currently present in the buffer without changing the tail
     #[inline]
     pub fn iter_peek<'b>(&'b mut self) -> RaceBufferIter<'a, 'b, E> {
-        let start_seqn = u64::max(self.read_seqn, self.overwrite_seqn);
+        let start_seqn = max(self.read_seqn, self.overwrite_seqn);
         RaceBufferIter::new(self, start_seqn)
     }
 
@@ -244,7 +245,7 @@ where
             get_seqn_index(self.capacity(), self.write_seqn, self.use_base_2_indexing);
         // Safe to assume entries in front of overwrite sequence number and behind write sequence number are initialized
         if overwrite_seqn_index >= write_seqn_index
-            && (self.overwrite_seqn != 0 || self.write_seqn != 0)
+            && (Into::<u64>::into(self.overwrite_seqn) != 0 || Into::<u64>::into(self.write_seqn) != 0)
         {
             unsafe {
                 (
@@ -270,7 +271,8 @@ where
     /// Get the number of items currently in the buffer which have not been read yet
     pub fn len(&self) -> usize {
         let start_seqn = self.read_seqn.max(self.overwrite_seqn);
-        (self.write_seqn - start_seqn) as usize
+        let len: u64  = (self.write_seqn - start_seqn).into();
+        len as usize
     }
 
     /// Return true if there are no items to read
@@ -292,13 +294,13 @@ where
 
     #[cfg(feature = "std")]
     #[cfg(test)]
-    pub(crate) fn get_write_seqn(&self) -> u64 {
+    pub(crate) fn get_write_seqn(&self) -> SeqNum {
         self.write_seqn
     }
 
     #[cfg(feature = "std")]
     #[cfg(test)]
-    pub(crate) fn get_overwrite_seqn(&self) -> u64 {
+    pub(crate) fn get_overwrite_seqn(&self) -> SeqNum {
         self.overwrite_seqn
     }
 }
@@ -321,7 +323,7 @@ where
     /// Target RaceBuffer
     buffer: &'b RaceBuffer<'a, E>,
     /// Sequence number of next entry to read
-    read_seqn: u64,
+    read_seqn: SeqNum,
 }
 
 impl<'a, 'b, E> RaceBufferIter<'a, 'b, E>
@@ -329,7 +331,7 @@ where
     E: Entry,
 {
     /// Create a new iterator over the RaceBuffer at the given starting sequence number
-    pub fn new(buffer: &'b RaceBuffer<'a, E>, start_seqn: u64) -> Self {
+    fn new(buffer: &'b RaceBuffer<'a, E>, start_seqn: SeqNum) -> Self {
         Self {
             buffer,
             read_seqn: start_seqn,
@@ -412,24 +414,24 @@ mod tests {
 
         for i in 0..16 {
             // None written yet
-            assert_eq!(buf.read_at(i), None);
+            assert_eq!(buf.read_at(i.into()), None);
         }
         for i in 0..16 {
             buf.push(OrderedEntry::from_index(i));
         }
         for i in 0..8 {
             // First 8 overwritten
-            assert_eq!(buf.read_at(i), None);
+            assert_eq!(buf.read_at(i.into()), None);
         }
         for i in 8..16 {
             assert_eq!(
-                buf.read_at(i),
+                buf.read_at(i.into()),
                 Some(WholeEntry::Single(OrderedEntry::from_index(i as u32)))
             );
         }
         for i in 16..32 {
             // Not written yet
-            assert_eq!(buf.read_at(i), None);
+            assert_eq!(buf.read_at(i.into()), None);
         }
     }
 

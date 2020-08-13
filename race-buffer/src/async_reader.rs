@@ -1,7 +1,7 @@
 //! Reader of the RaceBuffer. Can asynchronously read from a writer::RaceBuffer into its own buffer.
 //! To construct a reader::RaceReader, a Snapper must be implemented, which specifies how to access
 //! the fields of the target RaceBuffer.
-use crate::{get_seqn_index, num_missed, Entry};
+use crate::{get_seqn_index, num_missed, Entry, SeqNum};
 use std::cmp::min;
 
 /// Used to "snap" observations of the RaceBuffer's write sequence number
@@ -14,10 +14,16 @@ where
     /// Error during snapping
     type Error: std::error::Error;
 
-    /// Take a snapshot of the write sequence number of the RaceBuffer
-    fn snap_write_seqn(&self) -> Result<u64, Self::Error>;
-    /// Take a snapshot of the overwrite sequence number of the RaceBuffer
-    fn snap_overwrite_seqn(&self) -> Result<u64, Self::Error>;
+    /// Take a snapshot of the high 32 bits of the write sequence number of the RaceBuffer
+    fn snap_write_seqn_high(&self) -> Result<u32, Self::Error>;
+    /// Take a snapshot of the low 32 bits of the write sequence number of the RaceBuffer
+    fn snap_write_seqn_low(&self) -> Result<u32, Self::Error>;
+
+    /// Take a snapshot of the high 32 bits of the overwrite sequence number of the RaceBuffer
+    fn snap_overwrite_seqn_high(&self) -> Result<u32, Self::Error>;
+    /// Take a snapshot of the low 32 bits of the overwrite sequence number of the RaceBuffer
+    fn snap_overwrite_seqn_low(&self) -> Result<u32, Self::Error>;
+
     /// Take a snapshot of the RaceBuffer's backing storage at the given index
     fn snap_storage(&self, index: usize) -> Result<E, Self::Error>;
 }
@@ -31,7 +37,7 @@ where
     /// Struct for reading writer state
     snapper: S,
     /// Sequence number of next entry to be read
-    read_seqn: u64,
+    read_seqn: SeqNum,
     /// Capacity of backing storage
     storage_cap: usize,
     /// Cached prefix, not put into buffer until suffix is successfully read
@@ -47,7 +53,7 @@ where
     pub fn new(snapper: S, storage_cap: usize) -> RaceReader<E, S> {
         RaceReader {
             snapper,
-            read_seqn: 0,
+            read_seqn: 0.into(),
             storage_cap,
             stored_prefix: None,
         }
@@ -56,8 +62,8 @@ where
     /// Attempt to read all new entries in race buffer into given read buffer
     /// Returns the number of entries missed before those that were read
     pub fn read(&mut self, rbuf: &mut Vec<E>) -> Result<u64, S::Error> {
-        let pre_overwrite_seqn = self.snapper.snap_overwrite_seqn()?;
-        let pre_write_seqn = self.snapper.snap_write_seqn()?;
+        let pre_overwrite_seqn = self.snap_overwrite_seqn()?;
+        let pre_write_seqn = self.snap_write_seqn()?;
 
         // If writer has overwritten unread entries between reads, store missed and correct read_seqn
         let mut n_missed_before_read = num_missed(self.read_seqn, pre_overwrite_seqn);
@@ -65,7 +71,7 @@ where
         // If any entries were missed and there is a stored prefix, then the entry after the prefix was missed.
         // The prefix is dropped and added to the missed count.
         // Note: the read sequence number is updated above because the prefix was included in the last read
-        if n_missed_before_read > 0 && self.drop_prefix() {
+        if Into::<u64>::into(n_missed_before_read) > 0 && self.drop_prefix() {
             n_missed_before_read += 1;
         }
 
@@ -74,27 +80,27 @@ where
         let mut buf_snapshot: Vec<E> = Vec::new();
         while self.read_seqn != pre_write_seqn {
             let storage_index = get_seqn_index(self.storage_cap, self.read_seqn, false);
-            buf_snapshot.push(self.snapper.snap_storage(storage_index)?);
+            buf_snapshot.push(self.snap_storage(storage_index)?);
             self.read_seqn += 1;
         }
 
         // Calculate number of entries in snapshot buffer that may have been overwritten
-        let post_overwrite_seqn = self.snapper.snap_overwrite_seqn()?;
+        let post_overwrite_seqn = self.snap_overwrite_seqn()?;
         let n_overwritten_in_snap = min(
             num_missed(first_read_seqn, post_overwrite_seqn),
-            buf_snapshot.len() as u64,
+            (buf_snapshot.len() as u64).into(),
         );
         // If any entries were missed and there is a stored prefix, then the entry after the prefix was missed.
         // The prefix is dropped and added to the missed count (not overwritten during snap)
-        if n_overwritten_in_snap > 0 && self.drop_prefix() {
+        if Into::<u64>::into(n_overwritten_in_snap) > 0u64 && self.drop_prefix() {
             n_missed_before_read += 1;
         }
 
         // Store valid entries in read buffer
-        for entry in &mut buf_snapshot[n_overwritten_in_snap as usize..] {
+        for entry in &mut buf_snapshot[Into::<u64>::into(n_overwritten_in_snap) as usize..] {
             self.store(*entry, rbuf);
         }
-        Ok(n_missed_before_read + n_overwritten_in_snap)
+        Ok((n_missed_before_read + n_overwritten_in_snap).into())
     }
 
     /// Store given entry in given read buffer
@@ -114,6 +120,52 @@ where
     #[inline]
     fn drop_prefix(&mut self) -> bool {
         self.stored_prefix.take().is_some()
+    }
+
+    fn snap_storage(&self, index: usize) -> Result<E, S::Error> {
+        self.snapper.snap_storage(index)
+    }
+
+    fn snap_write_seqn(&mut self) -> Result<SeqNum, S::Error> {
+        Self::snap_seqn(
+            || self.snapper.snap_write_seqn_high(),
+            || self.snapper.snap_write_seqn_low(),
+        )
+    }
+
+    fn snap_overwrite_seqn(&mut self) -> Result<SeqNum, S::Error> {
+        Self::snap_seqn(
+            || self.snapper.snap_overwrite_seqn_high(),
+            || self.snapper.snap_overwrite_seqn_low(),
+        )
+    }
+
+    fn snap_seqn<F, G>(snap_high: F, snap_low: G) -> Result<SeqNum, S::Error>
+    where
+        F: Fn() -> Result<u32, S::Error>,
+        G: Fn() -> Result<u32, S::Error>,
+    {
+        let mut initial_high;
+        let mut final_high;
+        let mut low;
+        while {
+            initial_high = Self::snap_consistent_high(&snap_high)?;
+            low = snap_low()?;
+            final_high = Self::snap_consistent_high(&snap_high)?;
+            initial_high != final_high
+        } {}
+        Ok(SeqNum::new(final_high, low))
+    }
+
+    fn snap_consistent_high<F>(snap_high: F) -> Result<u32, S::Error>
+    where
+        F: Fn() -> Result<u32, S::Error>,
+    {
+        let mut high = SeqNum::UPDATING_EPOCH_MASK;
+        while SeqNum::has_updating_high_bit_set(high) {
+            high = snap_high()?;
+        }
+        Ok(high)
     }
 }
 

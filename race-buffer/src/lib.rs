@@ -1,25 +1,135 @@
+//! RaceBuffer, a single producer, single consumer, shared memory ring buffer which maintains
+//! consistency while operating under race conditions.
 #![cfg_attr(not(feature = "std"), no_std)]
+#![deny(warnings)]
+#![deny(missing_docs)]
 
-use core::cmp::PartialEq;
 use core::marker::Copy;
+use core::ops::{Add, Sub, AddAssign};
+use core::sync::atomic::{fence, Ordering};
+
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[repr(C)]
+pub(crate) struct SeqNum {
+    high: u32,
+    low: u32,
+}
+
+impl SeqNum {
+    const UPDATING_EPOCH_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
+
+    #[cfg(feature = "std")]
+    pub(crate) fn new(high: u32, low: u32) -> Self {
+        debug_assert!(high < Self::UPDATING_EPOCH_MASK);
+        Self { high, low }
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn has_updating_high_bit_set(high: u32) -> bool {
+        high & Self::UPDATING_EPOCH_MASK != 0
+    }
+
+    fn set_updating_high_bit(&mut self) {
+        self.high |= Self::UPDATING_EPOCH_MASK;
+    }
+
+    pub(crate) fn increment(&mut self, n: Self) {
+        let (new_low, overflowed) = self.low.overflowing_add(n.low);
+        let high_increment = n.high + if overflowed { 1 } else { 0 };
+        if high_increment > 0 {
+            let new_high = self.high + high_increment;
+            self.set_updating_high_bit();
+            fence(Ordering::Release);
+            self.low = new_low;
+            fence(Ordering::Release);
+            self.high = new_high;
+            fence(Ordering::Release);
+        } else {
+            self.low = new_low;
+            fence(Ordering::Release);
+        }
+    }
+}
+
+impl Into<u64> for SeqNum {
+    fn into(self) -> u64 {
+        debug_assert!(self.high < Self::UPDATING_EPOCH_MASK);
+        ((self.high as u64) << 32) + self.low as u64
+    }
+}
+
+impl From<u64> for SeqNum {
+    fn from(n: u64) -> Self {
+        let high = (n >> 32) as u32;
+        debug_assert!(high < Self::UPDATING_EPOCH_MASK);
+        Self {
+            high,
+            low: n as u32,
+        }
+    }
+}
+
+impl Add<Self> for SeqNum {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        (Into::<u64>::into(self) + Into::<u64>::into(rhs)).into()
+    }
+}
+
+impl AddAssign<Self> for SeqNum {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs
+    }
+}
+
+impl Sub<Self> for SeqNum {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        (Into::<u64>::into(self) - Into::<u64>::into(rhs)).into()
+    }
+}
+
+impl Add<u64> for SeqNum {
+    type Output = Self;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        (Into::<u64>::into(self) + rhs).into()
+    }
+}
+
+impl AddAssign<u64> for SeqNum {
+    fn add_assign(&mut self, rhs: u64) {
+        *self = *self + rhs
+    }
+}
+
+impl Sub<u64> for SeqNum {
+    type Output = Self;
+
+    fn sub(self, rhs: u64) -> Self::Output {
+        (Into::<u64>::into(self) - rhs).into()
+    }
+}
 
 /// Returns the corresponding index in backing storage to given sequence number
 #[inline]
-fn get_seqn_index(storage_cap: usize, seqn: u64, use_base_2_indexing: bool) -> usize {
+fn get_seqn_index(storage_cap: usize, seqn: SeqNum, use_base_2_indexing: bool) -> usize {
     // Cast to usize safe because index in storage slice cannot be greater than usize
     if use_base_2_indexing {
         // Index is lowest n bits of seqn where storage_cap is 2^n
-        (seqn & (storage_cap as u64 - 1)) as usize
+        (Into::<u64>::into(seqn) & (storage_cap as u64 - 1)) as usize
     } else {
-        (seqn % storage_cap as u64) as usize
+        (Into::<u64>::into(seqn) % storage_cap as u64) as usize
     }
 }
 
 /// Calculate the number of entries missed based on the read and overwrite sequence numbers
 #[inline]
-fn num_missed(read_seqn: u64, overwrite_seqn: u64) -> u64 {
+fn num_missed(read_seqn: SeqNum, overwrite_seqn: SeqNum) -> SeqNum {
     if overwrite_seqn < read_seqn {
-        0
+        0.into()
     } else {
         overwrite_seqn - read_seqn
     }

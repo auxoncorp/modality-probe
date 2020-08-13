@@ -200,7 +200,7 @@ ProcessOverwritten ==
   /\ processingIndex' = OverlapRead(owcurs, rcurs, Size(bufSnap))
   /\ IF ~(storedPrefix.type = "NONE") /\ OverlapRead(owcurs, rcurs, Size(bufSnap)) > 0
      THEN /\ rbuf' = AppendMissed(rbuf, OverlapRead(owcurs, rcurs, Size(bufSnap)) + 1)
-          /\ storedPrefix = Entry(0, "NONE")
+          /\ storedPrefix' = Entry(0, "NONE")
      ELSE /\ rbuf' = AppendMissed(rbuf, OverlapRead(owcurs, rcurs, Size(bufSnap)))
           /\ UNCHANGED storedPrefix
   /\ UNCHANGED bufSnap
