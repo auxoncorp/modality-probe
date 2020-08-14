@@ -12,7 +12,7 @@ pub(crate) struct EventMeta {
     pub tags: String,
     pub description: String,
     pub file: String,
-    pub line: u32,
+    pub line: String,
 }
 
 /// A row in probes.csv for a component.
@@ -23,5 +23,5 @@ pub(crate) struct ProbeMeta {
     pub name: String,
     pub description: String,
     pub file: String,
-    pub line: u32,
+    pub line: String,
 }

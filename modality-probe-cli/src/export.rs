@@ -1,14 +1,14 @@
 //! Export a textual representation of a causal graph using the
 //! collected columnar form as input.
 
-use std::{collections::HashMap, fmt, fmt::Write, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, fmt, fmt::Write, iter::Peekable, path::PathBuf, str::FromStr};
 
 use err_derive::Error;
 use structopt::StructOpt;
 use uuid::Uuid;
 
 use modality_probe::{EventId, LogicalClock, ProbeId};
-use modality_probe_collector_common::ReportIter;
+use modality_probe_collector_common::{LogFileRow, ReadError, ReportIter};
 use modality_probe_graph::{EventDigraph, Graph, GraphEvent};
 
 use crate::{
@@ -81,11 +81,35 @@ pub fn run(mut exp: Export) -> Result<(), ExportError> {
             e
         ))
     })?;
+
+    let graph = log_to_graph(lrdr.deserialize().peekable())?;
+
+    let mut out = String::new();
+    writeln!(out, "Digraph G {{")?;
+
+    match (exp.graph_type, exp.interactions_only) {
+        (GraphType::Acyclic, false) => println!("{}", graph.graph.to_dot(&cfg)?),
+        (GraphType::Acyclic, true) => println!("{}", graph.graph.into_interactions().to_dot(&cfg)?),
+        (GraphType::Cyclic, false) => println!("{}", graph.graph.into_states().to_dot(&cfg)?),
+        (GraphType::Cyclic, true) => println!("{}", graph.graph.into_topology().to_dot(&cfg)?),
+    }
+
+    Ok(())
+}
+
+fn log_to_graph<I, E>(
+    log: Peekable<I>,
+) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent, ()>>, ExportError>
+where
+    I: Iterator<Item = Result<LogFileRow, E>>,
+    E: std::error::Error,
+    for<'a> &'a E: Into<ReadError>,
+{
     let mut graph = EventDigraph::new(NodeAndEdgeLists {
         nodes: HashMap::new(),
         edges: HashMap::new(),
     });
-    let report_iter = ReportIter::new(lrdr.deserialize().peekable());
+    let report_iter = ReportIter::new(log);
     for report in report_iter {
         graph
             .add_report(&report.map_err(|e| {
@@ -101,18 +125,7 @@ pub fn run(mut exp: Export) -> Result<(), ExportError> {
                 ))
             })?;
     }
-
-    let mut out = String::new();
-    writeln!(out, "Digraph G {{")?;
-
-    match (exp.graph_type, exp.interactions_only) {
-        (GraphType::Acyclic, false) => println!("{}", graph.graph.to_dot(&cfg)?),
-        (GraphType::Acyclic, true) => println!("{}", graph.graph.into_interactions().to_dot(&cfg)?),
-        (GraphType::Cyclic, false) => println!("{}", graph.graph.into_states().to_dot(&cfg)?),
-        (GraphType::Cyclic, true) => println!("{}", graph.graph.into_topology().to_dot(&cfg)?),
-    }
-
-    Ok(())
+    Ok(graph)
 }
 
 #[derive(Default)]
@@ -207,7 +220,7 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
 
         for ((s, t), _) in self.edges.iter() {
             let smeta = get_event_meta(cfg, &s.probe_id, &s.id)?;
-            let tmeta = get_event_meta(cfg, &t.probe_id, &s.id)?;
+            let tmeta = get_event_meta(cfg, &t.probe_id, &t.id)?;
             writeln!(
                 out,
                 "{}_{}_{} -> {}_{}_{}",
@@ -442,12 +455,7 @@ fn add_internal_events(events: &mut HashMap<(Uuid, u32), EventMeta>) -> Result<(
             tags: ie.tags,
             description: ie.description,
             file: ie.file,
-            line: str::parse::<u32>(&ie.line).map_err(|e| {
-                ExportError(format!(
-                    "encountered a bad internal event, unable to parse line number: {}",
-                    e
-                ))
-            })?,
+            line: ie.line,
         };
         events.insert((nil_uuid, ie.id.0), ev.clone());
     }
@@ -500,6 +508,8 @@ mod test {
     use uuid::Uuid;
 
     use crate::graph::{EventMeta, ProbeMeta};
+
+    use super::Cfg;
 
     const COMP_ONE_CONTENT: &'static str = r#"
 name = "one"
@@ -565,7 +575,7 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,36
                         name: "PROBE_ONE".to_string(),
                         description: "probe one".to_string(),
                         file: "examples/event-recording.rs".to_string(),
-                        line: 26,
+                        line: "26".to_string(),
                     },
                 ),
                 (
@@ -577,7 +587,7 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,36
                         name: "PROBE_TWO".to_string(),
                         description: "probe two".to_string(),
                         file: "examples/event-recording.rs".to_string(),
-                        line: 26,
+                        line: "26".to_string(),
                     },
                 ),
             ]
@@ -599,7 +609,7 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,36
                         type_hint: None,
                         tags: String::new(),
                         file: String::new(),
-                        line: 26,
+                        line: "26".to_string(),
                     },
                 ),
                 (
@@ -616,7 +626,7 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,36
                         type_hint: None,
                         tags: String::new(),
                         file: String::new(),
-                        line: 36,
+                        line: "36".to_string(),
                     },
                 ),
             ]
@@ -636,5 +646,158 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,36
 
         fs::remove_dir_all(&tmp_one).unwrap();
         fs::remove_dir_all(&tmp_two).unwrap();
+    }
+
+    fn cfg() -> Cfg {
+        let a_uuid = Uuid::new_v4();
+        Cfg {
+            probes: vec![
+                (
+                    1,
+                    ProbeMeta {
+                        component_id: a_uuid,
+                        id: 1,
+                        name: "one".to_string(),
+                        description: "one".to_string(),
+                        file: "one.c".to_string(),
+                        line: "1".to_string(),
+                    },
+                ),
+                (
+                    2,
+                    ProbeMeta {
+                        component_id: a_uuid,
+                        id: 2,
+                        name: "two".to_string(),
+                        description: "two".to_string(),
+                        file: "two.c".to_string(),
+                        line: "2".to_string(),
+                    },
+                ),
+                (
+                    3,
+                    ProbeMeta {
+                        component_id: a_uuid,
+                        id: 3,
+                        name: "three".to_string(),
+                        description: "three".to_string(),
+                        file: "three.c".to_string(),
+                        line: "3".to_string(),
+                    },
+                ),
+                (
+                    4,
+                    ProbeMeta {
+                        component_id: a_uuid,
+                        id: 4,
+                        name: "four".to_string(),
+                        description: "four".to_string(),
+                        file: "four.c".to_string(),
+                        line: "4".to_string(),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            events: vec![
+                (
+                    (a_uuid, 1),
+                    EventMeta {
+                        component_id: a_uuid,
+                        id: 1,
+                        name: "one".to_string(),
+                        type_hint: None,
+                        tags: String::new(),
+                        description: "one".to_string(),
+                        file: "one.c".to_string(),
+                        line: "1".to_string(),
+                    },
+                ),
+                (
+                    (a_uuid, 2),
+                    EventMeta {
+                        component_id: a_uuid,
+                        id: 2,
+                        name: "two".to_string(),
+                        type_hint: None,
+                        tags: String::new(),
+                        description: "two".to_string(),
+                        file: "two.c".to_string(),
+                        line: "2".to_string(),
+                    },
+                ),
+                (
+                    (a_uuid, 3),
+                    EventMeta {
+                        component_id: a_uuid,
+                        id: 3,
+                        name: "three".to_string(),
+                        type_hint: None,
+                        tags: String::new(),
+                        description: "three".to_string(),
+                        file: "three.c".to_string(),
+                        line: "3".to_string(),
+                    },
+                ),
+                (
+                    (a_uuid, 4),
+                    EventMeta {
+                        component_id: a_uuid,
+                        id: 4,
+                        name: "four".to_string(),
+                        type_hint: None,
+                        tags: String::new(),
+                        description: "four".to_string(),
+                        file: "four.c".to_string(),
+                        line: "4".to_string(),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            probes_to_components: vec![(1, a_uuid), (2, a_uuid), (3, a_uuid), (4, a_uuid)]
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn complete_dot() {
+        let cfg = cfg();
+        let diamond_log = modality_probe_graph::test_support::diamond();
+        let graph = super::log_to_graph(diamond_log.into_iter().map(Ok).peekable()).unwrap();
+
+        let dot = graph.graph.to_dot(&cfg).unwrap();
+        assert!(dot.contains("one_1_0 -> two_1_2"), dot);
+    }
+
+    #[test]
+    fn interactions_dot() {
+        let cfg = cfg();
+        let diamond_log = modality_probe_graph::test_support::diamond();
+        let graph = super::log_to_graph(diamond_log.into_iter().map(Ok).peekable()).unwrap();
+
+        let dot = graph.graph.into_interactions().to_dot(&cfg).unwrap();
+        assert!(dot.contains("one_0 -> two_1"), dot);
+    }
+
+    #[test]
+    fn states_dot() {
+        let cfg = cfg();
+        let diamond_log = modality_probe_graph::test_support::diamond();
+        let graph = super::log_to_graph(diamond_log.into_iter().map(Ok).peekable()).unwrap();
+
+        let dot = graph.graph.into_states().to_dot(&cfg).unwrap();
+        assert!(dot.contains("one -> two"), dot);
+    }
+
+    #[test]
+    fn topo_dot() {
+        let cfg = cfg();
+        let diamond_log = modality_probe_graph::test_support::diamond();
+        let graph = super::log_to_graph(diamond_log.into_iter().map(Ok).peekable()).unwrap();
+
+        let dot = graph.graph.into_topology().to_dot(&cfg).unwrap();
+        assert!(dot.contains("one -> two"), dot);
     }
 }
