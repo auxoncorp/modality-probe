@@ -7,7 +7,7 @@ use std::{
 
 use chrono::Utc;
 
-use modality_probe_collector_common::{self as common, csv, Report, ReportLogEntry, SessionId};
+use modality_probe_collector_common::{self as common, json, Report, ReportLogEntry, SessionId};
 
 mod opts;
 
@@ -58,8 +58,6 @@ pub fn start_receiving(
     config: Config,
     shutdown_signal_receiver: ShutdownSignalReceiver,
 ) -> Result<(), IoError> {
-    let needs_csv_headers =
-        !config.output_file.exists() || config.output_file.metadata()?.len() == 0;
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
@@ -69,7 +67,6 @@ pub fn start_receiving(
         config.session_id,
         &mut file,
         shutdown_signal_receiver,
-        needs_csv_headers,
     )
 }
 
@@ -78,14 +75,12 @@ pub fn start_receiving_at_addr<W: Write>(
     session_id: SessionId,
     log_output_writer: &mut W,
     shutdown_signal_receiver: ShutdownSignalReceiver,
-    needs_csv_headers: bool,
 ) -> Result<(), IoError> {
     start_receiving_from_socket(
         UdpSocket::bind(addr)?,
         session_id,
         log_output_writer,
         shutdown_signal_receiver,
-        needs_csv_headers,
     );
     Ok(())
 }
@@ -95,7 +90,6 @@ pub fn start_receiving_from_socket<W: Write>(
     session_id: SessionId,
     log_output_writer: &mut W,
     shutdown_signal_receiver: ShutdownSignalReceiver,
-    mut needs_csv_headers: bool,
 ) {
     let addr = socket.local_addr().map(|a| a.to_string());
     let mut buf = vec![0u8; 1024 * 1024];
@@ -154,12 +148,8 @@ pub fn start_receiving_from_socket<W: Write>(
             }
         }
 
-        if let Err(e) =
-            csv::write_log_entries(log_output_writer, &log_entries_buffer, needs_csv_headers)
-        {
+        if let Err(e) = json::write_log_entries(log_output_writer, &log_entries_buffer) {
             eprintln!("Error writing log entries: {}", e);
-        } else {
-            needs_csv_headers = false;
         }
         let _ = log_output_writer.flush();
     }
@@ -356,13 +346,7 @@ mod tests {
             server_state_sender
                 .send(ServerState::Started)
                 .expect("Could not send status update");
-            start_receiving_from_socket(
-                socket,
-                config.session_id,
-                &mut file,
-                shutdown_receiver,
-                true,
-            );
+            start_receiving_from_socket(socket, config.session_id, &mut file, shutdown_receiver);
             let _ = server_state_sender.send(ServerState::Shutdown);
         });
         thread::yield_now();
@@ -396,8 +380,8 @@ mod tests {
         }
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = csv::read_log_entries(&mut file_reader)
-            .expect("Could not read output file as csv log entries");
+        let found_log_entries = json::read_log_entries(&mut file_reader)
+            .expect("Could not read output file as json log entries");
 
         let expected_entries: usize = log_report.frontier_clocks.len() + log_report.event_log.len();
         assert_eq!(expected_entries, found_log_entries.len());
@@ -447,13 +431,7 @@ mod tests {
             server_state_sender
                 .send(ServerState::Started)
                 .expect("Could not send status update");
-            start_receiving_from_socket(
-                socket,
-                config.session_id,
-                &mut file,
-                shutdown_receiver,
-                true,
-            );
+            start_receiving_from_socket(socket, config.session_id, &mut file, shutdown_receiver);
             let _ = server_state_sender.send(ServerState::Shutdown);
         });
         thread::yield_now();
@@ -511,8 +489,8 @@ mod tests {
 
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = csv::read_log_entries(&mut file_reader)
-            .expect("Could not read output file as csv log entries");
+        let found_log_entries = json::read_log_entries(&mut file_reader)
+            .expect("Could not read output file as json log entries");
 
         assert!(found_log_entries.len() > 0);
         let expected_direct_probe_ids: HashSet<_> =
@@ -589,13 +567,7 @@ mod tests {
             server_state_sender
                 .send(ServerState::Started)
                 .expect("Could not send status update");
-            start_receiving_from_socket(
-                socket,
-                config.session_id,
-                &mut file,
-                shutdown_receiver,
-                true,
-            );
+            start_receiving_from_socket(socket, config.session_id, &mut file, shutdown_receiver);
             let _ = server_state_sender.send(ServerState::Shutdown);
         });
         thread::yield_now();
@@ -646,8 +618,8 @@ mod tests {
 
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = csv::read_log_entries(&mut file_reader)
-            .expect("Could not read output file as csv log entries");
+        let found_log_entries = json::read_log_entries(&mut file_reader)
+            .expect("Could not read output file as json log entries");
 
         assert!(found_log_entries.len() > 0);
         let expected_probe_ids: HashSet<_> = [probe_a_id, probe_b_id].iter().copied().collect();
@@ -721,13 +693,7 @@ mod tests {
             server_state_sender
                 .send(ServerState::Started)
                 .expect("Could not send status update");
-            start_receiving_from_socket(
-                socket,
-                config.session_id,
-                &mut file,
-                shutdown_receiver,
-                true,
-            );
+            start_receiving_from_socket(socket, config.session_id, &mut file, shutdown_receiver);
             let _ = server_state_sender.send(ServerState::Shutdown);
         });
         thread::yield_now();
@@ -783,8 +749,8 @@ mod tests {
 
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = csv::read_log_entries(&mut file_reader)
-            .expect("Could not read output file as csv log entries");
+        let found_log_entries = json::read_log_entries(&mut file_reader)
+            .expect("Could not read output file as json log entries");
 
         assert!(found_log_entries.len() > 0);
         let expected_probe_ids: HashSet<_> = [probe_a_id, probe_b_id].iter().copied().collect();

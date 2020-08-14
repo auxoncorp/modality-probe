@@ -1,11 +1,13 @@
 //! Export a textual representation of a causal graph using the
 //! collected columnar form as input.
 
-use std::{collections::HashMap, fmt, fmt::Write, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, fmt, fmt::Write, fs::File, path::PathBuf, str::FromStr};
 
 use err_derive::Error;
 use structopt::StructOpt;
 use uuid::Uuid;
+
+use modality_probe_collector_common::{json, Error as CollectorError};
 
 use crate::{component::Component, events::Events};
 
@@ -67,9 +69,15 @@ impl From<fmt::Error> for ExportError {
     }
 }
 
+impl From<CollectorError> for ExportError {
+    fn from(e: CollectorError) -> Self {
+        ExportError(format!("failed to read log file: {}", e))
+    }
+}
+
 pub fn run(mut exp: Export) -> Result<(), ExportError> {
     let cfg = assemble_components(&mut exp.components)?;
-    let mut lrdr = csv::Reader::from_path(&exp.report).map_err(|e| {
+    let mut log_file = File::open(&exp.report).map_err(|e| {
         ExportError(format!(
             "failed to open the report file at {}: {}",
             exp.report.display(),
@@ -77,7 +85,11 @@ pub fn run(mut exp: Export) -> Result<(), ExportError> {
         ))
     })?;
 
-    let graph = graph::log_to_graph(lrdr.deserialize().peekable())?;
+    let graph = graph::log_to_graph(
+        json::read_log_entries(&mut log_file)?
+            .into_iter()
+            .peekable(),
+    )?;
 
     let mut out = String::new();
     writeln!(out, "Digraph G {{")?;

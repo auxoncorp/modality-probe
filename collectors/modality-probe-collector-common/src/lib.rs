@@ -1,11 +1,13 @@
 use std::{
     convert::{TryFrom, TryInto},
+    io,
     iter::Peekable,
     mem,
 };
 
 use chrono::prelude::*;
 use err_derive::Error;
+use serde::{Deserialize, Serialize};
 use static_assertions::assert_eq_size;
 
 use modality_probe::{
@@ -14,7 +16,7 @@ use modality_probe::{
     EventId, LogicalClock, ProbeEpoch, ProbeId, ProbeTicks,
 };
 
-pub mod csv;
+pub mod json;
 
 assert_eq_size!(LogEntry, u32);
 
@@ -43,13 +45,13 @@ newtype! {
     /// A session is an arbitrary scope for log events. Event ordering is (via
     /// sequence and logical clocks) is resolved between events in the same
     /// session.
-    #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
+    #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Copy, Clone)]
     pub struct SessionId(pub u32);
 }
 
 newtype! {
     /// A log report sequence number
-    #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
+    #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Copy, Clone)]
     pub struct SequenceNumber(pub u64);
 }
 
@@ -95,7 +97,7 @@ pub enum EventLogEntry {
 }
 
 /// A single entry in the log
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct ReportLogEntry {
     /// The session in which this entry was made. Used to qualify the id field.
     pub session_id: SessionId,
@@ -120,7 +122,7 @@ pub struct ReportLogEntry {
     pub receive_time: DateTime<Utc>,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum LogEntryData {
     FrontierClock(LogicalClock),
     Event(EventId),
@@ -192,61 +194,33 @@ impl LogFileRow {
     }
 }
 
-pub struct ReportIter<I, E>
+pub struct ReportIter<I>
 where
-    I: Iterator<Item = Result<LogFileRow, E>>,
-    E: std::error::Error,
+    I: Iterator<Item = ReportLogEntry>,
 {
     report_items: Peekable<I>,
-    // If this iterator encounters an error while accumulating a
-    // report, it stops in place, rendering it unusable. By storing
-    // that error, we can keep the iterator from being used again by
-    // just returning that error for any `next` calls.
-    error: Option<ReadError>,
 }
 
-impl<I, E> ReportIter<I, E>
+impl<I> ReportIter<I>
 where
-    I: Iterator<Item = Result<LogFileRow, E>>,
-    E: std::error::Error,
+    I: Iterator<Item = ReportLogEntry>,
 {
     pub fn new(report_items: Peekable<I>) -> Self {
-        ReportIter {
-            report_items,
-            error: None,
-        }
+        ReportIter { report_items }
     }
 }
 
-impl<I, E> Iterator for ReportIter<I, E>
+impl<I> Iterator for ReportIter<I>
 where
-    I: Iterator<Item = Result<LogFileRow, E>>,
-    E: std::error::Error,
-    for<'a> &'a E: Into<ReadError>,
+    I: Iterator<Item = ReportLogEntry>,
 {
-    type Item = Result<Report, ReadError>;
-    fn next(&mut self) -> Option<Result<Report, ReadError>> {
-        if self.error.is_some() {
-            return self.error.clone().map(Err);
-        }
-
+    type Item = Report;
+    fn next(&mut self) -> Option<Report> {
         let next = match self.report_items.peek() {
-            Some(Ok(e)) => e,
-            Some(Err(e)) => return Some(Err(e.into())),
+            Some(e) => e,
             None => return None,
         };
-        let probe_id = match ProbeId::new(next.probe_id) {
-            Some(id) => id,
-            None => {
-                self.error = Some(ReadError::InvalidContent {
-                    session_id: SessionId(next.session_id),
-                    sequence_number: SequenceNumber(next.sequence_number),
-                    sequence_index: next.sequence_index,
-                    message: "invalid probe id",
-                });
-                return self.error.clone().map(Err);
-            }
-        };
+        let probe_id = next.probe_id;
 
         let seq_num = next.sequence_number;
         let mut report = Report {
@@ -256,92 +230,43 @@ where
                 epoch: ProbeEpoch(0),
                 ticks: ProbeTicks(0),
             },
-            seq_num: SequenceNumber(next.sequence_number),
+            seq_num: next.sequence_number,
             frontier_clocks: Vec::new(),
             event_log: Vec::new(),
         };
 
         loop {
             let next = match self.report_items.peek() {
-                Some(Ok(e)) => e,
-                Some(Err(e)) => return Some(Err(e.into())),
-                None => return Some(Ok(report)),
+                Some(e) => e,
+                None => return Some(report),
             };
-            if next.probe_id != probe_id.get_raw() || next.sequence_number != seq_num {
-                return Some(Ok(report));
+            if next.probe_id != probe_id || next.sequence_number != seq_num {
+                return Some(report);
             }
 
             // we peeked at this item above.
-            let e = self.report_items.next().unwrap().unwrap();
-            if e.is_frontier_clock() {
-                let id = match ProbeId::new(e.probe_id) {
-                    Some(id) => id,
-                    None => {
-                        self.error = Some(ReadError::InvalidContent {
-                            session_id: SessionId(e.session_id),
-                            sequence_number: SequenceNumber(e.sequence_number),
-                            sequence_index: e.sequence_index,
-                            message: "invalid probe id",
-                        });
-                        return self.error.clone().map(Err);
+            let e = self.report_items.next().unwrap();
+            match e.data {
+                LogEntryData::FrontierClock(lc) => {
+                    let id = lc.id;
+                    if id == report.probe_id {
+                        report.probe_clock = lc;
                     }
-                };
-                let epoch = ProbeEpoch(e.fc_probe_epoch.expect("already checked fc epoch"));
-                let ticks = ProbeTicks(e.fc_probe_clock.expect("already checked fc clock"));
-                if id == report.probe_id {
-                    report.probe_clock = LogicalClock { id, epoch, ticks };
+                    report.frontier_clocks.push(lc);
                 }
-                report
-                    .frontier_clocks
-                    .push(LogicalClock { id, epoch, ticks });
-            } else if e.is_trace_clock() {
-                let id = match ProbeId::new(e.tc_probe_id.expect("already checked tc probe id")) {
-                    Some(id) => id,
-                    None => {
-                        self.error = Some(ReadError::InvalidContent {
-                            session_id: SessionId(e.session_id),
-                            sequence_number: SequenceNumber(e.sequence_number),
-                            sequence_index: e.sequence_index,
-                            message: "invalid probe id",
-                        });
-                        return self.error.clone().map(Err);
+                LogEntryData::TraceClock(lc) => {
+                    let id = lc.id;
+                    report.event_log.push(EventLogEntry::TraceClock(lc));
+                    if id == report.probe_id {
+                        report.probe_clock = lc;
                     }
-                };
-                let epoch = ProbeEpoch(e.tc_probe_epoch.expect("already checked fc epoch"));
-                let ticks = ProbeTicks(e.tc_probe_clock.expect("already checked fc clock"));
-                report
-                    .event_log
-                    .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
-                if id == report.probe_id {
-                    report.probe_clock = LogicalClock { id, epoch, ticks };
                 }
-            } else if let Some(eid) = e.event_id {
-                let id = match EventId::new(eid) {
-                    Some(id) => id,
-                    None => {
-                        self.error = Some(ReadError::InvalidContent {
-                            session_id: SessionId(e.session_id),
-                            sequence_number: SequenceNumber(e.sequence_number),
-                            sequence_index: e.sequence_index,
-                            message: "invalid event id",
-                        });
-                        return self.error.clone().map(Err);
-                    }
-                };
-                report
-                    .event_log
-                    .push(if let Some(payload) = e.event_payload {
-                        EventLogEntry::EventWithPayload(id, payload)
-                    } else {
-                        EventLogEntry::Event(id)
-                    });
-            } else {
-                return Some(Err(ReadError::InvalidContent {
-                    session_id: SessionId(e.session_id),
-                    sequence_number: SequenceNumber(e.sequence_number),
-                    sequence_index: e.sequence_index,
-                    message: "missing an event id",
-                }));
+                LogEntryData::Event(e) => {
+                    report.event_log.push(EventLogEntry::Event(e));
+                }
+                LogEntryData::EventWithPayload(e, p) => {
+                    report.event_log.push(EventLogEntry::EventWithPayload(e, p));
+                }
             }
         }
     }
@@ -393,7 +318,7 @@ impl From<&ReportLogEntry> for LogFileRow {
 }
 
 #[derive(Debug, Clone, Error)]
-pub enum ReadError {
+pub enum Error {
     #[error(display = "{}", message)]
     InvalidContent {
         session_id: SessionId,
@@ -403,10 +328,18 @@ pub enum ReadError {
     },
     #[error(display = "{}", _0)]
     Serialization(String),
+    #[error(display = "IO error: {}", _0)]
+    Io(String),
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::Io(format!("{}", e))
+    }
 }
 
 impl TryFrom<&LogFileRow> for ReportLogEntry {
-    type Error = ReadError;
+    type Error = Error;
 
     fn try_from(l: &LogFileRow) -> Result<ReportLogEntry, Self::Error> {
         let session_id: SessionId = l.session_id.into();
@@ -419,7 +352,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     LogEntryData::FrontierClock(
                         LogicalClock {
                             id: fc_probe_id.try_into().map_err(|_e|
-                                ReadError::InvalidContent {
+                                Error::InvalidContent {
                                     session_id,
                                     sequence_number,
                                     sequence_index,
@@ -431,7 +364,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     )
                 }
                 (None, _) => {
-                    return Err(ReadError::InvalidContent {
+                    return Err(Error::InvalidContent {
                         session_id,
                         sequence_number,
                         sequence_index,
@@ -439,7 +372,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     });
                 },
                 (_, None) => {
-                    return Err(ReadError::InvalidContent {
+                    return Err(Error::InvalidContent {
                         session_id,
                         sequence_number,
                         sequence_index,
@@ -449,42 +382,42 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
             }
         } else if let Some(event_id) = l.event_id {
             if l.fc_probe_id.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
                     message: "When event_id is present, fc_probe_id must be empty",
                 });
             } else if l.fc_probe_epoch.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
                     message: "When event_id is present, fc_probe_epoch must be empty",
                 });
             } else if l.fc_probe_clock.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
                     message: "When event_id is present, fc_probe_clock must be empty",
                 });
             } else if l.tc_probe_id.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
                     message: "When event_id is present, tc_probe_id must be empty",
                 });
             } else if l.tc_probe_epoch.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
                     message: "When event_id is present, tc_probe_epoch must be empty",
                 });
             } else if l.tc_probe_clock.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
@@ -492,14 +425,12 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                 });
             }
 
-            let event_id = event_id
-                .try_into()
-                .map_err(|_e| ReadError::InvalidContent {
-                    session_id,
-                    sequence_number,
-                    sequence_index,
-                    message: "Invalid event id",
-                })?;
+            let event_id = event_id.try_into().map_err(|_e| Error::InvalidContent {
+                session_id,
+                sequence_number,
+                sequence_index,
+                message: "Invalid event id",
+            })?;
 
             if let Some(payload) = l.event_payload {
                 LogEntryData::EventWithPayload(event_id, payload)
@@ -512,7 +443,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     LogEntryData::TraceClock(
                         LogicalClock {
                             id: tc_probe_id.try_into().map_err(|_e|
-                                ReadError::InvalidContent {
+                                Error::InvalidContent {
                                     session_id,
                                     sequence_number,
                                     sequence_index,
@@ -524,7 +455,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     )
                 }
                 (None, _) => {
-                    return Err(ReadError::InvalidContent {
+                    return Err(Error::InvalidContent {
                         session_id,
                         sequence_number,
                         sequence_index,
@@ -532,7 +463,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     });
                 },
                 (_, None) => {
-                    return Err(ReadError::InvalidContent {
+                    return Err(Error::InvalidContent {
                         session_id,
                         sequence_number,
                         sequence_index,
@@ -541,7 +472,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                 },
             }
         } else {
-            return Err(ReadError::InvalidContent {
+            return Err(Error::InvalidContent {
                 session_id,
                 sequence_number,
                 sequence_index,
@@ -553,15 +484,12 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
             session_id,
             sequence_number,
             sequence_index,
-            probe_id: l
-                .probe_id
-                .try_into()
-                .map_err(|_e| ReadError::InvalidContent {
-                    session_id,
-                    sequence_number,
-                    sequence_index,
-                    message: "probe_id must be a valid modality_probe::ProbeId",
-                })?,
+            probe_id: l.probe_id.try_into().map_err(|_e| Error::InvalidContent {
+                session_id,
+                sequence_number,
+                sequence_index,
+                message: "probe_id must be a valid modality_probe::ProbeId",
+            })?,
             data,
             receive_time: l.receive_time,
         })

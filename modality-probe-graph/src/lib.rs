@@ -504,7 +504,7 @@ pub mod test_support {
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashSet;
+    use std::{collections::HashSet, convert::TryInto};
 
     use modality_probe::{EventId, ProbeEpoch, ProbeId, ProbeTicks};
     use modality_probe_collector_common::ReportIter;
@@ -529,7 +529,12 @@ mod test {
 
     #[test]
     fn sanity() {
-        let report_iter = ReportIter::new(test_support::diamond().into_iter().map(Ok).peekable());
+        let report_iter = ReportIter::new(
+            test_support::diamond()
+                .into_iter()
+                .map(|e| (&e).try_into().unwrap())
+                .peekable(),
+        );
 
         let inner = NodeAndEdgeList {
             nodes: HashSet::new(),
@@ -542,7 +547,7 @@ mod test {
 
         let mut graph = EventDigraph::new(inner);
         for report in report_iter {
-            graph.add_report(&report.unwrap()).unwrap();
+            graph.add_report(&report).unwrap();
         }
 
         let one = GraphEvent {

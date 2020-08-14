@@ -4,7 +4,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use modality_probe::{EventId, LogicalClock, ProbeId};
-use modality_probe_collector_common::{LogFileRow, ReadError, ReportIter};
+use modality_probe_collector_common::{ReportIter, ReportLogEntry};
 use modality_probe_graph::{EventDigraph, Graph, GraphEvent};
 
 use super::{Cfg, ExportError};
@@ -33,13 +33,11 @@ pub(super) struct ProbeMeta {
     pub line: String,
 }
 
-pub(super) fn log_to_graph<I, E>(
+pub(super) fn log_to_graph<I>(
     log: Peekable<I>,
 ) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent, ()>>, ExportError>
 where
-    I: Iterator<Item = Result<LogFileRow, E>>,
-    E: std::error::Error,
-    for<'a> &'a E: Into<ReadError>,
+    I: Iterator<Item = ReportLogEntry>,
 {
     let mut graph = EventDigraph::new(NodeAndEdgeLists {
         nodes: HashMap::new(),
@@ -47,19 +45,12 @@ where
     });
     let report_iter = ReportIter::new(log);
     for report in report_iter {
-        graph
-            .add_report(&report.map_err(|e| {
-                ExportError(format!(
-                    "encountered an error deserializing the report: {}",
-                    e
-                ))
-            })?)
-            .map_err(|e| {
-                ExportError(format!(
-                    "encountered an error reconstructing the graph: {}",
-                    e
-                ))
-            })?;
+        graph.add_report(&report).map_err(|e| {
+            ExportError(format!(
+                "encountered an error reconstructing the graph: {}",
+                e
+            ))
+        })?;
     }
     Ok(graph)
 }
@@ -350,6 +341,8 @@ fn parsed_payload(th: &str, pl: u32) -> Result<String, ExportError> {
 
 #[cfg(test)]
 mod test {
+    use std::convert::TryInto;
+
     use super::*;
 
     fn cfg() -> Cfg {
@@ -468,8 +461,11 @@ mod test {
     #[test]
     fn complete_dot() {
         let cfg = cfg();
-        let diamond_log = modality_probe_graph::test_support::diamond();
-        let graph = super::log_to_graph(diamond_log.into_iter().map(Ok).peekable()).unwrap();
+        let diamond_log = modality_probe_graph::test_support::diamond()
+            .into_iter()
+            .map(|e| (&e).try_into().unwrap())
+            .peekable();
+        let graph = super::log_to_graph(diamond_log).unwrap();
 
         let dot = graph.graph.to_dot(&cfg).unwrap();
         assert!(dot.contains("one_1_0 -> two_1_2"), dot);
@@ -478,8 +474,11 @@ mod test {
     #[test]
     fn interactions_dot() {
         let cfg = cfg();
-        let diamond_log = modality_probe_graph::test_support::diamond();
-        let graph = super::log_to_graph(diamond_log.into_iter().map(Ok).peekable()).unwrap();
+        let diamond_log = modality_probe_graph::test_support::diamond()
+            .into_iter()
+            .map(|e| (&e).try_into().unwrap())
+            .peekable();
+        let graph = super::log_to_graph(diamond_log).unwrap();
 
         let dot = graph.graph.into_interactions().to_dot(&cfg).unwrap();
         assert!(dot.contains("one_0 -> two_1"), dot);
@@ -488,8 +487,11 @@ mod test {
     #[test]
     fn states_dot() {
         let cfg = cfg();
-        let diamond_log = modality_probe_graph::test_support::diamond();
-        let graph = super::log_to_graph(diamond_log.into_iter().map(Ok).peekable()).unwrap();
+        let diamond_log = modality_probe_graph::test_support::diamond()
+            .into_iter()
+            .map(|e| (&e).try_into().unwrap())
+            .peekable();
+        let graph = super::log_to_graph(diamond_log).unwrap();
 
         let dot = graph.graph.into_states().to_dot(&cfg).unwrap();
         assert!(dot.contains("one -> two"), dot);
@@ -498,8 +500,11 @@ mod test {
     #[test]
     fn topo_dot() {
         let cfg = cfg();
-        let diamond_log = modality_probe_graph::test_support::diamond();
-        let graph = super::log_to_graph(diamond_log.into_iter().map(Ok).peekable()).unwrap();
+        let diamond_log = modality_probe_graph::test_support::diamond()
+            .into_iter()
+            .map(|e| (&e).try_into().unwrap())
+            .peekable();
+        let graph = super::log_to_graph(diamond_log).unwrap();
 
         let dot = graph.graph.into_topology().to_dot(&cfg).unwrap();
         assert!(dot.contains("one -> two"), dot);

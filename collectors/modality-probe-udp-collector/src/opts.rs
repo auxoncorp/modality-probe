@@ -44,7 +44,7 @@ impl From<Opts> for Config {
             output_file: o.output_file.unwrap_or_else(|| {
                 std::env::current_dir()
                     .expect("Could not retrieve current directory")
-                    .join(format!("session_{}_log_entries.csv", session_id))
+                    .join(format!("session_{}_log_entries.mtf", session_id))
             }),
         }
     }
