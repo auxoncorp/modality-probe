@@ -5,12 +5,16 @@ CONSTANTS
   IntModulus, (* Modulus of integers (maximum value + 1) *)
 
   IncrementTo  (* The value of the sequence number that the writer should stop at *)
+
+ASSUME IntModulus \in (Nat \ 0..2) (* Integer modulus at least 3 *)
 -----------------------------------------------------------------------------
 
 VARIABLES 
   wpc, (* Writer's program counter *)
   written_low, (* Low word of sequence number written in memory *)
   written_high, (* High word of sequence number written in memory *)
+  next_increment, (* The next increment size *)
+  new_low, (* What the low word will be set to after rollover *)
 
   rpc, (* Reader's program counter *)
   snapped_low, (* Snapshot of the low word *)
@@ -44,12 +48,15 @@ SetInProgress(progress_struct) == ProgressValStruct(progress_struct.val, TRUE)
 (* The low word of the writer is incremented until it reaches the integer maximum *)
 IncrementLow ==
   /\ wpc = "IncrementLow"
-  /\ IF written_low = IntModulus - 1
-     THEN /\ UNCHANGED written_low
-          /\ wpc' = "SetHighInProgress"
-     ELSE /\ written_low' = written_low + 1
-          /\ UNCHANGED wpc
+  /\ \/ IF written_low + next_increment >= IntModulus
+        THEN /\ UNCHANGED written_low
+             /\ wpc' = "SetHighInProgress"
+             /\ new_low' = (written_low + next_increment) - IntModulus
+        ELSE /\ written_low' = written_low + 1
+             /\ UNCHANGED wpc
+             /\ UNCHANGED new_low
   /\ UNCHANGED written_high
+  /\ UNCHANGED next_increment
   
 (* Before rolling over the low word and incrementing the high, a flag in the high word
    is set to ensure that the reader does not use an inconsistent state *)
@@ -58,13 +65,17 @@ SetHighInProgress ==
   /\ written_high' = SetInProgress(written_high)
   /\ wpc' = "ResetLow"
   /\ UNCHANGED written_low
+  /\ UNCHANGED new_low
+  /\ UNCHANGED next_increment
   
 (* Set the low word to zero *)
 ResetLow == 
   /\ wpc = "ResetLow"
-  /\ written_low' = 0
+  /\ written_low' = new_low
   /\ wpc' = "IncrementHigh"
   /\ UNCHANGED written_high
+  /\ UNCHANGED new_low
+  /\ UNCHANGED next_increment
 
 (* Increment the high word, with the "in progress" flag no longer set *)
 IncrementHigh ==
@@ -72,6 +83,9 @@ IncrementHigh ==
   /\ written_high' = ProgressVal(written_high.val + 1)
   /\ wpc' = "IncrementLow"
   /\ UNCHANGED written_low
+  /\ UNCHANGED new_low
+  /\ \/ next_increment' = 1
+     \/ next_increment' = 2
 
 -----------------------------------------------------------------------------
 
@@ -81,12 +95,17 @@ WriterInit ==
   /\ wpc = "IncrementLow"
   /\ written_low = 0
   /\ written_high = ProgressVal(0)
+  /\ new_low = 0
+  /\ \/ next_increment = 1
+     \/ next_increment = 2
     
 (* Wait when reader takes steps *)
 WriterWait ==
   /\ UNCHANGED wpc
   /\ UNCHANGED written_high
   /\ UNCHANGED written_low
+  /\ UNCHANGED new_low
+  /\ UNCHANGED next_increment
   
 (* Take appropriate step based on wpc *)
 WriterStep ==
