@@ -6,7 +6,6 @@ mod component;
 mod error;
 mod events;
 mod export;
-mod graph;
 mod header_gen;
 mod lang;
 mod manifest_gen;
