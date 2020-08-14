@@ -195,39 +195,18 @@ impl<G: Graph> EventDigraph<G> {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use std::collections::HashSet;
-
+#[cfg(any(test, feature = "test_support"))]
+pub mod test_support {
     use chrono::prelude::*;
 
-    use modality_probe::{EventId, ProbeEpoch, ProbeId, ProbeTicks};
-    use modality_probe_collector_common::{LogFileRow, ReportIter};
-
-    use super::*;
-
-    #[derive(PartialEq, Debug)]
-    struct NodeAndEdgeList {
-        nodes: HashSet<GraphEvent>,
-        edges: HashSet<(GraphEvent, GraphEvent)>,
-    }
-
-    impl Graph for NodeAndEdgeList {
-        fn add_node(&mut self, node: GraphEvent) {
-            self.nodes.insert(node);
-        }
-
-        fn add_edge(&mut self, source: GraphEvent, target: GraphEvent) {
-            self.edges.insert((source, target));
-        }
-    }
+    use modality_probe_collector_common::LogFileRow;
 
     //   1
     //  / \   |
     // 2   3  |
     //  \ /   V
     //   4
-    fn diamond() -> Vec<LogFileRow> {
+    pub fn diamond() -> Vec<LogFileRow> {
         let now = Utc::now();
         vec![
             // 1
@@ -521,10 +500,36 @@ mod test {
             },
         ]
     }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::HashSet;
+
+    use modality_probe::{EventId, ProbeEpoch, ProbeId, ProbeTicks};
+    use modality_probe_collector_common::ReportIter;
+
+    use super::*;
+
+    #[derive(PartialEq, Debug)]
+    struct NodeAndEdgeList {
+        nodes: HashSet<GraphEvent>,
+        edges: HashSet<(GraphEvent, GraphEvent)>,
+    }
+
+    impl Graph for NodeAndEdgeList {
+        fn add_node(&mut self, node: GraphEvent) {
+            self.nodes.insert(node);
+        }
+
+        fn add_edge(&mut self, source: GraphEvent, target: GraphEvent) {
+            self.edges.insert((source, target));
+        }
+    }
 
     #[test]
     fn sanity() {
-        let report_iter = ReportIter::new(diamond().into_iter().map(Ok).peekable());
+        let report_iter = ReportIter::new(test_support::diamond().into_iter().map(Ok).peekable());
 
         let inner = NodeAndEdgeList {
             nodes: HashSet::new(),

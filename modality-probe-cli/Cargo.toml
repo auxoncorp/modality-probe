@@ -64,3 +64,4 @@ features = ["serde", "v4"]
 pretty_assertions = "0.6"
 tempfile = "3.1"
 proptest = "0.9.5"
+modality-probe-graph = { path = "../modality-probe-graph", features = ["test_support"] }
