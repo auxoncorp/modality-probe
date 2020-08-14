@@ -1,4 +1,4 @@
-use modality_probe_cli::{error::GracefulExit, header_gen, manifest_gen, opts::Opts};
+use modality_probe_cli::{error::GracefulExit, export, header_gen, manifest_gen, opts::Opts};
 use structopt::StructOpt;
 
 fn main() {
@@ -12,5 +12,6 @@ fn main() {
     match opts {
         Opts::ManifestGen(opt) => manifest_gen::run(opt),
         Opts::HeaderGen(opt) => header_gen::run(opt, internal_events),
+        Opts::Export(opt) => export::run(opt).unwrap_or_exit("export"),
     }
 }

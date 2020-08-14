@@ -1,4 +1,4 @@
-use crate::{header_gen::HeaderGen, manifest_gen::ManifestGen};
+use crate::{export::Export, header_gen::HeaderGen, manifest_gen::ManifestGen};
 use structopt::StructOpt;
 
 #[derive(Debug, PartialEq, StructOpt)]
@@ -12,18 +12,19 @@ pub enum Opts {
 
     /// Generate Rust/C header files with event/probe id constants
     HeaderGen(HeaderGen),
-    // /// Export a collected event log in a well-known graph format.
-    // Export(Export),
+    /// Export a collected event log in a well-known graph format.
+    Export(Export),
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::lang::Lang;
-    use crate::manifest_gen::id_gen::NonZeroIdRange;
-    use core::num::NonZeroU32;
+    use std::{num::NonZeroU32, path::PathBuf};
+
     use pretty_assertions::assert_eq;
-    use std::path::PathBuf;
+
+    use crate::{export::GraphType, lang::Lang, manifest_gen::id_gen::NonZeroIdRange};
+
+    use super::*;
 
     #[test]
     fn parse_opts_manifest_gen() {
@@ -110,48 +111,48 @@ mod test {
         );
     }
 
-    // #[test]
-    // fn parse_opts_export() {
-    //     assert_eq!(
-    //         Opts::from_iter(
-    //             [
-    //                 "modality-probe",
-    //                 "export",
-    //                 "acyclic",
-    //                 "--components",
-    //                 "component",
-    //                 "--report",
-    //                 "report.csv",
-    //             ]
-    //             .iter()
-    //         ),
-    //         Opts::Export(Export {
-    //             interactions_only: false,
-    //             components: vec![PathBuf::from("component")],
-    //             report: PathBuf::from("report.csv"),
-    //             graph_type: GraphType::Acyclic,
-    //         })
-    //     );
-    //     assert_eq!(
-    //         Opts::from_iter(
-    //             [
-    //                 "modality-probe",
-    //                 "export",
-    //                 "cyclic",
-    //                 "--interactions-only",
-    //                 "--components",
-    //                 "component",
-    //                 "--report",
-    //                 "report.csv",
-    //             ]
-    //             .iter()
-    //         ),
-    //         Opts::Export(Export {
-    //             interactions_only: true,
-    //             components: vec![PathBuf::from("component")],
-    //             report: PathBuf::from("report.csv"),
-    //             graph_type: GraphType::Cyclic,
-    //         })
-    //     );
-    // }
+    #[test]
+    fn parse_opts_export() {
+        assert_eq!(
+            Opts::from_iter(
+                [
+                    "modality-probe",
+                    "export",
+                    "acyclic",
+                    "--components",
+                    "component",
+                    "--report",
+                    "report.csv",
+                ]
+                .iter()
+            ),
+            Opts::Export(Export {
+                interactions_only: false,
+                components: vec![PathBuf::from("component")],
+                report: PathBuf::from("report.csv"),
+                graph_type: GraphType::Acyclic,
+            })
+        );
+        assert_eq!(
+            Opts::from_iter(
+                [
+                    "modality-probe",
+                    "export",
+                    "cyclic",
+                    "--interactions-only",
+                    "--components",
+                    "component",
+                    "--report",
+                    "report.csv",
+                ]
+                .iter()
+            ),
+            Opts::Export(Export {
+                interactions_only: true,
+                components: vec![PathBuf::from("component")],
+                report: PathBuf::from("report.csv"),
+                graph_type: GraphType::Cyclic,
+            })
+        );
+    }
 }

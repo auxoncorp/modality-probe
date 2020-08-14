@@ -5,7 +5,7 @@ use structopt::{clap::Shell, StructOpt};
 mod component;
 mod error;
 mod events;
-// mod export;
+mod export;
 mod graph;
 mod header_gen;
 mod lang;
