@@ -21,12 +21,12 @@ pub trait Graph {
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
 /// A node in the event digraph.
 pub struct GraphEvent {
-    id: EventId,
-    clock: LogicalClock,
-    payload: Option<u32>,
-    probe_id: ProbeId,
-    seq: SequenceNumber,
-    seq_idx: usize,
+    pub id: EventId,
+    pub clock: LogicalClock,
+    pub payload: Option<u32>,
+    pub probe_id: ProbeId,
+    pub seq: SequenceNumber,
+    pub seq_idx: usize,
 }
 
 /// Errors returned by the `EventDigraph` methods.

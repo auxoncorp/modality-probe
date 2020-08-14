@@ -393,14 +393,16 @@ impl From<&ReportLogEntry> for LogFileRow {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Error)]
 pub enum ReadError {
+    #[error(display = "{}", message)]
     InvalidContent {
         session_id: SessionId,
         sequence_number: SequenceNumber,
         sequence_index: u32,
         message: &'static str,
     },
+    #[error(display = "{}", _0)]
     Serialization(String),
 }
 
