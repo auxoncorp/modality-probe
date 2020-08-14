@@ -53,66 +53,44 @@ impl OrderedEntry {
 
 #[derive(Copy, Clone)]
 pub(crate) enum OutputOrderedEntry {
-    Present(OrderedEntry),
+    Present(WholeEntry<OrderedEntry>),
     Missed(u64),
 }
 
 impl OutputOrderedEntry {
     // Invariant: Check if entries all have correct index
-    pub(crate) fn entries_correct_index(rbuf: &[OutputOrderedEntry]) -> bool {
+    pub(crate) fn check_entries_correct_index(rbuf: &[OutputOrderedEntry]) {
         let mut current_index = 0;
-        for output_entry in rbuf.iter() {
+        for output_entry in rbuf {
             match output_entry {
                 OutputOrderedEntry::Missed(n) => current_index += n,
-                OutputOrderedEntry::Present(entry) => {
-                    if entry.to_index() as u64 != current_index {
-                        return false;
+                OutputOrderedEntry::Present(entry) => match entry {
+                    WholeEntry::Single(single) => {
+                        assert_eq!(single.to_index() as u64, current_index);
+                        current_index += 1;
                     }
-                    current_index += 1;
-                }
+                    WholeEntry::Double(first, second) => {
+                        assert_eq!(first.to_index() as u64, current_index);
+                        assert_eq!(second.to_index() as u64, current_index + 1);
+                        current_index += 2;
+                    }
+                },
             }
         }
-        true
     }
 
     // Invariant: Check if entries all have correct index
-    pub(crate) fn double_entries_consistent(rbuf: &[OutputOrderedEntry]) -> bool {
-        if rbuf.len() == 0 {
-            return true;
-        }
-        if let OutputOrderedEntry::Present(first_entry) = rbuf[0] {
-            if first_entry.is_suffix() {
-                return false;
+    pub(crate) fn check_double_entries_consistent(rbuf: &[OutputOrderedEntry]) {
+        for output_entry in rbuf {
+            if let OutputOrderedEntry::Present(WholeEntry::Single(entry)) = output_entry {
+                assert!(!entry.is_suffix() && !entry.is_prefix())
+            } else if let OutputOrderedEntry::Present(WholeEntry::Double(first, second)) =
+                output_entry
+            {
+                assert!(first.is_prefix());
+                assert!(second.is_suffix());
             }
         }
-        if let OutputOrderedEntry::Present(last_entry) = rbuf.last().unwrap() {
-            if last_entry.is_prefix_unchecked() {
-                return false;
-            }
-        }
-        for i in 0..(rbuf.len() - 1) {
-            match rbuf[i] {
-                OutputOrderedEntry::Missed(_) => {
-                    if let OutputOrderedEntry::Present(next) = rbuf[i + 1] {
-                        if next.is_suffix() {
-                            return false;
-                        }
-                    }
-                }
-                OutputOrderedEntry::Present(current) => {
-                    if current.is_prefix_unchecked() {
-                        if let OutputOrderedEntry::Present(next) = rbuf[i + 1] {
-                            if !next.is_suffix() {
-                                return false;
-                            }
-                        } else {
-                            return false;
-                        }
-                    }
-                }
-            }
-        }
-        return true;
     }
 }
 

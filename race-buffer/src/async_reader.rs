@@ -1,7 +1,7 @@
 //! Reader of the RaceBuffer. Can asynchronously read from a writer::RaceBuffer into its own buffer.
 //! To construct a reader::RaceReader, a Snapper must be implemented, which specifies how to access
 //! the fields of the target RaceBuffer.
-use crate::{get_seqn_index, num_missed, Entry, SeqNum};
+use crate::{get_seqn_index, num_missed, Entry, SeqNum, WholeEntry};
 use std::cmp::min;
 
 /// Used to "snap" observations of the RaceBuffer's write sequence number
@@ -61,7 +61,7 @@ where
 
     /// Attempt to read all new entries in race buffer into given read buffer
     /// Returns the number of entries missed before those that were read
-    pub fn read(&mut self, rbuf: &mut Vec<E>) -> Result<u64, S::Error> {
+    pub fn read(&mut self, rbuf: &mut Vec<WholeEntry<E>>) -> Result<u64, S::Error> {
         let pre_overwrite_seqn = self.snap_overwrite_seqn()?;
         let pre_write_seqn = self.snap_write_seqn()?;
 
@@ -105,14 +105,13 @@ where
 
     /// Store given entry in given read buffer
     #[inline]
-    fn store(&mut self, entry: E, rbuf: &mut Vec<E>) {
+    fn store(&mut self, entry: E, rbuf: &mut Vec<WholeEntry<E>>) {
         if let Some(prefix) = self.stored_prefix.take() {
-            rbuf.push(prefix);
-            rbuf.push(entry);
+            rbuf.push(WholeEntry::Double(prefix, entry));
         } else if entry.is_prefix() {
             self.stored_prefix = Some(entry);
         } else {
-            rbuf.push(entry);
+            rbuf.push(WholeEntry::Single(entry));
         }
     }
 
@@ -140,6 +139,7 @@ where
         )
     }
 
+    /// Get a consistent snapshot of a sequence number, retrying if inconsistency is detected
     fn snap_seqn<F, G>(snap_high: F, snap_low: G) -> Result<SeqNum, S::Error>
     where
         F: Fn() -> Result<u32, S::Error>,
@@ -148,20 +148,30 @@ where
         let mut initial_high;
         let mut final_high;
         let mut low;
+        // Note: This will loop until a consistent snapshot is acquired. If the high word is incremented during
+        // the snapshot, then the snapshot will not be consistent. However, the high word is only incremented every
+        // 2^32 entries written to the buffer. We assume that the amount of time it takes to take a snapshot is
+        // negligible compared to the time it takes to increment the high word. Therefore, there should only be one
+        // retry at most, in the case where the first snapshot attempt and an increment to the high word happen to overlap.
         while {
+            // Wait until the sequence number high word is not getting updated
             initial_high = Self::snap_consistent_high(&snap_high)?;
             low = snap_low()?;
-            final_high = Self::snap_consistent_high(&snap_high)?;
+            final_high = snap_high()?;
+            // Check that the high word did not change between the two snapshots. If it did,
+            // The low word is unusable because we are not sure which high word it corresponds to.
+            // In that case, retry the whole sequence
             initial_high != final_high
         } {}
         Ok(SeqNum::new(final_high, low))
     }
 
+    /// Get a snapshot of the high word of a sequence number, retrying if the "updating" bit is set
     fn snap_consistent_high<F>(snap_high: F) -> Result<u32, S::Error>
     where
         F: Fn() -> Result<u32, S::Error>,
     {
-        let mut high = SeqNum::UPDATING_EPOCH_MASK;
+        let mut high = SeqNum::UPDATING_HIGH_MASK;
         while SeqNum::has_updating_high_bit_set(high) {
             high = snap_high()?;
         }
@@ -178,7 +188,7 @@ mod tests {
     use core::mem::MaybeUninit;
 
     #[test]
-    fn test_reads() {
+    fn test_async_read() {
         const STORAGE_CAP: usize = 4;
         let mut storage = [MaybeUninit::uninit(); STORAGE_CAP as usize];
         let mut buf = RaceBuffer::new(&mut storage[..], false).unwrap();
@@ -194,7 +204,10 @@ mod tests {
         }
         assert_eq!(0, buf_reader.read(&mut rbuf).unwrap());
         assert_eq!(
-            vec![OrderedEntry::from_index(0), OrderedEntry::from_index(1),],
+            vec![
+                WholeEntry::Single(OrderedEntry::from_index(0)),
+                WholeEntry::Single(OrderedEntry::from_index(1)),
+            ],
             rbuf
         );
 
@@ -205,12 +218,12 @@ mod tests {
         assert_eq!(2, buf_reader.read(&mut rbuf).unwrap());
         assert_eq!(
             vec![
-                OrderedEntry::from_index(0),
-                OrderedEntry::from_index(1),
-                OrderedEntry::from_index(4),
-                OrderedEntry::from_index(5),
-                OrderedEntry::from_index(6),
-                OrderedEntry::from_index(7),
+                WholeEntry::Single(OrderedEntry::from_index(0)),
+                WholeEntry::Single(OrderedEntry::from_index(1)),
+                WholeEntry::Single(OrderedEntry::from_index(4)),
+                WholeEntry::Single(OrderedEntry::from_index(5)),
+                WholeEntry::Single(OrderedEntry::from_index(6)),
+                WholeEntry::Single(OrderedEntry::from_index(7)),
             ],
             rbuf
         );
@@ -219,14 +232,14 @@ mod tests {
         // Read in the middle of a double entry should wait until suffix is read to output whole double
         buf.push(OrderedEntry::from_index_prefix(8));
         assert_eq!(0, buf_reader.read(&mut rbuf).unwrap());
-        assert_eq!(Vec::<OrderedEntry>::new(), rbuf);
+        assert_eq!(Vec::<WholeEntry<OrderedEntry>>::new(), rbuf);
         buf.push(OrderedEntry::from_index_suffix(9));
         assert_eq!(0, buf_reader.read(&mut rbuf).unwrap());
         assert_eq!(
-            vec![
+            vec![WholeEntry::Double(
                 OrderedEntry::from_index_prefix(8),
-                OrderedEntry::from_index_suffix(9),
-            ],
+                OrderedEntry::from_index_suffix(9)
+            ),],
             rbuf
         );
 
@@ -234,7 +247,7 @@ mod tests {
         // If suffix is dropped, prefix should also be dropped
         buf.push(OrderedEntry::from_index_prefix(10));
         assert_eq!(0, buf_reader.read(&mut rbuf).unwrap());
-        assert_eq!(Vec::<OrderedEntry>::new(), rbuf);
+        assert_eq!(Vec::<WholeEntry<OrderedEntry>>::new(), rbuf);
         buf.push(OrderedEntry::from_index_suffix(11));
         for i in 12..16 {
             buf.push(OrderedEntry::from_index(i));
@@ -242,10 +255,10 @@ mod tests {
         assert_eq!(2, buf_reader.read(&mut rbuf).unwrap());
         assert_eq!(
             vec![
-                OrderedEntry::from_index(12),
-                OrderedEntry::from_index(13),
-                OrderedEntry::from_index(14),
-                OrderedEntry::from_index(15),
+                WholeEntry::Single(OrderedEntry::from_index(12)),
+                WholeEntry::Single(OrderedEntry::from_index(13)),
+                WholeEntry::Single(OrderedEntry::from_index(14)),
+                WholeEntry::Single(OrderedEntry::from_index(15)),
             ],
             rbuf
         );
@@ -263,9 +276,9 @@ mod tests {
         assert_eq!(2, buf_reader.read(&mut rbuf).unwrap());
         assert_eq!(
             vec![
-                OrderedEntry::from_index(18),
-                OrderedEntry::from_index(19),
-                OrderedEntry::from_index(20),
+                WholeEntry::Single(OrderedEntry::from_index(18)),
+                WholeEntry::Single(OrderedEntry::from_index(19)),
+                WholeEntry::Single(OrderedEntry::from_index(20)),
             ],
             rbuf
         );

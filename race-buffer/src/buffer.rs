@@ -1,14 +1,13 @@
 //! The writer of the RaceBuffer, which contains the actual buffer. Entries can be synchronously written and read/iterated
 //! from this struct.
-use crate::{get_seqn_index, num_missed, Entry, SeqNum};
+use crate::{get_seqn_index, num_missed, Entry, SeqNum, WholeEntry};
 //use core::iter::Iterator;
+use core::cmp::max;
 use core::fmt;
 use core::mem::size_of;
 use core::mem::MaybeUninit;
 use core::sync::atomic::fence;
 use core::sync::atomic::Ordering;
-use core::cmp::max;
-
 
 /// Minimum allowed capacity of backing storage
 pub const MIN_STORAGE_CAP: usize = 4;
@@ -27,30 +26,6 @@ impl fmt::Debug for SizeError {
 fn round_to_power_2(length: usize) -> usize {
     let exp: usize = size_of::<usize>() * 8 - (length.leading_zeros() as usize) - 1;
     1 << exp
-}
-
-/// An entry or double entry that has just been overwritten
-#[derive(PartialEq, Copy, Clone, Debug)]
-pub enum WholeEntry<E>
-where
-    E: Entry,
-{
-    /// Single entry overwritten
-    Single(E),
-    /// Double entry overwritten
-    Double(E, E),
-}
-
-impl<E> WholeEntry<E>
-where
-    E: Entry,
-{
-    fn size(&self) -> u64 {
-        match self {
-            Self::Single(_) => 1,
-            _ => 2,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -92,10 +67,10 @@ where
             storage.len()
         };
         Ok(RaceBuffer {
-            write_seqn: 0.into(),
-            overwrite_seqn: 0.into(),
+            write_seqn: SeqNum::new(0, 0),
+            overwrite_seqn: SeqNum::new(0, 0),
             storage: &mut storage[..truncated_len],
-            read_seqn: 0.into(),
+            read_seqn: SeqNum::new(0, 0),
             use_base_2_indexing,
         })
     }
@@ -245,7 +220,8 @@ where
             get_seqn_index(self.capacity(), self.write_seqn, self.use_base_2_indexing);
         // Safe to assume entries in front of overwrite sequence number and behind write sequence number are initialized
         if overwrite_seqn_index >= write_seqn_index
-            && (Into::<u64>::into(self.overwrite_seqn) != 0 || Into::<u64>::into(self.write_seqn) != 0)
+            && (Into::<u64>::into(self.overwrite_seqn) != 0
+                || Into::<u64>::into(self.write_seqn) != 0)
         {
             unsafe {
                 (
@@ -271,7 +247,7 @@ where
     /// Get the number of items currently in the buffer which have not been read yet
     pub fn len(&self) -> usize {
         let start_seqn = self.read_seqn.max(self.overwrite_seqn);
-        let len: u64  = (self.write_seqn - start_seqn).into();
+        let len: u64 = (self.write_seqn - start_seqn).into();
         len as usize
     }
 

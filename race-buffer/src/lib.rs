@@ -5,9 +5,12 @@
 #![deny(missing_docs)]
 
 use core::marker::Copy;
-use core::ops::{Add, Sub, AddAssign};
+use core::ops::{Add, AddAssign, Sub};
 use core::sync::atomic::{fence, Ordering};
 
+/// The index of an entry in the sequence of all entries written to the buffer
+/// Note: This struct is 2 separate words so they can be read in one cpu instruction on 32 bit machines,
+/// for asynchronous reading
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(C)]
 pub(crate) struct SeqNum {
@@ -16,28 +19,34 @@ pub(crate) struct SeqNum {
 }
 
 impl SeqNum {
-    const UPDATING_EPOCH_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
+    const UPDATING_HIGH_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
 
-    #[cfg(feature = "std")]
     pub(crate) fn new(high: u32, low: u32) -> Self {
-        debug_assert!(high < Self::UPDATING_EPOCH_MASK);
+        debug_assert!(high < Self::UPDATING_HIGH_MASK);
         Self { high, low }
     }
 
     #[cfg(feature = "std")]
     pub(crate) fn has_updating_high_bit_set(high: u32) -> bool {
-        high & Self::UPDATING_EPOCH_MASK != 0
+        high & Self::UPDATING_HIGH_MASK != 0
     }
 
+    /// Set the high bit of the high word so the asynchronous reader does not try to use the sequence number
+    /// in an inconsistent state
     fn set_updating_high_bit(&mut self) {
-        self.high |= Self::UPDATING_EPOCH_MASK;
+        self.high |= Self::UPDATING_HIGH_MASK;
     }
 
+    /// Increment the sequence number by the given amount, using an "updating" flag to ensure the asynchronous
+    /// reader does not use the sequence number in an inconsistent state
     pub(crate) fn increment(&mut self, n: Self) {
         let (new_low, overflowed) = self.low.overflowing_add(n.low);
         let high_increment = n.high + if overflowed { 1 } else { 0 };
         if high_increment > 0 {
             let new_high = self.high + high_increment;
+            // Set the updating bit before modifying the value of the sequence number.
+            // While this bit is set, the reader will retry reading the high word.
+            // Fences are used to prevent write reorders
             self.set_updating_high_bit();
             fence(Ordering::Release);
             self.low = new_low;
@@ -53,7 +62,7 @@ impl SeqNum {
 
 impl Into<u64> for SeqNum {
     fn into(self) -> u64 {
-        debug_assert!(self.high < Self::UPDATING_EPOCH_MASK);
+        debug_assert!(self.high < Self::UPDATING_HIGH_MASK);
         ((self.high as u64) << 32) + self.low as u64
     }
 }
@@ -61,7 +70,7 @@ impl Into<u64> for SeqNum {
 impl From<u64> for SeqNum {
     fn from(n: u64) -> Self {
         let high = (n >> 32) as u32;
-        debug_assert!(high < Self::UPDATING_EPOCH_MASK);
+        debug_assert!(high < Self::UPDATING_HIGH_MASK);
         Self {
             high,
             low: n as u32,
@@ -141,18 +150,41 @@ pub trait Entry: Copy + PartialEq {
     fn is_prefix(&self) -> bool;
 }
 
+/// An entry or double entry that has just been overwritten
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub enum WholeEntry<E>
+where
+    E: Entry,
+{
+    /// Single entry overwritten
+    Single(E),
+    /// Double entry overwritten
+    Double(E, E),
+}
+
+impl<E> WholeEntry<E>
+where
+    E: Entry,
+{
+    /// 1 if entry is single, 2 if double
+    pub fn size(&self) -> u64 {
+        match self {
+            Self::Single(_) => 1,
+            _ => 2,
+        }
+    }
+}
+
 #[cfg(feature = "std")]
 pub mod async_reader;
 
 pub mod buffer;
 pub use buffer::RaceBuffer;
 
-#[cfg(feature = "std")]
-#[cfg(test)]
+#[cfg(all(feature = "std", test))]
 mod util;
 
-#[cfg(feature = "std")]
-#[cfg(test)]
+#[cfg(all(feature = "std", test))]
 pub mod tests {
     use super::*;
 
@@ -164,10 +196,39 @@ pub mod tests {
     use std::time::Duration;
     use util::{OrderedEntry, OutputOrderedEntry, RawPtrSnapper};
 
-    // Perform many reads and writes concurrently,
-    // check if read buffer is in order and consistent
     #[test]
-    fn test_basic() {
+    fn seq_nums() {
+        assert_eq!(SeqNum::new(u32::MAX >> 1, u32::MAX), (u64::MAX >> 1).into());
+        assert_eq!(
+            Into::<u64>::into(SeqNum::new(u32::MAX >> 1, u32::MAX)),
+            u64::MAX >> 1
+        );
+        assert_eq!(
+            SeqNum::new(u32::MAX >> 1, 0),
+            (0b01111111_11111111_11111111_11111111_00000000_00000000_00000000_00000000).into()
+        );
+        assert_eq!(
+            Into::<u64>::into(SeqNum::new(u32::MAX >> 1, 0)),
+            0b01111111_11111111_11111111_11111111_00000000_00000000_00000000_00000000
+        );
+
+        assert_eq!(
+            SeqNum::new(1, 2) + SeqNum::new(2, u32::MAX),
+            SeqNum::new(4, 1)
+        );
+        assert_eq!(
+            SeqNum::new(1, 2) + (u32::MAX as u64 * 3 + 2),
+            SeqNum::new(4, 1)
+        );
+
+        assert!(SeqNum::new(1, 0) > SeqNum::new(0, 2));
+        assert!(SeqNum::new(1, 3) > SeqNum::new(1, 2))
+    }
+
+    // Perform many writes and reads concurrently,
+    // check if reader output is in order and consistent
+    #[test]
+    fn async_output() {
         const NUM_WRITES: u32 = 160;
         const STORAGE_CAP: usize = 15;
 
@@ -206,7 +267,7 @@ pub mod tests {
 
                     thread::sleep(Duration::from_millis(10));
                 }
-                assert!(OutputOrderedEntry::entries_correct_index(&output_buf[..]));
+                OutputOrderedEntry::check_entries_correct_index(&output_buf[..]);
                 barr_w.wait();
             });
         })
@@ -216,7 +277,7 @@ pub mod tests {
     // Perform many reads and writes concurrently with random timeouts,
     // check if read buffer is in order and consistent
     #[test]
-    fn test_random() {
+    fn async_output_timeouts() {
         const NUM_WRITES: u32 = 100_000;
         const STORAGE_CAP: usize = 8;
 
@@ -259,10 +320,11 @@ pub mod tests {
                 let mut rng = rand::thread_rng();
 
                 let mut total_items_read = 0;
-                while total_items_read < (NUM_WRITES - 1) as usize {
+                while total_items_read < (NUM_WRITES - 1) as u64 {
                     let mut temp_buf = Vec::new();
                     let n_missed = buf_reader.read(&mut temp_buf).unwrap();
-                    total_items_read += n_missed as usize + temp_buf.len();
+                    let n_read: u64 = temp_buf.iter().map(|we| we.size()).sum();
+                    total_items_read += n_missed + n_read;
 
                     output_buf.push(OutputOrderedEntry::Missed(n_missed));
                     output_buf.extend(temp_buf.iter().map(|e| OutputOrderedEntry::Present(*e)));
@@ -270,10 +332,8 @@ pub mod tests {
                     let sleep_time: u64 = rng.gen::<u64>() % 3000;
                     std::thread::sleep(Duration::from_nanos(sleep_time));
                 }
-                assert!(OutputOrderedEntry::entries_correct_index(&output_buf[..]));
-                assert!(OutputOrderedEntry::double_entries_consistent(
-                    &output_buf[..]
-                ));
+                OutputOrderedEntry::check_entries_correct_index(&output_buf[..]);
+                OutputOrderedEntry::check_double_entries_consistent(&output_buf[..]);
                 barr_w.wait();
             });
         })
