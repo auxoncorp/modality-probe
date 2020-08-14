@@ -24,6 +24,20 @@ pub enum ReportWireError {
     InvalidProbeId(u32),
 }
 
+#[cfg(feature = "std")]
+impl std::error::Error for ReportWireError {}
+
+impl core::fmt::Display for ReportWireError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ReportWireError::InvalidFingerprint => f.write_str("Invalid Fingerprint"),
+            ReportWireError::MissingHeader => f.write_str("Missing Header"),
+            ReportWireError::IncompletePayload => f.write_str("Incomplete Payload"),
+            ReportWireError::InvalidProbeId(x) => write!(f, "Invalid Probe Id: 0x{:x}", x),
+        }
+    }
+}
+
 /// A read/write wrapper around a report buffer
 #[derive(Debug, Clone)]
 pub struct WireReport<T: AsRef<[u8]>> {
@@ -43,20 +57,19 @@ mod field {
     /// The packed clock value for the probe at the time that this
     /// report was created.
     pub const CLOCK: Field = 8..12;
-    /// The sequence number of the report within a single clock value,
-    /// used to order reports created between clock ticks.
-    pub const SEQ_NUM: Field = 12..14;
+    /// The sequence number of the report.
+    pub const SEQ_NUM: Field = 12..20;
     /// The number of frontier clocks present in the payload.
     ///
     /// Note: These are at the front of the payload and are specially
     /// encoded as frontier clocks.
-    pub const N_CLOCKS: Field = 14..16;
+    pub const N_CLOCKS: Field = 20..22;
     /// The number of log entries present in the payload.
-    pub const N_LOG_ENTRIES: Field = 16..20;
+    pub const N_LOG_ENTRIES: Field = 22..26;
     /// The payload, consists of (in order):
     /// * Frontier clocks
     /// * Log entries
-    pub const PAYLOAD: Rest = 20..;
+    pub const PAYLOAD: Rest = 26..;
 }
 
 impl<T: AsRef<[u8]>> WireReport<T> {
@@ -175,9 +188,9 @@ impl<T: AsRef<[u8]>> WireReport<T> {
 
     /// Return the `seq_num` field
     #[inline]
-    pub fn seq_num(&self) -> u16 {
+    pub fn seq_num(&self) -> u64 {
         let data = self.buffer.as_ref();
-        le_bytes::read_u16(&data[field::SEQ_NUM])
+        le_bytes::read_u64(&data[field::SEQ_NUM])
     }
 
     /// Return the `n_clocks` field
@@ -229,9 +242,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireReport<T> {
 
     /// Set the `seq_num` field
     #[inline]
-    pub fn set_seq_num(&mut self, value: u16) {
+    pub fn set_seq_num(&mut self, value: u64) {
         let data = self.buffer.as_mut();
-        le_bytes::write_u16(&mut data[field::SEQ_NUM], value);
+        le_bytes::write_u64(&mut data[field::SEQ_NUM], value);
     }
 
     /// Set the `n_clocks` field
@@ -266,7 +279,7 @@ mod tests {
     use super::*;
 
     #[rustfmt::skip]
-    static MSG_BYTES: [u8; 48] = [
+    static MSG_BYTES: [u8; 54] = [
         // fingerprint
         0x54, 0x50, 0x52, 0x4D,
         // probe_id: 1
@@ -274,7 +287,8 @@ mod tests {
         // clock: 2
         0x02, 0x00, 0x00, 0x00,
         // seq_id: 8
-        0x08, 0x00, 
+        0x08, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
         // n_clocks: 2
         0x02, 0x00,
         // n_log_entries: 3
@@ -307,18 +321,18 @@ mod tests {
 
     #[test]
     fn header_len() {
-        assert_eq!(WireReport::<&[u8]>::header_len(), 20);
+        assert_eq!(WireReport::<&[u8]>::header_len(), 26);
         let n_clocks = 12;
         let n_log_items = 14;
         assert_eq!(
             WireReport::<&[u8]>::buffer_len(n_clocks, n_log_items),
-            20 + (12 * mem::size_of::<LogicalClock>()) + (14 * mem::size_of::<LogEntry>())
+            26 + (12 * mem::size_of::<LogicalClock>()) + (14 * mem::size_of::<LogEntry>())
         );
     }
 
     #[test]
     fn construct() {
-        let mut bytes = [0xFF; 48];
+        let mut bytes = [0xFF; 54];
         let mut r = WireReport::new_unchecked(&mut bytes[..]);
         assert_eq!(r.check_len(), Ok(()));
         r.set_fingerprint();
@@ -363,15 +377,49 @@ mod tests {
     }
 
     #[test]
+    fn round_trip() {
+        let mut bytes = [0xFF; 512];
+
+        let wire_size = {
+            let mut r = WireReport::new_unchecked(&mut bytes[..]);
+            assert_eq!(r.check_len(), Ok(()));
+            r.set_fingerprint();
+            r.set_probe_id(ProbeId::new(100).unwrap());
+            r.set_clock(0xAAAA_BBBB);
+            r.set_seq_num(123);
+            r.set_n_clocks(2);
+            r.set_n_log_entries(3);
+            let payload_len = r.payload_len();
+            (&mut r.payload_mut()[..payload_len]).copy_from_slice(&PAYLOAD_BYTES[..]);
+            assert_eq!(r.check_fingerprint(), Ok(()));
+            assert_eq!(r.check_payload_len(), Ok(()));
+            WireReport::<&[u8]>::header_len() + payload_len
+        };
+
+        let r = WireReport::new(&bytes[..wire_size]).unwrap();
+        assert_eq!(r.fingerprint(), WireReport::<&[u8]>::FINGERPRINT);
+        assert_eq!(r.probe_id().unwrap().get_raw(), 100);
+        assert_eq!(r.clock(), 0xAAAA_BBBB);
+        assert_eq!(r.seq_num(), 123);
+        assert_eq!(r.n_clocks(), 2);
+        assert_eq!(r.n_log_entries(), 3);
+        assert_eq!(
+            r.payload_len(),
+            (2 * mem::size_of::<LogicalClock>()) + (3 * mem::size_of::<LogEntry>())
+        );
+        assert_eq!(r.payload(), &PAYLOAD_BYTES[..]);
+    }
+
+    #[test]
     fn invalid_fingerprint() {
-        let bytes = [0xFF; 20];
+        let bytes = [0xFF; 26];
         let r = WireReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), ReportWireError::InvalidFingerprint);
     }
 
     #[test]
     fn missing_header() {
-        let bytes = [0xFF; 20 - 1];
+        let bytes = [0xFF; 26 - 1];
         assert_eq!(bytes.len(), WireReport::<&[u8]>::header_len() - 1);
         let r = WireReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), ReportWireError::MissingHeader);

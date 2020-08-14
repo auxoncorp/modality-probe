@@ -4,10 +4,10 @@ version = "0.1.0"
 authors = ["Nicholas Springer <nspringer@auxon.io>"]
 edition = "2018"
 
-[dependencies]
-crossbeam = {version = "0.7.3", optional = true}
-rand = {version = "0.7.3", optional = true}
+[dev-dependencies]
+crossbeam = "0.7.3"
+rand = "0.7.3"
 
 [features]
 default = []
-std = ["crossbeam", "rand"]
+std = []

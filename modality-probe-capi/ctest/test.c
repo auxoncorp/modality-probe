@@ -7,9 +7,9 @@
 #include "probe.h"
 
 #define STATIC_SIZE(t, s) typedef char t##_size_check_struct[1-2*!!(sizeof(t)!=(s))]
-STATIC_SIZE(modality_logical_clock, sizeof(uint64_t));
+STATIC_SIZE(modality_probe_logical_clock, sizeof(uint64_t));
 STATIC_SIZE(modality_probe_instant, 12);
-STATIC_SIZE(modality_causal_snapshot, 12);
+STATIC_SIZE(modality_probe_causal_snapshot, 12);
 
 static size_t DEFAULT_PROBE_SIZE = 7000;
 static size_t DEFAULT_LOG_STORAGE = 4096;
@@ -67,7 +67,7 @@ bool test_event_recording(void) {
             "desc");
     ERROR_CHECK(result, passed);
 
-    modality_causal_snapshot snap_a;
+    modality_probe_causal_snapshot snap_a;
     result = modality_probe_produce_snapshot(t, &snap_a);
     ERROR_CHECK(result, passed);
     if (snap_a.clock.id != DEFAULT_PROBE_ID) {
@@ -99,7 +99,7 @@ bool test_event_recording(void) {
     ERROR_CHECK(result, passed);
     result = MODALITY_PROBE_EXPECT(t, EVENT_A, 1 == 0, "my docs", MODALITY_TAGS("SEVERITY_10"));
     ERROR_CHECK(result, passed);
-    modality_causal_snapshot snap_b;
+    modality_probe_causal_snapshot snap_b;
     result = modality_probe_produce_snapshot(t, &snap_b);
     ERROR_CHECK(result, passed);
 
@@ -110,7 +110,7 @@ bool test_event_recording(void) {
 bool test_merge(void) {
     bool passed = true;
     uint8_t * destination_a = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
-    uint8_t * snap_bytes = (uint8_t*) malloc(sizeof(modality_causal_snapshot));
+    uint8_t * snap_bytes = (uint8_t*) malloc(sizeof(modality_probe_causal_snapshot));
     modality_probe * probe_a;
     modality_probe_error result = modality_probe_initialize(destination_a, DEFAULT_PROBE_SIZE, DEFAULT_PROBE_ID, &probe_a);
     ERROR_CHECK(result, passed);
@@ -121,7 +121,7 @@ bool test_merge(void) {
     ERROR_CHECK(result, passed);
     result = modality_probe_record_event(probe_a, EVENT_A);
     ERROR_CHECK(result, passed);
-    modality_causal_snapshot snap_a;
+    modality_probe_causal_snapshot snap_a;
     result = modality_probe_produce_snapshot(probe_a, &snap_a);
     ERROR_CHECK(result, passed);
     if (snap_a.clock.id != DEFAULT_PROBE_ID) {
@@ -131,10 +131,10 @@ bool test_merge(void) {
     result = modality_probe_produce_snapshot_bytes(
             probe_a,
             snap_bytes,
-            sizeof(modality_causal_snapshot),
+            sizeof(modality_probe_causal_snapshot),
             &num_snap_bytes);
     ERROR_CHECK(result, passed);
-    if(num_snap_bytes != sizeof(modality_causal_snapshot)) {
+    if(num_snap_bytes != sizeof(modality_probe_causal_snapshot)) {
         passed = false;
     }
     result = modality_probe_merge_snapshot_bytes(
@@ -144,7 +144,7 @@ bool test_merge(void) {
     ERROR_CHECK(result, passed);
     result = modality_probe_merge_snapshot(probe_b, &snap_a);
     ERROR_CHECK(result, passed);
-    modality_causal_snapshot snap_b;
+    modality_probe_causal_snapshot snap_b;
     result = modality_probe_produce_snapshot(probe_b, &snap_b);
     ERROR_CHECK(result, passed);
     if (snap_b.clock.id != probe_b_id) {
@@ -152,7 +152,7 @@ bool test_merge(void) {
     }
     result = modality_probe_record_event(probe_b, EVENT_A);
     ERROR_CHECK(result, passed);
-    modality_causal_snapshot snap_c;
+    modality_probe_causal_snapshot snap_c;
     result = modality_probe_produce_snapshot(probe_b, &snap_c);
     ERROR_CHECK(result, passed);
     if (snap_c.clock.id != probe_b_id) {
@@ -205,7 +205,7 @@ bool test_now(void) {
     if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.ticks != 0 || instant_a.event_count != 2) {
         passed = false;
     }
-    modality_causal_snapshot snap_a;
+    modality_probe_causal_snapshot snap_a;
     result = modality_probe_produce_snapshot(probe_a, &snap_a);
     ERROR_CHECK(result, passed);
     /*
@@ -226,7 +226,7 @@ bool test_now(void) {
     if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 1 || instant_b.clock.ticks != 1 || instant_b.event_count != 0) {
         passed = false;
     }
-    modality_causal_snapshot snap_b;
+    modality_probe_causal_snapshot snap_b;
     result = modality_probe_produce_snapshot(probe_b, &snap_b);
     ERROR_CHECK(result, passed);
     instant_b = modality_probe_now(probe_b);
@@ -251,14 +251,14 @@ bool test_now(void) {
     if (instant_b.clock.epoch != 1) {
             passed = false;
     }
-    if (instant_b.clock.ticks != 3) {
+    if (instant_b.clock.ticks != 2) {
         passed = false;
     }
     /*
-     * Note that the event count is 1 after a report call because ModalityProbe
+     * Note that the event count is 2 after a report call because ModalityProbe
      * internally records an event after producing a report.
      */
-    if (instant_b.event_count != 1) {
+    if (instant_b.event_count != 2) {
         passed = false;
     }
 

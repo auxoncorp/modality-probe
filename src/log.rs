@@ -1,13 +1,13 @@
 //! Types and functionality used for the probe's event storage.
 
-use race_buffer::{writer::RaceBuffer, Entry};
-
 use crate::{pack_clock_word, EventId, LogicalClock};
+use race_buffer::RaceBuffer;
 
-const CLOCK_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
-const EVENT_WITH_PAYLOAD_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
+pub(crate) const CLOCK_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
+pub(crate) const EVENT_WITH_PAYLOAD_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
 
-pub(crate) type RaceLog<'a> = RaceBuffer<'a, LogEntry>;
+/// RaceBuffer used to store log entries at each probe
+pub type RaceLog<'a> = RaceBuffer<'a, LogEntry>;
 
 /// In a stream of these:
 /// * If first bit is not set AND the second bit is not set, this is a
@@ -108,7 +108,9 @@ impl core::fmt::Debug for LogEntry {
     }
 }
 
-impl Entry for LogEntry {
+impl race_buffer::Entry for LogEntry {
+    // Payloads or clocks count entries could be interpreted as a prefix, but the RaceBuffer
+    // will never call is_prefix on the entry after a prefix
     fn is_prefix(&self) -> bool {
         self.has_clock_bit_set() || self.has_event_with_payload_bit_set()
     }

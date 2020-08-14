@@ -25,7 +25,7 @@ extern "C" {
  */
 typedef struct modality_probe modality_probe;
 
-typedef struct modality_logical_clock {
+typedef struct modality_probe_logical_clock {
     /*
      * The Modality probe that this clock is tracking
      */
@@ -40,7 +40,7 @@ typedef struct modality_logical_clock {
      * Clock tick count
      */
     uint16_t ticks;
-} modality_logical_clock;
+} modality_probe_logical_clock;
 
 typedef struct modality_probe_instant {
     /*
@@ -48,7 +48,7 @@ typedef struct modality_probe_instant {
      * `clock.id` should be equivalent to the probe id
      * of the source `ModalityProbe` instance
      */
-    modality_logical_clock clock;
+    modality_probe_logical_clock clock;
     /*
      * How many events have been seen since the source instance
      * reached the associated `clock`'s point in causal
@@ -57,12 +57,12 @@ typedef struct modality_probe_instant {
     uint32_t event_count;
 } modality_probe_instant;
 
-typedef struct modality_causal_snapshot {
+typedef struct modality_probe_causal_snapshot {
     /*
      * Probe id and tick-count at the probe which this history snapshot
      * was created from
      */
-    modality_logical_clock clock;
+    modality_probe_logical_clock clock;
     /*
      * Reserved field.
      */
@@ -71,7 +71,7 @@ typedef struct modality_causal_snapshot {
      * Reserved field.
      */
     uint16_t reserved_1;
-} modality_causal_snapshot;
+} modality_probe_causal_snapshot;
 
 typedef enum {
     /*
@@ -364,7 +364,7 @@ size_t modality_probe_report(
  */
 size_t modality_probe_produce_snapshot(
         modality_probe *probe,
-        modality_causal_snapshot *snapshot);
+        modality_probe_causal_snapshot *snapshot);
 
 /*
  * Produce a transmittable opaque blob of this Modality probe's
@@ -385,7 +385,7 @@ size_t modality_probe_produce_snapshot_bytes(
  */
 size_t modality_probe_merge_snapshot(
         modality_probe *probe,
-        const modality_causal_snapshot *snapshot);
+        const modality_probe_causal_snapshot *snapshot);
 
 /*
  * Consume a opaque causal history blob provided

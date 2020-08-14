@@ -3,6 +3,7 @@
 *.dvi
 *.tex
 *.check
-model/metadir
-model/tla2tools.jar
-/target/
+*.out
+*/metadir
+*/tla2tools.jar
+states

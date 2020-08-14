@@ -26,7 +26,6 @@ mod history;
 mod id;
 pub mod log;
 mod macros;
-pub mod payload;
 pub mod wire;
 
 /// Snapshot of causal history for transmission around the system.
@@ -128,17 +127,29 @@ impl PartialOrd for CausalSnapshot {
 #[cfg_attr(feature = "std", derive(Arbitrary))]
 pub struct ProbeEpoch(pub u16);
 
-impl From<u16> for ProbeEpoch {
-    fn from(epoch: u16) -> Self {
-        ProbeEpoch(epoch)
-    }
-}
-
 impl ProbeEpoch {
     /// The maximum value a probe epoch can inhabit.
     pub const MAX: Self = ProbeEpoch(u16::MAX);
     const WRAPAROUND_THRESHOLD_TOP: Self = ProbeEpoch(u16::MAX - 3);
     const WRAPAROUND_THRESHOLD_BOTTOM: Self = ProbeEpoch(3);
+
+    /// u16::overflowing_add, on the inner value
+    pub fn overflowing_add(self, n: u16) -> (ProbeEpoch, bool) {
+        let (n, overflow) = self.0.overflowing_add(n);
+        (n.into(), overflow)
+    }
+}
+
+impl From<u16> for ProbeEpoch {
+    fn from(x: u16) -> Self {
+        ProbeEpoch(x)
+    }
+}
+
+impl From<ProbeEpoch> for u16 {
+    fn from(e: ProbeEpoch) -> Self {
+        e.0
+    }
 }
 
 /// The clock part of a probe's logical clock
@@ -155,6 +166,12 @@ impl ProbeTicks {
 impl From<u16> for ProbeTicks {
     fn from(ticks: u16) -> Self {
         ProbeTicks(ticks)
+    }
+}
+
+impl From<ProbeTicks> for u16 {
+    fn from(t: ProbeTicks) -> Self {
+        t.0
     }
 }
 

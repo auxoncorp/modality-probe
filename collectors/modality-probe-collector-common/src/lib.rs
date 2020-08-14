@@ -1,4 +1,5 @@
 use chrono::prelude::*;
+use err_derive::Error;
 use modality_probe::{
     log::LogEntry,
     wire::{le_bytes, ReportWireError, WireReport},
@@ -42,25 +43,40 @@ newtype! {
 }
 
 newtype! {
-    /// A log sequence number
+    /// A log report sequence number
     #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
-    pub struct SequenceNumber(pub u16);
+    pub struct SequenceNumber(pub u64);
 }
 
-#[derive(Debug)]
-pub struct SerializationError;
+#[derive(Debug, Error)]
+pub enum SerializationError {
+    #[error(display = "Invalid probe id {:?}", _0)]
+    InvalidProbeId(LogEntry),
 
-impl From<ReportWireError> for SerializationError {
-    fn from(_: ReportWireError) -> Self {
-        SerializationError
-    }
+    #[error(display = "Invalid event id {:?}", _0)]
+    InvalidEventId(LogEntry),
+
+    #[error(display = "Report wire error")]
+    ReportWireError(#[error(source)] ReportWireError),
+
+    #[error(
+        display = "Too many frontier clocks ({:?}) for the wire type's u16 primitive",
+        _0
+    )]
+    TooManyFrontierClocks(usize),
+
+    #[error(
+        display = "Too many log entries ({:?}) for the wire type's u32 primitive",
+        _0
+    )]
+    TooManyLogEntries(usize),
 }
 
 #[derive(Debug, PartialEq)]
 pub struct Report {
     pub probe_id: ProbeId,
     pub probe_clock: LogicalClock,
-    pub seq_num: u16,
+    pub seq_num: SequenceNumber,
     pub frontier_clocks: Vec<LogicalClock>,
     pub event_log: Vec<EventLogEntry>,
 }
@@ -120,7 +136,7 @@ impl From<EventLogEntry> for LogEntryData {
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
 struct LogFileRow {
     session_id: u32,
-    sequence_number: u16,
+    sequence_number: u64,
     sequence_index: u32,
     receive_time: DateTime<Utc>,
     probe_id: u32,
@@ -360,7 +376,7 @@ pub fn add_log_report_to_entries(
     log_entries_buffer: &mut Vec<ReportLogEntry>,
 ) {
     let probe_id = log_report.probe_id;
-    let sequence_number = log_report.seq_num.into();
+    let sequence_number = log_report.seq_num;
     let mut sequence_index = 0;
 
     for fc in &log_report.frontier_clocks {
@@ -397,7 +413,7 @@ impl TryFrom<&[u8]> for Report {
         let mut owned_report = Report {
             probe_id: id,
             probe_clock: LogicalClock { id, epoch, ticks },
-            seq_num: report.seq_num(),
+            seq_num: report.seq_num().into(),
             frontier_clocks: vec![],
             event_log: vec![],
         };
@@ -408,9 +424,13 @@ impl TryFrom<&[u8]> for Report {
         for u32_bytes in payload[..clocks_len].chunks_exact(mem::size_of::<LogEntry>()) {
             let raw = le_bytes::read_u32(u32_bytes);
             if probe_id.is_none() {
-                probe_id = ProbeId::new(
-                    unsafe { LogEntry::new_unchecked(raw) }.interpret_as_logical_clock_probe_id(),
-                );
+                let entry = unsafe { LogEntry::new_unchecked(raw) };
+                if entry.has_clock_bit_set() {
+                    probe_id = Some(
+                        ProbeId::new(entry.interpret_as_logical_clock_probe_id())
+                            .ok_or_else(|| SerializationError::InvalidProbeId(entry))?,
+                    );
+                }
             } else {
                 let (epoch, ticks) = modality_probe::unpack_clock_word(raw);
                 owned_report.frontier_clocks.push(LogicalClock {
@@ -431,19 +451,19 @@ impl TryFrom<&[u8]> for Report {
                     if raw_entry.has_clock_bit_set() {
                         interpret_next_as = Next::Clock(
                             ProbeId::new(raw_entry.interpret_as_logical_clock_probe_id())
-                                .ok_or_else(|| SerializationError)?,
+                                .ok_or_else(|| SerializationError::InvalidProbeId(raw_entry))?,
                         );
                     } else if raw_entry.has_event_with_payload_bit_set() {
                         interpret_next_as = Next::Payload(
                             raw_entry
                                 .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError)?,
+                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
                         );
                     } else {
                         owned_report.event_log.push(EventLogEntry::Event(
                             raw_entry
                                 .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError)?,
+                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
                         ));
                     }
                 }
@@ -466,6 +486,7 @@ impl TryFrom<&[u8]> for Report {
     }
 }
 
+#[derive(Debug)]
 enum Next {
     Clock(ProbeId),
     Payload(EventId),
@@ -545,7 +566,13 @@ impl Report {
         Ok(owned_report)
     }
 
-    pub fn write_into_le_bytes(&self, bytes: &mut [u8]) -> Result<usize, ReportWireError> {
+    pub fn write_into_le_bytes(&self, bytes: &mut [u8]) -> Result<usize, SerializationError> {
+        if self.frontier_clocks.len() > std::u16::MAX as usize {
+            return Err(SerializationError::TooManyFrontierClocks(
+                self.frontier_clocks.len(),
+            ));
+        }
+
         let mut wire = WireReport::new_unchecked(bytes);
         wire.check_len()?;
         wire.set_fingerprint();
@@ -554,7 +581,7 @@ impl Report {
             self.probe_clock.epoch,
             self.probe_clock.ticks,
         ));
-        wire.set_seq_num(self.seq_num);
+        wire.set_seq_num(self.seq_num.0);
         wire.set_n_clocks(self.frontier_clocks.len() as _);
 
         let num_u32_entries: usize = self
@@ -568,6 +595,10 @@ impl Report {
                 }
             })
             .sum();
+
+        if num_u32_entries > std::u32::MAX as usize {
+            return Err(SerializationError::TooManyLogEntries(num_u32_entries));
+        }
 
         wire.set_n_log_entries(num_u32_entries as _);
         wire.check_payload_len()?;
@@ -622,6 +653,7 @@ pub(crate) mod test {
     use modality_probe::*;
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
+    use proptest::std_facade::*;
     use std::convert::TryFrom;
 
     pub fn arb_session_id() -> impl Strategy<Value = SessionId> {
@@ -629,7 +661,7 @@ pub(crate) mod test {
     }
 
     pub fn arb_sequence_number() -> impl Strategy<Value = SequenceNumber> {
-        any::<u16>().prop_map_into()
+        any::<u64>().prop_map_into()
     }
 
     pub fn arb_sequence_index() -> impl Strategy<Value = u32> {
@@ -680,6 +712,14 @@ pub(crate) mod test {
             .prop_map(|(id, epoch, ticks)| LogicalClock { id, epoch, ticks })
     }
 
+    prop_compose! {
+        pub fn gen_frontier_clocks(max_clocks: usize)
+        (vec in proptest::collection::vec(arb_logical_clock(), 0..max_clocks))
+        -> Vec<LogicalClock> {
+            vec
+        }
+    }
+
     pub fn arb_log_entry_data() -> impl Strategy<Value = LogEntryData> {
         let fc = arb_logical_clock()
             .prop_map(|lc| LogEntryData::FrontierClock(lc))
@@ -694,6 +734,27 @@ pub(crate) mod test {
             .prop_map(|lc| LogEntryData::TraceClock(lc))
             .boxed();
         fc.prop_union(eid).or(eid_wp).or(tc)
+    }
+
+    pub fn arb_event_log_entry() -> impl Strategy<Value = EventLogEntry> {
+        let tc = arb_logical_clock()
+            .prop_map(|lc| EventLogEntry::TraceClock(lc))
+            .boxed();
+        let eid = arb_event_id()
+            .prop_map(|id| EventLogEntry::Event(id))
+            .boxed();
+        let eid_wp = (arb_event_id(), any::<u32>())
+            .prop_map(|(id, p)| EventLogEntry::EventWithPayload(id, p))
+            .boxed();
+        tc.prop_union(eid).or(eid_wp)
+    }
+
+    prop_compose! {
+        pub fn gen_event_log(max_entries: usize)
+        (vec in proptest::collection::vec(arb_event_log_entry(), 0..max_entries))
+        -> Vec<EventLogEntry> {
+            vec
+        }
     }
 
     pub fn arb_log_entry() -> impl Strategy<Value = ReportLogEntry> {
@@ -717,6 +778,27 @@ pub(crate) mod test {
                     }
                 },
             )
+    }
+
+    prop_compose! {
+        pub fn gen_report(
+            max_frontier_clocks: usize,
+            max_log_entries: usize)
+            (
+                probe_id in arb_probe_id(),
+                probe_clock in arb_logical_clock(),
+                seq_num in arb_sequence_number(),
+                frontier_clocks in gen_frontier_clocks(max_frontier_clocks),
+                event_log in gen_event_log(max_log_entries),
+             ) -> Report {
+                Report {
+                    probe_id,
+                    probe_clock,
+                    seq_num,
+                    frontier_clocks,
+                    event_log,
+                }
+            }
     }
 
     #[test]
@@ -748,7 +830,7 @@ pub(crate) mod test {
                     epoch: ProbeEpoch(0),
                     ticks: ProbeTicks(0),
                 },
-                seq_num: 0,
+                seq_num: 0.into(),
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(1).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -776,7 +858,7 @@ pub(crate) mod test {
                     epoch: ProbeEpoch(1),
                     ticks: ProbeTicks(1),
                 },
-                seq_num: 1,
+                seq_num: 1.into(),
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(1).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -809,7 +891,7 @@ pub(crate) mod test {
                     epoch: ProbeEpoch(1),
                     ticks: ProbeTicks(1),
                 },
-                seq_num: 0,
+                seq_num: 0.into(),
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(2).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -835,5 +917,25 @@ pub(crate) mod test {
         let bytes_written = o_report.write_into_le_bytes(&mut report_dest[..]).unwrap();
         let i_report = Report::try_from(&report_dest[..bytes_written]).unwrap();
         assert_eq!(o_report, i_report);
+    }
+
+    proptest! {
+        #[test]
+        fn round_trip_serialization(
+            mut report in gen_report(256, 512)
+        ) {
+            // Need to make sure probe_clock.id and probe_id are the same
+            report.probe_clock.id = report.probe_id;
+
+            const MEGABYTE: usize = 1024*1024;
+            let mut bytes = vec![0u8; MEGABYTE];
+            let bytes_written = report.write_into_le_bytes(&mut bytes).unwrap();
+            prop_assert!(bytes_written > 0 && bytes_written <= bytes.len());
+
+            match Report::try_from(&bytes[..bytes_written]) {
+                Err(e) => prop_assert!(false, "Report::try_from(bytes) error: {:?}", e),
+                Ok(r) => prop_assert_eq!(report, r),
+            }
+        }
     }
 }
