@@ -314,35 +314,33 @@ where
                 if id == report.probe_id {
                     report.probe_clock = LogicalClock { id, epoch, ticks };
                 }
-            } else {
-                if let Some(eid) = e.event_id {
-                    let id = match EventId::new(eid) {
-                        Some(id) => id,
-                        None => {
-                            self.error = Some(ReadError::InvalidContent {
-                                session_id: SessionId(e.session_id),
-                                sequence_number: SequenceNumber(e.sequence_number),
-                                sequence_index: e.sequence_index,
-                                message: "invalid event id",
-                            });
-                            return self.error.clone().map(Err);
-                        }
-                    };
-                    report
-                        .event_log
-                        .push(if let Some(payload) = e.event_payload {
-                            EventLogEntry::EventWithPayload(id, payload)
-                        } else {
-                            EventLogEntry::Event(id)
+            } else if let Some(eid) = e.event_id {
+                let id = match EventId::new(eid) {
+                    Some(id) => id,
+                    None => {
+                        self.error = Some(ReadError::InvalidContent {
+                            session_id: SessionId(e.session_id),
+                            sequence_number: SequenceNumber(e.sequence_number),
+                            sequence_index: e.sequence_index,
+                            message: "invalid event id",
                         });
-                } else {
-                    return Some(Err(ReadError::InvalidContent {
-                        session_id: SessionId(e.session_id),
-                        sequence_number: SequenceNumber(e.sequence_number),
-                        sequence_index: e.sequence_index,
-                        message: "missing an event id",
-                    }));
-                }
+                        return self.error.clone().map(Err);
+                    }
+                };
+                report
+                    .event_log
+                    .push(if let Some(payload) = e.event_payload {
+                        EventLogEntry::EventWithPayload(id, payload)
+                    } else {
+                        EventLogEntry::Event(id)
+                    });
+            } else {
+                return Some(Err(ReadError::InvalidContent {
+                    session_id: SessionId(e.session_id),
+                    sequence_number: SequenceNumber(e.sequence_number),
+                    sequence_index: e.sequence_index,
+                    message: "missing an event id",
+                }));
             }
         }
     }
