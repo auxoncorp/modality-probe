@@ -47,11 +47,13 @@ const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
 const_assert_eq!(
-    size_of::<RaceLog<'_>>()
+    size_of::<OverwritePriorityLevel>()
         + size_of::<ProbeId>()
+        + size_of::<RaceLog<'_>>()
         + size_of::<u32>()
         + size_of::<LogicalClock>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
+        + 4
         + size_of::<u64>(),
     size_of::<DynamicHistory>()
 );

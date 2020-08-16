@@ -9,13 +9,15 @@ use core::ops::{Add, AddAssign, Sub};
 use core::sync::atomic::{fence, Ordering};
 
 /// The index of an entry in the sequence of all entries written to the buffer
-/// Note: This struct is 2 separate words so they can be read in one cpu instruction on 32 bit machines,
-/// for asynchronous reading
+/// Note: This struct is 2 separate 32 bit words so they can be read in one cpu instruction on 32 bit machines,
+/// for asynchronous reading. It is public so it can be directly accessed from the asynchronous reader.
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(C)]
-pub(crate) struct SeqNum {
-    high: u32,
-    low: u32,
+pub struct SeqNum {
+    /// High 32 bits of sequence number
+    pub high: u32,
+    /// Low 32 bits of sequence number
+    pub low: u32,
 }
 
 impl SeqNum {
@@ -235,8 +237,6 @@ pub mod tests {
         let (ptr_s, ptr_r) = crossbeam::crossbeam_channel::bounded(0);
         let barr_r = Arc::new(Barrier::new(2));
         let barr_w = barr_r.clone();
-        let num_read_r = Arc::new(AtomicU32::new(0));
-        let num_read_w = num_read_r.clone();
         crossbeam::thread::scope(|s| {
             s.spawn(move |_| {
                 let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
@@ -286,8 +286,6 @@ pub mod tests {
         let (ptr_s, ptr_r) = crossbeam::crossbeam_channel::bounded(0);
         let barr_r = Arc::new(Barrier::new(2));
         let barr_w = barr_r.clone();
-        let num_read_r = Arc::new(AtomicU32::new(0));
-        let num_read_w = num_read_r.clone();
         crossbeam::thread::scope(|s| {
             s.spawn(move |_| {
                 let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
@@ -299,7 +297,6 @@ pub mod tests {
                 let mut last_prefix = false;
 
                 for i in 0..NUM_WRITES {
-                    while i - num_read_w.load(Ordering::SeqCst) >= buf.get_seqn_mod() - 1 {}
                     if last_prefix {
                         buf.push(OrderedEntry::from_index_suffix(i));
                         last_prefix = false;

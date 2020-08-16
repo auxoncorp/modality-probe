@@ -1,6 +1,5 @@
 use chrono::Utc;
 use std::cell::RefCell;
-use std::error::Error;
 use std::fs::File;
 use std::mem::size_of;
 use std::net::SocketAddrV4;
@@ -9,245 +8,190 @@ use std::rc::Rc;
 use std::sync::mpsc::Receiver;
 use std::thread::sleep;
 use std::time::Duration;
-use std::convert::TryFrom;
 
+use err_derive::Error;
 use field_offset::offset_of;
-use num::traits::Unsigned;
 use probe_rs::{MemoryInterface, Session};
 
 use modality_probe::log::LogEntry;
-use modality_probe::payload::{
-    write_report_payload, ClocksOverflowedError, FrontierClocks, PayloadOutput,
-};
 use modality_probe::{
-    DynamicHistory, LogicalClock, ModalityProbe, OrdClock, OverwritePriorityLevel, ProbeEpoch,
-    ProbeId, ProbeTicks,
+    DynamicHistory, EventId, LogicalClock, ModalityProbe, OrdClock, OverwritePriorityLevel,
+    ProbeEpoch, ProbeId, ProbeTicks,
 };
 use modality_probe_collector_common::{
     add_log_report_to_entries, csv::write_log_entries, Report, ReportLogEntry, SessionId,
 };
-use race_buffer::reader::{RaceBufferReader, Snapper};
-use race_buffer::writer::RaceBuffer;
-use race_buffer::PossiblyMissed;
-
-type DynResult<T> = std::result::Result<T, Box<dyn Error>>;
+use race_buffer::async_reader::{RaceReader, Snapper};
+use race_buffer::{RaceBuffer, SeqNum, WholeEntry};
 
 // Offset of pointer to DynamicHistory in ModalityProbe struct, which is located in modality-probe/src/lib.rs
-fn history_ptr_offset<W>() -> W
-where
-    W: Word,
-{
-    offset_of!(ModalityProbe => history)
-        .get_byte_offset()
-        .into()
+fn history_ptr_offset() -> u32 {
+    offset_of!(ModalityProbe => history).get_byte_offset() as u32
 }
 
 // Address offsets of each needed field of the DynamicHistory struct, which is located in modality-probe/src/history.rs
-fn overwrite_priority_offset<W>() -> W
-where
-    W: Word,
-{
-    W::try_from(offset_of!(DynamicHistory => overwrite_priority)
-        .get_byte_offset()).expect("Offset cannot be greater than a word on the target system")
+fn overwrite_priority_offset() -> u32 {
+    offset_of!(DynamicHistory => overwrite_priority).get_byte_offset() as u32
 }
 
-fn probe_id_offset<W>() -> W
-where
-    W: Word,
-{
-    offset_of!(DynamicHistory => probe_id)
-        .get_byte_offset()
-        .into()
+fn probe_id_offset() -> u32 {
+    offset_of!(DynamicHistory => probe_id).get_byte_offset() as u32
 }
 
-fn write_seqn_offset<W>() -> W
-where
-    W: Word,
-{
-    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => write_seqn)
-        .get_byte_offset()
-        .into()
+fn write_seqn_high_offset() -> u32 {
+    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => write_seqn: SeqNum => high)
+        .get_byte_offset() as u32
 }
 
-fn overwrite_seqn_offset<W>() -> W
-where
-    W: Word,
-{
-    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => overwrite_seqn)
-        .get_byte_offset()
-        .into()
+fn write_seqn_low_offset() -> u32 {
+    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => write_seqn: SeqNum => low)
+        .get_byte_offset() as u32
 }
 
-fn log_storage_addr_offset<W>() -> W
-where
-    W: Word,
-{
-    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => storage)
-        .get_byte_offset()
-        .into()
+fn overwrite_seqn_high_offset() -> u32 {
+    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => overwrite_seqn: SeqNum => high)
+        .get_byte_offset() as u32
 }
 
-fn log_storage_cap_offset<W>() -> W
-where
-    W: Word,
-{
+fn overwrite_seqn_low_offset() -> u32 {
+    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => overwrite_seqn: SeqNum => low)
+        .get_byte_offset() as u32
+}
+
+fn log_storage_addr_offset() -> u32 {
+    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => storage).get_byte_offset() as u32
+}
+
+fn log_storage_cap_offset() -> u32 {
     // Assume storage addr is a u32
-    log_storage_addr_offset() + size_of::<u32>().into()
-}
-
-/// Log payload output backed by a Vector
-struct PayloadOutputVec<'a>(&'a mut Vec<LogEntry>);
-
-impl PayloadOutput for PayloadOutputVec<'_> {
-    fn push(&mut self, item: LogEntry) {
-        self.0.push(item)
-    }
-
-    fn free_capacity(&mut self) -> usize {
-        usize::MAX
-    }
-}
-
-/// Reported clocks list backed by a vector
-struct FrontierClocksVec<'a>(&'a mut Vec<LogicalClock>);
-
-impl FrontierClocks for FrontierClocksVec<'_> {
-    fn merge_clock(&mut self, ext_clock: LogicalClock) -> Result<(), ClocksOverflowedError> {
-        let mut existed = false;
-        for c in self.0.iter_mut() {
-            if c.id == ext_clock.id {
-                if OrdClock(ext_clock.epoch, ext_clock.ticks) > OrdClock(c.epoch, c.ticks) {
-                    c.epoch = ext_clock.epoch;
-                    c.ticks = ext_clock.ticks;
-                }
-                existed = true;
-            }
-        }
-        if !existed {
-            self.0.push(ext_clock);
-        }
-        Ok(())
-    }
-
-    fn as_slice(&self) -> &[LogicalClock] {
-        self.0.as_slice()
-    }
+    log_storage_addr_offset() + size_of::<u32>() as u32
 }
 
 /// Configuration for running collector
 #[derive(Debug, PartialEq)]
-pub struct Config<W>
-where
-    W: Word,
-{
+pub struct Config {
     pub session_id: SessionId,
     pub big_endian: bool,
     pub attach_target: Option<String>,
     pub gdb_addr: Option<SocketAddrV4>,
     pub interval: Duration,
     pub output_path: PathBuf,
-    pub probe_addrs: Vec<ProbeAddr<W>>,
+    pub probe_addrs: Vec<ProbeAddr>,
 }
 
 /// Struct representing a probe address, either the address of the probe itself or of
 /// a pointer to the probe
 #[derive(Debug, PartialEq)]
-pub enum ProbeAddr<W>
-where
-    W: Word,
-{
-    Addr(W),
-    PtrAddr(W),
+pub enum ProbeAddr {
+    Addr(u32),
+    PtrAddr(u32),
 }
 
-pub trait Word: Unsigned + TryFrom<usize> + std::fmt::Debug {}
-
-impl Word for u32 {}
-
-impl Word for u64 {}
+#[derive(Debug, Error)]
+pub enum DebugCollectorError {
+    #[error(display = "Error reading from/writing to target")]
+    TargetError,
+    #[error(display = "Invalid probe id read from device")]
+    ProbeIdError,
+    #[error(display = "Error processing the report's log")]
+    LogProcessingError,
+    #[error(display = "Error serializing the report")]
+    ReportSerializationError,
+    #[error(display = "Error using output file")]
+    FileError,
+}
 
 /// Trait used to specify backend used to access device memory
 pub trait MemoryAccessor {
-    type TargetWord: Word;
-
-    fn read_32(&mut self, addr: Self::TargetWord) -> DynResult<u32>;
-    fn read_word(&mut self, addr: Self::TargetWord) -> DynResult<Self::TargetWord>;
-    fn write_32(&mut self, addr: Self::TargetWord, data: u32) -> DynResult<()>;
+    fn read_32(&mut self, addr: u32) -> Result<u32, DebugCollectorError>;
+    fn write_32(&mut self, addr: u32, data: u32) -> Result<(), DebugCollectorError>;
 }
 
 /// MemoryAccessor that uses probe-rs to access device memory
 struct ProbeRsReader(Session);
 
 impl MemoryAccessor for ProbeRsReader {
-    type TargetWord = u32;
-    fn read_word(&mut self, addr: Self::TargetWord) -> DynResult<Self::TargetWord> {
-        self.read_32(addr)
+    fn read_32(&mut self, addr: u32) -> Result<u32, DebugCollectorError> {
+        let mut core = self
+            .0
+            .core(0)
+            .map_err(|_e| DebugCollectorError::TargetError)?;
+        core.read_word_32(addr)
+            .map_err(|_e| DebugCollectorError::TargetError)
     }
-    fn read_32(&mut self, addr: u32) -> DynResult<u32> {
-        let mut core = self.0.core(0)?;
-        Ok(core.read_word_32(addr)?)
-    }
-    fn write_32(&mut self, addr: u32, data: u32) -> DynResult<()> {
-        let mut core = self.0.core(0)?;
-        Ok(core.write_word_32(addr, data)?)
+    fn write_32(&mut self, addr: u32, data: u32) -> Result<(), DebugCollectorError> {
+        let mut core = self
+            .0
+            .core(0)
+            .map_err(|_e| DebugCollectorError::TargetError)?;
+        core.write_word_32(addr, data)
+            .map_err(|_e| DebugCollectorError::TargetError)
     }
 }
 
 /// Struct used to take snapshots of RaceBuffer on device
-struct MemorySnapper<W>
-where
-    W: Word,
-{
+struct MemorySnapper {
     /// Reader used to read device memory
-    mem_accessor: Rc<RefCell<dyn MemoryAccessor<TargetWord = W>>>,
+    mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
     /// Address of RaceBuffer backing storage
-    storage_addr: W,
-    /// Address of RaceBuffer write cursor
-    write_seqn_addr: W,
-    /// Address of RaceBuffer overwrite cursor
-    overwrite_seqn_addr: W,
+    storage_addr: u32,
+    /// Address of RaceBuffer write sequence number high word
+    write_seqn_high_addr: u32,
+    /// Address of RaceBuffer write sequence number low word
+    write_seqn_low_addr: u32,
+    /// Address of RaceBuffer write sequence number high word
+    overwrite_seqn_high_addr: u32,
+    /// Address of RaceBuffer write sequence number low word
+    overwrite_seqn_low_addr: u32,
 }
 
-impl<W> Snapper<LogEntry> for MemorySnapper<W>
-where
-    W: Word,
-{
-    fn snap_write_seqn(&self) -> DynResult<u32> {
-        self.mem_accessor.borrow_mut().read_32(self.write_seqn_addr)
-    }
+impl Snapper<LogEntry> for MemorySnapper {
+    type Error = DebugCollectorError;
 
-    fn snap_overwrite_seqn(&self) -> DynResult<u32> {
+    fn snap_write_seqn_high(&self) -> Result<u32, DebugCollectorError> {
         self.mem_accessor
             .borrow_mut()
-            .read_32(self.overwrite_seqn_addr)
+            .read_32(self.write_seqn_high_addr)
     }
 
-    fn snap_storage(&self, index: u32) -> DynResult<LogEntry> {
+    fn snap_write_seqn_low(&self) -> Result<u32, DebugCollectorError> {
+        self.mem_accessor
+            .borrow_mut()
+            .read_32(self.write_seqn_low_addr)
+    }
+
+    fn snap_overwrite_seqn_high(&self) -> Result<u32, DebugCollectorError> {
+        self.mem_accessor
+            .borrow_mut()
+            .read_32(self.overwrite_seqn_high_addr)
+    }
+
+    fn snap_overwrite_seqn_low(&self) -> Result<u32, DebugCollectorError> {
+        self.mem_accessor
+            .borrow_mut()
+            .read_32(self.overwrite_seqn_low_addr)
+    }
+
+    fn snap_storage(&self, index: usize) -> Result<LogEntry, DebugCollectorError> {
         let raw: u32 = self
             .mem_accessor
             .borrow_mut()
-            .read_32(self.storage_addr + (size_of::<LogEntry>() as u32 * index))?;
+            .read_32(self.storage_addr + (size_of::<LogEntry>() * index) as u32)?;
         // Safe because entry is already in memory as a valid LogEntry
         Ok(unsafe { LogEntry::new_unchecked(raw) })
     }
 }
 
 /// Used to write to probe's "overwrite_priority" field
-struct PriorityWriter<W>
-where
-    W: Word,
-{
+struct PriorityWriter {
     /// Memory accessor used to write to device memoryt
-    mem_accessor: Rc<RefCell<dyn MemoryAccessor<TargetWord = W>>>,
+    mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
     /// Address of priority field
-    priority_field_addr: W,
+    priority_field_addr: u32,
 }
 
-impl<W> PriorityWriter<W>
-where
-    W: Word,
-{
-    fn write(&mut self, level: OverwritePriorityLevel) -> DynResult<()> {
+impl PriorityWriter {
+    fn write(&mut self, level: OverwritePriorityLevel) -> Result<(), DebugCollectorError> {
         self.mem_accessor
             .borrow_mut()
             .write_32(self.priority_field_addr, level.0)
@@ -255,71 +199,70 @@ where
 }
 
 /// Log collector for a single probe
-pub struct Collector<W>
-where
-    W: Word,
-{
+pub struct Collector {
     /// Sequence number of next report
-    seq_num: u16,
+    seq_num: u64,
     /// Reader used to read the probe's RaceBuffer
-    reader: RaceBufferReader<LogEntry, MemorySnapper<W>>,
+    reader: RaceReader<LogEntry, MemorySnapper>,
+    /// Allocated buffer for reading the log into
+    rbuf: Vec<WholeEntry<LogEntry>>,
     /// Processed clocks backing storage
     clocks: Vec<LogicalClock>,
     /// Used to write to the probe's "overwrite_priority" field
-    priority_writer: PriorityWriter<W>,
+    priority_writer: PriorityWriter,
 }
 
-impl<W> Collector<W>
-where
-    W: Word,
-{
+impl Collector {
     /// Initialize collector by reading probe information
     pub fn initialize(
-        probe_addr: &ProbeAddr<W>,
-        mem_accessor: Rc<RefCell<dyn MemoryAccessor<TargetWord = W>>>,
-    ) -> DynResult<Self> {
+        probe_addr: &ProbeAddr,
+        mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
+    ) -> Result<Self, DebugCollectorError> {
         let addr = match *probe_addr {
             ProbeAddr::Addr(addr) => addr,
             // Read storage address from pointer
-            ProbeAddr::PtrAddr(addr) => mem_accessor.borrow_mut().read_word(addr)?,
+            ProbeAddr::PtrAddr(addr) => mem_accessor.borrow_mut().read_32(addr)?,
         };
         let mut mem_accessor_borrowed = mem_accessor.borrow_mut();
         // Get address of DynamicHistory
-        let hist_addr = mem_accessor_borrowed.read_word(addr + history_ptr_offset())?;
+        let hist_addr = mem_accessor_borrowed.read_32(addr + history_ptr_offset())?;
         // Read DynamicHistory fields
         let id_raw = mem_accessor_borrowed.read_32(hist_addr + probe_id_offset())?;
-        let id =
-            ProbeId::new(id_raw).ok_or_else(|| "Read invalid probe ID from device".to_string())?;
-        let buf_addr = mem_accessor_borrowed.read_word(hist_addr + log_storage_addr_offset())?;
-        let buf_cap = mem_accessor_borrowed.read_word(hist_addr + log_storage_cap_offset())?;
-        let write_seqn_addr = hist_addr + write_seqn_offset();
-        let overwrite_seqn_addr = hist_addr + overwrite_seqn_offset();
+        let id = ProbeId::new(id_raw).ok_or_else(|| DebugCollectorError::ProbeIdError)?;
+        let buf_addr = mem_accessor_borrowed.read_32(hist_addr + log_storage_addr_offset())?;
+        let buf_cap = mem_accessor_borrowed.read_32(hist_addr + log_storage_cap_offset())? as usize;
+        let write_seqn_high_addr = hist_addr + write_seqn_high_offset();
+        let write_seqn_low_addr = hist_addr + write_seqn_low_offset();
+        let overwrite_seqn_high_addr = hist_addr + overwrite_seqn_high_offset();
+        let overwrite_seqn_low_addr = hist_addr + overwrite_seqn_low_offset();
         let priority_field_addr = hist_addr + overwrite_priority_offset();
         drop(mem_accessor_borrowed);
 
-        // Initialize frontier clocks with self clock set to 0
+        let priority_mem_accessor = mem_accessor.clone();
         let mut clocks = Vec::new();
-        // Clocks should not overflow in Vec; result can be unwrapped
-        FrontierClocksVec(&mut clocks)
-            .merge_clock(LogicalClock {
+        // Merge self clock set to 0
+        Self::merge_clock(
+            &mut clocks,
+            LogicalClock {
                 id,
                 epoch: ProbeEpoch(0),
                 ticks: ProbeTicks(0),
-            })
-            .unwrap();
-
-        let priority_mem_accessor = mem_accessor.clone();
+            },
+        );
         Ok(Self {
             seq_num: 0,
-            reader: RaceBufferReader::new(
+            reader: RaceReader::new(
                 MemorySnapper {
                     mem_accessor,
                     storage_addr: buf_addr,
-                    write_seqn_addr,
-                    overwrite_seqn_addr,
+                    write_seqn_high_addr,
+                    write_seqn_low_addr,
+                    overwrite_seqn_high_addr,
+                    overwrite_seqn_low_addr,
                 },
                 buf_cap,
             ),
+            rbuf: Vec::new(),
             clocks,
             priority_writer: PriorityWriter {
                 mem_accessor: priority_mem_accessor,
@@ -329,60 +272,73 @@ where
     }
 
     /// Collect all new logs, return a report
-    pub fn collect_report(&mut self) -> DynResult<Report> {
-        // Perform a RaceBuffer read
-        let mut rbuf = Vec::new();
-        self.retrieve_logs(&mut rbuf)?;
+    pub fn collect_report(&mut self) -> Result<Report, DebugCollectorError> {
+        let num_missed = self.reader.read(&mut self.rbuf)?;
+        // Possibly add entries missed event
+        if num_missed > 0 {
+            let num_missed_rounded = u64::max(num_missed, u32::MAX as u64) as u32;
+            let (ev, payload) =
+                LogEntry::event_with_payload(EventId::EVENT_LOG_ITEMS_MISSED, num_missed_rounded);
+            self.rbuf.insert(0, WholeEntry::Double(ev, payload));
+        }
 
-        let n_frontier_clocks = self.clocks.len();
-        let mut processed_log = Vec::new();
-        let (_n_entries_written, n_entries_read, did_clocks_overflow) = write_report_payload(
-            rbuf.iter().copied(),
-            &mut FrontierClocksVec(&mut self.clocks),
-            &mut PayloadOutputVec(&mut processed_log),
-        );
-        // Should be able to process all items, clocks should not overflow
-        debug_assert_eq!(n_entries_read, rbuf.len());
-        debug_assert!(!did_clocks_overflow);
+        // Keep a copy of the clocks before this report which will be used as frontier clocks
+        let report_clocks = self.clocks.clone();
 
-        match Report::try_from_log(
-            self.clocks[0],
-            self.seq_num,
-            n_frontier_clocks,
-            &processed_log[..],
-        ) {
-            Ok(report) => {
-                self.seq_num += 1;
-                Ok(report)
+        // Merge clocks from this report
+        for entry in self.rbuf.iter() {
+            if let WholeEntry::Double(first, second) = entry {
+                if first.has_clock_bit_set() {
+                    let id = ProbeId::new(first.interpret_as_logical_clock_probe_id())
+                        .ok_or_else(|| DebugCollectorError::LogProcessingError)?;
+                    let (epoch, ticks) = modality_probe::unpack_clock_word(second.raw());
+                    Self::merge_clock(&mut self.clocks, LogicalClock { id, epoch, ticks })
+                }
             }
-            Err(_) => Err("Error serializing report".to_string().into()),
+        }
+
+        let report =
+            Report::try_from_log(self.clocks[0], self.seq_num, report_clocks, &self.rbuf[..])
+                .and_then(|report| {
+                    self.seq_num += 1;
+                    Ok(report)
+                })
+                .map_err(|_e| DebugCollectorError::ReportSerializationError);
+        self.rbuf.clear();
+        report
+    }
+
+    fn merge_clock(clocks: &mut Vec<LogicalClock>, ext_clock: LogicalClock) {
+        let mut existed = false;
+        for c in clocks.iter_mut() {
+            if c.id == ext_clock.id {
+                if OrdClock(ext_clock.epoch, ext_clock.ticks) > OrdClock(c.epoch, c.ticks) {
+                    c.epoch = ext_clock.epoch;
+                    c.ticks = ext_clock.ticks;
+                }
+                existed = true;
+            }
+        }
+        if !existed {
+            clocks.push(ext_clock);
         }
     }
 
     /// Write to "write priority" field in probe
-    pub fn set_overwrite_priority(&mut self, level: OverwritePriorityLevel) -> DynResult<()> {
-        self.priority_writer.write(level)
-    }
-
-    /// Perform a racebuffer read
-    pub(crate) fn retrieve_logs(
+    pub fn set_overwrite_priority(
         &mut self,
-        rbuf: &mut Vec<PossiblyMissed<LogEntry>>,
-    ) -> DynResult<u32> {
-        self.reader.read(rbuf)
+        level: OverwritePriorityLevel,
+    ) -> Result<(), DebugCollectorError> {
+        self.priority_writer.write(level)
     }
 }
 
 /// Open memory reader based on config
-fn open_memory_reader<W>(
-    c: &Config<W>,
-) -> DynResult<Rc<RefCell<dyn MemoryAccessor<TargetWord = W>>>>
-where
-    W: Word,
-{
+fn open_memory_reader(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, DebugCollectorError> {
     Ok(Rc::new(RefCell::new(match c.attach_target.as_ref() {
         Some(target) => {
-            let session = Session::auto_attach(target)?;
+            let session =
+                Session::auto_attach(target).map_err(|_e| DebugCollectorError::TargetError)?;
             ProbeRsReader(session)
         }
         // No probe rs target implies use of gdb, which is not implemented yet
@@ -391,13 +347,10 @@ where
 }
 
 /// Initialize collectors of each probe based on config
-fn initialize_collectors<W>(
-    c: &Config<W>,
-    mem_accessor: Rc<RefCell<dyn MemoryAccessor<TargetWord = W>>>,
-) -> DynResult<Vec<Collector<W>>>
-where
-    W: Word,
-{
+fn initialize_collectors(
+    c: &Config,
+    mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
+) -> Result<Vec<Collector>, DebugCollectorError> {
     let mut collectors = Vec::new();
     for probe_addr in c.probe_addrs.iter() {
         collectors.push(Collector::initialize(probe_addr, mem_accessor.clone())?);
@@ -411,27 +364,30 @@ fn report_to_file(
     report: Report,
     session_id: SessionId,
     include_header_row: bool,
-) -> DynResult<()> {
+) -> Result<(), DebugCollectorError> {
     let mut entries: Vec<ReportLogEntry> = Vec::new();
 
     add_log_report_to_entries(&report, session_id, Utc::now(), &mut entries);
-    write_log_entries(out, &entries, include_header_row)?;
-    Ok(())
+    write_log_entries(out, &entries, include_header_row)
+        .map_err(|_e| DebugCollectorError::FileError)
 }
 
 /// Run debug collector with given config
-pub fn run<W>(c: &Config<W>, shutdown_receiver: Receiver<()>) -> DynResult<()>
-where
-    W: Word,
-{
+pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<(), DebugCollectorError> {
     let mem_accessor = open_memory_reader(c)?;
     let mut collectors = initialize_collectors(c, mem_accessor)?;
 
-    let mut needs_csv_headers = !c.output_path.exists() || c.output_path.metadata()?.len() == 0;
+    let mut needs_csv_headers = !c.output_path.exists()
+        || c.output_path
+            .metadata()
+            .map_err(|_e| DebugCollectorError::FileError)?
+            .len()
+            == 0;
     let mut out = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
-        .open(&c.output_path)?;
+        .open(&c.output_path)
+        .map_err(|_e| DebugCollectorError::FileError)?;
 
     loop {
         if shutdown_receiver.try_recv().is_ok() {
@@ -456,22 +412,6 @@ pub mod tests {
 
     use modality_probe::EventId;
     use modality_probe_collector_common::EventLogEntry;
-
-    struct DirectMemAccessor;
-
-    impl MemoryAccessor for DirectMemAccessor {
-
-        fn write_32(&mut self, addr: u32, data: u32) -> DynResult<()> {
-            let ptr = addr as usize as *mut u32;
-            unsafe { *ptr = data };
-            Ok(())
-        }
-
-        fn read_32(&mut self, addr: u32) -> DynResult<u32> {
-            let ptr = addr as usize as *const u32;
-            Ok(unsafe { *ptr })
-        }
-    }
 
     struct HashMapMemAccessor(HashMap<u32, u32>);
 

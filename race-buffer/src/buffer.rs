@@ -31,16 +31,18 @@ fn round_to_power_2(length: usize) -> usize {
 #[derive(Debug)]
 #[repr(C)]
 /// Struct used to write to buffer
+/// 
+/// Note: public structs must be accessed directly by asynchronous reader
 pub struct RaceBuffer<'a, E>
 where
     E: Entry,
 {
     /// Sequence number of the next entry to be written
-    write_seqn: SeqNum,
+    pub write_seqn: SeqNum,
     /// Sequence number of the next entry to be overwritten
-    overwrite_seqn: SeqNum,
+    pub overwrite_seqn: SeqNum,
     /// Backing storage
-    storage: &'a mut [MaybeUninit<E>],
+    pub storage: &'a mut [MaybeUninit<E>],
     /// Sequence number of next entry to be read from buffer
     /// Note: when using RaceReader, this field is not used
     read_seqn: SeqNum,

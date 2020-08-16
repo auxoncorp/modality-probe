@@ -5,6 +5,7 @@ use modality_probe::{
     wire::{le_bytes, ReportWireError, WireReport},
     EventId, LogicalClock, ProbeId,
 };
+use race_buffer::WholeEntry;
 use static_assertions::assert_eq_size;
 use std::convert::{TryFrom, TryInto};
 use std::mem;
@@ -497,69 +498,45 @@ impl Report {
     /// Try to create a report from a list of log entries
     pub fn try_from_log(
         source_clock: LogicalClock,
-        seq_num: u16,
-        n_frontier_clocks: usize,
-        log: &[LogEntry],
+        seq_num: u64,
+        frontier_clocks: Vec<LogicalClock>,
+        log: &[WholeEntry<LogEntry>],
     ) -> Result<Self, SerializationError> {
         let mut owned_report = Report {
             probe_id: source_clock.id,
             probe_clock: source_clock,
-            seq_num,
-            frontier_clocks: vec![],
+            seq_num: SequenceNumber(seq_num),
+            frontier_clocks,
             event_log: vec![],
         };
 
-        // 2 entries per clock
-        let n_clock_entries = n_frontier_clocks * 2;
-        let mut probe_id = None;
-        for clock_entry in &log[..n_clock_entries] {
-            match probe_id {
-                None => probe_id = ProbeId::new(clock_entry.interpret_as_logical_clock_probe_id()),
-                Some(id) => {
-                    let (epoch, ticks) = modality_probe::unpack_clock_word(clock_entry.raw());
-                    owned_report
-                        .frontier_clocks
-                        .push(LogicalClock { id, epoch, ticks });
-                    probe_id = None;
+        for entry in log {
+            match entry {
+                WholeEntry::Single(ev) => {
+                    owned_report.event_log.push(EventLogEntry::Event(
+                        ev
+                            .interpret_as_event_id()
+                            .ok_or_else(|| SerializationError::InvalidEventId(*ev))?,
+                    ));
                 }
-            }
-        }
-
-        let mut interpret_next_as = Next::DontKnow;
-        for entry in &log[n_clock_entries..] {
-            match interpret_next_as {
-                Next::DontKnow => {
-                    if entry.has_clock_bit_set() {
-                        interpret_next_as = Next::Clock(
-                            ProbeId::new(entry.interpret_as_logical_clock_probe_id())
-                                .ok_or_else(|| SerializationError)?,
-                        );
-                    } else if entry.has_event_with_payload_bit_set() {
-                        interpret_next_as = Next::Payload(
-                            entry
-                                .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError)?,
-                        );
+                WholeEntry::Double(first, second) => {
+                    if first.has_clock_bit_set() {
+                        let id = ProbeId::new(first.interpret_as_logical_clock_probe_id())
+                            .ok_or_else(|| SerializationError::InvalidProbeId(*first))?;
+                        let (epoch, ticks) = modality_probe::unpack_clock_word(second.raw());
+                        owned_report
+                            .event_log
+                            .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
                     } else {
-                        owned_report.event_log.push(EventLogEntry::Event(
-                            entry
-                                .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError)?,
-                        ));
+                        debug_assert!(first.has_event_with_payload_bit_set());
+                        let ev = first
+                            .interpret_as_event_id()
+                            .ok_or_else(|| SerializationError::InvalidEventId(*first))?;
+                        let payload = second.raw();
+                        owned_report
+                            .event_log
+                            .push(EventLogEntry::EventWithPayload(ev, payload));
                     }
-                }
-                Next::Clock(id) => {
-                    let (epoch, ticks) = modality_probe::unpack_clock_word(entry.raw());
-                    owned_report
-                        .event_log
-                        .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
-                    interpret_next_as = Next::DontKnow;
-                }
-                Next::Payload(id) => {
-                    owned_report
-                        .event_log
-                        .push(EventLogEntry::EventWithPayload(id, entry.raw()));
-                    interpret_next_as = Next::DontKnow;
                 }
             }
         }
