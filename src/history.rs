@@ -10,7 +10,7 @@ use fixed_slice_vec::{
 };
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_assert_eq};
 
-use race_buffer::{RaceBuffer, WholeEntry};
+use fenced_ring_buffer::{FencedRingBuffer, WholeEntry};
 
 use crate::{
     log::{LogEntry, RaceLog},
@@ -139,7 +139,7 @@ impl<'a> DynamicHistory<'a> {
         }
         let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
         let mut clocks = FixedSliceVec::from_bytes(clocks_region);
-        let log = RaceBuffer::new_from_bytes(log_region, false)
+        let log = FencedRingBuffer::new_from_bytes(log_region, false)
             .map_err(|_| StorageSetupError::UnderMinimumAllowedSize)?;
         if clocks.capacity() < MIN_CLOCKS_LEN || (log.capacity() as usize) < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);

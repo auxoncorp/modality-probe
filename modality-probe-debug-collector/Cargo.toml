@@ -17,6 +17,6 @@ modality-probe = { path = ".." }
 util = { path = "../util" }
 modality-probe-udp-collector = { path = "../modality-probe-udp-collector" }
 
-[dependencies.race-buffer]
-path = "../race-buffer"
+[dependencies.fenced-ring-buffer]
+path = "../fenced-ring-buffer"
 features = ["std"]

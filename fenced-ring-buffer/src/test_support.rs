@@ -94,10 +94,10 @@ impl OutputOrderedEntry {
     }
 }
 
-pub(crate) struct RawPtrSnapper<'a>(*const RaceBuffer<'a, OrderedEntry>);
+pub(crate) struct RawPtrSnapper<'a>(*const FencedRingBuffer<'a, OrderedEntry>);
 
 impl<'a> RawPtrSnapper<'a> {
-    pub(crate) fn new(ptr: *const RaceBuffer<'a, OrderedEntry>) -> RawPtrSnapper<'a> {
+    pub(crate) fn new(ptr: *const FencedRingBuffer<'a, OrderedEntry>) -> RawPtrSnapper<'a> {
         RawPtrSnapper(ptr)
     }
 }

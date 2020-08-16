@@ -1,4 +1,4 @@
-//! RaceBuffer, a single producer, single consumer, shared memory ring buffer which maintains
+//! FencedRingBuffer, a single producer, single consumer, shared memory ring buffer which maintains
 //! consistency while operating under race conditions.
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(warnings)]
@@ -60,10 +60,10 @@ impl SeqNum {
     }
 }
 
-impl Into<u64> for SeqNum {
-    fn into(self) -> u64 {
-        debug_assert!(self.high < Self::UPDATING_HIGH_MASK);
-        ((self.high as u64) << 32) + self.low as u64
+impl From<SeqNum> for u64 {
+    fn from(s: SeqNum) -> u64 {
+        debug_assert!(s.high < SeqNum::UPDATING_HIGH_MASK);
+        ((s.high as u64) << 32) + s.low as u64
     }
 }
 
@@ -82,7 +82,7 @@ impl Add<Self> for SeqNum {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        (Into::<u64>::into(self) + Into::<u64>::into(rhs)).into()
+        (u64::from(self) + u64::from(rhs)).into()
     }
 }
 
@@ -96,7 +96,7 @@ impl Sub<Self> for SeqNum {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        (Into::<u64>::into(self) - Into::<u64>::into(rhs)).into()
+        (u64::from(self) - u64::from(rhs)).into()
     }
 }
 
@@ -104,7 +104,7 @@ impl Add<u64> for SeqNum {
     type Output = Self;
 
     fn add(self, rhs: u64) -> Self::Output {
-        (Into::<u64>::into(self) + rhs).into()
+        (u64::from(self) + rhs).into()
     }
 }
 
@@ -118,7 +118,7 @@ impl Sub<u64> for SeqNum {
     type Output = Self;
 
     fn sub(self, rhs: u64) -> Self::Output {
-        (Into::<u64>::into(self) - rhs).into()
+        (u64::from(self) - rhs).into()
     }
 }
 
@@ -128,9 +128,9 @@ fn get_seqn_index(storage_cap: usize, seqn: SeqNum, use_base_2_indexing: bool) -
     // Cast to usize safe because index in storage slice cannot be greater than usize
     if use_base_2_indexing {
         // Index is lowest n bits of seqn where storage_cap is 2^n
-        (Into::<u64>::into(seqn) & (storage_cap as u64 - 1)) as usize
+        (u64::from(seqn) & (storage_cap as u64 - 1)) as usize
     } else {
-        (Into::<u64>::into(seqn) % storage_cap as u64) as usize
+        (u64::from(seqn) % storage_cap as u64) as usize
     }
 }
 
@@ -144,7 +144,7 @@ fn num_missed(read_seqn: SeqNum, overwrite_seqn: SeqNum) -> SeqNum {
     }
 }
 
-/// Entry that can be stored in a RaceBuffer
+/// Entry that can be stored in a FencedRingBuffer
 pub trait Entry: Copy + PartialEq {
     /// Return true if entry is the first in a double entry
     fn is_prefix(&self) -> bool;
@@ -167,10 +167,10 @@ where
     E: Entry,
 {
     /// 1 if entry is single, 2 if double
-    pub fn size(&self) -> u64 {
+    pub fn size(&self) -> u8 {
         match self {
             Self::Single(_) => 1,
-            _ => 2,
+            Self::Double(_, _) => 2,
         }
     }
 }
@@ -179,10 +179,10 @@ where
 pub mod async_reader;
 
 pub mod buffer;
-pub use buffer::RaceBuffer;
+pub use buffer::FencedRingBuffer;
 
 #[cfg(all(feature = "std", test))]
-mod util;
+mod test_support;
 
 #[cfg(all(feature = "std", test))]
 pub mod tests {
@@ -194,13 +194,13 @@ pub mod tests {
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;
-    use util::{OrderedEntry, OutputOrderedEntry, RawPtrSnapper};
+    use test_support::{OrderedEntry, OutputOrderedEntry, RawPtrSnapper};
 
     #[test]
     fn seq_nums() {
         assert_eq!(SeqNum::new(u32::MAX >> 1, u32::MAX), (u64::MAX >> 1).into());
         assert_eq!(
-            Into::<u64>::into(SeqNum::new(u32::MAX >> 1, u32::MAX)),
+            u64::from(SeqNum::new(u32::MAX >> 1, u32::MAX)),
             u64::MAX >> 1
         );
         assert_eq!(
@@ -208,7 +208,7 @@ pub mod tests {
             (0b01111111_11111111_11111111_11111111_00000000_00000000_00000000_00000000).into()
         );
         assert_eq!(
-            Into::<u64>::into(SeqNum::new(u32::MAX >> 1, 0)),
+            u64::from(SeqNum::new(u32::MAX >> 1, 0)),
             0b01111111_11111111_11111111_11111111_00000000_00000000_00000000_00000000
         );
 
@@ -239,9 +239,9 @@ pub mod tests {
             s.spawn(move |_| {
                 let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
 
-                let mut buf = RaceBuffer::new(&mut storage[..], false).unwrap();
+                let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
                 assert!(buf.capacity() == STORAGE_CAP);
-                let buf_ptr = &buf as *const RaceBuffer<'_, OrderedEntry> as usize;
+                let buf_ptr = &buf as *const FencedRingBuffer<'_, OrderedEntry> as usize;
                 ptr_s.send(buf_ptr).unwrap();
 
                 for i in 0..NUM_WRITES {
@@ -251,10 +251,10 @@ pub mod tests {
                 barr_r.wait();
             });
             s.spawn(move |_| {
-                let buf_ptr = ptr_r.recv().unwrap() as *const RaceBuffer<'_, OrderedEntry>;
+                let buf_ptr = ptr_r.recv().unwrap() as *const FencedRingBuffer<'_, OrderedEntry>;
                 let snapper = RawPtrSnapper::new(buf_ptr);
                 let mut output_buf = Vec::new();
-                let mut buf_reader = async_reader::RaceReader::new(snapper, STORAGE_CAP);
+                let mut buf_reader = async_reader::FencedReader::new(snapper, STORAGE_CAP);
 
                 let mut total_items_read = 0;
                 while total_items_read < NUM_WRITES as usize {
@@ -287,9 +287,9 @@ pub mod tests {
         crossbeam::thread::scope(|s| {
             s.spawn(move |_| {
                 let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
-                let mut buf = RaceBuffer::new(&mut storage[..], true).unwrap();
+                let mut buf = FencedRingBuffer::new(&mut storage[..], true).unwrap();
                 assert!(buf.capacity() == STORAGE_CAP);
-                let buf_ptr = &buf as *const RaceBuffer<'_, OrderedEntry> as usize;
+                let buf_ptr = &buf as *const FencedRingBuffer<'_, OrderedEntry> as usize;
                 ptr_s.send(buf_ptr).unwrap();
                 let mut rng = rand::thread_rng();
                 let mut last_prefix = false;
@@ -313,17 +313,17 @@ pub mod tests {
                 barr_r.wait();
             });
             s.spawn(move |_| {
-                let buf_ptr = ptr_r.recv().unwrap() as *const RaceBuffer<'_, OrderedEntry>;
+                let buf_ptr = ptr_r.recv().unwrap() as *const FencedRingBuffer<'_, OrderedEntry>;
                 let snapper = RawPtrSnapper::new(buf_ptr);
                 let mut output_buf = Vec::new();
-                let mut buf_reader = async_reader::RaceReader::new(snapper, STORAGE_CAP);
+                let mut buf_reader = async_reader::FencedReader::new(snapper, STORAGE_CAP);
                 let mut rng = rand::thread_rng();
 
                 let mut total_items_read = 0;
                 while total_items_read < (NUM_WRITES - 1) as u64 {
                     let mut temp_buf = Vec::new();
                     let n_missed = buf_reader.read(&mut temp_buf).unwrap();
-                    let n_read: u64 = temp_buf.iter().map(|we| we.size()).sum();
+                    let n_read: u64 = temp_buf.iter().map(|whole| whole.size() as u64).sum();
                     total_items_read += n_missed + n_read;
 
                     output_buf.push(OutputOrderedEntry::Missed(n_missed));

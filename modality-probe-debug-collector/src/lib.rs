@@ -20,13 +20,13 @@ use probe_rs::{MemoryInterface, Session};
 use modality_probe::compact_log::CompactLogItem;
 use modality_probe::ProbeId;
 use modality_probe_udp_collector::add_log_report_to_entries;
-use race_buffer::reader::{RaceBufferReader, Snapper};
+use fenced_ring_buffer::reader::{FencedRingBufferReader, Snapper};
 use util::alloc_log_report::LogReport;
 use util::model::{LogEntry, SegmentId, SessionId};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
-// NOTE: These may be changed once RaceBuffer is implemented into ekt
+// NOTE: These may be changed once FencedRingBuffer is implemented into ekt
 // Address offsets of each needed field of the DynamicHistory struct, which is located in modality-probe/src/history.rs
 const PROBE_ID_OFFSET: u32 = 0x0;
 const WCURS_OFFSET: u32 = 0x4;
@@ -95,15 +95,15 @@ impl MemoryReader for ProbeRsReader {
     }
 }
 
-/// Struct used to take snapshots of RaceBuffer on device
+/// Struct used to take snapshots of FencedRingBuffer on device
 struct MemorySnapper {
     /// Reader used to read device memory
     mem_reader: Rc<RefCell<dyn MemoryReader>>,
-    /// Address of RaceBuffer backing storage
+    /// Address of FencedRingBuffer backing storage
     storage_addr: u32,
-    /// Address of RaceBuffer write cursor
+    /// Address of FencedRingBuffer write cursor
     wcurs_addr: u32,
-    /// Address of RaceBuffer overwrite cursor
+    /// Address of FencedRingBuffer overwrite cursor
     owcurs_addr: u32,
 }
 
@@ -131,8 +131,8 @@ pub struct Collector {
     id: ProbeId,
     /// Buffer that logs are read into before being processed into a report
     rbuf: Vec<Option<CompactLogItem>>,
-    /// Reader used to read the probe's RaceBuffer
-    reader: RaceBufferReader<CompactLogItem, MemorySnapper>,
+    /// Reader used to read the probe's FencedRingBuffer
+    reader: FencedRingBufferReader<CompactLogItem, MemorySnapper>,
     // NOTE: will be used once log processing is implemented
     ///// Processed clocks backing storage
     //clocks: Vec<LogicalClock>,
@@ -169,7 +169,7 @@ impl Collector {
         Ok(Self {
             id,
             rbuf: Vec::new(),
-            reader: RaceBufferReader::new(
+            reader: FencedRingBufferReader::new(
                 MemorySnapper {
                     mem_reader,
                     storage_addr: buf_addr,
@@ -185,7 +185,7 @@ impl Collector {
 
     /// Collect all new logs, return a report
     pub fn collect_report(&mut self) -> Result<LogReport> {
-        // Perform a RaceBuffer read
+        // Perform a FencedRingBuffer read
         self.collect()?;
         let processed_log = Vec::new();
 
@@ -203,7 +203,7 @@ impl Collector {
         }
     }
 
-    /// Perform a read on the device's RaceBuffer
+    /// Perform a read on the device's FencedRingBuffer
     fn collect(&mut self) -> Result<()> {
         self.reader.read(&mut self.rbuf)
     }

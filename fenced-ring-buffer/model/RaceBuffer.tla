@@ -1,4 +1,4 @@
---------------------------- MODULE RaceBuffer ---------------------------
+--------------------------- MODULE FencedRingBuffer ---------------------------
 EXTENDS Naturals, Sequences, FiniteSets, TLC
 
 CONSTANTS 
