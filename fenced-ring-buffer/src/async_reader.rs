@@ -79,6 +79,7 @@ where
         }
 
         // Perform reads into snapshot buffer up to write sequence number
+        self.buf_snapshot.clear();
         let first_read_seqn = self.read_seqn;
         while self.read_seqn != pre_write_seqn {
             let storage_index = get_seqn_index(self.storage_cap, self.read_seqn, false);
@@ -102,7 +103,6 @@ where
         for entry in &mut self.buf_snapshot[u64::from(n_overwritten_in_snap) as usize..] {
             Self::store(&mut self.stored_prefix, *entry, out);
         }
-        self.buf_snapshot.clear();
         Ok((n_missed_before_read + n_overwritten_in_snap).into())
     }
 

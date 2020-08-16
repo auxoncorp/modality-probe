@@ -13,7 +13,7 @@ use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_ass
 use fenced_ring_buffer::{FencedRingBuffer, WholeEntry};
 
 use crate::{
-    log::{LogEntry, RaceLog},
+    log::{LogBuffer, LogEntry},
     wire::{report::WireReport, WireCausalSnapshot},
     CausalSnapshot, EventId, LogicalClock, MergeError, ModalityProbeInstant, OrdClock, ProbeEpoch,
     ProbeId, ProbeTicks, ProduceError, ReportError, StorageSetupError,
@@ -47,7 +47,7 @@ const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
 const_assert_eq!(
-    size_of::<RaceLog<'_>>()
+    size_of::<LogBuffer<'_>>()
         + size_of::<ProbeId>()
         + size_of::<u32>()
         + size_of::<LogicalClock>()
@@ -62,7 +62,7 @@ const_assert_eq!(
 #[derive(Debug)]
 #[repr(C)]
 pub struct DynamicHistory<'a> {
-    pub(crate) log: RaceLog<'a>,
+    pub(crate) log: LogBuffer<'a>,
     pub(crate) probe_id: ProbeId,
     /// The number of events seen since the current
     /// probe's logical clock last increased.

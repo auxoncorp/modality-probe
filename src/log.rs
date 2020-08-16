@@ -7,7 +7,7 @@ pub(crate) const CLOCK_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
 pub(crate) const EVENT_WITH_PAYLOAD_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
 
 /// FencedRingBuffer used to store log entries at each probe
-pub type RaceLog<'a> = FencedRingBuffer<'a, LogEntry>;
+pub type LogBuffer<'a> = FencedRingBuffer<'a, LogEntry>;
 
 /// In a stream of these:
 /// * If first bit is not set AND the second bit is not set, this is a
