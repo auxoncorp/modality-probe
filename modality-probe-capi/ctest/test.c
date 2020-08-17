@@ -33,6 +33,17 @@ bool test_backend_piping(void) {
 
     uint8_t * log_storage = (uint8_t*)malloc(DEFAULT_LOG_STORAGE);
     size_t bytes_written;
+
+    /* No events == nothing to report */
+    result = modality_probe_report(t, log_storage, DEFAULT_LOG_STORAGE, &bytes_written);
+    ERROR_CHECK(result, passed);
+    if (bytes_written != 0) {
+        passed = false;
+    }
+
+    result = modality_probe_record_event(t, EVENT_A);
+    ERROR_CHECK(result, passed);
+
     result = modality_probe_report(t, log_storage, DEFAULT_LOG_STORAGE, &bytes_written);
     ERROR_CHECK(result, passed);
     if (bytes_written == 0) {

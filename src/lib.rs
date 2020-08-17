@@ -10,6 +10,7 @@ use core::{
     cmp::{max, Ordering},
     convert::TryFrom,
     mem::size_of,
+    num::NonZeroUsize,
 };
 
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
@@ -309,7 +310,7 @@ pub trait Probe {
     ///    reported.
     /// 3. As much of the event log that will fit in the remaining
     ///    chunk of `destination`.
-    fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError>;
+    fn report(&mut self, destination: &mut [u8]) -> Result<Option<NonZeroUsize>, ReportError>;
 }
 
 /// Reference implementation of a `ModalityProbe`.
@@ -508,7 +509,7 @@ impl<'a> Probe for ModalityProbe<'a> {
     }
 
     #[inline]
-    fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
+    fn report(&mut self, destination: &mut [u8]) -> Result<Option<NonZeroUsize>, ReportError> {
         self.history.report(destination)
     }
 }

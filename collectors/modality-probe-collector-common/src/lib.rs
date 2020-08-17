@@ -747,8 +747,8 @@ pub(crate) mod test {
 
         p1.record_event(EventId::new(1).unwrap());
         let mut report_dest = vec![0; 512];
-        let n_bytes = p1.report(&mut report_dest).unwrap();
-        let o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
+        let n_bytes = p1.report(&mut report_dest).unwrap().unwrap();
+        let o_report = Report::try_from(&report_dest[..n_bytes.get()]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -775,8 +775,8 @@ pub(crate) mod test {
         let snap = p1.produce_snapshot().unwrap();
         p2.record_event(EventId::new(2).unwrap());
         p2.merge_snapshot(&snap).unwrap();
-        let n_bytes = p1.report(&mut report_dest).unwrap();
-        let o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
+        let n_bytes = p1.report(&mut report_dest).unwrap().unwrap();
+        let o_report = Report::try_from(&report_dest[..n_bytes.get()]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -808,8 +808,8 @@ pub(crate) mod test {
         assert_eq!(o_report, i_report);
 
         p2.record_event_with_payload(EventId::new(8).unwrap(), 10);
-        let n_bytes = p2.report(&mut report_dest).unwrap();
-        let o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
+        let n_bytes = p2.report(&mut report_dest).unwrap().unwrap();
+        let o_report = Report::try_from(&report_dest[..n_bytes.get()]).unwrap();
         assert_eq!(
             o_report,
             Report {

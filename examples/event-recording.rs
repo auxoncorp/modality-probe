@@ -62,17 +62,19 @@ fn main() {
             let n_report_bytes = probe
                 .report(&mut report_buffer)
                 .expect("Could not produce a report");
-            socket
-                .send_to(&report_buffer[..n_report_bytes], remote)
-                .expect("Could not send_to");
-            try_record_w_u32!(
-                probe,
-                REPORT_CREATED,
-                n_report_bytes as u32,
-                tags!("another tag"),
-                "Report created"
-            )
-            .expect("could not record event with metadata");
+            if let Some(non_zero_report_size) = n_report_bytes {
+                socket
+                    .send_to(&report_buffer[..non_zero_report_size.get()], remote)
+                    .expect("Could not send_to");
+                try_record_w_u32!(
+                    probe,
+                    REPORT_CREATED,
+                    non_zero_report_size.get() as u32,
+                    tags!("another tag"),
+                    "Report created"
+                )
+                .expect("could not record event with metadata");
+            }
         }
 
         loop_counter += 1;
