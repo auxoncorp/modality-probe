@@ -714,14 +714,19 @@ mod test {
     fn drain_report_until_completion() {
         let probe_id = ProbeId::new(1).unwrap();
         let mut storage = [0u8; 1024];
-        let h = DynamicHistory::new_at(&mut storage, probe_id).unwrap();
+        let h = DynamicHistory::new_at(
+            &mut storage,
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
 
         for i in 0..h.log.capacity() {
             h.record_event(EventId::new(i as u32 + 1).unwrap());
         }
         assert_eq!(h.log.len(), h.log.capacity());
 
-        const EXPECTED_LOG_CAPACITY: usize = 204;
+        const EXPECTED_LOG_CAPACITY: usize = 198;
         assert_eq!(h.log.capacity(), EXPECTED_LOG_CAPACITY);
 
         // Each report (excluding the first, and until drained) adds an
@@ -741,16 +746,16 @@ mod test {
             assert_eq!(bytes_written.get(), report_buffer_size);
             let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
             assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
-            assert_eq!(log_report.n_log_entries(), 51);
+            assert_eq!(log_report.n_log_entries(), 49);
             reported_log_entries += log_report.n_log_entries() as usize;
         }
 
         // One more to get the remainder
         let bytes_written = h.report(&mut report_dest).unwrap().unwrap();
-        assert_eq!(bytes_written.get(), 50);
+        assert_eq!(bytes_written.get(), 59);
         let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
-        assert_eq!(log_report.n_log_entries(), 4);
+        assert_eq!(log_report.n_log_entries(), 6);
         reported_log_entries += log_report.n_log_entries() as usize;
 
         assert_eq!(reported_log_entries, EXPECTED_LOG_ENTRIES);

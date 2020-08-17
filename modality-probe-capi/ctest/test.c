@@ -40,10 +40,19 @@ bool test_backend_piping(void) {
     uint8_t * log_storage = (uint8_t*)malloc(DEFAULT_LOG_STORAGE);
     size_t bytes_written;
 
+    /* When a probe inits, it also logs an internal event */
+    result = modality_probe_report(t, log_storage, DEFAULT_LOG_STORAGE, &bytes_written);
+    ERROR_CHECK(result, passed);
+    if (bytes_written == 0) {
+        fprintf(stderr, "error check failed at line %d\n", __LINE__);
+        passed = false;
+    }
+
     /* No events == nothing to report */
     result = modality_probe_report(t, log_storage, DEFAULT_LOG_STORAGE, &bytes_written);
     ERROR_CHECK(result, passed);
     if (bytes_written != 0) {
+        fprintf(stderr, "error check failed at line %d\n", __LINE__);
         passed = false;
     }
 
@@ -53,8 +62,10 @@ bool test_backend_piping(void) {
     result = modality_probe_report(t, log_storage, DEFAULT_LOG_STORAGE, &bytes_written);
     ERROR_CHECK(result, passed);
     if (bytes_written == 0) {
+        fprintf(stderr, "error check failed at line %d\n", __LINE__);
         passed = false;
     }
+
     bool all_zeros = true;
     unsigned int i;
     for (i = 0; i < DEFAULT_LOG_STORAGE; i++) {

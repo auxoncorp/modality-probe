@@ -117,14 +117,15 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
         1,
         "Should have 1 clock bucket for own self"
     );
-    // When a probe inits, it logs an internal event with payload
-    assert_eq!(log_report.n_log_entries(), 2);
+
+    // When a probe inits, it also logs an internal event
+    assert_eq!(log_report.n_log_entries(), 3);
 
     let payload_len = log_report.payload_len();
     let payload = &log_report.payload()[..payload_len];
     assert_eq!(
         payload_len,
-        core::mem::size_of::<LogicalClock>() + (2 * core::mem::size_of::<log::LogEntry>())
+        core::mem::size_of::<LogicalClock>() + (3 * core::mem::size_of::<log::LogEntry>())
     );
     let item = unsafe {
         log::LogEntry::new_unchecked(u32::from_le_bytes([
@@ -247,8 +248,8 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
     // Not enough room for the frontier clocks, only a single event
     let mut report_dest =
         vec![0u8; wire::WireReport::<&[u8]>::header_len() + mem::size_of::<log::LogEntry>()];
-    let bytes_written = probe.report(&mut report_dest)?;
-    let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+    let bytes_written = probe.report(&mut report_dest)?.unwrap();
+    let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
     // Only a single internal event is logged
     assert_eq!(log_report.n_clocks(), 0);
@@ -416,8 +417,8 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         assert_eq!(now.clock.ticks.0, 0);
 
         let mut report_dest = [0u8; 512];
-        let bytes_written = probe.report(&mut report_dest)?;
-        let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+        let bytes_written = probe.report(&mut report_dest)?.unwrap();
+        let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.persistent_epoch_counting(), true);
     }
     assert_eq!(next_id_provider.next_seq_id, 101);
@@ -437,8 +438,8 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         assert_eq!(now.clock.ticks.0, 0);
 
         let mut report_dest = [0u8; 512];
-        let bytes_written = probe.report(&mut report_dest)?;
-        let log_report = wire::WireReport::new(&report_dest[..bytes_written]).unwrap();
+        let bytes_written = probe.report(&mut report_dest)?.unwrap();
+        let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.persistent_epoch_counting(), true);
     }
     assert_eq!(next_id_provider.next_seq_id, 102);
