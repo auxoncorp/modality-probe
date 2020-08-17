@@ -194,7 +194,7 @@ pub mod tests {
     use std::sync::{Arc, Barrier};
     use std::thread;
     use std::time::Duration;
-    use test_support::{OrderedEntry, OutputOrderedEntry, RawPtrSnapper};
+    use test_support::{ErrorPronePtrSnapper, OrderedEntry, OutputOrderedEntry, PtrSnapper};
 
     #[test]
     fn seq_nums() {
@@ -252,7 +252,7 @@ pub mod tests {
             });
             s.spawn(move |_| {
                 let buf_ptr = ptr_r.recv().unwrap() as *const FencedRingBuffer<'_, OrderedEntry>;
-                let snapper = RawPtrSnapper::new(buf_ptr);
+                let snapper = PtrSnapper::new(buf_ptr);
                 let mut output_buf = Vec::new();
                 let mut buf_reader = async_reader::FencedReader::new(snapper, STORAGE_CAP);
 
@@ -274,11 +274,11 @@ pub mod tests {
         .unwrap();
     }
 
-    // Perform many reads and writes concurrently with random timeouts,
+    // Perform many reads and writes concurrently with random timeouts, and random snapshot errors
     // check if read buffer is in order and consistent
     #[test]
-    fn async_output_timeouts() {
-        const NUM_WRITES: u32 = 100_000;
+    fn async_output_timeouts_and_errors() {
+        const NUM_WRITES: u32 = 1000_000;
         const STORAGE_CAP: usize = 8;
 
         let (ptr_s, ptr_r) = crossbeam::crossbeam_channel::bounded(0);
@@ -314,7 +314,7 @@ pub mod tests {
             });
             s.spawn(move |_| {
                 let buf_ptr = ptr_r.recv().unwrap() as *const FencedRingBuffer<'_, OrderedEntry>;
-                let snapper = RawPtrSnapper::new(buf_ptr);
+                let snapper = ErrorPronePtrSnapper::new(buf_ptr);
                 let mut output_buf = Vec::new();
                 let mut buf_reader = async_reader::FencedReader::new(snapper, STORAGE_CAP);
                 let mut rng = rand::thread_rng();
@@ -322,12 +322,13 @@ pub mod tests {
                 let mut total_items_read = 0;
                 while total_items_read < (NUM_WRITES - 1) as u64 {
                     let mut temp_buf = Vec::new();
-                    let n_missed = buf_reader.read(&mut temp_buf).unwrap();
-                    let n_read: u64 = temp_buf.iter().map(|whole| whole.size() as u64).sum();
-                    total_items_read += n_missed + n_read;
+                    if let Ok(n_missed) = buf_reader.read(&mut temp_buf) {
+                        let n_read: u64 = temp_buf.iter().map(|whole| whole.size() as u64).sum();
+                        total_items_read += n_missed + n_read;
 
-                    output_buf.push(OutputOrderedEntry::Missed(n_missed));
-                    output_buf.extend(temp_buf.iter().map(|e| OutputOrderedEntry::Present(*e)));
+                        output_buf.push(OutputOrderedEntry::Missed(n_missed));
+                        output_buf.extend(temp_buf.iter().map(|e| OutputOrderedEntry::Present(*e)));
+                    }
 
                     let sleep_time: u64 = rng.gen::<u64>() % 3000;
                     std::thread::sleep(Duration::from_nanos(sleep_time));

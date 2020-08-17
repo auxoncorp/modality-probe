@@ -65,37 +65,42 @@ where
     /// Attempt to read all new entries in buffer into given output vector
     /// Returns the number of entries missed before those that were read
     pub fn read(&mut self, out: &mut Vec<WholeEntry<E>>) -> Result<u64, S::Error> {
+        // Store original read seqn for fallback upon error
+        let reset_read_seqn = self.read_seqn;
         let pre_overwrite_seqn = self.snap_overwrite_seqn()?;
         let pre_write_seqn = self.snap_write_seqn()?;
 
         // If writer has overwritten unread entries between reads, store missed and correct read_seqn
         let mut n_missed_before_read = num_missed(self.read_seqn, pre_overwrite_seqn);
         self.read_seqn += n_missed_before_read;
-        // If any entries were missed and there is a stored prefix, then the entry after the prefix was missed.
-        // The prefix is dropped and added to the missed count.
-        // Note: the read sequence number is updated above because the prefix was included in the last read
-        if u64::from(n_missed_before_read) > 0 && self.drop_prefix() {
-            n_missed_before_read += 1;
-        }
 
         // Perform reads into snapshot buffer up to write sequence number
         self.buf_snapshot.clear();
         let first_read_seqn = self.read_seqn;
         while self.read_seqn != pre_write_seqn {
             let storage_index = get_seqn_index(self.storage_cap, self.read_seqn, false);
-            self.buf_snapshot.push(self.snap_storage(storage_index)?);
+            let entry_read = self.snap_storage(storage_index).map_err(|e| {
+                self.read_seqn = reset_read_seqn;
+                e
+            })?;
+            self.buf_snapshot.push(entry_read);
             self.read_seqn += 1;
         }
 
         // Calculate number of entries in snapshot buffer that may have been overwritten
-        let post_overwrite_seqn = self.snap_overwrite_seqn()?;
+        let post_overwrite_seqn = self.snap_overwrite_seqn().map_err(|e| {
+            self.read_seqn = reset_read_seqn;
+            e
+        })?;
         let n_overwritten_in_snap = min(
             num_missed(first_read_seqn, post_overwrite_seqn),
             (self.buf_snapshot.len() as u64).into(),
         );
         // If any entries were missed and there is a stored prefix, then the entry after the prefix was missed.
-        // The prefix is dropped and added to the missed count (not overwritten during snap)
-        if u64::from(n_overwritten_in_snap) > 0u64 && self.drop_prefix() {
+        // The prefix is dropped and added to the missed count
+        if (u64::from(n_missed_before_read) > 0 || u64::from(n_overwritten_in_snap) > 0)
+            && self.drop_prefix()
+        {
             n_missed_before_read += 1;
         }
 
@@ -187,7 +192,7 @@ where
 #[cfg(feature = "std")]
 mod tests {
     use super::*;
-    use crate::test_support::{OrderedEntry, RawPtrSnapper};
+    use crate::test_support::{OrderedEntry, PtrSnapper};
     use crate::FencedRingBuffer;
     use core::mem::MaybeUninit;
 
@@ -197,7 +202,7 @@ mod tests {
         let mut storage = [MaybeUninit::uninit(); STORAGE_CAP as usize];
         let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
         let buf_ptr = &buf as *const FencedRingBuffer<'_, OrderedEntry>;
-        let snapper = RawPtrSnapper::new(buf_ptr);
+        let snapper = PtrSnapper::new(buf_ptr);
         let mut out = Vec::new();
         let mut buf_reader = FencedReader::new(snapper, STORAGE_CAP);
 

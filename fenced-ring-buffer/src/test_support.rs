@@ -1,4 +1,5 @@
 use super::*;
+use rand::random;
 use std::fmt;
 use std::sync::atomic::{fence, Ordering};
 
@@ -94,55 +95,119 @@ impl OutputOrderedEntry {
     }
 }
 
-pub(crate) struct RawPtrSnapper<'a>(*const FencedRingBuffer<'a, OrderedEntry>);
-
-impl<'a> RawPtrSnapper<'a> {
-    pub(crate) fn new(ptr: *const FencedRingBuffer<'a, OrderedEntry>) -> RawPtrSnapper<'a> {
-        RawPtrSnapper(ptr)
-    }
-}
-
 #[derive(Debug)]
-pub(crate) struct RawPtrSnapperError;
+pub(crate) struct PtrSnapperError;
 
-impl fmt::Display for RawPtrSnapperError {
+impl std::error::Error for PtrSnapperError {}
+
+impl fmt::Display for PtrSnapperError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Error snapping using raw pointer")
     }
 }
 
-impl std::error::Error for RawPtrSnapperError {}
+pub(crate) struct PtrSnapper<'a>(*const FencedRingBuffer<'a, OrderedEntry>);
 
-impl async_reader::Snapper<OrderedEntry> for RawPtrSnapper<'_> {
-    type Error = RawPtrSnapperError;
+impl<'a> PtrSnapper<'a> {
+    pub(crate) fn new(ptr: *const FencedRingBuffer<'a, OrderedEntry>) -> PtrSnapper<'a> {
+        PtrSnapper(ptr)
+    }
+}
 
-    fn snap_write_seqn_high(&self) -> Result<u32, RawPtrSnapperError> {
+impl async_reader::Snapper<OrderedEntry> for PtrSnapper<'_> {
+    type Error = PtrSnapperError;
+
+    fn snap_write_seqn_high(&self) -> Result<u32, PtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
         unsafe { Ok(self.0.as_ref().unwrap().get_write_seqn().high) }
     }
 
-    fn snap_write_seqn_low(&self) -> Result<u32, RawPtrSnapperError> {
+    fn snap_write_seqn_low(&self) -> Result<u32, PtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
         unsafe { Ok(self.0.as_ref().unwrap().get_write_seqn().low) }
     }
 
-    fn snap_overwrite_seqn_high(&self) -> Result<u32, RawPtrSnapperError> {
+    fn snap_overwrite_seqn_high(&self) -> Result<u32, PtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
         unsafe { Ok(self.0.as_ref().unwrap().get_overwrite_seqn().high) }
     }
 
-    fn snap_overwrite_seqn_low(&self) -> Result<u32, RawPtrSnapperError> {
+    fn snap_overwrite_seqn_low(&self) -> Result<u32, PtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
         unsafe { Ok(self.0.as_ref().unwrap().get_overwrite_seqn().low) }
     }
 
-    fn snap_storage(&self, index: usize) -> Result<OrderedEntry, RawPtrSnapperError> {
+    fn snap_storage(&self, index: usize) -> Result<OrderedEntry, PtrSnapperError> {
         // Ensure reads are not reordered
         fence(Ordering::Acquire);
         unsafe { Ok(self.0.as_ref().unwrap().read_storage((index as u64).into())) }
+    }
+}
+
+pub(crate) struct ErrorPronePtrSnapper<'a>(*const FencedRingBuffer<'a, OrderedEntry>);
+
+impl<'a> ErrorPronePtrSnapper<'a> {
+    const ERROR_PROB: f32 = 0.05;
+
+    pub(crate) fn new(ptr: *const FencedRingBuffer<'a, OrderedEntry>) -> ErrorPronePtrSnapper<'a> {
+        ErrorPronePtrSnapper(ptr)
+    }
+}
+
+impl async_reader::Snapper<OrderedEntry> for ErrorPronePtrSnapper<'_> {
+    type Error = PtrSnapperError;
+
+    fn snap_write_seqn_high(&self) -> Result<u32, PtrSnapperError> {
+        if random::<f32>() < Self::ERROR_PROB {
+            Err(PtrSnapperError)
+        } else {
+            // Ensure reads are not reordered
+            fence(Ordering::Acquire);
+            unsafe { Ok(self.0.as_ref().unwrap().get_write_seqn().high) }
+        }
+    }
+
+    fn snap_write_seqn_low(&self) -> Result<u32, PtrSnapperError> {
+        if random::<f32>() < Self::ERROR_PROB {
+            Err(PtrSnapperError)
+        } else {
+            // Ensure reads are not reordered
+            fence(Ordering::Acquire);
+            unsafe { Ok(self.0.as_ref().unwrap().get_write_seqn().low) }
+        }
+    }
+
+    fn snap_overwrite_seqn_high(&self) -> Result<u32, PtrSnapperError> {
+        if random::<f32>() < Self::ERROR_PROB {
+            Err(PtrSnapperError)
+        } else {
+            // Ensure reads are not reordered
+            fence(Ordering::Acquire);
+            unsafe { Ok(self.0.as_ref().unwrap().get_overwrite_seqn().high) }
+        }
+    }
+
+    fn snap_overwrite_seqn_low(&self) -> Result<u32, PtrSnapperError> {
+        if random::<f32>() < Self::ERROR_PROB {
+            Err(PtrSnapperError)
+        } else {
+            // Ensure reads are not reordered
+            fence(Ordering::Acquire);
+            unsafe { Ok(self.0.as_ref().unwrap().get_overwrite_seqn().low) }
+        }
+    }
+
+    fn snap_storage(&self, index: usize) -> Result<OrderedEntry, PtrSnapperError> {
+        if random::<f32>() < Self::ERROR_PROB {
+            Err(PtrSnapperError)
+        } else {
+            // Ensure reads are not reordered
+            fence(Ordering::Acquire);
+            unsafe { Ok(self.0.as_ref().unwrap().read_storage((index as u64).into())) }
+        }
     }
 }
