@@ -237,7 +237,7 @@ where
                     .ok_or_else(|| Error::InconsistentData("missing logical clock"))?;
                 let c = self_clocks.entry(probe_name).or_insert_with(Vec::new);
                 c.push(this_clock);
-                c.sort();
+                c.sort_unstable();
                 self_vertex = node;
                 if let Some(prev_clock) = c.iter().filter(|clk| **clk < this_clock).last() {
                     let weight = graph.upsert_edge(
