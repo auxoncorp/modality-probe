@@ -1,6 +1,7 @@
 #![deny(warnings)]
 
 use core::mem;
+use core::num::NonZeroU16;
 use modality_probe::*;
 use proptest::prelude::*;
 use std::convert::{TryFrom, TryInto};
@@ -119,13 +120,13 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     );
 
     // When a probe inits, it also logs an internal event
-    assert_eq!(log_report.n_log_entries(), 3);
+    assert_eq!(log_report.n_log_entries(), 2);
 
     let payload_len = log_report.payload_len();
     let payload = &log_report.payload()[..payload_len];
     assert_eq!(
         payload_len,
-        core::mem::size_of::<LogicalClock>() + (3 * core::mem::size_of::<log::LogEntry>())
+        core::mem::size_of::<LogicalClock>() + (2 * core::mem::size_of::<log::LogEntry>())
     );
     let item = unsafe {
         log::LogEntry::new_unchecked(u32::from_le_bytes([
@@ -277,7 +278,7 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
     let event = EventId::new(2).unwrap();
 
     // Should be repeatable, counts are cleared on each report
-    for iter_idx in 0..3 {
+    for _ in 0..3 {
         for _ in 0..NUM_STORAGE_BYTES * 2 {
             probe.record_event(event);
         }
@@ -303,13 +304,7 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
             EventId::EVENT_LOG_ITEMS_MISSED
         );
 
-        // The first time around, the log does not contain:
-        // EventId::EVENT_PRODUCED_EXTERNAL_REPORT
-        if iter_idx == 0 {
-            assert_eq!(raw_payload, 942);
-        } else {
-            assert_eq!(raw_payload, 941);
-        }
+        assert_eq!(raw_payload, 941);
     }
 
     Ok(())
@@ -397,7 +392,7 @@ proptest! {
 #[test]
 fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
     let mut next_id_provider = PersistentRestartProvider {
-        next_seq_id: 100,
+        next_seq_id: NonZeroU16::new(100).unwrap(),
         count: 0,
     };
 
@@ -421,7 +416,7 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.persistent_epoch_counting(), true);
     }
-    assert_eq!(next_id_provider.next_seq_id, 101);
+    assert_eq!(next_id_provider.next_seq_id.get(), 101);
     assert_eq!(next_id_provider.count, 1);
 
     {
@@ -442,22 +437,22 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.persistent_epoch_counting(), true);
     }
-    assert_eq!(next_id_provider.next_seq_id, 102);
+    assert_eq!(next_id_provider.next_seq_id.get(), 102);
     assert_eq!(next_id_provider.count, 2);
 
     Ok(())
 }
 
 struct PersistentRestartProvider {
-    next_seq_id: u16,
+    next_seq_id: NonZeroU16,
     count: usize,
 }
 
 impl RestartCounter for PersistentRestartProvider {
-    fn next_sequence_id(&mut self, _probe_id: ProbeId) -> u16 {
+    fn next_sequence_id(&mut self, _probe_id: ProbeId) -> Option<NonZeroU16> {
         let next = self.next_seq_id;
-        self.next_seq_id += 1;
+        self.next_seq_id = NonZeroU16::new(next.get() + 1).unwrap();
         self.count += 1;
-        next
+        Some(next)
     }
 }

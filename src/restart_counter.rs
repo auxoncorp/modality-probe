@@ -1,14 +1,21 @@
 use crate::ProbeId;
 use core::fmt;
-
-/// The persistent sequence number value returned when this
-/// probe is not tracking restarts.
-pub const NO_RESTART_TRACKING_SEQUENCE_NUMBER: u16 = 0;
+use core::num::NonZeroU16;
 
 /// A persistent restart sequence counter
 pub trait RestartCounter {
-    /// Get the next persistent sequence number
-    fn next_sequence_id(&mut self, probe_id: ProbeId) -> u16;
+    /// Get the next persistent sequence number.
+    ///
+    /// This method is called when a probe initializes to get the initial
+    /// epoch portion of the clock, and each time the ticks portion of the
+    /// clock overflows during the probe's lifetime.
+    ///
+    /// The sequence number should never be zero, should start at one,
+    /// and be monotonically increased by a step size of one after each retrieval.
+    ///
+    /// When the sequence number reaches its maximum value (0xFFFF), it
+    /// should wrap around to the value 1.
+    fn next_sequence_id(&mut self, probe_id: ProbeId) -> Option<NonZeroU16>;
 }
 
 /// C function type for retrieving the next persistent sequence number
@@ -47,10 +54,17 @@ impl<'a> From<&'a mut dyn RestartCounter> for RestartCounterProvider<'a> {
 }
 
 impl<'a> RestartCounterProvider<'a> {
-    fn next_sequence_id(&mut self, probe_id: ProbeId) -> u16 {
+    fn next_sequence_id(&mut self, probe_id: ProbeId) -> Option<NonZeroU16> {
         match self {
-            RestartCounterProvider::NoRestartTracking => NO_RESTART_TRACKING_SEQUENCE_NUMBER,
-            RestartCounterProvider::C(c) => (c.iface)(probe_id.get_raw(), c.state),
+            RestartCounterProvider::NoRestartTracking => None,
+            RestartCounterProvider::C(c) => {
+                let raw = (c.iface)(probe_id.get_raw(), c.state);
+                debug_assert!(
+                    raw != 0,
+                    "A restart counter implementation should never return zero"
+                );
+                NonZeroU16::new(raw)
+            }
             RestartCounterProvider::Rust(r) => r.iface.next_sequence_id(probe_id),
         }
     }
@@ -70,7 +84,7 @@ impl<'a> RestartSequenceCounter<'a> {
         !matches!(&self.provider, RestartCounterProvider::NoRestartTracking)
     }
 
-    pub fn next_sequence_id(&mut self, probe_id: ProbeId) -> u16 {
+    pub fn next_sequence_id(&mut self, probe_id: ProbeId) -> Option<NonZeroU16> {
         self.provider.next_sequence_id(probe_id)
     }
 }
@@ -96,9 +110,6 @@ mod tests {
     fn no_restart_tracking() {
         let mut rsc = RestartSequenceCounter::new(RestartCounterProvider::NoRestartTracking);
         assert_eq!(rsc.is_tracking_restarts(), false);
-        assert_eq!(
-            rsc.next_sequence_id(ProbeId::new(1).unwrap()),
-            NO_RESTART_TRACKING_SEQUENCE_NUMBER
-        );
+        assert_eq!(rsc.next_sequence_id(ProbeId::new(1).unwrap()), None);
     }
 }

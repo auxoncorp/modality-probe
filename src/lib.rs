@@ -246,7 +246,7 @@ impl LogicalClock {
     /// clock wraps around and epoch is incremented. Epoch and clock both wrap
     /// around to 1.
     ///
-    /// Returns true if the clock portion did overflow, otherwise returns false.
+    /// Returns true if the ticks portion did overflow, otherwise returns false.
     #[inline]
     pub fn increment(&mut self) -> bool {
         let (new_clock, overflow) = self.ticks.0.overflowing_add(1);
@@ -410,10 +410,7 @@ impl<'a> ModalityProbe<'a> {
         let mut t = ModalityProbe::<'a> {
             history: DynamicHistory::new_at(history_memory, probe_id, restart_counter)?,
         };
-        t.record_event_with_payload(
-            EventId::EVENT_PROBE_INITIALIZED,
-            t.history.probe_id.get_raw(),
-        );
+        t.record_event(EventId::EVENT_PROBE_INITIALIZED);
         Ok(t)
     }
 

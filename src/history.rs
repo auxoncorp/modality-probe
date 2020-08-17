@@ -188,12 +188,24 @@ impl<'a> DynamicHistory<'a> {
             log_items_missed: 0,
             restart_counter: RestartSequenceCounter::new(restart_counter),
         };
-        if history.restart_counter.is_tracking_restarts() {
-            let next_persistent_epoch = history.restart_counter.next_sequence_id(history.probe_id);
-            history.self_clock.epoch = next_persistent_epoch.into();
-        }
+        history.retreive_next_persistent_epoch();
 
         Ok(history)
+    }
+
+    #[inline]
+    fn retreive_next_persistent_epoch(&mut self) {
+        if self.restart_counter.is_tracking_restarts() {
+            match self.restart_counter.next_sequence_id(self.probe_id) {
+                Some(next_persistent_epoch) => {
+                    self.self_clock.epoch = next_persistent_epoch.get().into()
+                }
+                None => {
+                    self.self_clock.epoch = 0.into();
+                    self.record_event(EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID);
+                }
+            }
+        }
     }
 
     #[inline]
@@ -251,12 +263,9 @@ impl<'a> DynamicHistory<'a> {
         let did_overflow = self.self_clock.increment();
         self.event_count = 0;
 
-        if did_overflow && self.restart_counter.is_tracking_restarts() {
-            let next_persistent_epoch = self.restart_counter.next_sequence_id(self.probe_id);
-            self.self_clock.epoch = next_persistent_epoch.into();
-        }
-
         if did_overflow {
+            self.retreive_next_persistent_epoch();
+
             self.record_event_with_payload(
                 EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
                 self.self_clock.epoch.0 as u32,
@@ -550,18 +559,19 @@ impl<'a> DynamicHistory<'a> {
 mod test {
     use super::*;
     use crate::{RestartCounter, RustRestartCounterProvider};
+    use core::num::NonZeroU16;
 
     struct PersistentRestartProvider {
-        next_seq_id: u16,
+        next_seq_id: NonZeroU16,
         count: usize,
     }
 
     impl RestartCounter for PersistentRestartProvider {
-        fn next_sequence_id(&mut self, _probe_id: ProbeId) -> u16 {
+        fn next_sequence_id(&mut self, _probe_id: ProbeId) -> Option<NonZeroU16> {
             let next = self.next_seq_id;
-            self.next_seq_id += 1;
+            self.next_seq_id = NonZeroU16::new(next.get() + 1).unwrap();
             self.count += 1;
-            next
+            Some(next)
         }
     }
 
@@ -781,7 +791,7 @@ mod test {
         let probe_a = ProbeId::new(1).unwrap();
 
         let mut next_id_provider = PersistentRestartProvider {
-            next_seq_id: 100,
+            next_seq_id: NonZeroU16::new(100).unwrap(),
             count: 0,
         };
 
@@ -799,7 +809,7 @@ mod test {
             assert_eq!(now.clock.epoch.0, 100);
             assert_eq!(now.clock.ticks.0, 0);
         }
-        assert_eq!(next_id_provider.next_seq_id, 101);
+        assert_eq!(next_id_provider.next_seq_id.get(), 101);
         assert_eq!(next_id_provider.count, 1);
 
         {
@@ -828,7 +838,40 @@ mod test {
             assert_eq!(now.clock.epoch.0, 102);
             assert_eq!(now.clock.ticks.0, 1);
         }
-        assert_eq!(next_id_provider.next_seq_id, 103);
+        assert_eq!(next_id_provider.next_seq_id.get(), 103);
         assert_eq!(next_id_provider.count, 3);
+    }
+
+    #[test]
+    fn misbehaving_persistent_epoch_event() {
+        struct MisbehavingRestartProvider {}
+        impl RestartCounter for MisbehavingRestartProvider {
+            fn next_sequence_id(&mut self, _probe_id: ProbeId) -> Option<NonZeroU16> {
+                None
+            }
+        }
+
+        let mut next_id_provider = MisbehavingRestartProvider {};
+        let provider = RestartCounterProvider::Rust(RustRestartCounterProvider {
+            iface: &mut next_id_provider,
+        });
+
+        let probe_id = ProbeId::new(1).unwrap();
+        let mut storage = [0u8; 512];
+        let h = DynamicHistory::new_at(&mut storage, probe_id, provider).unwrap();
+
+        let now = h.now();
+        assert_eq!(now.clock.epoch.0, 0);
+        assert_eq!(now.clock.ticks.0, 0);
+
+        let mut found_error_event_count = 0;
+        while let Some(entry) = h.log.next() {
+            if !entry.has_clock_bit_set() && !entry.has_event_with_payload_bit_set() {
+                if entry.interpret_as_event_id() == Some(EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID) {
+                    found_error_event_count += 1;
+                }
+            }
+        }
+        assert_eq!(1, found_error_event_count);
     }
 }

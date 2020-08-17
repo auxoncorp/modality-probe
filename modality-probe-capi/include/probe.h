@@ -74,7 +74,17 @@ typedef struct modality_probe_causal_snapshot {
 } modality_probe_causal_snapshot;
 
 /*
- * Function type for retrieving the next persistent sequence number
+ * Function type for retrieving the next persistent sequence number.
+ *
+ * This method is called when a probe initializes to get the initial
+ * epoch portion of the clock, and each time the ticks portion of the
+ * clock overflows during the probe's lifetime.
+ *
+ * The sequence number should never be zero, should start at one,
+ * and be monotonically increased by a step size of one after each retrieval.
+ *
+ * When the sequence number reaches its maximum value (0xFFFF), it
+ * should wrap around to the value 1.
  */
 typedef uint16_t (*modality_probe_next_sequence_id_fn)(
         uint32_t probe_id,
@@ -113,7 +123,7 @@ typedef enum {
      */
     MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS = 6,
     /*
-     * The the external history source buffer we attempted to merge
+     * The external history source buffer we attempted to merge
      * was insufficiently sized for a valid causal snapshot.
      * Detected during merging.
      */

@@ -205,9 +205,13 @@ impl EventId {
     /// The report destination buffer is too small to fit a header and/or the frontier clocks
     pub const EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 5) });
-    /// The probe successfully initialized itself. The probe id is stored in the payload.
+    /// The probe successfully initialized itself.
     pub const EVENT_PROBE_INITIALIZED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 6) });
+    /// The probe is configured to track restarts, but the user's implementation
+    /// returned an invalid zero value or a None option variant.
+    pub const EVENT_INVALID_NEXT_EPOCH_SEQ_ID: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 7) });
 
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[
@@ -217,6 +221,7 @@ impl EventId {
         EventId::EVENT_NUM_CLOCKS_OVERFLOWED,
         EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE,
         EventId::EVENT_PROBE_INITIALIZED,
+        EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID,
     ];
 
     /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID

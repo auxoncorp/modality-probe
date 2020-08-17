@@ -771,7 +771,7 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }],
                 event_log: vec![
-                    EventLogEntry::EventWithPayload(EventId::EVENT_PROBE_INITIALIZED, 1),
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(EventId::new(1).unwrap())
                 ],
             }
@@ -837,7 +837,7 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }],
                 event_log: vec![
-                    EventLogEntry::EventWithPayload(EventId::EVENT_PROBE_INITIALIZED, 2),
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(EventId::new(2).unwrap()),
                     EventLogEntry::TraceClock(LogicalClock {
                         id: ProbeId::new(2).unwrap(),

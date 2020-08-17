@@ -331,6 +331,7 @@ static uint16_t next_persistent_sequence_id(uint32_t probe_id, void *user_state)
 
     const uint16_t next_seq_id = (uint16_t) g_next_seq_id;
     g_next_seq_id += 1;
+    assert(next_seq_id != 0);
     return next_seq_id;
 }
 

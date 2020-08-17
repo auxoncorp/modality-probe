@@ -119,7 +119,20 @@ impl Events {
                 name: "EVENT_PROBE_INITIALIZED".to_string(),
                 description: "The probe successfully initialized itself".to_string(),
                 tags: "internal".to_string(),
-                type_hint: "u32".to_string(),
+                type_hint: String::new(),
+                file: String::new(),
+                line: String::new(),
+            },
+            Event {
+                component_id,
+                id: EventId(modality_probe::EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID.get_raw()),
+                name: "EVENT_INVALID_NEXT_EPOCH_SEQ_ID".to_string(),
+                description:
+                    "The probe is configured to track restarts, but the user's implementation \
+                        returned an invalid zero value or a None option variant."
+                        .to_string(),
+                tags: "internal".to_string(),
+                type_hint: String::new(),
                 file: String::new(),
                 line: String::new(),
             },
