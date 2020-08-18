@@ -1,7 +1,7 @@
 //! Export a textual representation of a causal graph using the
 //! collected columnar form as input.
 
-use std::{collections::HashMap, fmt, fmt::Write, fs::File, path::PathBuf, str::FromStr};
+use std::{collections::HashMap, fmt, fs::File, path::PathBuf, str::FromStr};
 
 use err_derive::Error;
 use structopt::StructOpt;
@@ -15,7 +15,7 @@ mod graph;
 use graph::{EventMeta, ProbeMeta};
 
 /// Export a textual representation of a causal graph using the
-/// collected coumnar form as input.
+/// collected trace file as input.
 #[derive(Debug, PartialEq, StructOpt)]
 pub struct Export {
     /// Generate the graph showing only the causal relationships,
@@ -31,13 +31,10 @@ pub struct Export {
     pub report: PathBuf,
     /// The type of graph to output.
     ///
-    /// This can be either `cyclic` or `acyclic`.
-    ///
-    /// * A cyclic graph is one which shows the possible paths from
-    /// either an event or a probe.
-    ///
-    /// * An acyclic graph shows the causal history of either all
-    /// events or the interactions between traces in the system.
+    /// This can be either `cyclic` or `acyclic`. A cyclic graph is
+    /// one which shows the possible paths from either an event or a
+    /// probe. An acyclic graph shows the causal history of either all
+    /// events or the interactions between probes in the system.
     #[structopt(required = true)]
     pub graph_type: GraphType,
 }
@@ -90,9 +87,6 @@ pub fn run(mut exp: Export) -> Result<(), ExportError> {
             .into_iter()
             .peekable(),
     )?;
-
-    let mut out = String::new();
-    writeln!(out, "Digraph G {{")?;
 
     match (exp.graph_type, exp.interactions_only) {
         (GraphType::Acyclic, false) => println!("{}", graph.graph.to_dot(&cfg)?),

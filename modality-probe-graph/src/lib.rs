@@ -38,7 +38,7 @@ pub enum Error {
     Io(String),
     /// The graph builders iterate over a `Result` to leave room for
     /// deserialization; if a builder encounters a `Err`, this error
-    /// is returned with that error's `display` implementaion inside.
+    /// is returned with that error's `display` implementation inside.
     #[error(display = "An item in the log iterator was an error variant: {}", _0)]
     ItemError(String),
     /// Encountered an unexpected inconsistency in the graph data.
@@ -55,20 +55,20 @@ pub struct EventDigraph<G: Graph> {
     /// is accessible.
     pub graph: G,
 
-    // When a foreign trace clock is the last thing in a report chunk,
-    // we need to look up and hold on to the last event before that
-    // clock in the source probe, keyed by the probe id and the
-    // sequence number it appeared in the neighbor's log. That way,
-    // when we get the next chunk from that probe (the neighbor), we
-    // can draw the edge from this source to the first event in the
-    // next chunk.
+    /// When a foreign trace clock is the last thing in a report
+    /// chunk, we need to look up and hold on to the last event before
+    /// that clock in the source probe, keyed by the probe id and the
+    /// sequence number it appeared in the neighbor's log. That way,
+    /// when we get the next chunk from that probe (the neighbor), we
+    /// can draw the edge from this source to the first event in the
+    /// next chunk.
     tail_pending_edge_sources: HashMap<(ProbeId, SequenceNumber), GraphEvent>,
 
-    // This is to carry a clock-span across chunks.
+    /// This is to carry a clock-span across chunks.
     last_event_by_probe_and_seq_num: HashMap<(ProbeId, SequenceNumber), GraphEvent>,
 
-    // This is the table used to look up the source events when a
-    // foreign clock is encountered in the log.
+    /// This is the table used to look up the source events when a
+    /// foreign clock is encountered in the log.
     last_event_by_probe_and_clock: HashMap<(ProbeId, u32), GraphEvent>,
 }
 
@@ -107,31 +107,14 @@ impl<G: Graph> EventDigraph<G> {
                         seq: seq_num,
                         seq_idx: idx,
                     };
-                    self.graph.add_node(node);
-                    if first_event {
-                        if let Some(tail) =
-                            self.tail_pending_edge_sources.remove(&(probe_id, seq_num))
-                        {
-                            self.graph.add_edge(tail, node);
-                        }
-                        if let Some(tail) = self
-                            .last_event_by_probe_and_seq_num
-                            .remove(&(probe_id, seq_num))
-                        {
-                            self.graph.add_edge(tail, node);
-                        }
-                        first_event = false;
-                    }
-                    if let Some(prev) = prev_event {
-                        self.graph.add_edge(prev, node);
-                    }
-                    for lc in pending_edges.iter() {
-                        if let Some(e) = self.last_event_by_probe_and_clock.get(lc) {
-                            self.graph.add_edge(*e, node);
-                        }
-                    }
-                    pending_edges.clear();
-                    prev_event = Some(node);
+                    self.add_event_to_graph(
+                        node,
+                        &mut pending_edges,
+                        &mut prev_event,
+                        &mut first_event,
+                        probe_id,
+                        seq_num,
+                    );
                 }
                 EventLogEntry::EventWithPayload(id, payload) => {
                     let node = GraphEvent {
@@ -142,31 +125,14 @@ impl<G: Graph> EventDigraph<G> {
                         seq: seq_num,
                         seq_idx: idx,
                     };
-                    self.graph.add_node(node);
-                    if first_event {
-                        if let Some(tail) =
-                            self.tail_pending_edge_sources.remove(&(probe_id, seq_num))
-                        {
-                            self.graph.add_edge(tail, node);
-                        }
-                        if let Some(tail) = self
-                            .last_event_by_probe_and_seq_num
-                            .remove(&(probe_id, seq_num))
-                        {
-                            self.graph.add_edge(tail, node);
-                        }
-                        first_event = false;
-                    }
-                    if let Some(prev) = prev_event {
-                        self.graph.add_edge(prev, node);
-                    }
-                    for lc in pending_edges.iter() {
-                        if let Some(e) = self.last_event_by_probe_and_clock.get(lc) {
-                            self.graph.add_edge(*e, node);
-                        }
-                    }
-                    pending_edges.clear();
-                    prev_event = Some(node);
+                    self.add_event_to_graph(
+                        node,
+                        &mut pending_edges,
+                        &mut prev_event,
+                        &mut first_event,
+                        probe_id,
+                        seq_num,
+                    );
                 }
                 EventLogEntry::TraceClock(lc) => {
                     if lc.id == probe_id {
@@ -192,6 +158,40 @@ impl<G: Graph> EventDigraph<G> {
             }
         }
         Ok(())
+    }
+
+    fn add_event_to_graph(
+        &mut self,
+        node: GraphEvent,
+        pending_edges: &mut Vec<(ProbeId, u32)>,
+        prev_event: &mut Option<GraphEvent>,
+        first_event: &mut bool,
+        probe_id: ProbeId,
+        seq_num: SequenceNumber,
+    ) {
+        self.graph.add_node(node);
+        if *first_event {
+            if let Some(tail) = self.tail_pending_edge_sources.remove(&(probe_id, seq_num)) {
+                self.graph.add_edge(tail, node);
+            }
+            if let Some(tail) = self
+                .last_event_by_probe_and_seq_num
+                .remove(&(probe_id, seq_num.prev()))
+            {
+                self.graph.add_edge(tail, node);
+            }
+            *first_event = false;
+        }
+        if let Some(prev) = prev_event {
+            self.graph.add_edge(*prev, node);
+        }
+        for lc in pending_edges.iter() {
+            if let Some(e) = self.last_event_by_probe_and_clock.get(lc) {
+                self.graph.add_edge(*e, node);
+            }
+        }
+        pending_edges.clear();
+        *prev_event = Some(node);
     }
 }
 

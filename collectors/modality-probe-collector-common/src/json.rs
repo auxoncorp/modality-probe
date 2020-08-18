@@ -28,7 +28,6 @@ pub fn read_log_entries<R: Read>(r: &mut R) -> Result<Vec<ReportLogEntry>, Error
     let br = BufReader::new(r);
     let entries: Result<Vec<ReportLogEntry>, _> = br
         .lines()
-        .into_iter()
         .map(|line| match line {
             Ok(l) => serde_json::from_str::<ReportLogEntry>(&l)
                 .map_err(|e| Error::Serialization(format!("unable to deserialize log row: {}", e))),

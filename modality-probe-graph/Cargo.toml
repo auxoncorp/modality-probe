@@ -5,6 +5,7 @@ authors = ["dan pittman <dan@auxon.io>"]
 edition = "2018"
 
 [features]
+default = []
 test_support = ["chrono"]
 
 [dependencies]

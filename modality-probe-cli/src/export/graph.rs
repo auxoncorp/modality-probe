@@ -62,6 +62,8 @@ pub(super) struct NodeAndEdgeLists<G, W> {
 }
 
 impl NodeAndEdgeLists<GraphEvent, ()> {
+    /// pare down a complete graph into only trace clocks, which is to
+    /// say, only the interactions between probes.
     pub fn into_interactions(self) -> NodeAndEdgeLists<(ProbeId, LogicalClock), u32> {
         let mut nodes = HashMap::new();
         for (n, _) in self.nodes.into_iter() {
@@ -79,6 +81,7 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
         NodeAndEdgeLists { nodes, edges }
     }
 
+    /// Pare down a complete graph into the event transitions.
     pub fn into_states(self) -> NodeAndEdgeLists<(ProbeId, EventId), u32> {
         let mut nodes = HashMap::new();
         for (n, _) in self.nodes.into_iter() {
@@ -97,6 +100,8 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
         NodeAndEdgeLists { nodes, edges }
     }
 
+    /// Pare down a complete graph into just the probes and their
+    /// communication topology.
     pub fn into_topology(self) -> NodeAndEdgeLists<ProbeId, u32> {
         let mut nodes = HashMap::new();
         for (n, _) in self.nodes.into_iter() {
@@ -113,6 +118,8 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
         NodeAndEdgeLists { nodes, edges }
     }
 
+    /// Spit out a string containing dot code representing a complete
+    /// graph.
     pub fn to_dot(&self, cfg: &Cfg) -> Result<String, ExportError> {
         let mut out = String::new();
         writeln!(out, "digraph G {{")?;
@@ -161,6 +168,7 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
 }
 
 impl NodeAndEdgeLists<(ProbeId, LogicalClock), u32> {
+    /// Spit out dot code representing an interaction graph.
     pub fn to_dot(&self, cfg: &Cfg) -> Result<String, ExportError> {
         let mut out = String::new();
         writeln!(out, "digraph G {{")?;
@@ -219,6 +227,8 @@ impl NodeAndEdgeLists<(ProbeId, LogicalClock), u32> {
 }
 
 impl NodeAndEdgeLists<(ProbeId, EventId), u32> {
+    /// Spit out dot code representing an event transition state
+    /// machine.
     pub fn to_dot(&self, cfg: &Cfg) -> Result<String, ExportError> {
         let mut out = String::new();
         writeln!(out, "digraph G {{")?;
@@ -250,6 +260,7 @@ impl NodeAndEdgeLists<(ProbeId, EventId), u32> {
 }
 
 impl NodeAndEdgeLists<ProbeId, u32> {
+    /// Spit out dot code representing a topology graph.
     pub fn to_dot(&self, cfg: &Cfg) -> Result<String, ExportError> {
         let mut out = String::new();
         writeln!(out, "digraph G {{")?;
