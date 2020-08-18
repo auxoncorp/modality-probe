@@ -214,56 +214,58 @@ mod tests {
         receive_time: DateTime<Utc>,
     ) -> (Report, Vec<ReportLogEntry>) {
         let main_probe_id = raw_main_probe_id.try_into().unwrap();
-
-        (
-            dummy_report(raw_main_probe_id),
-            vec![
-                ReportLogEntry {
-                    session_id,
-                    sequence_number: 1.into(),
-                    sequence_index: 0,
-                    probe_id: main_probe_id,
-                    data: LogEntryData::FrontierClock(LogicalClock {
-                        id: ProbeId::new(2).unwrap(),
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    }),
-                    receive_time,
-                },
-                ReportLogEntry {
-                    session_id,
-                    sequence_number: 1.into(),
-                    sequence_index: 1,
-                    probe_id: main_probe_id,
-                    data: LogEntryData::Event(EventId::new(2).unwrap()),
-                    receive_time,
-                },
-                ReportLogEntry {
-                    session_id,
-                    sequence_number: 1.into(),
-                    sequence_index: 2,
-                    probe_id: main_probe_id,
-                    data: LogEntryData::TraceClock(LogicalClock {
-                        id: ProbeId::new(2).unwrap(),
-                        epoch: ProbeEpoch(1),
-                        ticks: ProbeTicks(1),
-                    }),
-                    receive_time,
-                },
-                ReportLogEntry {
-                    session_id,
-                    sequence_number: 1.into(),
-                    sequence_index: 3,
-                    probe_id: main_probe_id,
-                    data: LogEntryData::TraceClock(LogicalClock {
-                        id: ProbeId::new(1).unwrap(),
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    }),
-                    receive_time,
-                },
-            ],
-        )
+        let rep = dummy_report(raw_main_probe_id);
+        let entries = vec![
+            ReportLogEntry {
+                session_id,
+                sequence_number: 1.into(),
+                sequence_index: 0,
+                probe_id: main_probe_id,
+                persistent_epoch_counting: rep.persistent_epoch_counting,
+                data: LogEntryData::FrontierClock(LogicalClock {
+                    id: ProbeId::new(2).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time,
+            },
+            ReportLogEntry {
+                session_id,
+                sequence_number: 1.into(),
+                sequence_index: 1,
+                probe_id: main_probe_id,
+                persistent_epoch_counting: rep.persistent_epoch_counting,
+                data: LogEntryData::Event(EventId::new(2).unwrap()),
+                receive_time,
+            },
+            ReportLogEntry {
+                session_id,
+                sequence_number: 1.into(),
+                sequence_index: 2,
+                probe_id: main_probe_id,
+                persistent_epoch_counting: rep.persistent_epoch_counting,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: ProbeId::new(2).unwrap(),
+                    epoch: ProbeEpoch(1),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time,
+            },
+            ReportLogEntry {
+                session_id,
+                sequence_number: 1.into(),
+                sequence_index: 3,
+                probe_id: main_probe_id,
+                persistent_epoch_counting: rep.persistent_epoch_counting,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: ProbeId::new(1).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time,
+            },
+        ];
+        (rep, entries)
     }
 
     #[test]

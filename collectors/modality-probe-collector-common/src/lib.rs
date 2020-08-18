@@ -118,7 +118,12 @@ pub struct ReportLogEntry {
     /// The probe that supplied this entry
     pub probe_id: ProbeId,
 
-    /// This entry's data; a frontier clock, event, event with payload, or a trace clock
+    /// Whether or not the probe which reported this event has a
+    /// persistent epoch counter.
+    pub persistent_epoch_counting: bool,
+
+    /// This entry's data; a frontier
+    /// clock, event, event with payload, or a trace clock
     pub data: LogEntryData,
 
     /// The time this entry was received by the collector
@@ -237,6 +242,7 @@ where
                 epoch: ProbeEpoch(0),
                 ticks: ProbeTicks(0),
             },
+            persistent_epoch_counting: next.persistent_epoch_counting,
             seq_num: next.sequence_number,
             frontier_clocks: Vec::new(),
             event_log: Vec::new(),
@@ -491,6 +497,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
             session_id,
             sequence_number,
             sequence_index,
+            persistent_epoch_counting: false,
             probe_id: l.probe_id.try_into().map_err(|_e| Error::InvalidContent {
                 session_id,
                 sequence_number,
@@ -519,6 +526,7 @@ pub fn add_log_report_to_entries(
             sequence_number,
             sequence_index,
             probe_id,
+            persistent_epoch_counting: log_report.persistent_epoch_counting,
             data: LogEntryData::FrontierClock(*fc),
             receive_time,
         });
@@ -531,6 +539,7 @@ pub fn add_log_report_to_entries(
             sequence_number,
             sequence_index,
             probe_id,
+            persistent_epoch_counting: log_report.persistent_epoch_counting,
             data: LogEntryData::from(*event),
             receive_time,
         });
@@ -828,14 +837,24 @@ pub(crate) mod test {
             arb_probe_id(),
             arb_log_entry_data(),
             arb_datetime(),
+            any::<bool>(),
         )
             .prop_map(
-                |(session_id, sequence_number, sequence_index, probe_id, data, receive_time)| {
+                |(
+                    session_id,
+                    sequence_number,
+                    sequence_index,
+                    probe_id,
+                    data,
+                    receive_time,
+                    persistent_epoch_counting,
+                )| {
                     ReportLogEntry {
                         session_id,
                         sequence_number,
                         sequence_index,
                         probe_id,
+                        persistent_epoch_counting,
                         data,
                         receive_time,
                     }

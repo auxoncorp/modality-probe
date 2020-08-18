@@ -156,7 +156,7 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
                         write!(out, "payload = {} ", parsed_payload(th, pl)?)?;
                     }
                 }
-                write!(out, " ]\n")?;
+                writeln!(out, " ]")?;
             } else {
                 writeln!(
                     out,
