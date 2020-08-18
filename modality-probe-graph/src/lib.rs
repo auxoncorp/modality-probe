@@ -142,15 +142,24 @@ impl<G: Graph> EventDigraph<G> {
                         // when we see a clock, the previous event we
                         // saw is the last event from the previous
                         // clock span.
+                        let prev_self_clock =
+                            modality_probe::pack_clock_word(lc.epoch, lc.ticks).saturating_sub(1);
                         if let Some(prev) = prev_event {
-                            self.last_event_by_probe_and_clock.insert(
-                                (
-                                    probe_id,
-                                    modality_probe::pack_clock_word(lc.epoch, lc.ticks)
-                                        .saturating_sub(1),
-                                ),
-                                prev,
-                            );
+                            self.last_event_by_probe_and_clock
+                                .insert((probe_id, prev_self_clock), prev);
+                        } else if idx == 0 {
+                            // Or, if the first entry in the report is
+                            // a self trace clock, we can lookup the
+                            // last event from the previous report
+                            // chunk and, if we have it, save it for
+                            // future lookups.
+                            if let Some(ple) = self
+                                .last_event_by_probe_and_seq_num
+                                .get(&(probe_id, seq_num.prev()))
+                            {
+                                self.last_event_by_probe_and_clock
+                                    .insert((probe_id, prev_self_clock), *ple);
+                            }
                         }
                         self_clock = lc;
                     } else {

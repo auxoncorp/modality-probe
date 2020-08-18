@@ -317,7 +317,11 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
 #[test]
 fn export_cli_produces_a_reasonable_dot_file() {
     let run = |args: &[&str]| {
-        let mut out = Command::new("./target/debug/modality-probe")
+        let mut cmd_path = PathBuf::new();
+        cmd_path.push("target");
+        cmd_path.push("debug");
+        cmd_path.push("modality-probe");
+        let mut out = Command::new(&cmd_path)
             .args(args)
             .stdout(Stdio::piped())
             .spawn()
