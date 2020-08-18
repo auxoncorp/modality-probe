@@ -6,6 +6,7 @@ use modality_probe::*;
 use proptest::prelude::*;
 use std::{
     convert::{TryFrom, TryInto},
+    path::PathBuf,
     process::{Command, Stdio},
 };
 
@@ -330,73 +331,88 @@ fn export_cli_produces_a_reasonable_dot_file() {
             .unwrap();
         assert!(dot.status.success(), "{:#?}", dot)
     };
+
+    let mut comp_path = PathBuf::new();
+    comp_path.push("tests");
+    comp_path.push("fixtures");
+    comp_path.push("test-component");
+
+    let mut log_path = PathBuf::new();
+    log_path.push("tests");
+    log_path.push("fixtures");
+    log_path.push("test-log.jsonl");
+
     run(&[
         "export",
         "acyclic",
         "-c",
-        "./tests/fixtures/test-component",
+        &comp_path.display().to_string(),
         "-r",
-        "./tests/fixtures/test-log.jsonl",
+        &log_path.display().to_string(),
     ]);
     run(&[
         "export",
         "cyclic",
         "-c",
-        "./tests/fixtures/test-component",
+        &comp_path.display().to_string(),
         "-r",
-        "./tests/fixtures/test-log.jsonl",
-    ]);
-    run(&[
-        "export",
-        "acyclic",
-        "--interactions-only",
-        "-c",
-        "./tests/fixtures/test-component",
-        "-r",
-        "./tests/fixtures/test-log.jsonl",
-    ]);
-    run(&[
-        "export",
-        "cyclic",
-        "--interactions-only",
-        "-c",
-        "./tests/fixtures/test-component",
-        "-r",
-        "./tests/fixtures/test-log.jsonl",
-    ]);
-    run(&[
-        "export",
-        "acyclic",
-        "-c",
-        "./tests/fixtures/test-component-empty",
-        "-r",
-        "./tests/fixtures/test-log.jsonl",
-    ]);
-    run(&[
-        "export",
-        "cyclic",
-        "-c",
-        "./tests/fixtures/test-component-empty",
-        "-r",
-        "./tests/fixtures/test-log.jsonl",
+        &log_path.display().to_string(),
     ]);
     run(&[
         "export",
         "acyclic",
         "--interactions-only",
         "-c",
-        "./tests/fixtures/test-component-empty",
+        &comp_path.display().to_string(),
         "-r",
-        "./tests/fixtures/test-log.jsonl",
+        &log_path.display().to_string(),
     ]);
     run(&[
         "export",
         "cyclic",
         "--interactions-only",
         "-c",
-        "./tests/fixtures/test-component-empty",
+        &comp_path.display().to_string(),
         "-r",
-        "./tests/fixtures/test-log.jsonl",
+        &log_path.display().to_string(),
+    ]);
+
+    comp_path.pop();
+    comp_path.push("test-component-empty");
+
+    run(&[
+        "export",
+        "acyclic",
+        "-c",
+        &comp_path.display().to_string(),
+        "-r",
+        &log_path.display().to_string(),
+    ]);
+    run(&[
+        "export",
+        "cyclic",
+        "-c",
+        &comp_path.display().to_string(),
+        "-r",
+        &log_path.display().to_string(),
+    ]);
+    run(&[
+        "export",
+        "acyclic",
+        "--interactions-only",
+        "-c",
+        &comp_path.display().to_string(),
+        "-r",
+        &log_path.display().to_string(),
+    ]);
+    run(&[
+        "export",
+        "cyclic",
+        "--interactions-only",
+        "-c",
+        &comp_path.display().to_string(),
+        "-r",
+        &log_path.display().to_string(),
     ]);
 }
 
