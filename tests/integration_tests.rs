@@ -364,6 +364,40 @@ fn export_cli_produces_a_reasonable_dot_file() {
         "-r",
         "./tests/fixtures/test-log.jsonl",
     ]);
+    run(&[
+        "export",
+        "acyclic",
+        "-c",
+        "./tests/fixtures/test-component-empty",
+        "-r",
+        "./tests/fixtures/test-log.jsonl",
+    ]);
+    run(&[
+        "export",
+        "cyclic",
+        "-c",
+        "./tests/fixtures/test-component-empty",
+        "-r",
+        "./tests/fixtures/test-log.jsonl",
+    ]);
+    run(&[
+        "export",
+        "acyclic",
+        "--interactions-only",
+        "-c",
+        "./tests/fixtures/test-component-empty",
+        "-r",
+        "./tests/fixtures/test-log.jsonl",
+    ]);
+    run(&[
+        "export",
+        "cyclic",
+        "--interactions-only",
+        "-c",
+        "./tests/fixtures/test-component-empty",
+        "-r",
+        "./tests/fixtures/test-log.jsonl",
+    ]);
 }
 
 proptest! {

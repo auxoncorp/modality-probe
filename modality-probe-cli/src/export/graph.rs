@@ -128,15 +128,14 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
         let mut out = String::new();
         writeln!(out, "digraph G {{")?;
         for (node, _) in self.nodes.iter() {
-            let pmeta = cfg.probes.get(&node.probe_id.get_raw()).ok_or_else(|| {
-                ExportError(format!(
-                    "unable to find metadata for probe id {}",
-                    node.probe_id.get_raw(),
-                ))
-            })?;
-            let emeta = get_event_meta(cfg, &node.probe_id, &node.id)?;
-            write!(out, "    {}_{}_{} [ ", emeta.name, node.seq.0, node.seq_idx)?;
-            write!(
+            let pname = if let Some(pmeta) = cfg.probes.get(&node.probe_id.get_raw()) {
+                pmeta.name.clone()
+            } else {
+                format!("UNKNOWN_PROBE_{}", node.probe_id.get_raw())
+            };
+            if let Ok(emeta) = get_event_meta(cfg, &node.probe_id, &node.id) {
+                write!(out, "    {}_{}_{} [ ", emeta.name, node.seq.0, node.seq_idx)?;
+                write!(
                 out,
                 "label = \"{}\" description = \"{}\" file = \"{}\" {} probe = \"{}\" tags = \"{}\" raw_event_id = {} raw_probe_id = {} ",
                 emeta.name,
@@ -147,26 +146,47 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
                 } else {
                     format!("line = {}", emeta.line)
                 },
-                pmeta.name,
+                pname,
                 emeta.tags,
                 node.id.get_raw(),
                 node.probe_id.get_raw()
             )?;
-            if let Some(pl) = node.payload {
-                if let Some(ref th) = emeta.type_hint {
-                    write!(out, "payload = {} ", parsed_payload(th, pl)?)?;
+                if let Some(pl) = node.payload {
+                    if let Some(ref th) = emeta.type_hint {
+                        write!(out, "payload = {} ", parsed_payload(th, pl)?)?;
+                    }
                 }
+                write!(out, " ]\n")?;
+            } else {
+                writeln!(
+                    out,
+                    "    UNKNOWN_EVENT_{}_{}_{} [ label = \"UNKNOWN_EVENT_{}\" raw_event_id = {} probe = \"{}\" raw_probe_id = {} ]",
+                    node.id.get_raw(),
+                    node.seq.0,
+                    node.seq_idx,
+                    node.id.get_raw(),
+                    node.id.get_raw(),
+                    pname,
+                    node.probe_id.get_raw()
+                )?;
             }
-            write!(out, " ]\n")?;
         }
 
         for ((s, t), _) in self.edges.iter() {
-            let smeta = get_event_meta(cfg, &s.probe_id, &s.id)?;
-            let tmeta = get_event_meta(cfg, &t.probe_id, &t.id)?;
+            let source_name = if let Ok(meta) = get_event_meta(cfg, &s.probe_id, &s.id) {
+                meta.name.clone()
+            } else {
+                format!("UNKNOWN_EVENT_{}", s.id.get_raw())
+            };
+            let target_name = if let Ok(meta) = get_event_meta(cfg, &t.probe_id, &t.id) {
+                meta.name.clone()
+            } else {
+                format!("UNKNOWN_EVENT_{}", t.id.get_raw())
+            };
             writeln!(
                 out,
                 "    {}_{}_{} -> {}_{}_{}",
-                smeta.name, s.seq.0, s.seq_idx, tmeta.name, t.seq.0, t.seq_idx
+                source_name, s.seq.0, s.seq_idx, target_name, t.seq.0, t.seq_idx
             )?;
         }
 
@@ -181,13 +201,8 @@ impl NodeAndEdgeLists<(ProbeId, LogicalClock), u32> {
         let mut out = String::new();
         writeln!(out, "digraph G {{")?;
         for ((probe, clock), w) in self.nodes.iter() {
-            let pmeta = cfg.probes.get(&probe.get_raw()).ok_or_else(|| {
-                ExportError(format!(
-                    "unable to find metadata for probe id {}",
-                    probe.get_raw()
-                ))
-            })?;
-            writeln!(
+            if let Some(pmeta) = cfg.probes.get(&probe.get_raw()) {
+                writeln!(
                 out,
                 "    {}_{} [ label = \"{}\" description = \"{}\" file = \"{}\" {} raw_probe_id = {} weight = {} ]",
                 pmeta.name,
@@ -203,27 +218,35 @@ impl NodeAndEdgeLists<(ProbeId, LogicalClock), u32> {
                 probe.get_raw(),
                 w
             )?;
+            } else {
+                writeln!(
+                    out,
+                    "    UNKNOWN_PROBE_{}_{} [ label = \"UNKNOWN_PROBE_{}\" raw_probe_id = {} ]",
+                    probe.get_raw(),
+                    modality_probe::pack_clock_word(clock.epoch, clock.ticks),
+                    probe.get_raw(),
+                    probe.get_raw(),
+                )?;
+            }
         }
 
         for (((sprobe, sclock), (tprobe, tclock)), _) in self.edges.iter() {
-            let smeta = cfg.probes.get(&sprobe.get_raw()).ok_or_else(|| {
-                ExportError(format!(
-                    "unable to find metadata for probe id {}",
-                    sprobe.get_raw()
-                ))
-            })?;
-            let tmeta = cfg.probes.get(&tprobe.get_raw()).ok_or_else(|| {
-                ExportError(format!(
-                    "unable to find metadata for probe id {}",
-                    tprobe.get_raw()
-                ))
-            })?;
+            let source_name = if let Some(meta) = cfg.probes.get(&sprobe.get_raw()) {
+                meta.name.clone()
+            } else {
+                format!("UNKNOWN_PROBE_{}", sprobe.get_raw())
+            };
+            let target_name = if let Some(meta) = cfg.probes.get(&tprobe.get_raw()) {
+                meta.name.clone()
+            } else {
+                format!("UNKNOWN_PROBE_{}", tprobe.get_raw())
+            };
             writeln!(
                 out,
                 "    {}_{} -> {}_{}",
-                smeta.name,
+                source_name,
                 modality_probe::pack_clock_word(sclock.epoch, sclock.ticks),
-                tmeta.name,
+                target_name,
                 modality_probe::pack_clock_word(tclock.epoch, tclock.ticks)
             )?;
         }
@@ -240,52 +263,69 @@ impl NodeAndEdgeLists<(ProbeId, EventId), u32> {
         let mut out = String::new();
         writeln!(out, "digraph G {{")?;
         for ((pid, eid), w) in self.nodes.iter() {
-            let pmeta = cfg.probes.get(&pid.get_raw()).ok_or_else(|| {
-                ExportError(format!(
-                    "unable to find metadata for probe id {}",
-                    pid.get_raw()
-                ))
-            })?;
-            let emeta = get_event_meta(&cfg, pid, eid)?;
-            writeln!(
-                out,
-                "    {}_AT_{} [ label = \"{} @ {}\" description = \"{}\" file = \"{}\" {} tags = \"{}\" raw_event_id = {} weight = {} ]",
-                emeta.name,
-                pmeta.name,
-                emeta.name,
-                pmeta.name,
-                emeta.description,
-                emeta.file,
-                if emeta.line.is_empty() {
-                    String::new()
-                } else {
-                    format!("line = {}", emeta.line)
-                },
-                emeta.tags,
-                eid.get_raw(),
-                w
-            )?;
+            let pname = if let Some(pmeta) = cfg.probes.get(&pid.get_raw()) {
+                pmeta.name.clone()
+            } else {
+                format!("UNKNOWN_PROBE_{}", pid.get_raw())
+            };
+            if let Ok(emeta) = get_event_meta(&cfg, pid, eid) {
+                writeln!(
+                    out,
+                    "    {}_AT_{} [ label = \"{} @ {}\" description = \"{}\" file = \"{}\" {} tags = \"{}\" raw_event_id = {} weight = {} ]",
+                    emeta.name,
+                    pname,
+                    emeta.name,
+                    pname,
+                    emeta.description,
+                    emeta.file,
+                    if emeta.line.is_empty() {
+                        String::new()
+                    } else {
+                        format!("line = {}", emeta.line)
+                    },
+                    emeta.tags,
+                    eid.get_raw(),
+                    w
+                )?;
+            } else {
+                writeln!(
+                    out,
+                    "UNKNOWN_EVENT_{}_AT_{} [ label = \"UNKNOWN_EVENT_{} @ {}\" raw_event_id = {} raw_probe_id = {} ]",
+                    eid.get_raw(),
+                    pname,
+                    eid.get_raw(),
+                    pname,
+                    eid.get_raw(),
+                    pid.get_raw(),
+                )?;
+            }
         }
 
         for (((sp, se), (tp, te)), w) in self.edges.iter() {
-            let spmeta = cfg.probes.get(&sp.get_raw()).ok_or_else(|| {
-                ExportError(format!(
-                    "unable to find metadata for probe id {}",
-                    sp.get_raw()
-                ))
-            })?;
-            let semeta = get_event_meta(&cfg, sp, se)?;
-            let tpmeta = cfg.probes.get(&tp.get_raw()).ok_or_else(|| {
-                ExportError(format!(
-                    "unable to find metadata for probe id {}",
-                    tp.get_raw()
-                ))
-            })?;
-            let temeta = get_event_meta(&cfg, tp, te)?;
+            let source_probe = if let Some(pmeta) = cfg.probes.get(&sp.get_raw()) {
+                pmeta.name.clone()
+            } else {
+                format!("UNKNOWN_PROBE_{}", sp.get_raw())
+            };
+            let source_event = if let Ok(emeta) = get_event_meta(&cfg, sp, se) {
+                emeta.name.clone()
+            } else {
+                format!("UNKNOWN_EVENT_{}", se.get_raw())
+            };
+            let target_probe = if let Some(pmeta) = cfg.probes.get(&tp.get_raw()) {
+                pmeta.name.clone()
+            } else {
+                format!("UNKNOWN_PROBE_{}", tp.get_raw())
+            };
+            let target_event = if let Ok(emeta) = get_event_meta(&cfg, sp, te) {
+                emeta.name.clone()
+            } else {
+                format!("UNKNOWN_EVENT_{}", te.get_raw())
+            };
             writeln!(
                 out,
                 "    {}_AT_{} -> {}_AT_{} [ weight = {} ]",
-                semeta.name, spmeta.name, temeta.name, tpmeta.name, w
+                source_event, source_probe, target_event, target_probe, w
             )?;
         }
 
@@ -300,13 +340,8 @@ impl NodeAndEdgeLists<ProbeId, u32> {
         let mut out = String::new();
         writeln!(out, "digraph G {{")?;
         for (node, w) in self.nodes.iter() {
-            let pmeta = cfg.probes.get(&node.get_raw()).ok_or_else(|| {
-                ExportError(format!(
-                    "unable to find metadata for probe id {}",
-                    node.get_raw()
-                ))
-            })?;
-            writeln!(out, "    {} [ label = \"{}\" description = \"{}\" file = \"{}\" line = {} raw_probe_id = {} weight = {} ]",
+            if let Some(pmeta) = cfg.probes.get(&node.get_raw()) {
+                writeln!(out, "    {} [ label = \"{}\" description = \"{}\" file = \"{}\" line = {} raw_probe_id = {} weight = {} ]",
                 pmeta.name,
                 pmeta.name,
                 pmeta.description,
@@ -315,25 +350,31 @@ impl NodeAndEdgeLists<ProbeId, u32> {
                 node.get_raw(),
                 w
             )?;
+            } else {
+                writeln!(
+                    out,
+                    "    UNKNOWN_PROBE_{} [ label = \"UNKNOWN_PROBE_{}\" ]",
+                    node.get_raw(),
+                    node.get_raw()
+                )?;
+            }
         }
 
         for ((s, t), w) in self.edges.iter() {
-            let smeta = cfg.probes.get(&s.get_raw()).ok_or_else(|| {
-                ExportError(format!(
-                    "unable to find metadata for probe id {}",
-                    s.get_raw()
-                ))
-            })?;
-            let tmeta = cfg.probes.get(&t.get_raw()).ok_or_else(|| {
-                ExportError(format!(
-                    "unable to find metadata for probe id {}",
-                    t.get_raw()
-                ))
-            })?;
+            let source_name = if let Some(pmeta) = cfg.probes.get(&s.get_raw()) {
+                pmeta.name.clone()
+            } else {
+                format!("UNKNOWN_PROBE_{}", s.get_raw())
+            };
+            let target_name = if let Some(pmeta) = cfg.probes.get(&t.get_raw()) {
+                pmeta.name.clone()
+            } else {
+                format!("UNKNOWN_PROBE_{}", t.get_raw())
+            };
             writeln!(
                 out,
                 "    {} -> {} [ weight = {} ]",
-                smeta.name, tmeta.name, w
+                source_name, target_name, w,
             )?;
         }
 
