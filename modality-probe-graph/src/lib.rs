@@ -88,6 +88,7 @@ impl<G: Graph> EventDigraph<G> {
         let probe_id = report.probe_id;
         let seq_num = report.seq_num;
         let mut prev_event = None;
+        let mut prev_tc = None;
         let mut first_event = true;
         let mut self_clock = if let Some(sc) = report.frontier_clocks.get(0) {
             sc
@@ -111,6 +112,7 @@ impl<G: Graph> EventDigraph<G> {
                         node,
                         &mut pending_edges,
                         &mut prev_event,
+                        &mut prev_tc,
                         &mut first_event,
                         probe_id,
                         seq_num,
@@ -129,6 +131,7 @@ impl<G: Graph> EventDigraph<G> {
                         node,
                         &mut pending_edges,
                         &mut prev_event,
+                        &mut prev_tc,
                         &mut first_event,
                         probe_id,
                         seq_num,
@@ -154,6 +157,22 @@ impl<G: Graph> EventDigraph<G> {
                         pending_edges
                             .push((lc.id, modality_probe::pack_clock_word(lc.epoch, lc.ticks)));
                     }
+                    prev_tc = Some(*lc);
+                }
+            }
+        }
+        if let Some(pe) = prev_event {
+            self.last_event_by_probe_and_seq_num
+                .insert((probe_id, seq_num), pe);
+        }
+        if let Some(ptc) = prev_tc {
+            if ptc.id != probe_id {
+                if let Some(ev) = self.last_event_by_probe_and_clock.get(&(
+                    ptc.id,
+                    modality_probe::pack_clock_word(ptc.epoch, ptc.ticks),
+                )) {
+                    self.tail_pending_edge_sources
+                        .insert((probe_id, seq_num), *ev);
                 }
             }
         }
@@ -165,6 +184,7 @@ impl<G: Graph> EventDigraph<G> {
         node: GraphEvent,
         pending_edges: &mut Vec<(ProbeId, u32)>,
         prev_event: &mut Option<GraphEvent>,
+        prev_tc: &mut Option<LogicalClock>,
         first_event: &mut bool,
         probe_id: ProbeId,
         seq_num: SequenceNumber,
@@ -192,6 +212,7 @@ impl<G: Graph> EventDigraph<G> {
         }
         pending_edges.clear();
         *prev_event = Some(node);
+        *prev_tc = None;
     }
 }
 

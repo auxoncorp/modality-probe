@@ -55,6 +55,13 @@ newtype! {
     pub struct SequenceNumber(pub u64);
 }
 
+impl SequenceNumber {
+    /// Get the sequence number which preceeded this one.
+    pub fn prev(&self) -> Self {
+        SequenceNumber(self.0.saturating_sub(1))
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum SerializationError {
     #[error(display = "Invalid probe id {:?}", _0)]

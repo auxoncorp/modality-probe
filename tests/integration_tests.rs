@@ -4,7 +4,10 @@ use core::mem;
 use core::num::NonZeroU16;
 use modality_probe::*;
 use proptest::prelude::*;
-use std::convert::{TryFrom, TryInto};
+use std::{
+    convert::{TryFrom, TryInto},
+    process::{Command, Stdio},
+};
 
 struct Buffer {
     buffer: Vec<u8>,
@@ -308,6 +311,59 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
     }
 
     Ok(())
+}
+
+#[test]
+fn export_cli_produces_a_reasonable_dot_file() {
+    let run = |args: &[&str]| {
+        let mut out = Command::new("./target/debug/modality-probe")
+            .args(args)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        assert!(out.wait().unwrap().success());
+
+        let dot = Command::new("dot")
+            .stdin(out.stdout.unwrap())
+            .args(&["-T", "svg"])
+            .output()
+            .unwrap();
+        assert!(dot.status.success(), "{:#?}", dot)
+    };
+    run(&[
+        "export",
+        "acyclic",
+        "-c",
+        "./tests/fixtures/test-component",
+        "-r",
+        "./tests/fixtures/test-log.jsonl",
+    ]);
+    run(&[
+        "export",
+        "cyclic",
+        "-c",
+        "./tests/fixtures/test-component",
+        "-r",
+        "./tests/fixtures/test-log.jsonl",
+    ]);
+    run(&[
+        "export",
+        "acyclic",
+        "--interactions-only",
+        "-c",
+        "./tests/fixtures/test-component",
+        "-r",
+        "./tests/fixtures/test-log.jsonl",
+    ]);
+    run(&[
+        "export",
+        "cyclic",
+        "--interactions-only",
+        "-c",
+        "./tests/fixtures/test-component",
+        "-r",
+        "./tests/fixtures/test-log.jsonl",
+    ]);
 }
 
 proptest! {

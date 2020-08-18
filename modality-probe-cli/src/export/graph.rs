@@ -73,10 +73,12 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
 
         let mut edges = HashMap::new();
         for ((s, t), _) in self.edges.into_iter() {
-            let weight = edges
-                .entry(((s.probe_id, s.clock), (t.probe_id, t.clock)))
-                .or_insert(0);
-            *weight += 1;
+            if s.probe_id != t.probe_id {
+                let weight = edges
+                    .entry(((s.probe_id, s.clock), (t.probe_id, t.clock)))
+                    .or_insert(0);
+                *weight += 1;
+            }
         }
         NodeAndEdgeLists { nodes, edges }
     }
@@ -111,8 +113,10 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
 
         let mut edges = HashMap::new();
         for ((s, t), _) in self.edges.into_iter() {
-            let weight = edges.entry((s.probe_id, t.probe_id)).or_insert(0);
-            *weight += 1;
+            if s.probe_id != t.probe_id {
+                let weight = edges.entry((s.probe_id, t.probe_id)).or_insert(0);
+                *weight += 1;
+            }
         }
 
         NodeAndEdgeLists { nodes, edges }
@@ -131,14 +135,18 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
                 ))
             })?;
             let emeta = get_event_meta(cfg, &node.probe_id, &node.id)?;
-            write!(out, "{}_{}_{} [ ", emeta.name, node.seq.0, node.seq_idx)?;
+            write!(out, "    {}_{}_{} [ ", emeta.name, node.seq.0, node.seq_idx)?;
             write!(
                 out,
-                "label = \"{}\" description = \"{}\" file = \"{}\" line = {} probe = \"{}\" tags = \"{}\" raw_event_id = {} raw_probe_id = {}\" ",
+                "label = \"{}\" description = \"{}\" file = \"{}\" {} probe = \"{}\" tags = \"{}\" raw_event_id = {} raw_probe_id = {} ",
                 emeta.name,
                 emeta.description,
                 emeta.file,
-                emeta.line,
+                if emeta.line.is_empty() {
+                    String::new()
+                } else {
+                    format!("line = {}", emeta.line)
+                },
                 pmeta.name,
                 emeta.tags,
                 node.id.get_raw(),
@@ -149,7 +157,7 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
                     write!(out, "payload = {} ", parsed_payload(th, pl)?)?;
                 }
             }
-            write!(out, " ]\n\n")?;
+            write!(out, " ]\n")?;
         }
 
         for ((s, t), _) in self.edges.iter() {
@@ -157,7 +165,7 @@ impl NodeAndEdgeLists<GraphEvent, ()> {
             let tmeta = get_event_meta(cfg, &t.probe_id, &t.id)?;
             writeln!(
                 out,
-                "{}_{}_{} -> {}_{}_{}",
+                "    {}_{}_{} -> {}_{}_{}",
                 smeta.name, s.seq.0, s.seq_idx, tmeta.name, t.seq.0, t.seq_idx
             )?;
         }
@@ -179,23 +187,22 @@ impl NodeAndEdgeLists<(ProbeId, LogicalClock), u32> {
                     probe.get_raw()
                 ))
             })?;
-            write!(
+            writeln!(
                 out,
-                "{}_{} [ ",
+                "    {}_{} [ label = \"{}\" description = \"{}\" file = \"{}\" {} raw_probe_id = {} weight = {} ]",
                 pmeta.name,
-                modality_probe::pack_clock_word(clock.epoch, clock.ticks)
-            )?;
-            write!(
-                out,
-                "label = \"{}\" description = \"{}\" file = \"{}\" line = {} raw_probe_id = {}\" weight = {}",
+                modality_probe::pack_clock_word(clock.epoch, clock.ticks),
                 pmeta.name,
                 pmeta.description,
                 pmeta.file,
-                pmeta.line,
+                if pmeta.line.is_empty() {
+                    String::new()
+                } else {
+                    format!("line = {}", pmeta.line)
+                },
                 probe.get_raw(),
                 w
             )?;
-            write!(out, " ]\n\n")?;
         }
 
         for (((sprobe, sclock), (tprobe, tclock)), _) in self.edges.iter() {
@@ -213,7 +220,7 @@ impl NodeAndEdgeLists<(ProbeId, LogicalClock), u32> {
             })?;
             writeln!(
                 out,
-                "{}_{} -> {}_{}",
+                "    {}_{} -> {}_{}",
                 smeta.name,
                 modality_probe::pack_clock_word(sclock.epoch, sclock.ticks),
                 tmeta.name,
@@ -233,25 +240,53 @@ impl NodeAndEdgeLists<(ProbeId, EventId), u32> {
         let mut out = String::new();
         writeln!(out, "digraph G {{")?;
         for ((pid, eid), w) in self.nodes.iter() {
+            let pmeta = cfg.probes.get(&pid.get_raw()).ok_or_else(|| {
+                ExportError(format!(
+                    "unable to find metadata for probe id {}",
+                    pid.get_raw()
+                ))
+            })?;
             let emeta = get_event_meta(&cfg, pid, eid)?;
-            write!(out, "{} [ ", emeta.name)?;
-            write!(
+            writeln!(
                 out,
-                "[ label = \"{}\" description = \"{}\" file = \"{}\" line = {} tags = \"{}\" raw_event_id = {} weight = {} ]\n\n",
+                "    {}_AT_{} [ label = \"{} @ {}\" description = \"{}\" file = \"{}\" {} tags = \"{}\" raw_event_id = {} weight = {} ]",
                 emeta.name,
+                pmeta.name,
+                emeta.name,
+                pmeta.name,
                 emeta.description,
                 emeta.file,
-                emeta.line,
+                if emeta.line.is_empty() {
+                    String::new()
+                } else {
+                    format!("line = {}", emeta.line)
+                },
                 emeta.tags,
                 eid.get_raw(),
                 w
             )?;
         }
 
-        for (((sp, se), (tp, te)), _) in self.edges.iter() {
-            let smeta = get_event_meta(&cfg, sp, se)?;
-            let tmeta = get_event_meta(&cfg, tp, te)?;
-            writeln!(out, "{} -> {}", smeta.name, tmeta.name)?;
+        for (((sp, se), (tp, te)), w) in self.edges.iter() {
+            let spmeta = cfg.probes.get(&sp.get_raw()).ok_or_else(|| {
+                ExportError(format!(
+                    "unable to find metadata for probe id {}",
+                    sp.get_raw()
+                ))
+            })?;
+            let semeta = get_event_meta(&cfg, sp, se)?;
+            let tpmeta = cfg.probes.get(&tp.get_raw()).ok_or_else(|| {
+                ExportError(format!(
+                    "unable to find metadata for probe id {}",
+                    tp.get_raw()
+                ))
+            })?;
+            let temeta = get_event_meta(&cfg, tp, te)?;
+            writeln!(
+                out,
+                "    {}_AT_{} -> {}_AT_{} [ weight = {} ]",
+                semeta.name, spmeta.name, temeta.name, tpmeta.name, w
+            )?;
         }
 
         writeln!(out, "}}")?;
@@ -271,8 +306,8 @@ impl NodeAndEdgeLists<ProbeId, u32> {
                     node.get_raw()
                 ))
             })?;
-            write!(out, "{} [ \"label = \"{}\" description = \"{}\" file = \"{}\" line = {} raw_probe_id = {} weight = {} ]",
-                   pmeta.name,
+            writeln!(out, "    {} [ label = \"{}\" description = \"{}\" file = \"{}\" line = {} raw_probe_id = {} weight = {} ]",
+                pmeta.name,
                 pmeta.name,
                 pmeta.description,
                 pmeta.file,
@@ -295,7 +330,11 @@ impl NodeAndEdgeLists<ProbeId, u32> {
                     t.get_raw()
                 ))
             })?;
-            writeln!(out, "{} -> {} [ weight = {} ]", smeta.name, tmeta.name, w)?;
+            writeln!(
+                out,
+                "    {} -> {} [ weight = {} ]",
+                smeta.name, tmeta.name, w
+            )?;
         }
 
         writeln!(out, "}}")?;
