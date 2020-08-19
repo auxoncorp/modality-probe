@@ -4,11 +4,7 @@ use core::mem;
 use core::num::NonZeroU16;
 use modality_probe::*;
 use proptest::prelude::*;
-use std::{
-    convert::{TryFrom, TryInto},
-    path::PathBuf,
-    process::{Command, Stdio},
-};
+use std::convert::{TryFrom, TryInto};
 
 struct Buffer {
     buffer: Vec<u8>,
@@ -315,7 +311,12 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn export_cli_produces_a_reasonable_dot_file() {
+    use std::{
+        path::PathBuf,
+        process::{Command, Stdio},
+    };
     let run = |args: &[&str]| {
         let mut cmd_path = PathBuf::new();
         cmd_path.push("target");

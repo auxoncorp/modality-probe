@@ -188,6 +188,7 @@ impl<G: Graph> EventDigraph<G> {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn add_event_to_graph(
         &mut self,
         node: GraphEvent,
