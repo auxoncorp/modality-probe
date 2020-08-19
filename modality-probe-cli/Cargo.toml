@@ -4,7 +4,8 @@ version = "0.3.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
     "Russell Mull <russell@auxon.io>",
-    "Jon Lamb <jon@auxon.io>"
+    "Jon Lamb <jon@auxon.io>",
+    "dan pittman <dan@auxon.io>"
 ]
 edition = "2018"
 license = "Apache-2.0"
@@ -35,6 +36,8 @@ sha3 = "0.9"
 hex = "0.4"
 derivative = "2.1"
 err-derive = "0.2.4"
+modality-probe-collector-common = { path = "../collectors/modality-probe-collector-common" }
+modality-probe-graph = { path = "../modality-probe-graph" }
 
 [dependencies.modality-probe]
 path = "../"
@@ -60,3 +63,4 @@ features = ["serde", "v4"]
 pretty_assertions = "0.6"
 tempfile = "3.1"
 proptest = "0.9.5"
+modality-probe-graph = { path = "../modality-probe-graph", features = ["test_support"] }

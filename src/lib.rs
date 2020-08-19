@@ -16,6 +16,8 @@ use core::{
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
 #[cfg(feature = "std")]
 use proptest_derive::Arbitrary;
+#[cfg(feature = "std")]
+use serde::{Deserialize, Serialize};
 use static_assertions::{assert_cfg, const_assert};
 
 pub use error::*;
@@ -131,7 +133,7 @@ impl PartialOrd for CausalSnapshot {
 /// The epoch part of a probe's logical clock
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "std", derive(Arbitrary))]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize, Arbitrary))]
 pub struct ProbeEpoch(pub u16);
 
 impl ProbeEpoch {
@@ -162,7 +164,7 @@ impl From<ProbeEpoch> for u16 {
 /// The clock part of a probe's logical clock
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "std", derive(Arbitrary))]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize, Arbitrary))]
 pub struct ProbeTicks(pub u16);
 
 impl ProbeTicks {
@@ -199,6 +201,7 @@ pub fn unpack_clock_word(w: u32) -> (ProbeEpoch, ProbeTicks) {
 /// A single logical clock, usable as an entry in a vector clock
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 #[repr(C)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct LogicalClock {
     /// The probe that this clock is tracking
     /// Equivalent structurally to a u32.
