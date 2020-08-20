@@ -1,7 +1,6 @@
 [package]
-authors = ["nicholas"]
+authors = ["Nicholas Springer <nspringer@auxon.io>"]
 edition = "2018"
-readme = "README.md"
 name = "symbols-example"
 version = "0.1.0"
 

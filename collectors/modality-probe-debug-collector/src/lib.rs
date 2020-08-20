@@ -1,8 +1,10 @@
 use chrono::Utc;
 use std::cell::RefCell;
+use std::convert::TryFrom;
 use std::fs::File;
 use std::mem::size_of;
 use std::net::SocketAddrV4;
+use std::ops::Add;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::mpsc::Receiver;
@@ -24,67 +26,115 @@ use modality_probe_collector_common::{
 use race_buffer::async_reader::{RaceReader, Snapper};
 use race_buffer::{RaceBuffer, SeqNum, WholeEntry};
 
+#[derive(Debug, PartialEq, Copy, Clone, Eq, Hash)]
+pub enum Word {
+    U32(u32),
+    U64(u64),
+}
+
+impl Word {
+    fn size(&self) -> u8 {
+        match self {
+            Self::U32(_) => 4,
+            Self::U64(_) => 8,
+        }
+    }
+
+    #[cfg(test)]
+    fn unwrap_32(&self) -> u32 {
+        match self {
+            Self::U32(n) => *n,
+            Self::U64(_) => panic!("Tried to unwrap u32 from U64 Word"),
+        }
+    }
+}
+
+impl Into<usize> for Word {
+    fn into(self) -> usize {
+        match self {
+            Self::U32(n) => n as usize,
+            Self::U64(n) => n as usize,
+        }
+    }
+}
+
+impl Add<u64> for Word {
+    type Output = Word;
+
+    // Note: u64s added to 32 bit words must not be greater than u32::MAX
+    fn add(self, rhs: u64) -> Word {
+        match self {
+            Word::U32(n) => Word::U32(n + u32::try_from(rhs).unwrap()),
+            Word::U64(n) => Word::U64(n + rhs),
+        }
+    }
+}
+
 // Offset of pointer to DynamicHistory in ModalityProbe struct, which is located in modality-probe/src/lib.rs
-fn history_ptr_offset() -> u32 {
-    offset_of!(ModalityProbe => history).get_byte_offset() as u32
+fn history_ptr_offset() -> u64 {
+    offset_of!(ModalityProbe => history).get_byte_offset() as u64
 }
 
 // Address offsets of each needed field of the DynamicHistory struct, which is located in modality-probe/src/history.rs
-fn overwrite_priority_offset() -> u32 {
-    offset_of!(DynamicHistory => overwrite_priority).get_byte_offset() as u32
+fn overwrite_priority_offset() -> u64 {
+    offset_of!(DynamicHistory => overwrite_priority).get_byte_offset() as u64
 }
 
-fn probe_id_offset() -> u32 {
-    offset_of!(DynamicHistory => probe_id).get_byte_offset() as u32
+fn probe_id_offset() -> u64 {
+    offset_of!(DynamicHistory => probe_id).get_byte_offset() as u64
 }
 
-fn write_seqn_high_offset() -> u32 {
+fn write_seqn_high_offset() -> u64 {
     offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => write_seqn: SeqNum => high)
-        .get_byte_offset() as u32
+        .get_byte_offset() as u64
 }
 
-fn write_seqn_low_offset() -> u32 {
+fn write_seqn_low_offset() -> u64 {
     offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => write_seqn: SeqNum => low)
-        .get_byte_offset() as u32
+        .get_byte_offset() as u64
 }
 
-fn overwrite_seqn_high_offset() -> u32 {
+fn overwrite_seqn_high_offset() -> u64 {
     offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => overwrite_seqn: SeqNum => high)
-        .get_byte_offset() as u32
+        .get_byte_offset() as u64
 }
 
-fn overwrite_seqn_low_offset() -> u32 {
+fn overwrite_seqn_low_offset() -> u64 {
     offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => overwrite_seqn: SeqNum => low)
-        .get_byte_offset() as u32
+        .get_byte_offset() as u64
 }
 
-fn log_storage_addr_offset() -> u32 {
-    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => storage).get_byte_offset() as u32
+fn log_storage_addr_offset() -> u64 {
+    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => storage).get_byte_offset() as u64
 }
 
-fn log_storage_cap_offset() -> u32 {
+fn log_storage_cap_offset(n_word_bytes: u8) -> u64 {
     // Assume storage addr is a u32
-    log_storage_addr_offset() + size_of::<u32>() as u32
+    log_storage_addr_offset() + n_word_bytes as u64
 }
 
 /// Configuration for running collector
 #[derive(Debug, PartialEq)]
 pub struct Config {
     pub session_id: SessionId,
-    pub big_endian: bool,
-    pub attach_target: Option<String>,
-    pub gdb_addr: Option<SocketAddrV4>,
+    pub target: Target,
     pub interval: Duration,
     pub output_path: PathBuf,
     pub probe_addrs: Vec<ProbeAddr>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Target {
+    ProbeRsTarget(String),
+    GdbAddr(SocketAddrV4)
 }
 
 /// Struct representing a probe address, either the address of the probe itself or of
 /// a pointer to the probe
 #[derive(Debug, PartialEq)]
 pub enum ProbeAddr {
-    Addr(u32),
-    PtrAddr(u32),
+    Addr(Word),
+    PtrAddr(Word),
 }
 
 #[derive(Debug, Error)]
@@ -103,29 +153,45 @@ pub enum DebugCollectorError {
 
 /// Trait used to specify backend used to access device memory
 pub trait MemoryAccessor {
-    fn read_32(&mut self, addr: u32) -> Result<u32, DebugCollectorError>;
-    fn write_32(&mut self, addr: u32, data: u32) -> Result<(), DebugCollectorError>;
+    fn read_word(&mut self, addr: Word) -> Result<Word, DebugCollectorError>;
+    fn read_32(&mut self, addr: Word) -> Result<u32, DebugCollectorError>;
+    fn write_32(&mut self, addr: Word, data: u32) -> Result<(), DebugCollectorError>;
 }
 
 /// MemoryAccessor that uses probe-rs to access device memory
-struct ProbeRsReader(Session);
+struct ProbeRsAccessor(Session);
 
-impl MemoryAccessor for ProbeRsReader {
-    fn read_32(&mut self, addr: u32) -> Result<u32, DebugCollectorError> {
-        let mut core = self
-            .0
-            .core(0)
-            .map_err(|_e| DebugCollectorError::TargetError)?;
-        core.read_word_32(addr)
-            .map_err(|_e| DebugCollectorError::TargetError)
+impl MemoryAccessor for ProbeRsAccessor {
+    fn read_word(&mut self, addr: Word) -> Result<Word, DebugCollectorError> {
+        self.read_32(addr).map(|res| Word::U32(res))
     }
-    fn write_32(&mut self, addr: u32, data: u32) -> Result<(), DebugCollectorError> {
-        let mut core = self
-            .0
-            .core(0)
-            .map_err(|_e| DebugCollectorError::TargetError)?;
-        core.write_word_32(addr, data)
-            .map_err(|_e| DebugCollectorError::TargetError)
+
+    fn read_32(&mut self, addr: Word) -> Result<u32, DebugCollectorError> {
+        if let Word::U32(addr_raw) = addr {
+            let mut core = self
+                .0
+                .core(0)
+                .map_err(|_e| DebugCollectorError::TargetError)?;
+            core.read_word_32(addr_raw)
+                .map_err(|_e| DebugCollectorError::TargetError)
+        } else {
+            // ProbeRs does not support 64 bit targets
+            Err(DebugCollectorError::TargetError)
+        }
+    }
+
+    fn write_32(&mut self, addr: Word, data: u32) -> Result<(), DebugCollectorError> {
+        if let Word::U32(addr_raw) = addr {
+            let mut core = self
+                .0
+                .core(0)
+                .map_err(|_e| DebugCollectorError::TargetError)?;
+            core.write_word_32(addr_raw, data)
+                .map_err(|_e| DebugCollectorError::TargetError)
+        } else {
+            // ProbeRs does not support 64 bit targets
+            Err(DebugCollectorError::TargetError)
+        }
     }
 }
 
@@ -134,15 +200,15 @@ struct MemorySnapper {
     /// Reader used to read device memory
     mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
     /// Address of RaceBuffer backing storage
-    storage_addr: u32,
+    storage_addr: Word,
     /// Address of RaceBuffer write sequence number high word
-    write_seqn_high_addr: u32,
+    write_seqn_high_addr: Word,
     /// Address of RaceBuffer write sequence number low word
-    write_seqn_low_addr: u32,
+    write_seqn_low_addr: Word,
     /// Address of RaceBuffer write sequence number high word
-    overwrite_seqn_high_addr: u32,
+    overwrite_seqn_high_addr: Word,
     /// Address of RaceBuffer write sequence number low word
-    overwrite_seqn_low_addr: u32,
+    overwrite_seqn_low_addr: Word,
 }
 
 impl Snapper<LogEntry> for MemorySnapper {
@@ -176,7 +242,7 @@ impl Snapper<LogEntry> for MemorySnapper {
         let raw: u32 = self
             .mem_accessor
             .borrow_mut()
-            .read_32(self.storage_addr + (size_of::<LogEntry>() * index) as u32)?;
+            .read_32(self.storage_addr + (size_of::<LogEntry>() * index) as u64)?;
         // Safe because entry is already in memory as a valid LogEntry
         Ok(unsafe { LogEntry::new_unchecked(raw) })
     }
@@ -187,7 +253,7 @@ struct PriorityWriter {
     /// Memory accessor used to write to device memoryt
     mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
     /// Address of priority field
-    priority_field_addr: u32,
+    priority_field_addr: Word,
 }
 
 impl PriorityWriter {
@@ -221,22 +287,24 @@ impl Collector {
         let addr = match *probe_addr {
             ProbeAddr::Addr(addr) => addr,
             // Read storage address from pointer
-            ProbeAddr::PtrAddr(addr) => mem_accessor.borrow_mut().read_32(addr)?,
+            ProbeAddr::PtrAddr(addr) => mem_accessor.borrow_mut().read_word(addr)?,
         };
-        let mut mem_accessor_borrowed = mem_accessor.borrow_mut();
+        let mut mem_borrow = mem_accessor.borrow_mut();
         // Get address of DynamicHistory
-        let hist_addr = mem_accessor_borrowed.read_32(addr + history_ptr_offset())?;
+        let hist_addr = mem_borrow.read_word(addr + history_ptr_offset())?;
         // Read DynamicHistory fields
-        let id_raw = mem_accessor_borrowed.read_32(hist_addr + probe_id_offset())?;
+        let id_raw = mem_borrow.read_32(hist_addr + probe_id_offset())?;
         let id = ProbeId::new(id_raw).ok_or_else(|| DebugCollectorError::ProbeIdError)?;
-        let buf_addr = mem_accessor_borrowed.read_32(hist_addr + log_storage_addr_offset())?;
-        let buf_cap = mem_accessor_borrowed.read_32(hist_addr + log_storage_cap_offset())? as usize;
+        let buf_addr = mem_borrow.read_word(hist_addr + log_storage_addr_offset())?;
+        let buf_cap = mem_borrow
+            .read_word(hist_addr + log_storage_cap_offset(hist_addr.size()))?
+            .into();
         let write_seqn_high_addr = hist_addr + write_seqn_high_offset();
         let write_seqn_low_addr = hist_addr + write_seqn_low_offset();
         let overwrite_seqn_high_addr = hist_addr + overwrite_seqn_high_offset();
         let overwrite_seqn_low_addr = hist_addr + overwrite_seqn_low_offset();
         let priority_field_addr = hist_addr + overwrite_priority_offset();
-        drop(mem_accessor_borrowed);
+        drop(mem_borrow);
 
         let priority_mem_accessor = mem_accessor.clone();
         let mut clocks = Vec::new();
@@ -276,7 +344,7 @@ impl Collector {
         let num_missed = self.reader.read(&mut self.rbuf)?;
         // Possibly add entries missed event
         if num_missed > 0 {
-            let num_missed_rounded = u64::max(num_missed, u32::MAX as u64) as u32;
+            let num_missed_rounded = u64::min(num_missed, u32::MAX as u64) as u32;
             let (ev, payload) =
                 LogEntry::event_with_payload(EventId::EVENT_LOG_ITEMS_MISSED, num_missed_rounded);
             self.rbuf.insert(0, WholeEntry::Double(ev, payload));
@@ -335,15 +403,15 @@ impl Collector {
 
 /// Open memory reader based on config
 fn open_memory_reader(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, DebugCollectorError> {
-    Ok(Rc::new(RefCell::new(match c.attach_target.as_ref() {
-        Some(target) => {
+    match &c.target {
+        Target::ProbeRsTarget(target) => {
             let session =
                 Session::auto_attach(target).map_err(|_e| DebugCollectorError::TargetError)?;
-            ProbeRsReader(session)
+                Ok(Rc::new(RefCell::new(ProbeRsAccessor(session))))
         }
         // No probe rs target implies use of gdb, which is not implemented yet
-        None => unimplemented!(),
-    })))
+        Target::GdbAddr(_) => unimplemented!(),
+    }
 }
 
 /// Initialize collectors of each probe based on config
@@ -411,65 +479,10 @@ pub mod tests {
     use std::convert::TryInto;
 
     use modality_probe::EventId;
+    use modality_probe::ModalityProbe;
+    use modality_probe::Probe;
     use modality_probe_collector_common::EventLogEntry;
-
-    struct HashMapMemAccessor(HashMap<u32, u32>);
-
-    impl HashMapMemAccessor {
-        const PROBE_PTR_ADDR: u32 = 0x0;
-        const PROBE_ADDR: u32 = 0x4;
-        const HIST_ADDR: u32 = 0x8;
-        const STORAGE_ADDR: u32 = 0x200;
-
-        fn new(
-            probe_id: ProbeId,
-            write_seqn: u32,
-            overwrite_seqn: u32,
-            buf_contents: &Vec<LogEntry>,
-        ) -> Self {
-            let map = hashmap! {
-                Self::PROBE_PTR_ADDR => Self::PROBE_ADDR,
-                Self::PROBE_ADDR + history_ptr_offset() => Self::HIST_ADDR,
-                Self::HIST_ADDR + probe_id_offset() => probe_id.get().into(),
-                Self::HIST_ADDR + log_storage_addr_offset() => Self::STORAGE_ADDR,
-                Self::HIST_ADDR + log_storage_cap_offset() => buf_contents.len() as u32,
-                Self::HIST_ADDR + write_seqn_offset() => write_seqn,
-                Self::HIST_ADDR + overwrite_seqn_offset() => overwrite_seqn
-            };
-            let mut reader = HashMapMemAccessor(map);
-            reader.overwrite_buffer(&buf_contents);
-            reader
-        }
-
-        fn overwrite_buffer(&mut self, buf_contents: &Vec<LogEntry>) {
-            for (index, entry) in buf_contents.iter().enumerate() {
-                self.0
-                    .insert(Self::STORAGE_ADDR + 4 * (index as u32), entry.raw());
-            }
-        }
-
-        fn set_write_seqn(&mut self, new_write_seqn: u32) {
-            self.0
-                .insert(Self::HIST_ADDR + write_seqn_offset(), new_write_seqn);
-        }
-
-        fn set_overwrite_seqn(&mut self, new_overwrite_seqn: u32) {
-            self.0.insert(
-                Self::HIST_ADDR + overwrite_seqn_offset(),
-                new_overwrite_seqn,
-            );
-        }
-    }
-
-    impl MemoryAccessor for HashMapMemAccessor {
-        fn read_32(&mut self, addr: u32) -> DynResult<u32> {
-            Ok(*self.0.get(&addr).unwrap())
-        }
-
-        fn write_32(&mut self, _: u32, _: u32) -> DynResult<()> {
-            unimplemented!()
-        }
-    }
+    use modality_probe_collector_common::SequenceNumber;
 
     fn lc(probe_id: u32, epoch: u16, ticks: u16) -> LogicalClock {
         LogicalClock {
@@ -483,38 +496,249 @@ pub mod tests {
         EventId::new(id).unwrap()
     }
 
+    struct DirectMemAccessor;
+
+    impl MemoryAccessor for DirectMemAccessor {
+        fn write_32(&mut self, addr: Word, data: u32) -> Result<(), DebugCollectorError> {
+            let ptr = match addr {
+                Word::U32(addr_raw) => {
+                    assert!(size_of::<usize>() == size_of::<u32>());
+                    addr_raw as usize as *mut u32
+                }
+                Word::U64(addr_raw) => {
+                    assert!(size_of::<usize>() == size_of::<u64>());
+                    addr_raw as usize as *mut u32
+                }
+            };
+            unsafe { *ptr = data };
+            Ok(())
+        }
+
+        fn read_32(&mut self, addr: Word) -> Result<u32, DebugCollectorError> {
+            let ptr = match addr {
+                Word::U32(addr_raw) => {
+                    assert!(size_of::<usize>() == size_of::<u32>());
+                    addr_raw as usize as *const u32
+                }
+                Word::U64(addr_raw) => {
+                    assert!(size_of::<usize>() == size_of::<u64>());
+                    addr_raw as usize as *const u32
+                }
+            };
+            Ok(unsafe { *ptr })
+        }
+
+        fn read_word(&mut self, addr: Word) -> Result<Word, DebugCollectorError> {
+            match addr {
+                Word::U32(addr_raw) => {
+                    assert!(size_of::<usize>() == size_of::<u32>());
+                    let ptr = addr_raw as usize as *const u32;
+                    Ok(unsafe { Word::U32(*ptr) })
+                }
+                Word::U64(addr_raw) => {
+                    assert!(size_of::<usize>() == size_of::<u64>());
+                    let ptr = addr_raw as usize as *const u64;
+                    Ok(unsafe { Word::U64(*ptr) })
+                }
+            }
+        }
+    }
+
     #[test]
-    fn initialization_and_retrieval() {
+    fn local_probe() {
+        let mut storage = [0u8; 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
-        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
-            probe_id,
-            4,
-            4,
-            &mut vec![
-                LogEntry::clock(lc(pid_raw, 0, 1)).0,
-                LogEntry::clock(lc(pid_raw, 0, 1)).1,
-                LogEntry::event(ev(3)),
-                LogEntry::event(ev(4)),
-            ],
-        )));
+        let mut probe = ModalityProbe::new_with_storage(&mut storage[..], probe_id).unwrap();
+        let addr_raw = &probe as *const ModalityProbe as usize;
+        #[cfg(target_pointer_width = "32")]
+        let addr = Word::U32(addr_raw as u32);
+        #[cfg(target_pointer_width = "64")]
+        let addr = Word::U64(addr_raw as u64);
 
         let mut collector = Collector::initialize(
-            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
-            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
+            &ProbeAddr::Addr(addr),
+            Rc::new(RefCell::new(DirectMemAccessor)),
         )
         .unwrap();
-        let mut rbuf = Vec::new();
-        collector.retrieve_logs(&mut rbuf).unwrap();
+
+        probe.record_event(ev(1));
+        let report = collector.collect_report().unwrap();
         assert_eq!(
-            &rbuf[..],
-            &mut vec![
-                PossiblyMissed::Entry(LogEntry::clock(lc(pid_raw, 0, 1)).0),
-                PossiblyMissed::Entry(LogEntry::clock(lc(pid_raw, 0, 1)).1),
-                PossiblyMissed::Entry(LogEntry::event(EventId::new(3).unwrap())),
-                PossiblyMissed::Entry(LogEntry::event(EventId::new(4).unwrap())),
-            ][..]
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(0),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![EventLogEntry::Event(ev(1))],
+            }
         )
+    }
+
+    #[test]
+    fn local_probe_interaction() {
+        let mut storage = [0u8; 1024];
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let mut probe = ModalityProbe::new_with_storage(&mut storage[..], probe_id).unwrap();
+        let addr_raw = &probe as *const ModalityProbe as usize;
+
+        let mut storage_2 = [0u8; 1024];
+        let pid_raw_2 = 2;
+        let probe_id_2 = ProbeId::new(pid_raw_2).unwrap();
+        let mut probe_2 = ModalityProbe::new_with_storage(&mut storage_2[..], probe_id_2).unwrap();
+        let addr_raw_2 = &probe_2 as *const ModalityProbe as usize;
+
+        #[cfg(target_pointer_width = "32")]
+        let (addr, addr_2) = (Word::U32(addr_raw as u32), Word::U32(addr_raw_2 as u32));
+        #[cfg(target_pointer_width = "64")]
+        let (addr, addr_2) = (Word::U64(addr_raw as u64), Word::U64(addr_raw_2 as u64));
+
+        let mut collector = Collector::initialize(
+            &ProbeAddr::Addr(addr),
+            Rc::new(RefCell::new(DirectMemAccessor)),
+        )
+        .unwrap();
+
+        let mut collector_2 = Collector::initialize(
+            &ProbeAddr::Addr(addr_2),
+            Rc::new(RefCell::new(DirectMemAccessor)),
+        )
+        .unwrap();
+
+        probe.record_event(ev(1));
+        probe_2.record_event(ev(1));
+        let snap = probe.produce_snapshot().unwrap();
+        probe_2.merge_snapshot(&snap).unwrap();
+
+        let report = collector_2.collect_report().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id: probe_id_2,
+                probe_clock: lc(pid_raw_2, 1, 1),
+                seq_num: SequenceNumber(0),
+                frontier_clocks: vec![lc(pid_raw_2, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 1, 1)),
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 0))
+                ],
+            }
+        );
+
+        probe_2.record_event(ev(2));
+        let second_snap = probe_2.produce_snapshot().unwrap();
+        probe.merge_snapshot(&second_snap).unwrap();
+
+        let second_report = collector_2.collect_report().unwrap();
+        assert_eq!(
+            second_report,
+            Report {
+                probe_id: probe_id_2,
+                probe_clock: lc(pid_raw_2, 1, 2),
+                seq_num: SequenceNumber(1),
+                frontier_clocks: vec![lc(pid_raw_2, 1, 1), lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 1, 2)),
+                ],
+            }
+        );
+
+        let third_report = collector.collect_report().unwrap();
+        assert_eq!(
+            third_report,
+            Report {
+                probe_id: probe_id,
+                probe_clock: lc(pid_raw, 1, 2),
+                seq_num: SequenceNumber(0),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::TraceClock(lc(pid_raw, 1, 1)),
+                    EventLogEntry::TraceClock(lc(pid_raw, 1, 2)),
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 1, 1)),
+                ],
+            }
+        );
+
+        let fourth_report = collector.collect_report().unwrap();
+        assert_eq!(
+            fourth_report,
+            Report {
+                probe_id: probe_id,
+                probe_clock: lc(pid_raw, 1, 2),
+                seq_num: SequenceNumber(1),
+                frontier_clocks: vec![lc(pid_raw, 1, 2), lc(pid_raw_2, 1, 1)],
+                event_log: vec![],
+            }
+        );
+    }
+
+    struct HashMapMemAccessor(HashMap<Word, u32>);
+
+    impl HashMapMemAccessor {
+        const PROBE_PTR_ADDR: Word = Word::U32(0x0);
+        const PROBE_ADDR: Word = Word::U32(0x8);
+        const HIST_ADDR: Word = Word::U32(0x16);
+        const STORAGE_ADDR: Word = Word::U32(0x200);
+
+        fn new(
+            probe_id: ProbeId,
+            write_seqn: u32,
+            overwrite_seqn: u32,
+            buf_contents: &Vec<LogEntry>,
+        ) -> Self {
+            let map = hashmap! {
+                Self::PROBE_PTR_ADDR => Self::PROBE_ADDR.unwrap_32(),
+                Self::PROBE_ADDR + history_ptr_offset() => Self::HIST_ADDR.unwrap_32(),
+                Self::HIST_ADDR + probe_id_offset() => probe_id.get().into(),
+                Self::HIST_ADDR + log_storage_addr_offset() => Self::STORAGE_ADDR.unwrap_32(),
+                Self::HIST_ADDR + log_storage_cap_offset(Word::U32(0).size()) => buf_contents.len() as u32,
+                Self::HIST_ADDR + write_seqn_high_offset() => 0,
+                Self::HIST_ADDR + write_seqn_low_offset() => write_seqn,
+                Self::HIST_ADDR + overwrite_seqn_high_offset() => 0,
+                Self::HIST_ADDR + overwrite_seqn_low_offset() => overwrite_seqn,
+            };
+            let mut reader = HashMapMemAccessor(map);
+            reader.overwrite_buffer(&buf_contents);
+            reader
+        }
+
+        fn overwrite_buffer(&mut self, buf_contents: &Vec<LogEntry>) {
+            for (index, entry) in buf_contents.iter().enumerate() {
+                self.0
+                    .insert(Self::STORAGE_ADDR + 4 * index as u64, entry.raw());
+            }
+        }
+
+        fn set_write_seqn(&mut self, new_write_seqn: u32) {
+            self.0
+                .insert(Self::HIST_ADDR + write_seqn_low_offset(), new_write_seqn);
+        }
+
+        fn set_overwrite_seqn(&mut self, new_overwrite_seqn: u32) {
+            self.0.insert(
+                Self::HIST_ADDR + overwrite_seqn_low_offset(),
+                new_overwrite_seqn,
+            );
+        }
+    }
+
+    impl MemoryAccessor for HashMapMemAccessor {
+        fn read_word(&mut self, addr: Word) -> Result<Word, DebugCollectorError> {
+            self.read_32(addr).map(|res| Word::U32(res))
+        }
+
+        fn read_32(&mut self, addr: Word) -> Result<u32, DebugCollectorError> {
+            Ok(*self.0.get(&addr).unwrap())
+        }
+
+        fn write_32(&mut self, _: Word, _: u32) -> Result<(), DebugCollectorError> {
+            unimplemented!()
+        }
     }
 
     /// Create simple report
@@ -546,7 +770,7 @@ pub mod tests {
             Report {
                 probe_id,
                 probe_clock: lc(pid_raw, 0, 1),
-                seq_num: 0,
+                seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
@@ -585,7 +809,7 @@ pub mod tests {
             Report {
                 probe_id,
                 probe_clock: lc(pid_raw, 0, 0),
-                seq_num: 0,
+                seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::Event(ev(1)),
@@ -626,7 +850,7 @@ pub mod tests {
             Report {
                 probe_id,
                 probe_clock: lc(pid_raw, 0, 0),
-                seq_num: 0,
+                seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::EventWithPayload(EventId::EVENT_LOG_ITEMS_MISSED, 2),
@@ -672,7 +896,7 @@ pub mod tests {
             Report {
                 probe_id,
                 probe_clock: lc(pid_raw, 0, 1),
-                seq_num: 0,
+                seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
@@ -704,7 +928,7 @@ pub mod tests {
             Report {
                 probe_id,
                 probe_clock: lc(pid_raw, 0, 1),
-                seq_num: 1,
+                seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 1), lc(other_id_raw, 0, 1)],
                 event_log: vec![
                     EventLogEntry::Event(ev(5)),
@@ -748,7 +972,7 @@ pub mod tests {
             Report {
                 probe_id,
                 probe_clock: lc(pid_raw, 0, 0),
-                seq_num: 0,
+                seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![],
             }
@@ -783,7 +1007,7 @@ pub mod tests {
             Report {
                 probe_id,
                 probe_clock: lc(pid_raw, 0, 0),
-                seq_num: 0,
+                seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::Event(ev(1)),
@@ -808,7 +1032,7 @@ pub mod tests {
             Report {
                 probe_id,
                 probe_clock: lc(pid_raw, 0, 1),
-                seq_num: 1,
+                seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
@@ -848,7 +1072,7 @@ pub mod tests {
             Report {
                 probe_id,
                 probe_clock: lc(pid_raw, 0, 0),
-                seq_num: 0,
+                seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::Event(ev(1)),
@@ -873,7 +1097,7 @@ pub mod tests {
             Report {
                 probe_id,
                 probe_clock: lc(pid_raw, 0, 0),
-                seq_num: 1,
+                seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::EventWithPayload(ev(4), 5),
