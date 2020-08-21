@@ -9,6 +9,8 @@ jobs:
     steps:
       - name: Install system packages
         run: sudo apt-get install -y libusb-1.0-0-dev
+      - name: install dot
+        run: sudo apt-get install -y graphviz
 
       - name: Checkout sources
         uses: actions/checkout@v2

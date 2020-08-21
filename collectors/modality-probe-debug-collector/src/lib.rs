@@ -22,7 +22,7 @@ use modality_probe::{
     DynamicHistory, EventId, LogicalClock, ModalityProbe, OrdClock, ProbeEpoch, ProbeId, ProbeTicks,
 };
 use modality_probe_collector_common::{
-    add_log_report_to_entries, csv::write_log_entries, Report, ReportLogEntry, SessionId,
+    add_log_report_to_entries, json::write_log_entries, Report, ReportLogEntry, SessionId,
 };
 
 /// Either a u32 or u64, depending on the target architecture
@@ -409,8 +409,12 @@ fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, Debu
             if probes.is_empty() {
                 return Err(DebugCollectorError::TargetError);
             }
-            let probe = probes[0].open().map_err(|_e| DebugCollectorError::TargetError)?;
-            let session = probe.attach(target).map_err(|_e| DebugCollectorError::TargetError)?;
+            let probe = probes[0]
+                .open()
+                .map_err(|_e| DebugCollectorError::TargetError)?;
+            let session = probe
+                .attach(target)
+                .map_err(|_e| DebugCollectorError::TargetError)?;
             Ok(Rc::new(RefCell::new(ProbeRsAccessor(session))))
         }
         // No probe rs target implies use of gdb, which is not implemented yet
@@ -435,13 +439,11 @@ fn report_to_file(
     out: &mut File,
     report: Report,
     session_id: SessionId,
-    include_header_row: bool,
 ) -> Result<(), DebugCollectorError> {
     let mut entries: Vec<ReportLogEntry> = Vec::new();
 
     add_log_report_to_entries(&report, session_id, Utc::now(), &mut entries);
-    write_log_entries(out, &entries, include_header_row)
-        .map_err(|_e| DebugCollectorError::FileError)
+    write_log_entries(out, &entries).map_err(|_e| DebugCollectorError::FileError)
 }
 
 /// Run debug collector with given config
@@ -449,12 +451,6 @@ pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<(), DebugColle
     let mem_accessor = open_mem_accessor(c)?;
     let mut collectors = initialize_collectors(c, mem_accessor)?;
 
-    let mut needs_csv_headers = !c.output_path.exists()
-        || c.output_path
-            .metadata()
-            .map_err(|_e| DebugCollectorError::FileError)?
-            .len()
-            == 0;
     let mut out = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
@@ -467,8 +463,7 @@ pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<(), DebugColle
         }
         for collector in &mut collectors {
             let report = collector.collect_report()?;
-            report_to_file(&mut out, report, c.session_id, needs_csv_headers)?;
-            needs_csv_headers = false;
+            report_to_file(&mut out, report, c.session_id)?;
         }
         sleep(c.interval);
     }
@@ -482,11 +477,8 @@ pub mod tests {
     use std::collections::HashMap;
     use std::convert::TryInto;
 
-    use modality_probe::EventId;
-    use modality_probe::ModalityProbe;
-    use modality_probe::Probe;
-    use modality_probe_collector_common::EventLogEntry;
-    use modality_probe_collector_common::SequenceNumber;
+    use modality_probe::{EventId, ModalityProbe, Probe, RestartCounterProvider};
+    use modality_probe_collector_common::{EventLogEntry, SequenceNumber};
 
     fn lc(probe_id: u32, epoch: u16, ticks: u16) -> LogicalClock {
         LogicalClock {
@@ -553,7 +545,12 @@ pub mod tests {
         let mut storage = [0u8; 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
-        let mut probe = ModalityProbe::new_with_storage(&mut storage[..], probe_id).unwrap();
+        let mut probe = ModalityProbe::new_with_storage(
+            &mut storage[..],
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
         let addr_raw = &probe as *const ModalityProbe as usize;
         #[cfg(target_pointer_width = "32")]
         let addr = Word::U32(addr_raw as u32);
@@ -575,7 +572,11 @@ pub mod tests {
                 probe_clock: lc(pid_raw, 0, 0),
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
-                event_log: vec![EventLogEntry::Event(ev(1))],
+                event_log: vec![
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(ev(1))
+                ],
+                persistent_epoch_counting: false,
             }
         )
     }
@@ -585,13 +586,23 @@ pub mod tests {
         let mut storage = [0u8; 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
-        let mut probe = ModalityProbe::new_with_storage(&mut storage[..], probe_id).unwrap();
+        let mut probe = ModalityProbe::new_with_storage(
+            &mut storage[..],
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
         let addr_raw = &probe as *const ModalityProbe as usize;
 
         let mut storage_2 = [0u8; 1024];
         let pid_raw_2 = 2;
         let probe_id_2 = ProbeId::new(pid_raw_2).unwrap();
-        let mut probe_2 = ModalityProbe::new_with_storage(&mut storage_2[..], probe_id_2).unwrap();
+        let mut probe_2 = ModalityProbe::new_with_storage(
+            &mut storage_2[..],
+            probe_id_2,
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
         let addr_raw_2 = &probe_2 as *const ModalityProbe as usize;
 
         #[cfg(target_pointer_width = "32")]
@@ -625,10 +636,12 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw_2, 0, 0)],
                 event_log: vec![
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(ev(1)),
                     EventLogEntry::TraceClock(lc(pid_raw_2, 1, 1)),
                     EventLogEntry::TraceClock(lc(pid_raw, 0, 0))
                 ],
+                persistent_epoch_counting: false,
             }
         );
 
@@ -648,6 +661,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(2)),
                     EventLogEntry::TraceClock(lc(pid_raw_2, 1, 2)),
                 ],
+                persistent_epoch_counting: false,
             }
         );
 
@@ -660,11 +674,13 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(ev(1)),
                     EventLogEntry::TraceClock(lc(pid_raw, 1, 1)),
                     EventLogEntry::TraceClock(lc(pid_raw, 1, 2)),
                     EventLogEntry::TraceClock(lc(pid_raw_2, 1, 1)),
                 ],
+                persistent_epoch_counting: false,
             }
         );
 
@@ -676,6 +692,7 @@ pub mod tests {
                 probe_clock: lc(pid_raw, 1, 2),
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 1, 2), lc(pid_raw_2, 1, 1)],
+                persistent_epoch_counting: false,
                 event_log: vec![],
             }
         );
@@ -686,7 +703,12 @@ pub mod tests {
         let mut storage = [0u8; 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
-        let probe = ModalityProbe::new_with_storage(&mut storage[..], probe_id).unwrap();
+        let probe = ModalityProbe::new_with_storage(
+            &mut storage[..],
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
         let addr_raw = &probe as *const ModalityProbe as usize;
         #[cfg(target_pointer_width = "32")]
         let addr = Word::U32(addr_raw as u32);
@@ -699,20 +721,8 @@ pub mod tests {
         )
         .unwrap();
 
-        probe.rec.set_overwrite_priority(1).unwrap();
+        collector.set_overwrite_priority(1).unwrap();
         assert_eq!(probe.history.overwrite_priority, 1);
-        rd_event(ev(1));
-        let report = collector.collect_report().unwrap();
-        assert_eq!(
-            report,
-            Report {
-                probe_id,
-                probe_clock: lc(pid_raw, 0, 0),
-                seq_num: SequenceNumber(0),
-                frontier_clocks: vec![lc(pid_raw, 0, 0)],
-                event_log: vec![EventLogEntry::Event(ev(1))],
-            }
-        )
     }
 
     struct HashMapMemAccessor(HashMap<Word, u32>);
@@ -815,6 +825,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(3)),
                     EventLogEntry::Event(ev(4))
                 ],
+                persistent_epoch_counting: false,
             }
         )
     }
@@ -855,6 +866,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(3)),
                     EventLogEntry::Event(ev(4))
                 ],
+                persistent_epoch_counting: false,
             }
         )
     }
@@ -897,6 +909,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(5)),
                     EventLogEntry::Event(ev(6))
                 ],
+                persistent_epoch_counting: false,
             }
         )
     }
@@ -944,6 +957,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(3)),
                     EventLogEntry::Event(ev(4))
                 ],
+                persistent_epoch_counting: false,
             }
         );
 
@@ -978,6 +992,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(11)),
                     EventLogEntry::Event(ev(12))
                 ],
+                persistent_epoch_counting: false,
             }
         );
     }
@@ -1013,6 +1028,7 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![],
+                persistent_epoch_counting: false,
             }
         );
     }
@@ -1052,6 +1068,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(2)),
                     EventLogEntry::Event(ev(3))
                 ],
+                persistent_epoch_counting: false,
             }
         );
 
@@ -1078,6 +1095,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(5)),
                     EventLogEntry::Event(ev(6)),
                 ],
+                persistent_epoch_counting: false,
             }
         );
     }
@@ -1117,6 +1135,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(2)),
                     EventLogEntry::Event(ev(3))
                 ],
+                persistent_epoch_counting: false,
             }
         );
 
@@ -1143,6 +1162,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(7)),
                     EventLogEntry::Event(ev(8)),
                 ],
+                persistent_epoch_counting: false,
             }
         );
     }

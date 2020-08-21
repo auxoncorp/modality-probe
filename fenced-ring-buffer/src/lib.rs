@@ -280,7 +280,7 @@ pub mod tests {
     // check if read buffer is in order and consistent
     #[test]
     fn async_output_timeouts_and_errors() {
-        const NUM_WRITES: u32 = 1000_000;
+        const NUM_WRITES: u32 = 10_000;
         const STORAGE_CAP: usize = 8;
 
         let (ptr_s, ptr_r) = crossbeam::crossbeam_channel::bounded(0);

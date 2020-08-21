@@ -7,7 +7,7 @@ use std::{
 
 use chrono::Utc;
 
-use modality_probe_collector_common::{self as common, csv, Report, ReportLogEntry, SessionId};
+use modality_probe_collector_common::{self as common, json, Report, ReportLogEntry, SessionId};
 
 mod opts;
 
@@ -58,8 +58,6 @@ pub fn start_receiving(
     config: Config,
     shutdown_signal_receiver: ShutdownSignalReceiver,
 ) -> Result<(), IoError> {
-    let needs_csv_headers =
-        !config.output_file.exists() || config.output_file.metadata()?.len() == 0;
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
@@ -69,7 +67,6 @@ pub fn start_receiving(
         config.session_id,
         &mut file,
         shutdown_signal_receiver,
-        needs_csv_headers,
     )
 }
 
@@ -78,14 +75,12 @@ pub fn start_receiving_at_addr<W: Write>(
     session_id: SessionId,
     log_output_writer: &mut W,
     shutdown_signal_receiver: ShutdownSignalReceiver,
-    needs_csv_headers: bool,
 ) -> Result<(), IoError> {
     start_receiving_from_socket(
         UdpSocket::bind(addr)?,
         session_id,
         log_output_writer,
         shutdown_signal_receiver,
-        needs_csv_headers,
     );
     Ok(())
 }
@@ -95,7 +90,6 @@ pub fn start_receiving_from_socket<W: Write>(
     session_id: SessionId,
     log_output_writer: &mut W,
     shutdown_signal_receiver: ShutdownSignalReceiver,
-    mut needs_csv_headers: bool,
 ) {
     let addr = socket.local_addr().map(|a| a.to_string());
     let mut buf = vec![0u8; 1024 * 1024];
@@ -154,12 +148,8 @@ pub fn start_receiving_from_socket<W: Write>(
             }
         }
 
-        if let Err(e) =
-            csv::write_log_entries(log_output_writer, &log_entries_buffer, needs_csv_headers)
-        {
+        if let Err(e) = json::write_log_entries(log_output_writer, &log_entries_buffer) {
             eprintln!("Error writing log entries: {}", e);
-        } else {
-            needs_csv_headers = false;
         }
         let _ = log_output_writer.flush();
     }
@@ -196,6 +186,7 @@ mod tests {
                 ticks: ProbeTicks(1),
             },
             seq_num: 1.into(),
+            persistent_epoch_counting: false,
             frontier_clocks: vec![LogicalClock {
                 id: ProbeId::new(2).unwrap(),
                 epoch: ProbeEpoch(0),
@@ -223,56 +214,58 @@ mod tests {
         receive_time: DateTime<Utc>,
     ) -> (Report, Vec<ReportLogEntry>) {
         let main_probe_id = raw_main_probe_id.try_into().unwrap();
-
-        (
-            dummy_report(raw_main_probe_id),
-            vec![
-                ReportLogEntry {
-                    session_id,
-                    sequence_number: 1.into(),
-                    sequence_index: 0,
-                    probe_id: main_probe_id,
-                    data: LogEntryData::FrontierClock(LogicalClock {
-                        id: ProbeId::new(2).unwrap(),
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    }),
-                    receive_time,
-                },
-                ReportLogEntry {
-                    session_id,
-                    sequence_number: 1.into(),
-                    sequence_index: 1,
-                    probe_id: main_probe_id,
-                    data: LogEntryData::Event(EventId::new(2).unwrap()),
-                    receive_time,
-                },
-                ReportLogEntry {
-                    session_id,
-                    sequence_number: 1.into(),
-                    sequence_index: 2,
-                    probe_id: main_probe_id,
-                    data: LogEntryData::TraceClock(LogicalClock {
-                        id: ProbeId::new(2).unwrap(),
-                        epoch: ProbeEpoch(1),
-                        ticks: ProbeTicks(1),
-                    }),
-                    receive_time,
-                },
-                ReportLogEntry {
-                    session_id,
-                    sequence_number: 1.into(),
-                    sequence_index: 3,
-                    probe_id: main_probe_id,
-                    data: LogEntryData::TraceClock(LogicalClock {
-                        id: ProbeId::new(1).unwrap(),
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    }),
-                    receive_time,
-                },
-            ],
-        )
+        let rep = dummy_report(raw_main_probe_id);
+        let entries = vec![
+            ReportLogEntry {
+                session_id,
+                sequence_number: 1.into(),
+                sequence_index: 0,
+                probe_id: main_probe_id,
+                persistent_epoch_counting: rep.persistent_epoch_counting,
+                data: LogEntryData::FrontierClock(LogicalClock {
+                    id: ProbeId::new(2).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time,
+            },
+            ReportLogEntry {
+                session_id,
+                sequence_number: 1.into(),
+                sequence_index: 1,
+                probe_id: main_probe_id,
+                persistent_epoch_counting: rep.persistent_epoch_counting,
+                data: LogEntryData::Event(EventId::new(2).unwrap()),
+                receive_time,
+            },
+            ReportLogEntry {
+                session_id,
+                sequence_number: 1.into(),
+                sequence_index: 2,
+                probe_id: main_probe_id,
+                persistent_epoch_counting: rep.persistent_epoch_counting,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: ProbeId::new(2).unwrap(),
+                    epoch: ProbeEpoch(1),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time,
+            },
+            ReportLogEntry {
+                session_id,
+                sequence_number: 1.into(),
+                sequence_index: 3,
+                probe_id: main_probe_id,
+                persistent_epoch_counting: rep.persistent_epoch_counting,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: ProbeId::new(1).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time,
+            },
+        ];
+        (rep, entries)
     }
 
     #[test]
@@ -355,13 +348,7 @@ mod tests {
             server_state_sender
                 .send(ServerState::Started)
                 .expect("Could not send status update");
-            start_receiving_from_socket(
-                socket,
-                config.session_id,
-                &mut file,
-                shutdown_receiver,
-                true,
-            );
+            start_receiving_from_socket(socket, config.session_id, &mut file, shutdown_receiver);
             let _ = server_state_sender.send(ServerState::Shutdown);
         });
         thread::yield_now();
@@ -395,8 +382,8 @@ mod tests {
         }
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = csv::read_log_entries(&mut file_reader)
-            .expect("Could not read output file as csv log entries");
+        let found_log_entries = json::read_log_entries(&mut file_reader)
+            .expect("Could not read output file as json log entries");
 
         let expected_entries: usize = log_report.frontier_clocks.len() + log_report.event_log.len();
         assert_eq!(expected_entries, found_log_entries.len());
@@ -446,13 +433,7 @@ mod tests {
             server_state_sender
                 .send(ServerState::Started)
                 .expect("Could not send status update");
-            start_receiving_from_socket(
-                socket,
-                config.session_id,
-                &mut file,
-                shutdown_receiver,
-                true,
-            );
+            start_receiving_from_socket(socket, config.session_id, &mut file, shutdown_receiver);
             let _ = server_state_sender.send(ServerState::Shutdown);
         });
         thread::yield_now();
@@ -510,8 +491,8 @@ mod tests {
 
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = csv::read_log_entries(&mut file_reader)
-            .expect("Could not read output file as csv log entries");
+        let found_log_entries = json::read_log_entries(&mut file_reader)
+            .expect("Could not read output file as json log entries");
 
         assert!(found_log_entries.len() > 0);
         let expected_direct_probe_ids: HashSet<_> =
@@ -588,13 +569,7 @@ mod tests {
             server_state_sender
                 .send(ServerState::Started)
                 .expect("Could not send status update");
-            start_receiving_from_socket(
-                socket,
-                config.session_id,
-                &mut file,
-                shutdown_receiver,
-                true,
-            );
+            start_receiving_from_socket(socket, config.session_id, &mut file, shutdown_receiver);
             let _ = server_state_sender.send(ServerState::Shutdown);
         });
         thread::yield_now();
@@ -645,8 +620,8 @@ mod tests {
 
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = csv::read_log_entries(&mut file_reader)
-            .expect("Could not read output file as csv log entries");
+        let found_log_entries = json::read_log_entries(&mut file_reader)
+            .expect("Could not read output file as json log entries");
 
         assert!(found_log_entries.len() > 0);
         let expected_probe_ids: HashSet<_> = [probe_a_id, probe_b_id].iter().copied().collect();
@@ -720,13 +695,7 @@ mod tests {
             server_state_sender
                 .send(ServerState::Started)
                 .expect("Could not send status update");
-            start_receiving_from_socket(
-                socket,
-                config.session_id,
-                &mut file,
-                shutdown_receiver,
-                true,
-            );
+            start_receiving_from_socket(socket, config.session_id, &mut file, shutdown_receiver);
             let _ = server_state_sender.send(ServerState::Shutdown);
         });
         thread::yield_now();
@@ -782,8 +751,8 @@ mod tests {
 
         let mut file_reader =
             std::fs::File::open(&output_file_path).expect("Could not open output file for reading");
-        let found_log_entries = csv::read_log_entries(&mut file_reader)
-            .expect("Could not read output file as csv log entries");
+        let found_log_entries = json::read_log_entries(&mut file_reader)
+            .expect("Could not read output file as json log entries");
 
         assert!(found_log_entries.len() > 0);
         let expected_probe_ids: HashSet<_> = [probe_a_id, probe_b_id].iter().copied().collect();
@@ -797,7 +766,7 @@ mod tests {
                         assert_eq!(EventLogEntry::EventWithPayload(event, payload), event_foo);
                     } else if event == bar_id {
                         assert_eq!(EventLogEntry::EventWithPayload(event, payload), event_bar);
-                    } else {
+                    } else if event != modality_probe::EventId::EVENT_PROBE_INITIALIZED {
                         // it's that the model implementation of
                         // EventId doesn't or out the marker bits on
                         // read.
@@ -837,9 +806,12 @@ mod tests {
            + 'static {
         move |id_to_sender, _receiver| {
             let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
-            let mut probe =
-                modality_probe::ModalityProbe::new_with_storage(&mut probe_storage, probe_id)
-                    .expect("Could not make probe");
+            let mut probe = modality_probe::ModalityProbe::new_with_storage(
+                &mut probe_storage,
+                probe_id,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .expect("Could not make probe");
             let mut causal_history_blob = vec![0u8; SNAPSHOT_BYTES_SIZE];
             for _ in 0..n_messages {
                 match per_iteration_event {
@@ -867,9 +839,14 @@ mod tests {
             let log_report_bytes = probe
                 .report(&mut log_report_storage)
                 .expect("Could not write log report in broadcaster");
-            socket
-                .send_to(&log_report_storage[..log_report_bytes], collector_addr)
-                .expect("Could not send log report to server");
+            if let Some(log_report_bytes) = log_report_bytes {
+                socket
+                    .send_to(
+                        &log_report_storage[..log_report_bytes.get()],
+                        collector_addr,
+                    )
+                    .expect("Could not send log report to server");
+            }
         }
     }
 
@@ -892,9 +869,12 @@ mod tests {
            + 'static {
         move |id_to_sender, receiver| {
             let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
-            let mut probe =
-                modality_probe::ModalityProbe::new_with_storage(&mut probe_storage, probe_id)
-                    .expect("Could not make probe");
+            let mut probe = modality_probe::ModalityProbe::new_with_storage(
+                &mut probe_storage,
+                probe_id,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .expect("Could not make probe");
 
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
@@ -942,9 +922,14 @@ mod tests {
                         let log_report_bytes = probe
                             .report(&mut log_report_storage)
                             .expect("Could not write log report in relayer");
-                        socket
-                            .send_to(&log_report_storage[..log_report_bytes], collector_addr)
-                            .expect("Could not send log report to server");
+                        if let Some(log_report_bytes) = log_report_bytes {
+                            socket
+                                .send_to(
+                                    &log_report_storage[..log_report_bytes.get()],
+                                    collector_addr,
+                                )
+                                .expect("Could not send log report to server");
+                        }
                     }
                 }
                 messages_received += 1;
@@ -965,9 +950,12 @@ mod tests {
            + 'static {
         move |_id_to_sender, receiver| {
             let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
-            let mut probe =
-                modality_probe::ModalityProbe::new_with_storage(&mut probe_storage, probe_id)
-                    .expect("Could not make probe");
+            let mut probe = modality_probe::ModalityProbe::new_with_storage(
+                &mut probe_storage,
+                probe_id,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .expect("Could not make probe");
 
             let socket =
                 UdpSocket::bind(OS_PICK_ADDR_HINT).expect("Could not bind to client socket");
@@ -996,12 +984,14 @@ mod tests {
                     let log_report_bytes = probe
                         .report(&mut log_report_storage)
                         .expect("Could not write log report in sink");
-                    socket
-                        .send_to(
-                            &log_report_storage[..log_report_bytes],
-                            send_log_report_every_n_messages.collector_addr,
-                        )
-                        .expect("Could not send log report to server");
+                    if let Some(log_report_bytes) = log_report_bytes {
+                        socket
+                            .send_to(
+                                &log_report_storage[..log_report_bytes.get()],
+                                send_log_report_every_n_messages.collector_addr,
+                            )
+                            .expect("Could not send log report to server");
+                    }
                 }
                 messages_received += 1;
             }

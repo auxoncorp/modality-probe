@@ -191,7 +191,10 @@ impl EventId {
     /// entries is stored in the payload.
     pub const EVENT_LOG_ITEMS_MISSED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 2) });
-    /// A logical clock's count reached the maximum trackable value
+    /// A logical clock's count reached the maximum trackable value.
+    /// The next sequence id / epoch is stored in the payload.
+    /// If this probe is tracking restarts, then the next sequence id is provided
+    /// by the user's backing implementation.
     pub const EVENT_LOGICAL_CLOCK_OVERFLOWED: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 3) });
     /// The local instance (e.g. Modality probe) did not have enough memory
@@ -202,6 +205,13 @@ impl EventId {
     /// The report destination buffer is too small to fit a header and/or the frontier clocks
     pub const EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 5) });
+    /// The probe successfully initialized itself.
+    pub const EVENT_PROBE_INITIALIZED: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 6) });
+    /// The probe is configured to track restarts, but the user's implementation
+    /// returned an invalid zero value or a None option variant.
+    pub const EVENT_INVALID_NEXT_EPOCH_SEQ_ID: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 7) });
 
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[
@@ -210,6 +220,8 @@ impl EventId {
         EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
         EventId::EVENT_NUM_CLOCKS_OVERFLOWED,
         EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE,
+        EventId::EVENT_PROBE_INITIALIZED,
+        EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID,
     ];
 
     /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID

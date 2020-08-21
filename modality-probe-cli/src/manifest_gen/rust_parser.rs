@@ -668,14 +668,16 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         tag(";")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (args, _storage) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (args, full_name) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
-    let (args, full_name) = if expect_tags_or_desc {
+    let (args, _next_seq_id_provider) = if expect_tags_or_desc {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
     } else {
-        let (args, name_token) =
+        let (args, token) =
             take_until(")")(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
         let (_args, _) = tag(")")(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-        rest_string(name_token).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
+        rest_string(token).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
     };
     let name =
         reduce_namespace(&full_name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
@@ -936,27 +938,29 @@ mod tests {
 
     const MIXED_PROBE_ID_INPUT: &'static str = r#"
     /// Docs ModalityProbe::try_initialize_at(a, b, c)
-    let probe = try_initialize_at!(&mut storage, PROBE_ID_A)
+    let probe = try_initialize_at!(&mut storage, PROBE_ID_A, RestartCounterProvider::NoRestartTracking)
         .expect("Could not initialize ModalityProbe");
 
-    let probe_foo = try_initialize_at!(&mut storage_bytes, PROBE_ID_B, "desc")?;
+    let probe_foo = try_initialize_at!(&mut storage_bytes, PROBE_ID_B, &mut my_tracker, "desc")?;
 
     // A comment
     let bar = modality_probe::initialize_at!(
         &mut storage_bytes, // docs
-        my_ids::PROBE_ID_C)?; // docs
+        my_ids::PROBE_ID_C, // docs
+        RestartCounterProvider::NoRestartTracking)?; // docs
 
     let probe_foo = try_initialize_at!(&mut storage_bytes,
-    my::nested::mod::PROBE_ID_D, tags!("my tag", "more-tags"))?; // docs
+    my::nested::mod::PROBE_ID_D, &mut next_id, tags!("my tag", "more-tags"))?; // docs
 
     /* More comments
-     * on more lines modality_probe::new_with_storage!(a, b)
+     * on more lines modality_probe::new_with_storage!(a, b, c)
      */
-    let probe = modality_probe::new_with_storage!(storage, PROBE_ID_E).unwrap();
+    let probe = modality_probe::new_with_storage!(storage, PROBE_ID_E, my_next_seq_id).unwrap();
 
     let bar = modality_probe::initialize_at!(
         &mut storage_bytes, /* comments */
         my_ids::PROBE_ID_F, // comments
+        RestartCounterProvider::NoRestartTracking, // comments
         " desc ", /* Order of tags and docs doesn't matter */
         tags!("thing1", "thing2", "my::namespace", "tag with spaces"))?; //docs
 "#;
@@ -1052,31 +1056,31 @@ mod tests {
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_B".to_string(),
-                    location: (193, 6, 21).into(),
+                    location: (236, 6, 21).into(),
                     tags: None,
                     description: Some("desc".to_string()),
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_C".to_string(),
-                    location: (302, 9, 31).into(),
+                    location: (362, 9, 31).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_D".to_string(),
-                    location: (413, 13, 21).into(),
+                    location: (532, 14, 21).into(),
                     tags: Some("my tag;more-tags".to_string()),
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_E".to_string(),
-                    location: (648, 19, 33).into(),
+                    location: (784, 20, 33).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_F".to_string(),
-                    location: (728, 21, 31).into(),
+                    location: (880, 22, 31).into(),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
                     description: Some("desc".to_string()),
                 },
@@ -1234,7 +1238,8 @@ mod tests {
     #[test]
     fn probe_id_namespace_error() {
         let parser = RustParser::default();
-        let input = "modality_probe::try_initialize_at!(&mut storage_bytes,my::nested::mod::);";
+        let input =
+            "modality_probe::try_initialize_at!(&mut storage_bytes,my::nested::mod::, next_id);";
         let tokens = parser.parse_probe_md(input);
         assert_eq!(tokens, Err(Error::Syntax((16, 1, 17).into())));
     }

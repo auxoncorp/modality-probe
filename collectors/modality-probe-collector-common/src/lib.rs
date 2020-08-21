@@ -1,16 +1,23 @@
+use std::{
+    convert::{TryFrom, TryInto},
+    io,
+    iter::Peekable,
+    mem,
+};
+
 use chrono::prelude::*;
 use err_derive::Error;
 use fenced_ring_buffer::WholeEntry;
+use serde::{Deserialize, Serialize};
+use static_assertions::assert_eq_size;
+
 use modality_probe::{
     log::LogEntry,
     wire::{le_bytes, ReportWireError, WireReport},
-    EventId, LogicalClock, ProbeId,
+    EventId, LogicalClock, ProbeEpoch, ProbeId, ProbeTicks,
 };
-use static_assertions::assert_eq_size;
-use std::convert::{TryFrom, TryInto};
-use std::mem;
 
-pub mod csv;
+pub mod json;
 
 assert_eq_size!(LogEntry, u32);
 
@@ -39,14 +46,21 @@ newtype! {
     /// A session is an arbitrary scope for log events. Event ordering is (via
     /// sequence and logical clocks) is resolved between events in the same
     /// session.
-    #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
+    #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Copy, Clone)]
     pub struct SessionId(pub u32);
 }
 
 newtype! {
     /// A log report sequence number
-    #[derive(Debug, Eq, PartialEq, Hash, Copy, Clone)]
+    #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Copy, Clone)]
     pub struct SequenceNumber(pub u64);
+}
+
+impl SequenceNumber {
+    /// Get the sequence number which preceeded this one.
+    pub fn prev(&self) -> Self {
+        SequenceNumber(self.0.saturating_sub(1))
+    }
 }
 
 #[derive(Debug, Error)]
@@ -78,6 +92,7 @@ pub struct Report {
     pub probe_id: ProbeId,
     pub probe_clock: LogicalClock,
     pub seq_num: SequenceNumber,
+    pub persistent_epoch_counting: bool,
     pub frontier_clocks: Vec<LogicalClock>,
     pub event_log: Vec<EventLogEntry>,
 }
@@ -90,7 +105,7 @@ pub enum EventLogEntry {
 }
 
 /// A single entry in the log
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub struct ReportLogEntry {
     /// The session in which this entry was made. Used to qualify the id field.
     pub session_id: SessionId,
@@ -104,7 +119,12 @@ pub struct ReportLogEntry {
     /// The probe that supplied this entry
     pub probe_id: ProbeId,
 
-    /// This entry's data; a frontier clock, event, event with payload, or a trace clock
+    /// Whether or not the probe which reported this event has a
+    /// persistent epoch counter.
+    pub persistent_epoch_counting: bool,
+
+    /// This entry's data; a frontier
+    /// clock, event, event with payload, or a trace clock
     pub data: LogEntryData,
 
     /// The time this entry was received by the collector
@@ -115,7 +135,7 @@ pub struct ReportLogEntry {
     pub receive_time: DateTime<Utc>,
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum LogEntryData {
     FrontierClock(LogicalClock),
     Event(EventId),
@@ -135,20 +155,135 @@ impl From<EventLogEntry> for LogEntryData {
 
 /// A row in a collected trace.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
-struct LogFileRow {
-    session_id: u32,
-    sequence_number: u64,
-    sequence_index: u32,
-    receive_time: DateTime<Utc>,
-    probe_id: u32,
-    fc_probe_id: Option<u32>,
-    fc_probe_epoch: Option<u16>,
-    fc_probe_clock: Option<u16>,
-    event_id: Option<u32>,
-    event_payload: Option<u32>,
-    tc_probe_id: Option<u32>,
-    tc_probe_epoch: Option<u16>,
-    tc_probe_clock: Option<u16>,
+pub struct LogFileRow {
+    pub session_id: u32,
+    pub sequence_number: u64,
+    pub sequence_index: u32,
+    pub receive_time: DateTime<Utc>,
+    pub probe_id: u32,
+    pub fc_probe_id: Option<u32>,
+    pub fc_probe_epoch: Option<u16>,
+    pub fc_probe_clock: Option<u16>,
+    pub event_id: Option<u32>,
+    pub event_payload: Option<u32>,
+    pub tc_probe_id: Option<u32>,
+    pub tc_probe_epoch: Option<u16>,
+    pub tc_probe_clock: Option<u16>,
+}
+
+impl LogFileRow {
+    pub fn packed_tc_clock(&self) -> Option<u32> {
+        if self.tc_probe_epoch.is_some() && self.tc_probe_clock.is_some() {
+            Some(modality_probe::pack_clock_word(
+                ProbeEpoch::from(self.tc_probe_epoch.expect("just checked epoch presence")),
+                ProbeTicks::from(self.tc_probe_clock.expect("just checked clock presence")),
+            ))
+        } else {
+            None
+        }
+    }
+
+    pub fn packed_fc_clock(&self) -> Option<u32> {
+        if self.fc_probe_epoch.is_some() && self.fc_probe_clock.is_some() {
+            Some(modality_probe::pack_clock_word(
+                ProbeEpoch::from(self.fc_probe_epoch.expect("just checked epoch presence")),
+                ProbeTicks::from(self.fc_probe_clock.expect("just checked clock presence")),
+            ))
+        } else {
+            None
+        }
+    }
+
+    pub fn is_trace_clock(&self) -> bool {
+        self.tc_probe_id.is_some() && self.tc_probe_epoch.is_some() && self.tc_probe_clock.is_some()
+    }
+
+    pub fn is_frontier_clock(&self) -> bool {
+        self.fc_probe_id.is_some() && self.fc_probe_epoch.is_some() && self.fc_probe_clock.is_some()
+    }
+
+    pub fn is_event(&self) -> bool {
+        self.event_id.is_some()
+    }
+}
+
+pub struct ReportIter<I>
+where
+    I: Iterator<Item = ReportLogEntry>,
+{
+    report_items: Peekable<I>,
+}
+
+impl<I> ReportIter<I>
+where
+    I: Iterator<Item = ReportLogEntry>,
+{
+    pub fn new(report_items: Peekable<I>) -> Self {
+        ReportIter { report_items }
+    }
+}
+
+impl<I> Iterator for ReportIter<I>
+where
+    I: Iterator<Item = ReportLogEntry>,
+{
+    type Item = Report;
+    fn next(&mut self) -> Option<Report> {
+        let next = match self.report_items.peek() {
+            Some(e) => e,
+            None => return None,
+        };
+        let probe_id = next.probe_id;
+
+        let seq_num = next.sequence_number;
+        let mut report = Report {
+            probe_id,
+            probe_clock: LogicalClock {
+                id: probe_id,
+                epoch: ProbeEpoch(0),
+                ticks: ProbeTicks(0),
+            },
+            persistent_epoch_counting: next.persistent_epoch_counting,
+            seq_num: next.sequence_number,
+            frontier_clocks: Vec::new(),
+            event_log: Vec::new(),
+        };
+
+        loop {
+            let next = match self.report_items.peek() {
+                Some(e) => e,
+                None => return Some(report),
+            };
+            if next.probe_id != probe_id || next.sequence_number != seq_num {
+                return Some(report);
+            }
+
+            // we peeked at this item above.
+            let e = self.report_items.next().unwrap();
+            match e.data {
+                LogEntryData::FrontierClock(lc) => {
+                    let id = lc.id;
+                    if id == report.probe_id {
+                        report.probe_clock = lc;
+                    }
+                    report.frontier_clocks.push(lc);
+                }
+                LogEntryData::TraceClock(lc) => {
+                    let id = lc.id;
+                    report.event_log.push(EventLogEntry::TraceClock(lc));
+                    if id == report.probe_id {
+                        report.probe_clock = lc;
+                    }
+                }
+                LogEntryData::Event(e) => {
+                    report.event_log.push(EventLogEntry::Event(e));
+                }
+                LogEntryData::EventWithPayload(e, p) => {
+                    report.event_log.push(EventLogEntry::EventWithPayload(e, p));
+                }
+            }
+        }
+    }
 }
 
 impl From<&ReportLogEntry> for LogFileRow {
@@ -196,19 +331,29 @@ impl From<&ReportLogEntry> for LogFileRow {
     }
 }
 
-#[derive(Debug)]
-pub enum ReadError {
+#[derive(Debug, Clone, Error)]
+pub enum Error {
+    #[error(display = "{}", message)]
     InvalidContent {
         session_id: SessionId,
         sequence_number: SequenceNumber,
         sequence_index: u32,
         message: &'static str,
     },
-    Serialization(Box<dyn std::error::Error>),
+    #[error(display = "{}", _0)]
+    Serialization(String),
+    #[error(display = "IO error: {}", _0)]
+    Io(String),
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::Io(format!("{}", e))
+    }
 }
 
 impl TryFrom<&LogFileRow> for ReportLogEntry {
-    type Error = ReadError;
+    type Error = Error;
 
     fn try_from(l: &LogFileRow) -> Result<ReportLogEntry, Self::Error> {
         let session_id: SessionId = l.session_id.into();
@@ -221,7 +366,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     LogEntryData::FrontierClock(
                         LogicalClock {
                             id: fc_probe_id.try_into().map_err(|_e|
-                                ReadError::InvalidContent {
+                                Error::InvalidContent {
                                     session_id,
                                     sequence_number,
                                     sequence_index,
@@ -233,7 +378,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     )
                 }
                 (None, _) => {
-                    return Err(ReadError::InvalidContent {
+                    return Err(Error::InvalidContent {
                         session_id,
                         sequence_number,
                         sequence_index,
@@ -241,7 +386,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     });
                 },
                 (_, None) => {
-                    return Err(ReadError::InvalidContent {
+                    return Err(Error::InvalidContent {
                         session_id,
                         sequence_number,
                         sequence_index,
@@ -251,42 +396,42 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
             }
         } else if let Some(event_id) = l.event_id {
             if l.fc_probe_id.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
                     message: "When event_id is present, fc_probe_id must be empty",
                 });
             } else if l.fc_probe_epoch.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
                     message: "When event_id is present, fc_probe_epoch must be empty",
                 });
             } else if l.fc_probe_clock.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
                     message: "When event_id is present, fc_probe_clock must be empty",
                 });
             } else if l.tc_probe_id.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
                     message: "When event_id is present, tc_probe_id must be empty",
                 });
             } else if l.tc_probe_epoch.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
                     message: "When event_id is present, tc_probe_epoch must be empty",
                 });
             } else if l.tc_probe_clock.is_some() {
-                return Err(ReadError::InvalidContent {
+                return Err(Error::InvalidContent {
                     session_id,
                     sequence_number,
                     sequence_index,
@@ -294,14 +439,12 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                 });
             }
 
-            let event_id = event_id
-                .try_into()
-                .map_err(|_e| ReadError::InvalidContent {
-                    session_id,
-                    sequence_number,
-                    sequence_index,
-                    message: "Invalid event id",
-                })?;
+            let event_id = event_id.try_into().map_err(|_e| Error::InvalidContent {
+                session_id,
+                sequence_number,
+                sequence_index,
+                message: "Invalid event id",
+            })?;
 
             if let Some(payload) = l.event_payload {
                 LogEntryData::EventWithPayload(event_id, payload)
@@ -314,7 +457,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     LogEntryData::TraceClock(
                         LogicalClock {
                             id: tc_probe_id.try_into().map_err(|_e|
-                                ReadError::InvalidContent {
+                                Error::InvalidContent {
                                     session_id,
                                     sequence_number,
                                     sequence_index,
@@ -326,7 +469,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     )
                 }
                 (None, _) => {
-                    return Err(ReadError::InvalidContent {
+                    return Err(Error::InvalidContent {
                         session_id,
                         sequence_number,
                         sequence_index,
@@ -334,7 +477,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                     });
                 },
                 (_, None) => {
-                    return Err(ReadError::InvalidContent {
+                    return Err(Error::InvalidContent {
                         session_id,
                         sequence_number,
                         sequence_index,
@@ -343,7 +486,7 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
                 },
             }
         } else {
-            return Err(ReadError::InvalidContent {
+            return Err(Error::InvalidContent {
                 session_id,
                 sequence_number,
                 sequence_index,
@@ -355,15 +498,13 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
             session_id,
             sequence_number,
             sequence_index,
-            probe_id: l
-                .probe_id
-                .try_into()
-                .map_err(|_e| ReadError::InvalidContent {
-                    session_id,
-                    sequence_number,
-                    sequence_index,
-                    message: "probe_id must be a valid modality_probe::ProbeId",
-                })?,
+            persistent_epoch_counting: false,
+            probe_id: l.probe_id.try_into().map_err(|_e| Error::InvalidContent {
+                session_id,
+                sequence_number,
+                sequence_index,
+                message: "probe_id must be a valid modality_probe::ProbeId",
+            })?,
             data,
             receive_time: l.receive_time,
         })
@@ -386,6 +527,7 @@ pub fn add_log_report_to_entries(
             sequence_number,
             sequence_index,
             probe_id,
+            persistent_epoch_counting: log_report.persistent_epoch_counting,
             data: LogEntryData::FrontierClock(*fc),
             receive_time,
         });
@@ -398,6 +540,7 @@ pub fn add_log_report_to_entries(
             sequence_number,
             sequence_index,
             probe_id,
+            persistent_epoch_counting: log_report.persistent_epoch_counting,
             data: LogEntryData::from(*event),
             receive_time,
         });
@@ -415,6 +558,7 @@ impl TryFrom<&[u8]> for Report {
             probe_id: id,
             probe_clock: LogicalClock { id, epoch, ticks },
             seq_num: report.seq_num().into(),
+            persistent_epoch_counting: report.persistent_epoch_counting(),
             frontier_clocks: vec![],
             event_log: vec![],
         };
@@ -508,6 +652,7 @@ impl Report {
             seq_num: SequenceNumber(seq_num),
             frontier_clocks,
             event_log: vec![],
+            persistent_epoch_counting: false,
         };
 
         for entry in log {
@@ -741,14 +886,24 @@ pub(crate) mod test {
             arb_probe_id(),
             arb_log_entry_data(),
             arb_datetime(),
+            any::<bool>(),
         )
             .prop_map(
-                |(session_id, sequence_number, sequence_index, probe_id, data, receive_time)| {
+                |(
+                    session_id,
+                    sequence_number,
+                    sequence_index,
+                    probe_id,
+                    data,
+                    receive_time,
+                    persistent_epoch_counting,
+                )| {
                     ReportLogEntry {
                         session_id,
                         sequence_number,
                         sequence_index,
                         probe_id,
+                        persistent_epoch_counting,
                         data,
                         receive_time,
                     }
@@ -771,6 +926,7 @@ pub(crate) mod test {
                     probe_id,
                     probe_clock,
                     seq_num,
+                    persistent_epoch_counting: false,
                     frontier_clocks,
                     event_log,
                 }
@@ -783,6 +939,7 @@ pub(crate) mod test {
         let mut p1 = modality_probe::ModalityProbe::new_with_storage(
             &mut storage1,
             ProbeId::new(1).unwrap(),
+            RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
 
@@ -790,13 +947,14 @@ pub(crate) mod test {
         let mut p2 = modality_probe::ModalityProbe::new_with_storage(
             &mut storage2,
             ProbeId::new(2).unwrap(),
+            RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
 
         p1.record_event(EventId::new(1).unwrap());
         let mut report_dest = vec![0; 512];
-        let n_bytes = p1.report(&mut report_dest).unwrap();
-        let o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
+        let n_bytes = p1.report(&mut report_dest).unwrap().unwrap();
+        let o_report = Report::try_from(&report_dest[..n_bytes.get()]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -807,12 +965,16 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 },
                 seq_num: 0.into(),
+                persistent_epoch_counting: false,
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(1).unwrap(),
                     epoch: ProbeEpoch(0),
                     ticks: ProbeTicks(0),
                 }],
-                event_log: vec![EventLogEntry::Event(EventId::new(1).unwrap())],
+                event_log: vec![
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(EventId::new(1).unwrap())
+                ],
             }
         );
 
@@ -823,8 +985,8 @@ pub(crate) mod test {
         let snap = p1.produce_snapshot().unwrap();
         p2.record_event(EventId::new(2).unwrap());
         p2.merge_snapshot(&snap).unwrap();
-        let n_bytes = p1.report(&mut report_dest).unwrap();
-        let o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
+        let n_bytes = p1.report(&mut report_dest).unwrap().unwrap();
+        let o_report = Report::try_from(&report_dest[..n_bytes.get()]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -835,6 +997,7 @@ pub(crate) mod test {
                     ticks: ProbeTicks(1),
                 },
                 seq_num: 1.into(),
+                persistent_epoch_counting: false,
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(1).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -856,8 +1019,8 @@ pub(crate) mod test {
         assert_eq!(o_report, i_report);
 
         p2.record_event_with_payload(EventId::new(8).unwrap(), 10);
-        let n_bytes = p2.report(&mut report_dest).unwrap();
-        let o_report = Report::try_from(&report_dest[..n_bytes]).unwrap();
+        let n_bytes = p2.report(&mut report_dest).unwrap().unwrap();
+        let o_report = Report::try_from(&report_dest[..n_bytes.get()]).unwrap();
         assert_eq!(
             o_report,
             Report {
@@ -868,12 +1031,14 @@ pub(crate) mod test {
                     ticks: ProbeTicks(1),
                 },
                 seq_num: 0.into(),
+                persistent_epoch_counting: false,
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(2).unwrap(),
                     epoch: ProbeEpoch(0),
                     ticks: ProbeTicks(0),
                 }],
                 event_log: vec![
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(EventId::new(2).unwrap()),
                     EventLogEntry::TraceClock(LogicalClock {
                         id: ProbeId::new(2).unwrap(),

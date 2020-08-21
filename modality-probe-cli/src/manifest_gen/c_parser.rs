@@ -385,6 +385,10 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
     if !probe_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
+    let (args, _next_seq_id_fn) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (args, _next_seq_id_state) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
     let (args, _probe_instance) = if expect_tags_or_desc {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
@@ -633,41 +637,45 @@ mod tests {
         destination,
         DEFAULT_PROBE_SIZE,
         DEFAULT_PROBE_ID,
+        NULL,
+        NULL,
         &t);
 
     // One line
-    MODALITY_PROBE_INIT(dest,PROBE_SIZE,MY_PROBE_ID,&t);
+    MODALITY_PROBE_INIT(dest,PROBE_SIZE,MY_PROBE_ID,&my_next_seq_id_fn,&my_state,&t);
 
     const size_t err = MODALITY_PROBE_INIT(     dest,  PROBE_SIZE,
-    PROBE_ID_FOO,      &t);
+    PROBE_ID_FOO,      NULL    ,    NULL, &t);
 
     const size_t err =
         MODALITY_PROBE_INIT(
         // stuff
         dest, // more stuff
         PROBE_SIZE, /* comment */
-    PROBE_ID_BAR,   /* things */   &t);
+    PROBE_ID_BAR,   /* things */   NULL, /*comments*/   NULL, &t);
 
     MODALITY_PROBE_INIT(
-        dest, /* more docs */ PROBE_SIZE , /* docs */ MY_OTHER_PROBE_ID, /* docs */ &t, "desc");
+        dest, /* more docs */ PROBE_SIZE , /* docs */ MY_OTHER_PROBE_ID, NULL, NULL, /* docs */ &t, "desc");
 
     /* things in comments
      * are
      * ignored
      *
-     * MODALITY_PROBE_INIT(dest,PROBE_SIZE,ANOTHER_ID,&t);
+     * MODALITY_PROBE_INIT(dest,PROBE_SIZE,ANOTHER_ID,NULL,NULL,&t);
      *
      */
     size_t err = MODALITY_PROBE_INIT(
             &g_agent_storage[0],
             STORAGE_SIZE,
             PROBE_ID_FOO,
+            &next_seq_id,
+            &next_seq_id_state,
             &g_agent,
             MODALITY_TAGS(my-tags, more tags),
             "Description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    MODALITY_PROBE_INIT(storage, size, ID_BAR, t, MODALITY_TAGS(my tag));
+    MODALITY_PROBE_INIT(storage, size, ID_BAR, NULL, NULL, t, MODALITY_TAGS(my tag));
 "#;
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
@@ -752,37 +760,37 @@ mod tests {
                 },
                 ProbeMetadata {
                     name: "MY_PROBE_ID".to_string(),
-                    location: (187, 10, 5).into(),
+                    location: (215, 12, 5).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_FOO".to_string(),
-                    location: (264, 12, 24).into(),
+                    location: (321, 14, 24).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_BAR".to_string(),
-                    location: (368, 16, 9).into(),
+                    location: (444, 18, 9).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "MY_OTHER_PROBE_ID".to_string(),
-                    location: (513, 22, 5).into(),
+                    location: (616, 24, 5).into(),
                     tags: None,
                     description: Some("desc".to_string()),
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_FOO".to_string(),
-                    location: (782, 32, 18).into(),
+                    location: (907, 34, 18).into(),
                     tags: Some("my-tags;more tags".to_string()),
                     description: Some("Description".to_string()),
                 },
                 ProbeMetadata {
                     name: "ID_BAR".to_string(),
-                    location: (1034, 41, 5).into(),
+                    location: (1217, 45, 5).into(),
                     tags: Some("my tag".to_string()),
                     description: None,
                 },
@@ -927,7 +935,7 @@ const size_t err = MODALITY_PROBE_RECORD(g_probe, EVENT_READ)
         let input = "MODALITY_PROBE_RECORD_W_I16(probe, E0, data)";
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
-        let input = "MODALITY_PROBE_INIT(storage, size, ID_BAR, t)";
+        let input = "MODALITY_PROBE_INIT(storage, size, ID_BAR, NULL, NULL, t)";
         let tokens = parser.parse_probe_md(input);
         assert_eq!(tokens, Err(Error::MissingSemicolon((0, 1, 1).into())));
     }

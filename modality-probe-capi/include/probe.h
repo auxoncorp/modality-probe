@@ -73,6 +73,23 @@ typedef struct modality_probe_causal_snapshot {
     uint16_t reserved_1;
 } modality_probe_causal_snapshot;
 
+/*
+ * Function type for retrieving the next persistent sequence number.
+ *
+ * This method is called when a probe initializes to get the initial
+ * epoch portion of the clock, and each time the ticks portion of the
+ * clock overflows during the probe's lifetime.
+ *
+ * The sequence number should never be zero, should start at one,
+ * and be monotonically increased by a step size of one after each retrieval.
+ *
+ * When the sequence number reaches its maximum value (0xFFFF), it
+ * should wrap around to the value 1.
+ */
+typedef uint16_t (*modality_probe_next_sequence_id_fn)(
+        uint32_t probe_id,
+        void *user_state);
+
 typedef enum {
     /*
      * Everything is okay
@@ -106,7 +123,7 @@ typedef enum {
      */
     MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS = 6,
     /*
-     * The the external history source buffer we attempted to merge
+     * The external history source buffer we attempted to merge
      * was insufficiently sized for a valid causal snapshot.
      * Detected during merging.
      */
@@ -141,15 +158,16 @@ typedef enum {
  *
  * Used to expose probe information to the CLI tooling.
  *
- * Expands to call `modality_probe_initialize(dest, dest_size, probe_id, probe)`.
+ * Expands to call:
+ * `modality_probe_initialize(dest, dest_size, probe_id, next_sid_fn, next_sid_state, probe)`.
  *
  * The trailing variadic macro arguments accept (in any order):
  * - Tags: MODALITY_TAGS(<tag>[,<tag>])
  * - A string for the probe description
  *
  */
-#define MODALITY_PROBE_INIT(dest, dest_size, probe_id, probe, ...) \
-    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_initialize(dest, dest_size, probe_id, probe) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_INIT(dest, dest_size, probe_id, next_sid_fn, next_sid_state, probe, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_initialize(dest, dest_size, probe_id, next_sid_fn, next_sid_state, probe) : MODALITY_PROBE_ERROR_OK)
 
 /*
  * Modality probe event recording macro.
@@ -238,12 +256,22 @@ typedef enum {
             (expr)) : MODALITY_PROBE_ERROR_OK)
 
 /*
- * Create a Modality probe instance. probe_id must be non-zero
+ * Create a Modality probe instance. probe_id must be non-zero.
+ *
+ * If next_sequence_id_fn is null, then next_sequence_id_user_state
+ * is unused and this probe will not do any restart handling
+ * (any events logged after a restart will be seen as duplicates).
+ *
+ * Otherwise, if next_sequence_id_fn is non-null, then the probe
+ * will call this function to retrieve a new sequence number when
+ * needed.
  */
 size_t modality_probe_initialize(
         uint8_t *destination,
         size_t destination_size_bytes,
         uint32_t probe_id,
+        modality_probe_next_sequence_id_fn next_sequence_id_fn,
+        void *next_sequence_id_user_state,
         modality_probe **out);
 
 /*

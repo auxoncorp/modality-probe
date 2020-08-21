@@ -2,7 +2,7 @@
 #![feature(lang_items, core_intrinsics)]
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 pub use modality_probe_capi_impl::{
-    CausalSnapshot, ModalityProbe, ModalityProbeError, ModalityProbeInstant,
+    next_sequence_id_fn, CausalSnapshot, ModalityProbe, ModalityProbeError, ModalityProbeInstant,
 };
 
 #[no_mangle]
@@ -10,6 +10,8 @@ pub extern "C" fn modality_probe_initialize(
     destination: *mut u8,
     destination_size_bytes: usize,
     probe_id: u32,
+    next_sequence_id: Option<next_sequence_id_fn>,
+    next_sequence_id_user_state: *mut core::ffi::c_void,
     out: *mut *mut ModalityProbe<'static>,
 ) -> ModalityProbeError {
     unsafe {
@@ -17,6 +19,8 @@ pub extern "C" fn modality_probe_initialize(
             destination,
             destination_size_bytes,
             probe_id,
+            next_sequence_id,
+            next_sequence_id_user_state,
             out,
         )
     }

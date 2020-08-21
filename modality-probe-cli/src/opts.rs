@@ -12,19 +12,19 @@ pub enum Opts {
 
     /// Generate Rust/C header files with event/probe id constants
     HeaderGen(HeaderGen),
-
     /// Export a collected event log in a well-known graph format.
     Export(Export),
 }
 
 #[cfg(test)]
 mod test {
-    use super::*;
-    use crate::manifest_gen::id_gen::NonZeroIdRange;
-    use crate::{export::GraphType, lang::Lang};
-    use core::num::NonZeroU32;
+    use std::{num::NonZeroU32, path::PathBuf};
+
     use pretty_assertions::assert_eq;
-    use std::path::PathBuf;
+
+    use crate::{export::GraphType, lang::Lang, manifest_gen::id_gen::NonZeroIdRange};
+
+    use super::*;
 
     #[test]
     fn parse_opts_manifest_gen() {

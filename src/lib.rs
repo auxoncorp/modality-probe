@@ -10,22 +10,30 @@ use core::{
     cmp::{max, Ordering},
     convert::TryFrom,
     mem::size_of,
+    num::NonZeroUsize,
 };
 
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
 #[cfg(feature = "std")]
 use proptest_derive::Arbitrary;
+#[cfg(feature = "std")]
+use serde::{Deserialize, Serialize};
 use static_assertions::{assert_cfg, const_assert};
 
 pub use error::*;
 pub use history::DynamicHistory;
 pub use id::*;
+pub use restart_counter::{
+    next_sequence_id_fn, CRestartCounterProvider, RestartCounter, RestartCounterProvider,
+    RustRestartCounterProvider,
+};
 
 mod error;
 mod history;
 mod id;
 pub mod log;
 mod macros;
+mod restart_counter;
 pub mod wire;
 
 /// Snapshot of causal history for transmission around the system.
@@ -124,7 +132,7 @@ impl PartialOrd for CausalSnapshot {
 /// The epoch part of a probe's logical clock
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "std", derive(Arbitrary))]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize, Arbitrary))]
 pub struct ProbeEpoch(pub u16);
 
 impl ProbeEpoch {
@@ -155,7 +163,7 @@ impl From<ProbeEpoch> for u16 {
 /// The clock part of a probe's logical clock
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "std", derive(Arbitrary))]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize, Arbitrary))]
 pub struct ProbeTicks(pub u16);
 
 impl ProbeTicks {
@@ -192,6 +200,7 @@ pub fn unpack_clock_word(w: u32) -> (ProbeEpoch, ProbeTicks) {
 /// A single logical clock, usable as an entry in a vector clock
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 #[repr(C)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct LogicalClock {
     /// The probe that this clock is tracking
     /// Equivalent structurally to a u32.
@@ -214,7 +223,8 @@ impl PartialOrd for LogicalClock {
     }
 }
 
-/// The clock count components of a logical clock
+/// A wraparound-aware ordering comparison helper
+/// for the clock components.
 #[derive(PartialEq, Eq)]
 pub struct OrdClock(pub ProbeEpoch, pub ProbeTicks);
 
@@ -237,8 +247,10 @@ impl LogicalClock {
     /// Increment the logical clock by one. If the clock portion overflows,
     /// clock wraps around and epoch is incremented. Epoch and clock both wrap
     /// around to 1.
+    ///
+    /// Returns true if the ticks portion did overflow, otherwise returns false.
     #[inline]
-    pub fn increment(&mut self) {
+    pub fn increment(&mut self) -> bool {
         let (new_clock, overflow) = self.ticks.0.overflowing_add(1);
         self.ticks = ProbeTicks(max(new_clock, 1));
         if overflow {
@@ -248,6 +260,7 @@ impl LogicalClock {
         // This handles both wrapping around to 1 and going from the zero epoch
         // (uninitialized) to epoch 1
         self.epoch = ProbeEpoch(max(self.epoch.0, 1));
+        overflow
     }
 
     /// Put the clock into a byte array, probe id first, where the two
@@ -307,7 +320,7 @@ pub trait Probe {
     ///    reported.
     /// 3. As much of the event log that will fit in the remaining
     ///    chunk of `destination`.
-    fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError>;
+    fn report(&mut self, destination: &mut [u8]) -> Result<Option<NonZeroUsize>, ReportError>;
 }
 
 /// Reference implementation of a `ModalityProbe`.
@@ -316,7 +329,6 @@ pub trait Probe {
 /// * Recording events from primitive ids with just-in-time validation.
 /// * Initialization with variable-sized memory backing.
 /// * Can produce and merge transparent snapshots
-#[derive(Debug)]
 #[repr(C)]
 pub struct ModalityProbe<'a> {
     /// Publicly accessible for direct access by debug-collector
@@ -343,10 +355,11 @@ impl<'a> ModalityProbe<'a> {
     pub fn try_initialize_at(
         memory: &'a mut [u8],
         probe_id: u32,
+        restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut ModalityProbe<'a>, InitializationError> {
         let probe_id = ProbeId::try_from(probe_id)
             .map_err(|_: InvalidProbeId| InitializationError::InvalidProbeId)?;
-        ModalityProbe::initialize_at(memory, probe_id)
+        ModalityProbe::initialize_at(memory, probe_id, restart_counter)
             .map_err(InitializationError::StorageSetupError)
     }
 
@@ -366,9 +379,10 @@ impl<'a> ModalityProbe<'a> {
     pub fn initialize_at(
         memory: &'a mut [u8],
         probe_id: ProbeId,
+        restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut ModalityProbe<'a>, StorageSetupError> {
         match embed(memory, |history_memory| {
-            ModalityProbe::new_with_storage(history_memory, probe_id)
+            ModalityProbe::new_with_storage(history_memory, probe_id, restart_counter)
         }) {
             Ok(v) => Ok(v),
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
@@ -394,10 +408,12 @@ impl<'a> ModalityProbe<'a> {
     pub fn new_with_storage(
         history_memory: &'a mut [u8],
         probe_id: ProbeId,
+        restart_counter: RestartCounterProvider<'a>,
     ) -> Result<ModalityProbe<'a>, StorageSetupError> {
-        let t = ModalityProbe::<'a> {
-            history: DynamicHistory::new_at(history_memory, probe_id)?,
+        let mut t = ModalityProbe::<'a> {
+            history: DynamicHistory::new_at(history_memory, probe_id, restart_counter)?,
         };
+        t.record_event(EventId::EVENT_PROBE_INITIALIZED);
         Ok(t)
     }
 
@@ -507,7 +523,7 @@ impl<'a> Probe for ModalityProbe<'a> {
     }
 
     #[inline]
-    fn report(&mut self, destination: &mut [u8]) -> Result<usize, ReportError> {
+    fn report(&mut self, destination: &mut [u8]) -> Result<Option<NonZeroUsize>, ReportError> {
         self.history.report(destination)
     }
 }
@@ -620,5 +636,54 @@ mod tests {
                 prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
             }
         );
+    }
+
+    fn oc_cmp_eq(ordering: Ordering, left: (u16, u16), right: (u16, u16)) {
+        assert_eq!(
+            Some(ordering),
+            OrdClock(left.0.into(), left.1.into())
+                .partial_cmp(&OrdClock(right.0.into(), right.1.into()))
+        )
+    }
+
+    #[test]
+    fn ord_clock_basics() {
+        // Symmetrical ordering
+        use Ordering::*;
+        oc_cmp_eq(Equal, (0, 0), (0, 0));
+        oc_cmp_eq(Equal, (1, 1), (1, 1));
+        oc_cmp_eq(Equal, (2, 2), (2, 2));
+
+        oc_cmp_eq(Greater, (0, 1), (0, 0));
+        oc_cmp_eq(Greater, (0, 2), (0, 0));
+        oc_cmp_eq(Greater, (0, 2), (0, 1));
+
+        oc_cmp_eq(Greater, (1, 0), (0, 0));
+        oc_cmp_eq(Greater, (2, 0), (0, 0));
+        oc_cmp_eq(Greater, (2, 0), (1, 0));
+
+        oc_cmp_eq(Less, (0, 0), (0, 1));
+        oc_cmp_eq(Less, (0, 0), (0, 2));
+
+        oc_cmp_eq(Less, (0, 0), (1, 0));
+        oc_cmp_eq(Less, (0, 0), (2, 0));
+        oc_cmp_eq(Less, (1, 0), (2, 0));
+
+        // Consider epoch first and foremost, and ticks only when epochs are equal.
+        oc_cmp_eq(Greater, (1, 1), (0, 99));
+        oc_cmp_eq(Less, (1, 99), (2, 0));
+
+        // When one epoch is near the bottom of the range and the other is near the top,
+        // we assume that the epoch near the bottom has wrapped around (and is actually ahead)
+        oc_cmp_eq(Greater, (0, 0), (core::u16::MAX, 0));
+        for left in 0..=ProbeEpoch::WRAPAROUND_THRESHOLD_BOTTOM.0 {
+            for right in ProbeEpoch::WRAPAROUND_THRESHOLD_TOP.0..core::u16::MAX {
+                // In this narrow range, even though the underlying numerical epoch value
+                // of the left is less than that of the right, it is considered greater due
+                // to wraparound awareness
+                assert!(left < right);
+                oc_cmp_eq(Greater, (left, 0), (right, 0));
+            }
+        }
     }
 }

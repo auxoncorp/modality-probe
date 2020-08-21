@@ -15,14 +15,14 @@ macro_rules! tags {
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! initialize_at {
-    ($storage:expr, $probe_id:expr) => {
-        ModalityProbe::initialize_at($storage, $probe_id)
+    ($storage:expr, $probe_id:expr, $restart_cntr:expr) => {
+        ModalityProbe::initialize_at($storage, $probe_id, $restart_cntr)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:expr) => {
-        ModalityProbe::initialize_at($storage, $probe_id)
+    ($storage:expr, $probe_id:expr, $restart_cntr:expr, $desc_or_tags:expr) => {
+        ModalityProbe::initialize_at($storage, $probe_id, $restart_cntr)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
-        ModalityProbe::initialize_at($storage, $probe_id)
+    ($storage:expr, $probe_id:expr, $restart_cntr:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
+        ModalityProbe::initialize_at($storage, $probe_id, $restart_cntr)
     };
 }
 
@@ -33,14 +33,14 @@ macro_rules! initialize_at {
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! try_initialize_at {
-    ($storage:expr, $probe_id:expr) => {
-        ModalityProbe::try_initialize_at($storage, $probe_id)
+    ($storage:expr, $probe_id:expr, $restart_cntr:expr) => {
+        ModalityProbe::try_initialize_at($storage, $probe_id, $restart_cntr)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:expr) => {
-        ModalityProbe::try_initialize_at($storage, $probe_id)
+    ($storage:expr, $probe_id:expr, $restart_cntr:expr, $desc_or_tags:expr) => {
+        ModalityProbe::try_initialize_at($storage, $probe_id, $restart_cntr)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
-        ModalityProbe::try_initialize_at($storage, $probe_id)
+    ($storage:expr, $probe_id:expr, $restart_cntr:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
+        ModalityProbe::try_initialize_at($storage, $probe_id, $restart_cntr)
     };
 }
 
@@ -51,14 +51,14 @@ macro_rules! try_initialize_at {
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! new_with_storage {
-    ($storage:expr, $probe_id:expr) => {
-        ModalityProbe::new_with_storage($storage, $probe_id)
+    ($storage:expr, $probe_id:expr, $restart_cntr:expr) => {
+        ModalityProbe::new_with_storage($storage, $probe_id, $restart_cntr)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:expr) => {
-        ModalityProbe::new_with_storage($storage, $probe_id)
+    ($storage:expr, $probe_id:expr, $restart_cntr:expr, $desc_or_tags:expr) => {
+        ModalityProbe::new_with_storage($storage, $probe_id, $restart_cntr)
     };
-    ($storage:expr, $probe_id:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
-        ModalityProbe::new_with_storage($storage, $probe_id)
+    ($storage:expr, $probe_id:expr, $restart_cntr:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {
+        ModalityProbe::new_with_storage($storage, $probe_id, $restart_cntr)
     };
 }
 
@@ -492,13 +492,18 @@ macro_rules! __payload_as_u32_impls {
 
 #[cfg(test)]
 mod tests {
-    use crate::{EventId, ModalityProbe, Probe, ProbeId};
+    use crate::{EventId, ModalityProbe, Probe, ProbeId, RestartCounterProvider};
 
     #[test]
     fn event_macro_use() {
         let probe_id = ProbeId::new(1).unwrap();
         let mut storage = [0_u8; 1024];
-        let probe = ModalityProbe::initialize_at(&mut storage, probe_id).unwrap();
+        let probe = ModalityProbe::initialize_at(
+            &mut storage,
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
         const EVENT_D: u32 = 1;
         record!(probe, EventId::new(EVENT_D).unwrap());
         record!(probe, EventId::new(EVENT_D).unwrap(), "desc");
@@ -582,14 +587,64 @@ mod tests {
     fn probe_macro_use() {
         let probe_id = ProbeId::new(1).unwrap();
         let mut storage = [0_u8; 1024];
-        let _probe = initialize_at!(&mut storage, probe_id).unwrap();
-        let _probe = initialize_at!(&mut storage, probe_id, "desc").unwrap();
-        let _probe = initialize_at!(&mut storage, probe_id, "desc", tags!("some-tag")).unwrap();
-        let _probe = try_initialize_at!(&mut storage, 1).unwrap();
-        let _probe = try_initialize_at!(&mut storage, 1, tags!("some-tag", "another tag")).unwrap();
-        let _probe = try_initialize_at!(&mut storage, 1, tags!("some-tag"), "desc").unwrap();
-        let _probe = new_with_storage!(&mut storage, probe_id).unwrap();
-        let _probe = new_with_storage!(&mut storage, probe_id, "desc").unwrap();
-        let _probe = new_with_storage!(&mut storage, probe_id, tags!("some-tag"), "desc").unwrap();
+        let _probe = initialize_at!(
+            &mut storage,
+            probe_id,
+            RestartCounterProvider::NoRestartTracking
+        )
+        .unwrap();
+        let _probe = initialize_at!(
+            &mut storage,
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+            "desc"
+        )
+        .unwrap();
+        let _probe = initialize_at!(
+            &mut storage,
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+            "desc",
+            tags!("some-tag")
+        )
+        .unwrap();
+        let _probe =
+            try_initialize_at!(&mut storage, 1, RestartCounterProvider::NoRestartTracking).unwrap();
+        let _probe = try_initialize_at!(
+            &mut storage,
+            1,
+            RestartCounterProvider::NoRestartTracking,
+            tags!("some-tag", "another tag")
+        )
+        .unwrap();
+        let _probe = try_initialize_at!(
+            &mut storage,
+            1,
+            RestartCounterProvider::NoRestartTracking,
+            tags!("some-tag"),
+            "desc"
+        )
+        .unwrap();
+        let _probe = new_with_storage!(
+            &mut storage,
+            probe_id,
+            RestartCounterProvider::NoRestartTracking
+        )
+        .unwrap();
+        let _probe = new_with_storage!(
+            &mut storage,
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+            "desc"
+        )
+        .unwrap();
+        let _probe = new_with_storage!(
+            &mut storage,
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+            tags!("some-tag"),
+            "desc"
+        )
+        .unwrap();
     }
 }

@@ -1,7 +1,9 @@
 #![no_std]
 
 use modality_probe::*;
-pub use modality_probe::{CausalSnapshot, ModalityProbe, ModalityProbeInstant};
+pub use modality_probe::{
+    next_sequence_id_fn, CausalSnapshot, ModalityProbe, ModalityProbeInstant,
+};
 
 pub type ModalityProbeError = usize;
 /// Everything went fine
@@ -48,6 +50,8 @@ pub unsafe fn modality_probe_initialize(
     destination: *mut u8,
     destination_size_bytes: usize,
     probe_id: u32,
+    next_sequence_id: Option<next_sequence_id_fn>,
+    next_sequence_id_user_state: *mut core::ffi::c_void,
     out: *mut *mut ModalityProbe<'static>,
 ) -> ModalityProbeError {
     if destination.is_null() {
@@ -56,9 +60,18 @@ pub unsafe fn modality_probe_initialize(
     if destination_size_bytes < core::mem::size_of::<ModalityProbe<'static>>() {
         return MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES;
     }
+    let restart_counter_provider = if let Some(iface) = next_sequence_id {
+        RestartCounterProvider::C(CRestartCounterProvider {
+            iface,
+            state: next_sequence_id_user_state,
+        })
+    } else {
+        RestartCounterProvider::NoRestartTracking
+    };
     match ModalityProbe::try_initialize_at(
         core::slice::from_raw_parts_mut(destination, destination_size_bytes),
         probe_id,
+        restart_counter_provider,
     ) {
         Ok(t) => {
             *out = t;
@@ -143,7 +156,7 @@ pub unsafe fn modality_probe_report(
         log_report_destination,
         log_report_destination_size_bytes,
     )) {
-        Ok(b) => b,
+        Ok(b) => b.map(|nonzero| nonzero.get()).unwrap_or(0),
         Err(e) => report_error_to_modality_probe_error(e),
     };
 
@@ -339,6 +352,8 @@ mod tests {
                 storage_slice.as_mut_ptr() as *mut u8,
                 storage_slice.len(),
                 probe_id,
+                None,
+                core::ptr::null_mut(),
                 probe.as_mut_ptr(),
             )
         };
@@ -386,6 +401,8 @@ mod tests {
                 remote_storage_slice.as_mut_ptr() as *mut u8,
                 remote_storage_slice.len(),
                 remote_probe_id,
+                None,
+                core::ptr::null_mut(),
                 remote_probe.as_mut_ptr(),
             )
         };

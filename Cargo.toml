@@ -19,6 +19,7 @@ std = ["serde", "proptest", "schemars", "proptest-derive"]
 [workspace]
 members = [
   "modality-probe-cli",
+  "modality-probe-graph",
   "collectors/modality-probe-udp-collector",
   "collectors/modality-probe-debug-collector",
   "collectors/modality-probe-collector-common",
@@ -28,7 +29,7 @@ exclude = ["./package", "./collectors"]
 
 [dependencies]
 static_assertions = "1.1.0"
-fixed-slice-vec = "0.2"
+fixed-slice-vec = "0.4"
 fenced-ring-buffer = { path = "./fenced-ring-buffer" }
 
 # Used if the std feature is enabled.
