@@ -47,9 +47,7 @@ const_assert_eq!(4, align_of::<CausalSnapshot>());
 const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
-// An extra 4 bytes of padding is necessary
-// on 32 bit, those bytes are before the report sequence number so it will be 8 byte aligned
-// on 64 bit, those bytes are before the clocks FixedSliceVec so it will be 8 byte aligned
+#[cfg(target_pointer_width = "32")]
 const_assert_eq!(
     size_of::<u32>()
         + size_of::<ProbeId>()
@@ -57,9 +55,23 @@ const_assert_eq!(
         + size_of::<u32>()
         + size_of::<LogicalClock>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
+        + size_of::<RestartSequenceCounter<'_>>()
+        + size_of::<u64>(),
+    size_of::<DynamicHistory>()
+);
+
+// 4 bytes of padding required before clocks list to get FixedSliceVec to 8 byte align
+#[cfg(target_pointer_width = "64")]
+const_assert_eq!(
+    size_of::<u32>()
+        + size_of::<ProbeId>()
+        + size_of::<LogBuffer<'_>>()
+        + size_of::<u32>()
+        + size_of::<LogicalClock>()
         + 4
-        + size_of::<u64>()
-        + size_of::<RestartSequenceCounter<'_>>(),
+        + size_of::<FixedSliceVec<'_, LogicalClock>>()
+        + size_of::<RestartSequenceCounter<'_>>()
+        + size_of::<u64>(),
     size_of::<DynamicHistory>()
 );
 
@@ -87,8 +99,8 @@ pub struct DynamicHistory<'a> {
     /// Invariants:
     ///   * The first clock is always that of the local probe id
     pub(crate) clocks: FixedSliceVec<'a, LogicalClock>,
-    pub(crate) report_seq_num: u64,
     pub(crate) restart_counter: RestartSequenceCounter<'a>,
+    pub(crate) report_seq_num: u64,
 }
 
 #[derive(Debug)]

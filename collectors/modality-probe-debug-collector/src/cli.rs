@@ -15,9 +15,9 @@ pub enum CLIError {
     #[error(display = "Address is not valid or too large \"{}\"", _0)]
     AddressNotValid(String),
     #[error(display = "Error opening ELF file")]
-    ElfError,
+    ElfFileError,
     #[error(display = "Symbols were given but no elf file was specified")]
-    MissingElfError,
+    MissingElfFileError,
     #[error(display = "Given interval not a valid duration: {}", _0)]
     InvalidInterval(String),
     #[error(display = "Symbol not found in given ELF file: \"{}\"", _0)]
@@ -117,7 +117,7 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, CLIErro
             }
         }
     } else if !symbols.is_empty() {
-        return Err(CLIError::MissingElfError);
+        return Err(CLIError::MissingElfFileError);
     }
 
     let interval = parse_duration::parse(&options.interval)
@@ -174,9 +174,10 @@ fn parse_probe_address(input: &str, use_64_bit: bool) -> Result<Option<ProbeAddr
 
 /// Open elf file for parsing
 fn open_elf<'a>(path: &PathBuf, elf_buf: &'a mut Vec<u8>) -> Result<Elf<'a>, CLIError> {
-    let mut file = File::open(path).map_err(|_e| CLIError::ElfError)?;
-    file.read_to_end(elf_buf).map_err(|_e| CLIError::ElfError)?;
-    Elf::parse(elf_buf).map_err(|_e| CLIError::ElfError)
+    let mut file = File::open(path).map_err(|_e| CLIError::ElfFileError)?;
+    file.read_to_end(elf_buf)
+        .map_err(|_e| CLIError::ElfFileError)?;
+    Elf::parse(elf_buf).map_err(|_e| CLIError::ElfFileError)
 }
 
 /// Get value and size of given symbol, or None if symbol cannot be found
@@ -212,6 +213,7 @@ mod tests {
     use std::format;
     use std::fs::canonicalize;
     use std::process::Command;
+    use std::str::from_utf8;
     use std::str::FromStr;
     use std::time::Duration;
 
@@ -220,19 +222,25 @@ mod tests {
     const EMPTY_BIN_PATH: &str = "./tests/empty-example/target/debug/empty-example";
 
     fn compile_symbol_example() {
-        Command::new("cargo")
+        let out = Command::new("cargo")
             .arg("build")
             .current_dir(canonicalize("./tests/symbols-example").unwrap())
             .output()
             .unwrap();
+        if !out.stderr.is_empty() {
+            println!("{}", from_utf8(&out.stderr[..]).unwrap())
+        }
     }
 
     fn compile_empty_example() {
-        Command::new("cargo")
+        let out = Command::new("cargo")
             .arg("build")
             .current_dir(canonicalize("./tests/empty-example").unwrap())
             .output()
             .unwrap();
+        if !out.stderr.is_empty() {
+            println!("{}", from_utf8(&out.stderr[..]).unwrap())
+        }
     }
 
     fn options_from_str(input: &str) -> Result<CLIOptions, structopt::clap::Error> {
@@ -443,7 +451,7 @@ mod tests {
     }
 
     /// Imply endianness from ELF as 64 bit, even if not specified in cli args
-    #[cfg(target_pointer_width = "64")]
+    #[cfg(all(target_pointer_width = "64", target_os = "linux"))]
     #[test]
     fn imply_word_size_64() {
         compile_empty_example();
