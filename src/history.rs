@@ -10,10 +10,10 @@ use fixed_slice_vec::{
 };
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_assert_eq};
 
-use race_buffer::{RaceBuffer, WholeEntry};
+use fenced_ring_buffer::{FencedRingBuffer, WholeEntry};
 
 use crate::{
-    log::{LogEntry, RaceLog},
+    log::{LogBuffer, LogEntry},
     wire::{report::WireReport, WireCausalSnapshot},
     CausalSnapshot, EventId, LogicalClock, MergeError, ModalityProbeInstant, OrdClock, ProbeEpoch,
     ProbeId, ProbeTicks, ProduceError, ReportError, StorageSetupError,
@@ -47,9 +47,9 @@ const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
 const_assert_eq!(
-    size_of::<OverwritePriorityLevel>()
+    size_of::<u32>()
         + size_of::<ProbeId>()
-        + size_of::<RaceLog<'_>>()
+        + size_of::<LogBuffer<'_>>()
         + size_of::<u32>()
         + size_of::<LogicalClock>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
@@ -70,11 +70,11 @@ const_assert_eq!(
 #[repr(C)]
 pub struct DynamicHistory<'a> {
     /// Minimum priority level of items that can be written to the log
-    pub overwrite_priority: OverwritePriorityLevel,
+    pub overwrite_priority: u32,
     /// ID of this probe
     pub probe_id: ProbeId,
     /// Log used to store events and trace clocks
-    pub log: RaceLog<'a>,
+    pub log: LogBuffer<'a>,
     /// The number of events seen since the current
     /// probe's logical clock last increased.
     pub(crate) event_count: u32,
@@ -84,11 +84,6 @@ pub struct DynamicHistory<'a> {
     pub(crate) clocks: FixedSliceVec<'a, LogicalClock>,
     pub(crate) report_seq_num: u64,
 }
-
-/// Represents a level of priority of entries written to the log that overwrite other entries
-#[derive(Debug)]
-#[repr(transparent)]
-pub struct OverwritePriorityLevel(pub u32);
 
 #[derive(Debug)]
 struct ClocksFullError;
@@ -156,11 +151,11 @@ impl<'a> DynamicHistory<'a> {
         }
         let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
         let mut clocks = FixedSliceVec::from_bytes(clocks_region);
-        // Create new racebuffer, using full log region instead of rounding to power of 2 length for
+        // Create new FencedRingBuffer, using full log region instead of rounding to power of 2 length for
         // optimized indexing
         // Note: point of future improvement - a heuristic could be used to determine whether or not the memory cost
         // of rounding the log's storage space outweighs the runtime cost of using mod operations for indexing
-        let log = RaceBuffer::new_from_bytes(log_region, false)
+        let log = FencedRingBuffer::new_from_bytes(log_region, false)
             .map_err(|_| StorageSetupError::UnderMinimumAllowedSize)?;
         if clocks.capacity() < MIN_CLOCKS_LEN || (log.capacity() as usize) < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
@@ -175,7 +170,7 @@ impl<'a> DynamicHistory<'a> {
                 "The History.clocks field should always contain a clock for this probe instance",
             );
         let history = DynamicHistory {
-            overwrite_priority: OverwritePriorityLevel(0),
+            overwrite_priority: 0,
             report_seq_num: 0,
             event_count: 0,
             self_clock: LogicalClock {

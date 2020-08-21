@@ -18,7 +18,7 @@ use proptest_derive::Arbitrary;
 use static_assertions::{assert_cfg, const_assert};
 
 pub use error::*;
-pub use history::{DynamicHistory, OverwritePriorityLevel};
+pub use history::DynamicHistory;
 pub use id::*;
 
 mod error;

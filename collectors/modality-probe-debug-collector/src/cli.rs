@@ -12,10 +12,8 @@ use modality_probe_debug_collector::{Config, ProbeAddr, Target, Word};
 
 #[derive(Debug, Error)]
 pub enum CLIError {
-    #[error(display = "Error parsing malformed address: \"{}\"", _0)]
+    #[error(display = "Address is not valid or too large \"{}\"", _0)]
     AddressNotValid(String),
-    #[error(display = "Given address/symbol larger than expected size: \"{}\"", _0)]
-    AddressTooBig(String),
     #[error(display = "Error opening ELF file")]
     ElfError,
     #[error(display = "Symbols were given but no elf file was specified")]
@@ -164,10 +162,10 @@ fn parse_probe_address(input: &str, use_64_bit: bool) -> Result<Option<ProbeAddr
         Word::U64(addr)
     } else {
         let addr_32 =
-            u32::try_from(addr).map_err(|_e| CLIError::AddressTooBig(input.to_string()))?;
+            u32::try_from(addr).map_err(|_e| CLIError::AddressNotValid(input.to_string()))?;
         Word::U32(addr_32)
     };
-    if input.starts_with("*") {
+    if input.starts_with('*') {
         Ok(Some(ProbeAddr::PtrAddr(addr_word)))
     } else {
         Ok(Some(ProbeAddr::Addr(addr_word)))
@@ -198,12 +196,12 @@ fn parse_symbol_info(
                 false
             }
         })
-        .ok_or(CLIError::SymbolNotFound(symbol_name.to_string()))?;
+        .ok_or_else(|| CLIError::SymbolNotFound(symbol_name.to_string()))?;
     if use_64_bit {
         Ok(Word::U64(log_sym.st_value))
     } else {
         let val_32 = u32::try_from(log_sym.st_value)
-            .map_err(|_e| CLIError::AddressTooBig(symbol_name.to_string()))?;
+            .map_err(|_e| CLIError::AddressNotValid(symbol_name.to_string()))?;
         Ok(Word::U32(val_32))
     }
 }

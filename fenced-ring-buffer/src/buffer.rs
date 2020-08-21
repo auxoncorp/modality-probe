@@ -1,4 +1,4 @@
-//! The writer of the RaceBuffer, which contains the actual buffer. Entries can be synchronously written and read/iterated
+//! The writer of the FencedRingBuffer, which contains the actual buffer. Entries can be synchronously written and read/iterated
 //! from this struct.
 use crate::{get_seqn_index, num_missed, Entry, SeqNum, WholeEntry};
 //use core::iter::Iterator;
@@ -22,8 +22,11 @@ impl fmt::Debug for SizeError {
 }
 
 /// Round given length down to a power of 2
+///
+/// Note: the given length must be at least 1
 #[inline]
 fn round_to_power_2(length: usize) -> usize {
+    debug_assert!(length > 0);
     let exp: usize = size_of::<usize>() * 8 - (length.leading_zeros() as usize) - 1;
     1 << exp
 }
@@ -31,9 +34,7 @@ fn round_to_power_2(length: usize) -> usize {
 #[derive(Debug)]
 #[repr(C)]
 /// Struct used to write to buffer
-/// 
-/// Note: public structs must be accessed directly by asynchronous reader
-pub struct RaceBuffer<'a, E>
+pub struct FencedRingBuffer<'a, E>
 where
     E: Entry,
 {
@@ -44,22 +45,22 @@ where
     /// Backing storage
     pub storage: &'a mut [MaybeUninit<E>],
     /// Sequence number of next entry to be read from buffer
-    /// Note: when using RaceReader, this field is not used
+    /// Note: when using FencedReader, this field is not used
     read_seqn: SeqNum,
     /// Indicates if backing storage should be truncated to a power of 2 length
     /// in order to use optimized indexing
     use_base_2_indexing: bool,
 }
 
-impl<'a, E> RaceBuffer<'a, E>
+impl<'a, E> FencedRingBuffer<'a, E>
 where
     E: Entry,
 {
-    /// Create new RaceBuffer. Returns error if storage size is not power of 2
+    /// Create new FencedRingBuffer. Returns error if storage capacity is smaller than the minimum size
     pub fn new(
         storage: &'a mut [MaybeUninit<E>],
         use_base_2_indexing: bool,
-    ) -> Result<RaceBuffer<'a, E>, SizeError> {
+    ) -> Result<FencedRingBuffer<'a, E>, SizeError> {
         if storage.len() < MIN_STORAGE_CAP {
             return Err(SizeError);
         }
@@ -68,7 +69,7 @@ where
         } else {
             storage.len()
         };
-        Ok(RaceBuffer {
+        Ok(FencedRingBuffer {
             write_seqn: SeqNum::new(0, 0),
             overwrite_seqn: SeqNum::new(0, 0),
             storage: &mut storage[..truncated_len],
@@ -77,31 +78,31 @@ where
         })
     }
 
-    /// Create new RaceBuffer with properly aligned backing storage
+    /// Create new FencedRingBuffer with properly aligned backing storage
     #[inline]
     pub fn new_from_bytes(
         bytes: &'a mut [u8],
         use_base_2_indexing: bool,
-    ) -> Result<RaceBuffer<'a, E>, SizeError> {
+    ) -> Result<FencedRingBuffer<'a, E>, SizeError> {
         let (_prefix, buf, _suffix) = Self::align_from_bytes(bytes, use_base_2_indexing);
         buf
     }
 
-    /// Create new RaceBuffer with properly aligned backing storage, return unused bytes
+    /// Create new FencedRingBuffer with properly aligned backing storage, return unused bytes
     #[inline]
     pub fn align_from_bytes(
         bytes: &'a mut [u8],
         use_base_2_indexing: bool,
     ) -> (
         &'a mut [u8],
-        Result<RaceBuffer<'a, E>, SizeError>,
+        Result<FencedRingBuffer<'a, E>, SizeError>,
         &'a mut [u8],
     ) {
         // Safe because storage is treated as uninit after transmutation
         let (prefix, storage, suffix) = unsafe { bytes.align_to_mut() };
         (
             prefix,
-            RaceBuffer::new(storage, use_base_2_indexing),
+            FencedRingBuffer::new(storage, use_base_2_indexing),
             suffix,
         )
     }
@@ -147,7 +148,8 @@ where
                 // Reading storage directly in front of overwrite sequence number is safe because write cursor is ahead of
                 // that entry, and the overwrite sequence number is behind it
                 let overwritten = self.read_at(self.overwrite_seqn).unwrap();
-                self.overwrite_seqn.increment(overwritten.size().into());
+                self.overwrite_seqn
+                    .increment((overwritten.size() as u64).into());
                 // Prevent writes from getting reordered
                 Some(overwritten)
             } else {
@@ -195,7 +197,7 @@ where
     pub fn pop(&mut self) -> Option<WholeEntry<E>> {
         let tail = self.peek();
         let increment = if let Some(entry) = tail {
-            entry.size()
+            entry.size() as u64
         } else {
             0
         };
@@ -205,9 +207,15 @@ where
 
     /// Create iterator over the entries currently present in the buffer without changing the tail
     #[inline]
-    pub fn iter_peek<'b>(&'b mut self) -> RaceBufferIter<'a, 'b, E> {
+    pub fn iter<'b>(&'b self) -> Iter<'a, 'b, E> {
         let start_seqn = max(self.read_seqn, self.overwrite_seqn);
-        RaceBufferIter::new(self, start_seqn)
+        Iter::new(self, start_seqn)
+    }
+
+    /// Create draining iterator
+    #[inline]
+    pub fn drain<'b>(&'b mut self) -> Drain<'a, 'b, E> {
+        Drain::new(self)
     }
 
     /// Get two slices which together represent the entries currently present in the buffer, where the second
@@ -222,8 +230,7 @@ where
             get_seqn_index(self.capacity(), self.write_seqn, self.use_base_2_indexing);
         // Safe to assume entries in front of overwrite sequence number and behind write sequence number are initialized
         if overwrite_seqn_index >= write_seqn_index
-            && (Into::<u64>::into(self.overwrite_seqn) != 0
-                || Into::<u64>::into(self.write_seqn) != 0)
+            && (u64::from(self.overwrite_seqn) != 0 || u64::from(self.write_seqn) != 0)
         {
             unsafe {
                 (
@@ -283,33 +290,52 @@ where
     }
 }
 
-impl<E> Iterator for RaceBuffer<'_, E>
+/// Drains a FencedRingBuffer
+pub struct Drain<'a, 'b, E>
+where
+    E: Entry,
+{
+    /// Target FencedRingBuffer
+    buffer: &'b mut FencedRingBuffer<'a, E>,
+}
+
+impl<'a, 'b, E> Drain<'a, 'b, E>
+where
+    E: Entry,
+{
+    /// Create a new iterator over the FencedRingBuffer at the given starting sequence number
+    fn new(buffer: &'b mut FencedRingBuffer<'a, E>) -> Self {
+        Self { buffer }
+    }
+}
+
+impl<E> Iterator for Drain<'_, '_, E>
 where
     E: Entry,
 {
     type Item = WholeEntry<E>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.pop()
+        self.buffer.pop()
     }
 }
 
-/// Iteratates through a RaceBuffer
-pub struct RaceBufferIter<'a, 'b, E>
+/// Iterates through a FencedRingBuffer
+pub struct Iter<'a, 'b, E>
 where
     E: Entry,
 {
-    /// Target RaceBuffer
-    buffer: &'b RaceBuffer<'a, E>,
+    /// Target FencedRingBuffer
+    buffer: &'b FencedRingBuffer<'a, E>,
     /// Sequence number of next entry to read
     read_seqn: SeqNum,
 }
 
-impl<'a, 'b, E> RaceBufferIter<'a, 'b, E>
+impl<'a, 'b, E> Iter<'a, 'b, E>
 where
     E: Entry,
 {
-    /// Create a new iterator over the RaceBuffer at the given starting sequence number
-    fn new(buffer: &'b RaceBuffer<'a, E>, start_seqn: SeqNum) -> Self {
+    /// Create a new iterator over the FencedRingBuffer at the given starting sequence number
+    fn new(buffer: &'b FencedRingBuffer<'a, E>, start_seqn: SeqNum) -> Self {
         Self {
             buffer,
             read_seqn: start_seqn,
@@ -317,7 +343,7 @@ where
     }
 }
 
-impl<'a, 'b, E> Iterator for RaceBufferIter<'a, 'b, E>
+impl<'a, 'b, E> Iterator for Iter<'a, 'b, E>
 where
     E: Entry,
 {
@@ -325,7 +351,7 @@ where
     fn next(&mut self) -> Option<WholeEntry<E>> {
         let tail = self.buffer.read_at(self.read_seqn);
         if let Some(entry) = tail {
-            self.read_seqn += entry.size();
+            self.read_seqn += entry.size() as u64;
         }
         tail
     }
@@ -335,7 +361,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::OrderedEntry;
+    use crate::test_support::OrderedEntry;
     use core::mem::MaybeUninit;
 
     /// Test backing storage size rounding and minimum size enforcement
@@ -344,8 +370,8 @@ mod tests {
         // Ensure minimum storage size is checked
         for i in 0..MIN_STORAGE_CAP {
             let mut too_small_storage = vec![MaybeUninit::<OrderedEntry>::uninit(); i];
-            assert!(RaceBuffer::new(&mut too_small_storage[..], false).is_err());
-            assert!(RaceBuffer::new(&mut too_small_storage[..], true).is_err());
+            assert!(FencedRingBuffer::new(&mut too_small_storage[..], false).is_err());
+            assert!(FencedRingBuffer::new(&mut too_small_storage[..], true).is_err());
         }
 
         let input_sizes = [4, 5, 6, 7, 8, 9, 12, 16];
@@ -354,7 +380,7 @@ mod tests {
             .iter()
             .map(|size| {
                 let mut storage = vec![MaybeUninit::<OrderedEntry>::uninit(); *size];
-                RaceBuffer::new(&mut storage[..], false)
+                FencedRingBuffer::new(&mut storage[..], false)
                     .unwrap()
                     .get_slice()
                     .len()
@@ -366,7 +392,7 @@ mod tests {
             .iter()
             .map(|size| {
                 let mut storage = vec![MaybeUninit::<OrderedEntry>::uninit(); *size];
-                RaceBuffer::new(&mut storage[..], true)
+                FencedRingBuffer::new(&mut storage[..], true)
                     .unwrap()
                     .get_slice()
                     .len()
@@ -379,7 +405,8 @@ mod tests {
     fn test_from_bytes() {
         const STORAGE_CAP: usize = 16;
         let mut storage = [0u8; STORAGE_CAP * size_of::<OrderedEntry>()];
-        let buf = RaceBuffer::<OrderedEntry>::new_from_bytes(&mut storage[..], false).unwrap();
+        let buf =
+            FencedRingBuffer::<OrderedEntry>::new_from_bytes(&mut storage[..], false).unwrap();
         // Should not lose more than one entry
         assert!(buf.capacity() == 16 || buf.capacity() == 15)
     }
@@ -388,7 +415,7 @@ mod tests {
     fn test_read_at() {
         const STORAGE_CAP: usize = 8;
         let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
-        let mut buf = RaceBuffer::new(&mut storage[..], false).unwrap();
+        let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
 
         for i in 0..16 {
             // None written yet
@@ -417,7 +444,7 @@ mod tests {
     fn test_pushing_popping_num_missed() {
         const STORAGE_CAP: usize = 4;
         let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
-        let mut buf = RaceBuffer::new(&mut storage[..], false).unwrap();
+        let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
 
         // None written yet
         assert_eq!(buf.peek(), None);
@@ -475,7 +502,7 @@ mod tests {
     fn test_double_entries() {
         const STORAGE_CAP: usize = 4;
         let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
-        let mut buf = RaceBuffer::new(&mut storage[..], false).unwrap();
+        let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
 
         // Should be able to push, peek, and pop like a single entry
         buf.push_double(
@@ -543,7 +570,7 @@ mod tests {
     fn test_iteration() {
         const STORAGE_CAP: usize = 4;
         let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
-        let mut buf = RaceBuffer::new(&mut storage[..], false).unwrap();
+        let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
         for i in 0..6 {
             buf.push(OrderedEntry::from_index(i));
         }
@@ -554,7 +581,7 @@ mod tests {
 
         assert_eq!(buf.num_missed(), 4);
         assert_eq!(
-            buf.iter_peek().collect::<Vec<WholeEntry<OrderedEntry>>>(),
+            buf.iter().collect::<Vec<WholeEntry<OrderedEntry>>>(),
             vec![
                 WholeEntry::Single(OrderedEntry::from_index(4)),
                 WholeEntry::Single(OrderedEntry::from_index(5)),
@@ -572,12 +599,8 @@ mod tests {
             Some(WholeEntry::Single(OrderedEntry::from_index(4)))
         );
 
-        let mut out = Vec::new();
-        for entry in &mut buf {
-            out.push(entry);
-        }
         assert_eq!(
-            out,
+            buf.drain().collect::<Vec<WholeEntry<OrderedEntry>>>(),
             vec![
                 WholeEntry::Single(OrderedEntry::from_index(4)),
                 WholeEntry::Single(OrderedEntry::from_index(5)),
@@ -596,7 +619,7 @@ mod tests {
     fn test_get_linear_slices() {
         const STORAGE_CAP: usize = 4;
         let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
-        let mut buf = RaceBuffer::new(&mut storage[..], false).unwrap();
+        let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
         assert_eq!(buf.get_linear_slices(), (&[][..], &[][..]));
         for i in 0..2 {
             buf.push(OrderedEntry::from_index(i));

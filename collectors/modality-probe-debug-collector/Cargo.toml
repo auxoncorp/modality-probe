@@ -18,6 +18,6 @@ err-derive = "0.2.4"
 modality-probe = { path = "../.." }
 modality-probe-collector-common = { path = "../modality-probe-collector-common" }
 
-[dependencies.race-buffer]
-path = "../../race-buffer"
+[dependencies.fenced-ring-buffer]
+path = "../../fenced-ring-buffer"
 features = ["std"]

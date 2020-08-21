@@ -1,11 +1,11 @@
 use chrono::prelude::*;
 use err_derive::Error;
+use fenced_ring_buffer::WholeEntry;
 use modality_probe::{
     log::LogEntry,
     wire::{le_bytes, ReportWireError, WireReport},
     EventId, LogicalClock, ProbeId,
 };
-use race_buffer::WholeEntry;
 use static_assertions::assert_eq_size;
 use std::convert::{TryFrom, TryInto};
 use std::mem;
@@ -514,8 +514,7 @@ impl Report {
             match entry {
                 WholeEntry::Single(ev) => {
                     owned_report.event_log.push(EventLogEntry::Event(
-                        ev
-                            .interpret_as_event_id()
+                        ev.interpret_as_event_id()
                             .ok_or_else(|| SerializationError::InvalidEventId(*ev))?,
                     ));
                 }

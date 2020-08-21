@@ -1,5 +1,5 @@
 [package]
-name = "race-buffer"
+name = "fenced-ring-buffer"
 version = "0.1.0"
 authors = ["Nicholas Springer <nspringer@auxon.io>"]
 edition = "2018"

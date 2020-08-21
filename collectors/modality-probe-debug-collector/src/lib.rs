@@ -15,17 +15,17 @@ use err_derive::Error;
 use field_offset::offset_of;
 use probe_rs::{MemoryInterface, Session};
 
+use fenced_ring_buffer::async_reader::{FencedReader, Snapper};
+use fenced_ring_buffer::{FencedRingBuffer, SeqNum, WholeEntry};
 use modality_probe::log::LogEntry;
 use modality_probe::{
-    DynamicHistory, EventId, LogicalClock, ModalityProbe, OrdClock, OverwritePriorityLevel,
-    ProbeEpoch, ProbeId, ProbeTicks,
+    DynamicHistory, EventId, LogicalClock, ModalityProbe, OrdClock, ProbeEpoch, ProbeId, ProbeTicks,
 };
 use modality_probe_collector_common::{
     add_log_report_to_entries, csv::write_log_entries, Report, ReportLogEntry, SessionId,
 };
-use race_buffer::async_reader::{RaceReader, Snapper};
-use race_buffer::{RaceBuffer, SeqNum, WholeEntry};
 
+/// Either a u32 or u64, depending on the target architecture
 #[derive(Debug, PartialEq, Copy, Clone, Eq, Hash)]
 pub enum Word {
     U32(u32),
@@ -85,27 +85,28 @@ fn probe_id_offset() -> u64 {
 }
 
 fn write_seqn_high_offset() -> u64 {
-    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => write_seqn: SeqNum => high)
+    offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => write_seqn: SeqNum => high)
         .get_byte_offset() as u64
 }
 
 fn write_seqn_low_offset() -> u64 {
-    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => write_seqn: SeqNum => low)
+    offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => write_seqn: SeqNum => low)
         .get_byte_offset() as u64
 }
 
 fn overwrite_seqn_high_offset() -> u64 {
-    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => overwrite_seqn: SeqNum => high)
+    offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => overwrite_seqn: SeqNum => high)
         .get_byte_offset() as u64
 }
 
 fn overwrite_seqn_low_offset() -> u64 {
-    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => overwrite_seqn: SeqNum => low)
+    offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => overwrite_seqn: SeqNum => low)
         .get_byte_offset() as u64
 }
 
 fn log_storage_addr_offset() -> u64 {
-    offset_of!(DynamicHistory => log: RaceBuffer<LogEntry> => storage).get_byte_offset() as u64
+    offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => storage).get_byte_offset()
+        as u64
 }
 
 fn log_storage_cap_offset(n_word_bytes: u8) -> u64 {
@@ -123,10 +124,11 @@ pub struct Config {
     pub probe_addrs: Vec<ProbeAddr>,
 }
 
+/// Target device, either directly through probe-rs or by proxy through a gdb server
 #[derive(Debug, PartialEq)]
 pub enum Target {
     ProbeRsTarget(String),
-    GdbAddr(SocketAddrV4)
+    GdbAddr(SocketAddrV4),
 }
 
 /// Struct representing a probe address, either the address of the probe itself or of
@@ -137,6 +139,7 @@ pub enum ProbeAddr {
     PtrAddr(Word),
 }
 
+/// Error in debug collector
 #[derive(Debug, Error)]
 pub enum DebugCollectorError {
     #[error(display = "Error reading from/writing to target")]
@@ -163,7 +166,7 @@ struct ProbeRsAccessor(Session);
 
 impl MemoryAccessor for ProbeRsAccessor {
     fn read_word(&mut self, addr: Word) -> Result<Word, DebugCollectorError> {
-        self.read_32(addr).map(|res| Word::U32(res))
+        self.read_32(addr).map(Word::U32)
     }
 
     fn read_32(&mut self, addr: Word) -> Result<u32, DebugCollectorError> {
@@ -195,19 +198,19 @@ impl MemoryAccessor for ProbeRsAccessor {
     }
 }
 
-/// Struct used to take snapshots of RaceBuffer on device
+/// Struct used to take snapshots of FencedRingBuffer on device
 struct MemorySnapper {
     /// Reader used to read device memory
     mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
-    /// Address of RaceBuffer backing storage
+    /// Address of FencedRingBuffer backing storage
     storage_addr: Word,
-    /// Address of RaceBuffer write sequence number high word
+    /// Address of FencedRingBuffer write sequence number high word
     write_seqn_high_addr: Word,
-    /// Address of RaceBuffer write sequence number low word
+    /// Address of FencedRingBuffer write sequence number low word
     write_seqn_low_addr: Word,
-    /// Address of RaceBuffer write sequence number high word
+    /// Address of FencedRingBuffer write sequence number high word
     overwrite_seqn_high_addr: Word,
-    /// Address of RaceBuffer write sequence number low word
+    /// Address of FencedRingBuffer write sequence number low word
     overwrite_seqn_low_addr: Word,
 }
 
@@ -257,10 +260,10 @@ struct PriorityWriter {
 }
 
 impl PriorityWriter {
-    fn write(&mut self, level: OverwritePriorityLevel) -> Result<(), DebugCollectorError> {
+    fn write(&mut self, level: u32) -> Result<(), DebugCollectorError> {
         self.mem_accessor
             .borrow_mut()
-            .write_32(self.priority_field_addr, level.0)
+            .write_32(self.priority_field_addr, level)
     }
 }
 
@@ -268,8 +271,8 @@ impl PriorityWriter {
 pub struct Collector {
     /// Sequence number of next report
     seq_num: u64,
-    /// Reader used to read the probe's RaceBuffer
-    reader: RaceReader<LogEntry, MemorySnapper>,
+    /// Reader used to read the probe's FencedRingBuffer
+    reader: FencedReader<LogEntry, MemorySnapper>,
     /// Allocated buffer for reading the log into
     rbuf: Vec<WholeEntry<LogEntry>>,
     /// Processed clocks backing storage
@@ -319,7 +322,7 @@ impl Collector {
         );
         Ok(Self {
             seq_num: 0,
-            reader: RaceReader::new(
+            reader: FencedReader::new(
                 MemorySnapper {
                     mem_accessor,
                     storage_addr: buf_addr,
@@ -367,9 +370,9 @@ impl Collector {
 
         let report =
             Report::try_from_log(self.clocks[0], self.seq_num, report_clocks, &self.rbuf[..])
-                .and_then(|report| {
+                .map(|report| {
                     self.seq_num += 1;
-                    Ok(report)
+                    report
                 })
                 .map_err(|_e| DebugCollectorError::ReportSerializationError);
         self.rbuf.clear();
@@ -393,21 +396,22 @@ impl Collector {
     }
 
     /// Write to "write priority" field in probe
-    pub fn set_overwrite_priority(
-        &mut self,
-        level: OverwritePriorityLevel,
-    ) -> Result<(), DebugCollectorError> {
+    pub fn set_overwrite_priority(&mut self, level: u32) -> Result<(), DebugCollectorError> {
         self.priority_writer.write(level)
     }
 }
 
-/// Open memory reader based on config
-fn open_memory_reader(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, DebugCollectorError> {
+/// Open memory accessor based on config
+fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, DebugCollectorError> {
     match &c.target {
         Target::ProbeRsTarget(target) => {
-            let session =
-                Session::auto_attach(target).map_err(|_e| DebugCollectorError::TargetError)?;
-                Ok(Rc::new(RefCell::new(ProbeRsAccessor(session))))
+            let probes = probe_rs::Probe::list_all();
+            if probes.is_empty() {
+                return Err(DebugCollectorError::TargetError);
+            }
+            let probe = probes[0].open().map_err(|_e| DebugCollectorError::TargetError)?;
+            let session = probe.attach(target).map_err(|_e| DebugCollectorError::TargetError)?;
+            Ok(Rc::new(RefCell::new(ProbeRsAccessor(session))))
         }
         // No probe rs target implies use of gdb, which is not implemented yet
         Target::GdbAddr(_) => unimplemented!(),
@@ -442,7 +446,7 @@ fn report_to_file(
 
 /// Run debug collector with given config
 pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<(), DebugCollectorError> {
-    let mem_accessor = open_memory_reader(c)?;
+    let mem_accessor = open_mem_accessor(c)?;
     let mut collectors = initialize_collectors(c, mem_accessor)?;
 
     let mut needs_csv_headers = !c.output_path.exists()
@@ -675,6 +679,40 @@ pub mod tests {
                 event_log: vec![],
             }
         );
+    }
+
+    #[test]
+    fn local_probe_writeback() {
+        let mut storage = [0u8; 1024];
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let probe = ModalityProbe::new_with_storage(&mut storage[..], probe_id).unwrap();
+        let addr_raw = &probe as *const ModalityProbe as usize;
+        #[cfg(target_pointer_width = "32")]
+        let addr = Word::U32(addr_raw as u32);
+        #[cfg(target_pointer_width = "64")]
+        let addr = Word::U64(addr_raw as u64);
+
+        let mut collector = Collector::initialize(
+            &ProbeAddr::Addr(addr),
+            Rc::new(RefCell::new(DirectMemAccessor)),
+        )
+        .unwrap();
+
+        probe.rec.set_overwrite_priority(1).unwrap();
+        assert_eq!(probe.history.overwrite_priority, 1);
+        rd_event(ev(1));
+        let report = collector.collect_report().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(0),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![EventLogEntry::Event(ev(1))],
+            }
+        )
     }
 
     struct HashMapMemAccessor(HashMap<Word, u32>);

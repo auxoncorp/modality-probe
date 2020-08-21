@@ -12,7 +12,7 @@ csv = "1.1"
 err-derive = "0.2.4"
 
 modality-probe = { path = "../../", features = ["std"] }
-race-buffer = { path = "../../race-buffer" }
+fenced-ring-buffer = { path = "../../fenced-ring-buffer" }
 
 [dev-dependencies]
 proptest = "0.9"
