@@ -1,10 +1,9 @@
 # `modality-probe-capi`
 ## Overview
-`modality-probe-capi` is a linkable C library that one can use to
-record events into a probe’s log, share log snapshots across probes,
-and “report” a probe’s log to a collector. The library is also
-targeted by the [code and manifest generation that the CLI does](link
-to cli).
+`modality-probe-capi` is a library with a C that can be used to record
+events into a probe’s log, share log snapshots across probes, and
+report a probe’s log to a collector. The library is also targeted by
+the [code and manifest generation that the CLI does](link to cli).
 
 ## Getting Started
 
@@ -54,20 +53,22 @@ To record an event into a probe’s log, use one of the variants of
 probe as a global called `probe_g`. You’ll also note that there are a
 few seemingly undefined symbols: `TWISTED` and `CONTROLLER`. These are
 given definitions by making use of Modality Probe’s CLI sub-command
-`header-gen` which you can read more about [here TODO(link)]. The
-short of it is that you’ll need to run the header-gen tool against
-your codebase before it can be compiled because Modality Probe
-actually generates the definitions to those symbols.
+`header-gen` which you can read more about at its readme<!--todo link
+here -->. The short of it is that you’ll need to run the header-gen
+tool against your codebase before it can be compiled because Modality
+Probe actually generates the definitions to those symbols.
 
 ```c
-#define DEFAULT_PROBE_SIZE = 7000;
+#include <modality_probe>;
+
+#define DEFAULT_PROBE_SIZE (1024);
 modality_probe * probe_g = MODALITY_PROBE_NULL_INITIALIZER;
 
 void twist(double x, double y, double z) {
     int result = MODALITY_PROBE_RECORD(
         probe_g,
         TWISTED,
-        "tags=actuation",
+        MODALITY_TAGS("actuation"),
         "A twist command was received"
     );
 // …
@@ -75,11 +76,16 @@ void twist(double x, double y, double z) {
 
 int main() {
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
-    modality_probe_error result = modality_probe_initialize(
+
+    modality_probe_error result = MODALITY_PROBE_INIT(
         destination,
         DEFAULT_PROBE_SIZE,
         CONTROLLER,
-        probe_g
+        NULL,    /* No restart tracking */
+        NULL,
+        &probe_g
+        MODALITY_TAGS("controller"),
+        "The controller"
     );
 }
 ```
@@ -103,17 +109,17 @@ A snapshot can then be merged into another probe’s log with `merge`:
 result = modality_probe_merge_snapshot(ACTUATOR, &snap);
 ```
 
-These things work best when they’re used in-band. That is, they’re
-tacked onto an existing interaction as an extra few bytes that can be
-unpacked on the other end and interpreted as a snapshot that the
-receiving probe can merge into its probe. When these things occur out
-of band, the veracity of the causal relationships Modality Probe is
-meant to capture erodes—the exchanges tell us only that two components
-are related, but not how they are.
+This work best when they’re used in-band. That is, they’re tacked onto
+an existing interaction as an extra few bytes that can be unpacked on
+the other end and interpreted as a snapshot that the receiving probe
+can merge into its probe. When these things occur out of band, the
+veracity of the causal relationships Modality Probe is meant to
+capture erodes—the exchanges tell us only that two components are
+related, but not how.
 
 ### “Now” (Integrating a Probe’s data into your existing logging)
 
-Modality Probe’s “now” API allows one to associate traced events with
+Modality Probe’s “now” API allows you to associate traced events with
 your existing logging infrastructure by embedding a probe’s current
 clock value into your log messages:
 
@@ -121,9 +127,11 @@ clock value into your log messages:
 #ifdef MODALITY_PROBE_MACROS_ENABLED
     modality_probe_instant now = modality_probe_now(CONTROLLER);
     LOG(
-        “controller: sent a twist command, probe clock (%d, %d)”,
+        “controller: sent a twist command, probe clock (%d, %d, %d, %d)”,
         now.clock.id,
-        now.clock.count
+        now.clock.epoch,
+        now.clock.ticks,
+        now.clock.event_count
     );
 #else
     LOG(“controller: sent a twist command”);
@@ -133,40 +141,54 @@ clock value into your log messages:
 Now, when using your usual methods of log analysis, you get
 correspondences of what happened causally, by finding these clock
 “instances” in your logs and looking them up in the Modality Probe
-causal graph produced by [collecting a trace TODO link to collector]
-and feeding that trace to the [export command TODO link to export command].
+causal graph produced by collecting a trace<!--TODO link to
+collector--> and feeding that trace to the export command<!-- TODO
+link to export command-->.
 
 ### Reporting
 
-In order assemble a causal history for the system being analyzed, each
-agent must periodically “report” what’s in its log, i.e., the events
-and interactions it’s recorded. To do that, use the report API:
+In order to assemble a causal history for the system being analyzed,
+each probe must periodically report what’s in its log, i.e., the
+events and interactions it’s recorded. To do that, use the report API:
 
 ```c
-uint8_t * log_storage = (uint8_t*)malloc(LOG_STORAGE_SIZE);
-size_t bytes_written;
-result = modality_probe_report(
-    probe_g,
-    log_storage,
-    lOG_STORAGE_SIZE,
-    &bytes_written
-);
+#include <modality_probe>;
+
+#define LOG_STORAGE_SIZE (1024);
+
+modality_probe_error make_report(uint8_t * buffer, size_t * bytes_written) {
+    modality_probe_error result = modality_probe_report(
+        probe_g,
+        buffer,
+        LOG_STORAGE_SIZE,
+        bytes_written
+    );
+    return result;
+}
 ```
 
 The report API serializes that probe’s log into the given buffer,
 which you’d then send along to your collector, probably via UDP.
 
 ```c
-int sock = socket(AF_INET, SOCK_DGRAM, 0);
-struct sockaddr_in serv_addr {
-    .sin_family = AF_NET;
-    .sin_port = COLLECTOR_PORT;
-    .sin_addr = COLLECTOR_ADDR;
-};
-connect(sock, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
-send(sock, log_storage, bytes_written, 0);
+int send_modality_report() {
+    uint8_t * buffer = (uint8_t*)malloc(LOG_STORAGE_SIZE);
+    size_t bytes_written;
+    if (make_report(buffer, &bytes_written) != 0) {
+        return 1;
+    }
+
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in serv_addr {
+        .sin_family = AF_NET;
+        .sin_port = COLLECTOR_PORT;
+        .sin_addr = COLLECTOR_ADDR;
+    };
+    connect(sock, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
+    send(sock, buffer, bytes_written, 0);
+}
 ```
 
-If a probe’s component does not have network access but communicates
-with another component that does, relay this buffer there and let that
+If a probe does not have network access but can communicate with
+another probe that does, relay this buffer there and let that
 network-capable component send it on to the collector.

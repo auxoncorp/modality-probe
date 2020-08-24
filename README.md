@@ -12,7 +12,7 @@ and more.
 While `modality-probe` is written in Rust, it targets C environments,
 particularly those of the embedded variety. The library used for
 recording events and exchanging causality data does not depend on any
-sort of standard library and could be used in bare-metal or RTOS
+sort of standard library and is fully functional in bare-metal or RTOS
 environments.
 
 ## How do I use it?
@@ -20,9 +20,10 @@ environments.
 ### Have Rust
 
 Clone this repository, and start by navigating into its root folder.
-Then use [`rustup`](https://rustup.rs/), then you should have the
-cargo command available to you and the commands in the following
-section should work.
+If you don't have Rust installed, the recommended way to do so is with
+[`rustup`](https://rustup.rs/). After following the directions at that
+link, you should have the `cargo` command available to you and the
+commands in the following section should work.
 
 ### Build it
 
@@ -55,9 +56,7 @@ with `dpkg`.
 modality-probe/packing/debian $ dpkg -i target/debian/modality-probe_<version>_<arch>.deb
 ```
 
-Now you're ready to hack.
-
-#### Other *nixes (*nices?)
+#### Other Distributions
 
 Cargo can use something called "workspaces" to build groups of
 libraries or applications that share a source tree. `modality-probe`
@@ -83,26 +82,23 @@ Now you should find the cli and the udp collector in the root
 these to, respectively, `$PATH` and somewhere that your linker can
 find them.
 
-#### Windows
-
-_sighs deeply._ Something, something, dot exe.
-
-### Use it
-
-TODO: payloads, now, collector, jon's tracing example?, cli export
-
 #### In C
 
 You first need to initialize your tracer.
 
 ```c
+#include <modality_probe>;
+
+#define DEFAULT_PROBE_SIZE (1024);
+modality_probe * g_probe = MODALITY_PROBE_NULL_INITIALIZER;
+
 int main() {
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
     modality_probe_error result = modality_probe_initialize(
         destination,
         DEFAULT_PROBE_SIZE,
         CONTROLLER,
-        probe_g
+        g_probe
     );
 }
 ```
@@ -110,14 +106,13 @@ int main() {
 Then you can use it to record events.
 
 ```c
-#define DEFAULT_PROBE_SIZE = 7000;
-modality_probe * probe_g = MODALITY_PROBE_NULL_INITIALIZER;
+#include <modality_probe>;
 
 void twist(double x, double y, double z) {
     int result = MODALITY_PROBE_RECORD(
         probe_g,
         TWISTED,
-        TAGS("actuation"),
+        MODALITY_TAGS("actuation"),
         "A twist command was received"
     );
     // …
@@ -129,10 +124,17 @@ void twist(double x, double y, double z) {
 You first need to initialize your tracer.
 
 ```rust
+const LOG_STORAGE_SIZE: usize = 1024;
+
 fn main() {
-    let mut storage = [0u8; 1024];
-    let tracer = try_initialize_at!(&mut storage, LID_B, TAGS("actuation"), "Twister")
-        .expect("Could not initialize Ekotrace");
+    let mut storage = [0u8; LOG_STORAGE_SIZE];
+    let tracer = try_initialize_at!(
+        &mut storage,
+        LID_B,
+        RestartCounterProvider::NoRestartTracking,
+        tags!("actuation"),
+        "Twister"
+    ).expect("Could not initialize Ekotrace");
     // …
 }
 ```
@@ -140,6 +142,8 @@ fn main() {
 Then you can use it to record events.
 
 ```rust
+use modality_probe::try_record;
+
 fn twist(x: f64, y: f64, z: f64) -> Result<(), TwistError> {
     // …
     try_record!(
@@ -151,6 +155,10 @@ fn twist(x: f64, y: f64, z: f64) -> Result<(), TwistError> {
     // …
 }
 ```
+
+
+<!-- TODO: CLI, payloads, now, collector, jon's tracing example?, cli export -->
+
 
 ## Reading more
 
