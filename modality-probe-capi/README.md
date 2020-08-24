@@ -121,7 +121,7 @@ modality_causal_snapshot snap;
 result = modality_probe_produce_snapshot(CONTROLLER, &snap);
 ```
 
-Dually, on the receving side, use `modality_probe_merge_snapshot` to
+Dually, on the receiving side, use `modality_probe_merge_snapshot` to
 include that snapshot into the receiving probe's timeline.
 
 ```c
