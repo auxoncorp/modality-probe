@@ -25,38 +25,9 @@ If you don't have Rust installed, the recommended way to do so is with
 link, you should have the `cargo` command available to you and the
 commands in the following section should work.
 
-### Build it
+### Build It
 
-#### Linux (Debian-flavored)
-
-Install `cargo-deb`, a cargo subcommand that can convert a Cargo crate
-into a debian package.
-
-```shell
-modality-probe $ cargo install cargo-deb
-```
-
-Navigate into the `debian` folder beneath `package` and run the build
-script that's there.
-
-```shell
-modality-probe $ cd package/debian
-modality-probe/packing/debian $ ./build.sh
-```
-
-It will build all of the components of `modality-probe`, the
-[library](./modality-probe-capi/README.md), the
-[cli](./modality-probe-cli/README.md), and the [UDP
-collector](./collectors/modality-probe-udp-collector/README.md) and package them
-up into a deb file which you can find in `target/debian` from your
-current working directory. It can then be installed in the usual way,
-with `dpkg`.
-
-```shell
-modality-probe/packing/debian $ dpkg -i target/debian/modality-probe_<version>_<arch>.deb
-```
-
-#### Other Distributions
+#### Linux
 
 Cargo can use something called "workspaces" to build groups of
 libraries or applications that share a source tree. `modality-probe`
@@ -81,6 +52,8 @@ Now you should find the cli and the udp collector in the root
 `libmodality_probe` in the C API's `target/release` directory. Move
 these to, respectively, `$PATH` and somewhere that your linker can
 find them.
+
+### Integrate It
 
 #### In C
 
