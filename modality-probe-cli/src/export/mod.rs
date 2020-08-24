@@ -102,14 +102,12 @@ struct Cfg {
     pub probes: HashMap<u32, ProbeMeta>,
     pub events: HashMap<(Uuid, u32), EventMeta>,
     pub probes_to_components: HashMap<u32, Uuid>,
-    pub component_names: HashMap<String, String>,
 }
 
 fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Cfg, ExportError> {
     let mut probes = HashMap::new();
     let mut probes_to_components = HashMap::new();
     let mut events = HashMap::new();
-    let mut component_names = HashMap::new();
 
     let mut event_files = Vec::new();
     let mut probe_files = Vec::new();
@@ -136,7 +134,6 @@ fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Cfg, ExportError>
             let comp = Component::from_toml(&pf);
             probes.insert(p.id, p.clone());
             probes_to_components.insert(p.id, comp.id.0);
-            component_names.insert(comp.id.0.to_string(), comp.name);
         }
     }
     for ef in event_files.iter_mut() {
@@ -163,7 +160,6 @@ fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Cfg, ExportError>
         events,
         probes,
         probes_to_components,
-        component_names,
     })
 }
 
