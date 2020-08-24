@@ -91,31 +91,42 @@ int main() {
 ```
 ### Interacting with Snapshots
 
-For Modality Probe to do its best work regarding tracking causal
-relationships between components in your system, it needs to be
-included in those component’s interactions. The probes in your system
-derive those relationships by exchanging “points in time” from their
-own logical clocks. It’s through the snapshot API that this exchange
-happens in practice.
+In Modality, the probes keep track of time _logically_, this is done
+by incrementing a local counter any time a probe interacts with
+another probe. The events that are recorded between these interactions
+are associated with that value, which then allows Modality to create a
+partial order of what happened in the system by sorting the events by
+what their associated clock value was. A snapshot is how these
+interactions are captured. With a snapshot, a probe sends the current
+value of its own clock to another probe which then _merges_ that
+snapshot. When the receiving probe merges that snapshot, it does 2
+things: 1. it increments its own clock and 2. it records its
+neighbor's clock along with its own. This allows Modality to associate
+these two values, making the inference “When my clock was 5, my
+neighbor's was 7. Anything that follows from this point was _caused
+by_ the events that were recorded before this exchange.”
+
+This work best when snapshots are used in-band. That is, they’re added
+onto an existing interaction as an extra few bytes that can be
+unpacked on the other end and interpreted as a snapshot for the probe
+on the receiving end to merge. When this occurs out of band, the
+veracity of the causal relationships Modality Probe is meant to
+capture erodes—the exchanges tell us only that two components are
+related, but not how.
+
+To produce a snapshot, use `modality_probe_snapshot`.
 
 ``` c
 modality_causal_snapshot snap;
 result = modality_probe_produce_snapshot(CONTROLLER, &snap);
 ```
 
-A snapshot can then be merged into another probe’s log with `merge`:
+Dually, on the receving side, use `modality_probe_merge_snapshot` to
+include that snapshot into the receiving probe's timeline.
 
 ```c
 result = modality_probe_merge_snapshot(ACTUATOR, &snap);
 ```
-
-This work best when they’re used in-band. That is, they’re tacked onto
-an existing interaction as an extra few bytes that can be unpacked on
-the other end and interpreted as a snapshot that the receiving probe
-can merge into its probe. When these things occur out of band, the
-veracity of the causal relationships Modality Probe is meant to
-capture erodes—the exchanges tell us only that two components are
-related, but not how.
 
 ### “Now” (Integrating a Probe’s data into your existing logging)
 
