@@ -17,9 +17,8 @@ environments.
 
 ## How do I use it?
 
-### Have Rust
+### Install Rust
 
-Clone this repository, and start by navigating into its root folder.
 If you don't have Rust installed, the recommended way to do so is with
 [`rustup`](https://rustup.rs/). After following the directions at that
 link, you should have the `cargo` command available to you and the
@@ -29,19 +28,18 @@ commands in the following section should work.
 
 #### Linux
 
-Cargo can use something called "workspaces" to build groups of
-libraries or applications that share a source tree. `modality-probe`
-uses workspaces, and we can ask cargo to build all of the members of a
-workspace with the `--all` switch:
+Clone this repository, and start by navigating into its root folder
+Then use Cargo to build the Modality Probe libraries and their related
+binaries.
 
 ```shell
 modality-probe $ cargo build --release --all
 ```
 
-Once that's finished, if you're targeting a C application, you'll want
-to build `modality-probe-capi`, it's what builds the C-linkable `.so`
-and `.a` that you can link into your C application. We'll run the same
-command modulo the `--all` switch from its directory.
+If you're targeting a C application, you'll also want to build
+`modality-probe-capi`, it's what builds the C-linkable `.so` and `.a`
+that you can link into your C application. We'll run the same command
+modulo the `--all` switch from its directory.
 
 ```shell
 modality-probe/modality-probe-capi $ cargo build --release
@@ -51,13 +49,18 @@ Now you should find the cli and the udp collector in the root
 `target/release` directory, and the `.so` / `.a` for
 `libmodality_probe` in the C API's `target/release` directory. Move
 these to, respectively, `$PATH` and somewhere that your linker can
-find them.
+find them. On Linux, you can use `ldconfig` to see where the linker
+searches:
+
+```shell
+# ldconfig -v 2>/dev/null | grep ^/ | tr -d ':'
+```
 
 ### Integrate It
 
 #### In C
 
-You first need to initialize your probe.
+Begin by initializing your probe:
 
 ```c
 #include <modality/probe.h>
@@ -88,7 +91,7 @@ int main(int argc, char **argv)
 }
 ```
 
-Then you can use it to record events.
+Then, you can use your initialized probe to record events.
 
 ```c
 #include <modality/probe.h>
@@ -111,7 +114,7 @@ void do_twist_command(void)
 
 #### In Rust
 
-You first need to initialize your probe.
+Begin by initializing your probe:
 
 ```rust
 use modality_probe::{try_initialize_at, tags, RestartCounterProvider};
@@ -136,7 +139,7 @@ fn main() {
 }
 ```
 
-Then you can use it to record events.
+Then, you can use your initialized probe to record events.
 
 ```rust
 use modality_probe::try_record;
@@ -155,6 +158,8 @@ pub fn do_twist_command(&mut self) -> Result<(), TwistError> {
     // ...
 }
 ```
+
+<!-- TODO: CLI, payloads, now, collector, jon's tracing example?, cli export -->
 
 ## Reading more
 
