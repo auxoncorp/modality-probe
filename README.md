@@ -111,21 +111,28 @@ void do_twist_command(void)
 
 #### In Rust
 
-You first need to initialize your tracer.
+You first need to initialize your probe.
 
 ```rust
-const LOG_STORAGE_SIZE: usize = 1024;
+use modality_probe::{try_initialize_at, tags, RestartCounterProvider};
+
+// Output of the CLI's header-gen sub-command
+use generated_component_ids::*;
+
+const DEFAULT_PROBE_SIZE: usize = 1024;
 
 fn main() {
-    let mut storage = [0u8; LOG_STORAGE_SIZE];
+    let mut probe_buffer = [0u8; DEFAULT_PROBE_SIZE];
+
     let tracer = try_initialize_at!(
-        &mut storage,
-        LID_B,
+        &mut probe_buffer,
+        CONTROLLER,
         RestartCounterProvider::NoRestartTracking,
-        tags!("actuation"),
-        "Twister"
-    ).expect("Could not initialize Ekotrace");
-    // …
+        tags!("controller"),
+        "The controller"
+    ).expect("Could not initialize probe");
+
+    // ...
 }
 ```
 
@@ -134,21 +141,20 @@ Then you can use it to record events.
 ```rust
 use modality_probe::try_record;
 
-fn twist(x: f64, y: f64, z: f64) -> Result<(), TwistError> {
-    // …
+// Output of the CLI's header-gen sub-command
+use generated_component_ids::*;
+
+pub fn do_twist_command(&mut self) -> Result<(), TwistError> {
     try_record!(
-        tracer,
-        GOING_TO_DO_A_TWIST,
+        self.probe,
+        TWISTED,
         tags!("actuation"),
-        "A twist is going to happen",
+        "A twist command was received",
     )?;
-    // …
+
+    // ...
 }
 ```
-
-
-<!-- TODO: CLI, payloads, now, collector, jon's tracing example?, cli export -->
-
 
 ## Reading more
 

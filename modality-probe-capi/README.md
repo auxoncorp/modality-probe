@@ -21,25 +21,22 @@ modality-probe/modality-probe-capi $ cargo build --release
 ### Cross-platform Builds
 
 In order to build this library for platforms other than your host
-system, we recommend the use of cargo-xbuild. The default usage path
-for obtaining a new target's toolchain and building for likely looks
-something like the following. For more detailed information about
-cross-compilation for Rust, see
-[xbuild](https://github.com/rust-osdev/cargo-xbuild) and
-[rustc](https://github.com/japaric/rust-cross).
+system, we recommend the use of `cross`.
+For more detailed information about cross-compilation for Rust, see
+[cross](https://github.com/rust-embedded/cross).
 
 ```shell
-modality-probe/modality-probe-capi $ rustup update
-modality-probe/modality-probe-capi $ cargo install cargo-xbuild --force
-modality-probe/modality-probe-capi $ rustup target add thumbv7em-none-eabi
-modality-probe/modality-probe-capi $ rustc -Z unstable-options --print target-spec-json --target thumbv7em-none-eabi | tee thumbv7em-none-eabi.json
-modality-probe/modality-probe-capi $ cargo xbuild --target thumbv7em-none-eabi.json --release
+modality-probe $ export RUSTUP_TOOLCHAIN=`cat modality-probe-capi/rust-toolchain`
+modality-probe $ rustup update
+modality-probe $ rustup target add thumbv7em-none-eabi
+modality-probe $ cargo install cross --force
+modality-probe $ cross build --manifest-path modality-probe-capi/Cargo.toml --target thumbv7em-none-eabi --release
 ```
 
-When using xbuild for cross-compilation, the output artifacts’
-locations follow the pattern target/<target>/<build-type>. Following
-with the example above, the artifacts would be placed at
-target/thumbv7em-none-eabi/release.
+When using `cross` for cross-compilation, the output artifacts’
+locations follow the pattern `target/<target>/<build-type>`.
+Following with the example above, the artifacts would be placed at
+`target/thumbv7em-none-eabi/release/`.
 
 ## Usage
 
