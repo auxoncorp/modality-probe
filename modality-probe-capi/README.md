@@ -1,7 +1,7 @@
 # `modality-probe-capi`
 ## Overview
-`modality-probe-capi` is a library with a C that can be used to record
-events into a probe’s log, share log snapshots across probes, and
+`modality-probe-capi` is a library with a C API that can be used to record
+events into a probe’s log, share snapshots across probes, and
 report a probe’s log to a collector. The library is also targeted by
 the [code and manifest generation that the CLI does](link to cli).
 
@@ -59,34 +59,43 @@ tool against your codebase before it can be compiled because Modality
 Probe actually generates the definitions to those symbols.
 
 ```c
-#include <modality_probe>;
+#include <modality/probe.h>
 
-#define DEFAULT_PROBE_SIZE (1024);
-modality_probe * probe_g = MODALITY_PROBE_NULL_INITIALIZER;
+/* Output of the CLI's header-gen sub-command */
+#include "generated_component_ids.h"
 
-void twist(double x, double y, double z) {
-    int result = MODALITY_PROBE_RECORD(
-        probe_g,
-        TWISTED,
-        MODALITY_TAGS("actuation"),
-        "A twist command was received"
-    );
-// …
+/* The probe will be given 1024 bytes of storage space to work with */
+#define DEFAULT_PROBE_SIZE (1024)
+static uint8_t g_probe_buffer[DEFAULT_PROBE_SIZE];
+
+/* The probe instance, global for convenience */
+static modality_probe *g_probe = MODALITY_PROBE_NULL_INITIALIZER;
+
+void do_twist_command(void)
+{
+    size_t err = MODALITY_PROBE_RECORD(
+            g_probe,
+            TWISTED,
+            MODALITY_TAGS("actuation"),
+            "A twist command was received");
+    assert(err == MODALITY_PROBE_ERROR_OK);
+
+    /* ... */
 }
 
-int main() {
-    uint8_t * destination = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
+int main(int argc, char **argv)
+{
+    size_t err = MODALITY_PROBE_INIT(
+            &g_probe_buffer[0],
+            DEFAULT_PROBE_SIZE,
+            CONTROLLER,
+            NULL, /* This probe does not track probe restarts */
+            NULL,
+            &g_probe,
+            MODALITY_TAGS("controller"),
+            "The controller");
 
-    modality_probe_error result = MODALITY_PROBE_INIT(
-        destination,
-        DEFAULT_PROBE_SIZE,
-        CONTROLLER,
-        NULL,    /* No restart tracking */
-        NULL,
-        &probe_g
-        MODALITY_TAGS("controller"),
-        "The controller"
-    );
+    /* ... */
 }
 ```
 ### Interacting with Snapshots
@@ -118,14 +127,14 @@ To produce a snapshot, use `modality_probe_snapshot`.
 
 ``` c
 modality_causal_snapshot snap;
-result = modality_probe_produce_snapshot(CONTROLLER, &snap);
+err = modality_probe_produce_snapshot(CONTROLLER, &snap);
 ```
 
 Dually, on the receiving side, use `modality_probe_merge_snapshot` to
 include that snapshot into the receiving probe's timeline.
 
 ```c
-result = modality_probe_merge_snapshot(ACTUATOR, &snap);
+err = modality_probe_merge_snapshot(ACTUATOR, &snap);
 ```
 
 ### “Now” (Integrating a Probe’s data into your existing logging)
@@ -160,43 +169,43 @@ link to export command-->.
 
 In order to assemble a causal history for the system being analyzed,
 each probe must periodically report what’s in its log, i.e., the
-events and interactions it’s recorded. To do that, use the report API:
-
-```c
-#include <modality_probe>;
-
-#define LOG_STORAGE_SIZE (1024);
-
-modality_probe_error make_report(uint8_t * buffer, size_t * bytes_written) {
-    modality_probe_error result = modality_probe_report(
-        probe_g,
-        buffer,
-        LOG_STORAGE_SIZE,
-        bytes_written
-    );
-    return result;
-}
-```
+events and interactions it’s recorded.
+To do that, use the report API: `modality_probe_report()`.
 
 The report API serializes that probe’s log into the given buffer,
 which you’d then send along to your collector, probably via UDP.
 
 ```c
-int send_modality_report() {
-    uint8_t * buffer = (uint8_t*)malloc(LOG_STORAGE_SIZE);
-    size_t bytes_written;
-    if (make_report(buffer, &bytes_written) != 0) {
-        return 1;
-    }
+#include <modality/probe.h>
 
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    struct sockaddr_in serv_addr {
-        .sin_family = AF_NET;
-        .sin_port = COLLECTOR_PORT;
-        .sin_addr = COLLECTOR_ADDR;
-    };
-    connect(sock, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
-    send(sock, buffer, bytes_written, 0);
+#define REPORT_BUFFER_SIZE (1024)
+static uint8_t g_report_buffer[REPORT_BUFFER_SIZE];
+
+static int g_report_socket = -1;
+static struct sockaddr_in g_collector_addr;
+
+/* Assumes g_report_socket and g_collector_addr have already been setup */
+static void send_report(void)
+{
+    size_t report_size;
+    const size_t err = modality_probe_report(
+            g_probe,
+            &g_report_buffer[0],
+            REPORT_BUFFER_SIZE,
+            &report_size);
+    assert(err == MODALITY_PROBE_ERROR_OK);
+
+    if(report_size != 0)
+    {
+        const ssize_t sendto_err = sendto(
+                g_report_socket,
+                &g_report_buffer[0],
+                report_size,
+                0,
+                (const struct sockaddr*) &g_collector_addr,
+                sizeof(g_collector_addr));
+        assert(sendto_err != -1);
+    }
 }
 ```
 

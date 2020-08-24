@@ -84,38 +84,55 @@ find them.
 
 #### In C
 
-You first need to initialize your tracer.
+You first need to initialize your probe.
 
 ```c
-#include <modality_probe>;
+#include <modality/probe.h>
 
-#define DEFAULT_PROBE_SIZE (1024);
-modality_probe * g_probe = MODALITY_PROBE_NULL_INITIALIZER;
+/* Output of the CLI's header-gen sub-command */
+#include "generated_component_ids.h"
 
-int main() {
-    uint8_t * destination = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
-    modality_probe_error result = modality_probe_initialize(
-        destination,
-        DEFAULT_PROBE_SIZE,
-        CONTROLLER,
-        g_probe
-    );
+/* The probe will be given 1024 bytes of storage space to work with */
+#define DEFAULT_PROBE_SIZE (1024)
+static uint8_t g_probe_buffer[DEFAULT_PROBE_SIZE];
+
+/* The probe instance, global for convenience */
+static modality_probe *g_probe = MODALITY_PROBE_NULL_INITIALIZER;
+
+int main(int argc, char **argv)
+{
+    size_t err = MODALITY_PROBE_INIT(
+            &g_probe_buffer[0],
+            DEFAULT_PROBE_SIZE,
+            CONTROLLER,
+            NULL, /* This probe does not track probe restarts */
+            NULL,
+            &g_probe,
+            MODALITY_TAGS("controller"),
+            "The controller");
+
+    /* ... */
 }
 ```
 
 Then you can use it to record events.
 
 ```c
-#include <modality_probe>;
+#include <modality/probe.h>
 
-void twist(double x, double y, double z) {
-    int result = MODALITY_PROBE_RECORD(
-        probe_g,
-        TWISTED,
-        MODALITY_TAGS("actuation"),
-        "A twist command was received"
-    );
-    // …
+/* Output of the CLI's header-gen sub-command */
+#include "generated_ids.h"
+
+void do_twist_command(void)
+{
+    size_t err = MODALITY_PROBE_RECORD(
+            g_probe,
+            TWISTED,
+            MODALITY_TAGS("actuation"),
+            "A twist command was received");
+    assert(err == MODALITY_PROBE_ERROR_OK);
+
+    /* ... */
 }
 ```
 
