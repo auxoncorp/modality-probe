@@ -134,16 +134,18 @@ impl<T: AsRef<[u8]>> WireCausalSnapshot<T> {
 
     /// Return the `reserved_0` field
     #[inline]
-    pub fn reserved_0(&self) -> u16 {
+    pub fn reserved_0(&self) -> [u8; 2] {
         let data = self.buffer.as_ref();
-        le_bytes::read_u16(&data[field::RESERVED_0])
+        let field = &data[field::RESERVED_0];
+        [field[0], field[1]]
     }
 
     /// Return the `reserved_1` field
     #[inline]
-    pub fn reserved_1(&self) -> u16 {
+    pub fn reserved_1(&self) -> [u8; 2] {
         let data = self.buffer.as_ref();
-        le_bytes::read_u16(&data[field::RESERVED_1])
+        let field = &data[field::RESERVED_1];
+        [field[0], field[1]]
     }
 }
 
@@ -171,16 +173,18 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireCausalSnapshot<T> {
 
     /// Set the `reserved_0` field
     #[inline]
-    pub fn set_reserved_0(&mut self, value: u16) {
+    pub fn set_reserved_0(&mut self, value: [u8; 2]) {
         let data = self.buffer.as_mut();
-        le_bytes::write_u16(&mut data[field::RESERVED_0], value);
+        data[field::RESERVED_0][0] = value[0];
+        data[field::RESERVED_0][1] = value[1];
     }
 
     /// Set the `reserved_1` field
     #[inline]
-    pub fn set_reserved_1(&mut self, value: u16) {
+    pub fn set_reserved_1(&mut self, value: [u8; 2]) {
         let data = self.buffer.as_mut();
-        le_bytes::write_u16(&mut data[field::RESERVED_1], value);
+        data[field::RESERVED_1][0] = value[0];
+        data[field::RESERVED_1][1] = value[1];
     }
 }
 
@@ -198,14 +202,14 @@ mod tests {
     static SNAPSHOT_BYTES: [u8; 12] = [
         // probe_id: 1
         0x01, 0x00, 0x00, 0x00,
-        // clock: 2
+        // clock ticks: 2
         0x02, 0x00,
-        // epoch: 3
-        0x00, 0x00,
-        // reserved_0: 4
+        // epoch epoch: 3
         0x03, 0x00,
-        // reserved_1: 5
+        // reserved_0: 4
         0x04, 0x00,
+        // reserved_1: 5
+        0x05, 0x00,
     ];
 
     #[test]
@@ -220,9 +224,9 @@ mod tests {
         assert_eq!(s.check_len(), Ok(()));
         s.set_probe_id(ProbeId::new(1).unwrap());
         s.set_ticks(ProbeTicks(2));
-        s.set_epoch(ProbeEpoch(0));
-        s.set_reserved_0(3);
-        s.set_reserved_1(4);
+        s.set_epoch(ProbeEpoch(3));
+        s.set_reserved_0([0x04, 0x00]);
+        s.set_reserved_1([0x05, 0x00]);
         assert_eq!(&s.into_inner()[..], &SNAPSHOT_BYTES[..]);
     }
 
@@ -231,9 +235,9 @@ mod tests {
         let s = WireCausalSnapshot::new(&SNAPSHOT_BYTES[..]).unwrap();
         assert_eq!(s.probe_id().unwrap().get_raw(), 1);
         assert_eq!(s.ticks().0, 2);
-        assert_eq!(s.epoch().0, 0);
-        assert_eq!(s.reserved_0(), 3);
-        assert_eq!(s.reserved_1(), 4);
+        assert_eq!(s.epoch().0, 3);
+        assert_eq!(s.reserved_0(), [0x04, 0x00]);
+        assert_eq!(s.reserved_1(), [0x05, 0x00]);
     }
 
     #[test]

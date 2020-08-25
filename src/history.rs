@@ -451,8 +451,8 @@ impl<'a> DynamicHistory<'a> {
     pub(crate) fn produce_snapshot(&mut self) -> CausalSnapshot {
         let snap = CausalSnapshot {
             clock: self.self_clock,
-            reserved_0: 0,
-            reserved_1: 0,
+            reserved_0: [0, 0],
+            reserved_1: [0, 0],
         };
         self.increment_local_clock();
         self.write_clocks_to_log(&[self.self_clock]);
@@ -469,8 +469,8 @@ impl<'a> DynamicHistory<'a> {
         s.set_probe_id(self.self_clock.id);
         s.set_epoch(self.self_clock.epoch);
         s.set_ticks(self.self_clock.ticks);
-        s.set_reserved_0(0);
-        s.set_reserved_1(0);
+        s.set_reserved_0([0, 0]);
+        s.set_reserved_1([0, 0]);
         self.increment_local_clock();
         self.write_clocks_to_log(&[self.self_clock]);
         Ok(WireCausalSnapshot::<&[u8]>::min_buffer_len())

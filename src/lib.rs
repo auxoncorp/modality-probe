@@ -48,47 +48,47 @@ pub struct CausalSnapshot {
     /// was created from
     pub clock: LogicalClock,
     /// Reserved field
-    pub reserved_0: u16,
+    pub reserved_0: [u8; 2],
     /// Reserved field
-    pub reserved_1: u16,
+    pub reserved_1: [u8; 2],
 }
 
 impl CausalSnapshot {
     /// Construct a causal snapshot from a sequence of little endian bytes
-    pub fn from_le_bytes(words: [u32; 3]) -> Result<Self, InvalidProbeId> {
-        match ProbeId::new(words[0]) {
-            None => Err(InvalidProbeId),
-            Some(probe_id) => {
-                let (epoch, ticks) = unpack_clock_word(words[1]);
-                let res_lsb = words[2] & core::u16::MAX as u32;
-                let res_msb = (words[2] >> 16) & core::u16::MAX as u32;
-                Ok(CausalSnapshot {
-                    clock: LogicalClock {
-                        id: probe_id,
-                        ticks,
-                        epoch,
-                    },
-                    reserved_0: res_lsb as u16,
-                    reserved_1: res_msb as u16,
-                })
-            }
-        }
+    pub fn from_le_bytes(bytes: [u8; 12]) -> Result<Self, InvalidProbeId> {
+        let snapshot = wire::WireCausalSnapshot::new_unchecked(bytes);
+        Ok(CausalSnapshot {
+            clock: LogicalClock {
+                id: snapshot.probe_id().map_err(|_| InvalidProbeId)?,
+                epoch: snapshot.epoch(),
+                ticks: snapshot.ticks(),
+            },
+            reserved_0: snapshot.reserved_0(),
+            reserved_1: snapshot.reserved_1(),
+        })
     }
 
     /// Return a causal snapshot as a sequence of little endian bytes
-    pub fn to_le_bytes(&self) -> [u32; 3] {
-        let res_lsb = self.reserved_0 as u32;
-        let res_msb = self.reserved_1 as u32;
-        [
-            self.clock.id.get_raw(),
-            pack_clock_word(self.clock.epoch, self.clock.ticks),
-            res_lsb | (res_msb << 16),
-        ]
+    pub fn to_le_bytes(&self) -> [u8; 12] {
+        let mut arr = [0u8; 12];
+        self.write_into_le_bytes_exact(&mut arr);
+        arr
+    }
+
+    /// Writes a causal snapshot into an array of little endian bytes.
+    /// Always writes exactly 12 bytes, the full length of the provided array.
+    pub fn write_into_le_bytes_exact(&self, bytes: &mut [u8; 12]) {
+        let mut wire = wire::WireCausalSnapshot::new_unchecked(bytes);
+        wire.set_probe_id(self.clock.id);
+        wire.set_epoch(self.clock.epoch);
+        wire.set_ticks(self.clock.ticks);
+        wire.set_reserved_0(self.reserved_0);
+        wire.set_reserved_1(self.reserved_1);
     }
 
     /// Writes a causal snapshot into a slice of little endian bytes.
     ///
-    /// Returns the number of bytes written.
+    /// Returns the number of bytes written, which should always be 12.
     pub fn write_into_le_bytes(&self, bytes: &mut [u8]) -> Result<usize, wire::MissingBytes> {
         let mut wire = wire::WireCausalSnapshot::new_unchecked(bytes);
         wire.check_len()?;
@@ -109,6 +109,23 @@ impl TryFrom<&[u8]> for CausalSnapshot {
         Ok(CausalSnapshot {
             clock: LogicalClock {
                 id: snapshot.probe_id()?,
+                epoch: snapshot.epoch(),
+                ticks: snapshot.ticks(),
+            },
+            reserved_0: snapshot.reserved_0(),
+            reserved_1: snapshot.reserved_1(),
+        })
+    }
+}
+
+impl TryFrom<&[u8; 12]> for CausalSnapshot {
+    type Error = InvalidProbeId;
+
+    fn try_from(bytes: &[u8; 12]) -> Result<Self, Self::Error> {
+        let snapshot = wire::WireCausalSnapshot::new_unchecked(bytes);
+        Ok(CausalSnapshot {
+            clock: LogicalClock {
+                id: snapshot.probe_id().map_err(|_| InvalidProbeId)?,
                 epoch: snapshot.epoch(),
                 ticks: snapshot.ticks(),
             },
@@ -536,35 +553,36 @@ mod tests {
 
     #[test]
     fn causal_snapshot_bytes_conversion() {
+        let epoch = ProbeEpoch(2);
+        let ticks = ProbeTicks(1);
         let snap = CausalSnapshot {
             clock: LogicalClock {
                 id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-                epoch: ProbeEpoch(2),
-                ticks: ProbeTicks(1),
+                epoch,
+                ticks,
             },
-            reserved_0: 0x3333,
-            reserved_1: 0x4444,
+            reserved_0: [0x34, 0x56],
+            reserved_1: [0x78, 0x9A],
         };
-        assert_eq!(
-            snap.to_le_bytes(),
-            [ProbeId::MAX_ID, 0x0002_0001, 0x4444_3333]
-        );
+        let max_id_le_bytes = ProbeId::MAX_ID.to_le_bytes();
+        let epoch_le_bytes = epoch.0.to_le_bytes();
+        let ticks_le_bytes = ticks.0.to_le_bytes();
+        #[rustfmt::skip]
+        let expected_bytes: [u8; 12] = [
+            max_id_le_bytes[0], max_id_le_bytes[1], max_id_le_bytes[2], max_id_le_bytes[3],
+            // Note that for historical reasons, the ticks
+            // field precedes the epoch field in the current causal
+            // snapshot wire format.
+            ticks_le_bytes[0], ticks_le_bytes[1],
+            epoch_le_bytes[0], epoch_le_bytes[1],
+            0x34, 0x56,
+            0x78, 0x9A
+        ];
+        assert_eq!(snap.to_le_bytes(), expected_bytes);
+        assert_eq!(CausalSnapshot::from_le_bytes(expected_bytes).unwrap(), snap,);
 
         assert_eq!(
-            CausalSnapshot::from_le_bytes([ProbeId::MAX_ID, 0xAAAA_BBBB, 0xDDDD_CCCC]),
-            Ok(CausalSnapshot {
-                clock: LogicalClock {
-                    id: ProbeId::new(ProbeId::MAX_ID).unwrap(),
-                    epoch: ProbeEpoch(0xAAAA),
-                    ticks: ProbeTicks(0xBBBB),
-                },
-                reserved_0: 0xCCCC,
-                reserved_1: 0xDDDD,
-            })
-        );
-
-        assert_eq!(
-            CausalSnapshot::from_le_bytes([0, 0xBBBB_BBBB, 0xDDDD_CCCC]),
+            CausalSnapshot::from_le_bytes([0u8; 12]),
             Err(InvalidProbeId)
         );
     }
@@ -577,20 +595,31 @@ mod tests {
             reserved_1 in proptest::num::u16::ANY) {
             let snap_in = CausalSnapshot {
                 clock,
-                reserved_0,
-                reserved_1,
+                reserved_0: reserved_0.to_le_bytes(),
+                reserved_1: reserved_1.to_le_bytes(),
             };
 
+            // Write out to new array variant
             let bytes = snap_in.to_le_bytes();
             let snap_out = CausalSnapshot::from_le_bytes(bytes).unwrap();
             assert_eq!(snap_in.clock, snap_out.clock);
             assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
             assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
 
+            // Write out to extant slice variant
             let mut bytes = [0xFF; 12];
             let bytes_written = snap_in.write_into_le_bytes(&mut bytes[..]).unwrap();
             assert_eq!(bytes_written, size_of::<crate::CausalSnapshot>());
             let snap_out = CausalSnapshot::try_from(&bytes[..]).unwrap();
+            assert_eq!(snap_in.clock, snap_out.clock);
+            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
+            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
+
+            // Write out to extant exact-sized-array variant
+            let mut bytes = [0xFF; 12];
+            snap_in.write_into_le_bytes_exact(&mut bytes);
+            assert_eq!(bytes_written, size_of::<crate::CausalSnapshot>());
+            let snap_out = CausalSnapshot::try_from(&bytes).unwrap();
             assert_eq!(snap_in.clock, snap_out.clock);
             assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
             assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
