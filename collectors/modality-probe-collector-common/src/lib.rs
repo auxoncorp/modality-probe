@@ -933,7 +933,7 @@ pub(crate) mod test {
         let i_report = Report::try_from(&report_dest[..bytes_written]).unwrap();
         assert_eq!(o_report, i_report);
 
-        let snap = p1.produce_snapshot().unwrap();
+        let snap = p1.produce_snapshot();
         p2.record_event(EventId::new(2).unwrap());
         p2.merge_snapshot(&snap).unwrap();
         let n_bytes = p1.report(&mut report_dest).unwrap().unwrap();

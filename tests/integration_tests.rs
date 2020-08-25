@@ -33,26 +33,26 @@ fn probe_lifecycle_does_not_panic() -> Result<(), ModalityProbeError> {
         RestartCounterProvider::NoRestartTracking,
     )?;
 
-    let p = probe.produce_snapshot()?;
-    let q = probe.produce_snapshot()?;
+    let p = probe.produce_snapshot();
+    let q = probe.produce_snapshot();
 
     // Snapshotting moves the probe history forward, so two consecutive snapshots
     // are not exactly the same.
     assert_ne!(p, q);
-    let r = probe.produce_snapshot()?;
+    let r = probe.produce_snapshot();
     assert!(q < r);
     assert_ne!(q, r);
-    let s = probe.produce_snapshot()?;
+    let s = probe.produce_snapshot();
     assert!(r < s);
     assert_ne!(r, s);
-    let t = probe.produce_snapshot()?;
+    let t = probe.produce_snapshot();
     assert!(s < t);
     assert_ne!(s, t);
-    let u = probe.produce_snapshot()?;
+    let u = probe.produce_snapshot();
     assert!(t < u);
     assert_ne!(t, u);
     probe.report(backend.as_bytes_mut())?;
-    let v = probe.produce_snapshot()?;
+    let v = probe.produce_snapshot();
     // Should write_reporting calls affect the outcome of snapshot_history()?
     assert!(u < v);
     assert_ne!(u, v);
@@ -70,7 +70,7 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
         probe_id_foo,
         RestartCounterProvider::NoRestartTracking,
     )?;
-    let snap_foo_a = probe_foo.produce_snapshot()?;
+    let snap_foo_a = probe_foo.produce_snapshot();
 
     // Re-initialize a probe with no previous history
     let mut storage_bar = [0u8; 1024];
@@ -80,15 +80,15 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
         RestartCounterProvider::NoRestartTracking,
     )?;
     assert!(probe_bar.merge_snapshot(&snap_foo_a).is_ok());
-    let snap_bar_b = probe_bar.produce_snapshot()?;
+    let snap_bar_b = probe_bar.produce_snapshot();
 
-    let snap_foo_c = probe_foo.produce_snapshot()?;
+    let snap_foo_c = probe_foo.produce_snapshot();
 
     assert!(snap_foo_a < snap_foo_c);
     assert_eq!(None, snap_bar_b.partial_cmp(&snap_foo_c));
 
     assert!(probe_bar.merge_snapshot(&snap_foo_c).is_ok());
-    let _snap_bar_d = probe_bar.produce_snapshot()?;
+    let _snap_bar_d = probe_bar.produce_snapshot();
 
     assert!(probe_bar.merge_snapshot(&snap_foo_c).is_ok());
 

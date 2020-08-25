@@ -293,7 +293,7 @@ pub trait Probe {
 
     /// Write a summary of this probe's causal history for use
     /// by another probe elsewhere in the system.
-    fn produce_snapshot(&mut self) -> Result<CausalSnapshot, ProduceError>;
+    fn produce_snapshot(&mut self) -> CausalSnapshot;
 
     /// Write a summary of this probe's causal history for use
     /// by another probe elsewhere in the system.
@@ -503,7 +503,7 @@ impl<'a> Probe for ModalityProbe<'a> {
     }
 
     #[inline]
-    fn produce_snapshot(&mut self) -> Result<CausalSnapshot, ProduceError> {
+    fn produce_snapshot(&mut self) -> CausalSnapshot {
         self.history.produce_snapshot()
     }
 

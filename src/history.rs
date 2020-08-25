@@ -448,7 +448,7 @@ impl<'a> DynamicHistory<'a> {
     }
 
     #[inline]
-    pub(crate) fn produce_snapshot(&mut self) -> Result<CausalSnapshot, ProduceError> {
+    pub(crate) fn produce_snapshot(&mut self) -> CausalSnapshot {
         let snap = CausalSnapshot {
             clock: self.self_clock,
             reserved_0: 0,
@@ -456,7 +456,7 @@ impl<'a> DynamicHistory<'a> {
         };
         self.increment_local_clock();
         self.write_clocks_to_log(&[self.self_clock]);
-        Ok(snap)
+        snap
     }
 
     #[inline]
