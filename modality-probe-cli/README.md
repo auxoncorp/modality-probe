@@ -1,139 +1,174 @@
-# ekotrace-cli
-
-`ekotrace` command line utility.
+# modality-probe-cli
+The purview / responsibility of the cli in the context of the greater modality ecosystem
 
 ## Getting Started
+### Dependencies
+The CLI requires a Rust toolchain. The recommended toolchain
+management system for Rust is [Rustup](https://rustup.sh).
 
-```bash
-cargo install --git ssh://git@github.com/auxoncorp/ekotrace ekotrace-cli --bin ekotrace --force
+### Building
+Once Rust is installed (don’t forget to follow directions about
+setting up `$PATH`), clone this repository and use Cargo to build it
+locally:
+
+```shell
+$ cd modality-probe/modality-probe-cli
+$ cargo install --path .
 ```
+
+This will deposit a file at
+`modality-probe/target/release/modality-probe` that can be run
+directly.
 
 ## Usage
 
-The `ekotrace` tracing system relies on two sets of globally unique IDs: tracer
-location ids and event ids. While the system can work with nothing but numbers,
-we provide a way to define named tracers and events via CSV files. This allows
-managing these files as spreadsheets, which is handy because the events file in
-particular may become quite large.
+```
+Modality probe command line interface
 
-### Id Management Format
+USAGE:
+	modality-probe <SUBCOMMAND>
 
-Ids and metadata for tracer locations or events can be defined in a
-CSV file. The columns are `id`, `name`, and `description`.
+FLAGS:
+	-h, --help   	Prints help information
+	-V, --version	Prints version information
 
-Tracer location ids and event ids should be defined in separate files.
+SUBCOMMANDS:
+	export      	Export a collected event log in a well-known graph format
+	header-gen  	Generate Rust/C header files with event/probe id constants
+	help        	Prints this message or the help of the given subcommand(s)
+	manifest-gen	Generate event and probe id manifest files from probe macro invocations
 
-+ **id**: Positive integer id
-  + Unique within the system under test
-  + Unique within each file
-  + Tracer location ids must be greater than 0 and less than 2147483647.
-  + Event ids must be greater than 0 and less than 2147483391.
-+ **name**: Single ASCII word identifier for the item
-  + Unique within the system under test
-  + Unique within each file
-+ **description**: Human-oriented ASCII string metadata,
-typically elaborating on purpose or intent for future users
-
-#### manifest-gen
-
-Generates event and tracer id manifest files from ekotrace event recording
-invocations in source code.
-
-##### Example
-
-Given some C/C++ source file with ekotrace event recording invocations like:
-
-```c
-ekotrace_initialize(storage_bytes, TRACER_SIZE, LOCATION_ID_FOO, &ekotrace_instance);
-
-ekotrace_record_event(ekotrace_instance, EVENT_A);
 ```
 
-or in Rust, invocations like:
 
-```rust
-let ekotrace_instance = Ekotrace::try_initialize_at(&mut storage_bytes, LOCATION_ID_FOO)?;
+### Export
+```
+modality-probe-export 0.3.0
+Export a collected as a Graphviz dot file
 
-ekotrace_instance.record_event(EVENT_A);
+USAGE:
+    modality-probe export [FLAGS] <graph-type> --components <components>... --report <report>
+
+FLAGS:
+    -h, --help
+            Prints help information
+    -i, --interactions-only
+            Generate the graph showing only the causal relationships, eliding the events inbetween
+    -V, --version
+            Prints version information
+
+
+OPTIONS:
+    -c, --components <components>...
+            The path to a component directory. To include multiple components, provide this switch
+            multiple times
+    -r, --report <report>
+            The path to the collected trace
+
+ARGS:
+    <graph-type>
+            The type of graph to output.
+
+            This can be either `cyclic` or `acyclic`. A cyclic graph is one which shows the
+            possible paths from either an event or a probe. An acyclic graph shows the causal
+            history of either all events or the interactions between probes in the system.
 ```
 
-The generated manifest files will contain:
-
-```csv
-# tracers.csv
-id,name,description
-1,location_id_foo,
+```
+$ modality-probe export acyclic \
+    --components my-component \
+    --report session_8_log_entries.csv > complete.dot
 ```
 
-```csv
-# events.csv
-id,name,description
-1,event_a,
+Export provides a way to convert your collected trace into a Graphviz
+dot graph.
+
+### Manifest Generation
+
+```
+modality-probe-manifest-gen 0.3.0
+Generate component, event and probe manifest files from probe macro invocations
+
+USAGE:
+    modality-probe manifest-gen [FLAGS] [OPTIONS] <source-path>
+
+FLAGS:
+    -h, --help
+            Prints help information
+        --regen-component-id
+            Regenerate the component IDs instead of using existing IDs (if present)
+    -V, --version
+            Prints version information
+
+OPTIONS:
+        --component-name <component-name>
+            Component name used when generating a component manifest [default: component]
+        --event-id-offset <event-id-offset>
+            Event ID offset, starts at 1 if not specified
+        --file-extension <file-extensions>...
+            Limit the source code searching to files with matching extensions
+    -l, --lang <lang>
+            Language (C or Rust), if not specified then guess based on file extensions
+    -o, --output-path <output-path>
+            Output path where component files are generated [default: component]
+        --probe-id-range <probe-id-range>
+            Constrain the generated probe ID to an specific range.
+            This can be either `<inclusive_start>..<exclusive_end>` or
+            `<inclusive_start>..=<inclusive_end>`.
+            The range values are unsigned 32-bit integers and must be non-zero.
+
+ARGS:
+    <source-path>
+            Source code path to search
+```
+```
+$ modality-probe manifest-gen .
 ```
 
-#### header-gen
+Manifest generation works by exploring your source code looking for
+probe initialization and event recordings. It then generates a CSV
+file that containing the event name, its autogenerated id, as well as
+other metadata about the event. This CSV file then serves two
+purposes: it is used for generating headers files that contain event
+and probe definitions which you can read about in the following
+section, and secondly, it also be used when interacting with a trace
+after it’s been collected, such as with the `export` command, to
+convert the raw ids back to human-readable formats.
 
-Accepts an event id mapping file and a tracer location id mapping file,
-generates C or Rust code containing convenience definitions of those ids.
+### Header Generation
 
-##### Example
+```
+modality-probe-header-gen 0.3.0
+Generate Rust/C header files with event/probe id constants
 
-Given a tracer id mapping file like:
+USAGE:
+    modality-probe header-gen [OPTIONS] <component-path>
 
-```csv
-id,name,description
-271,server_foo,our backend server
-314,credit_card_scanner_a,main scanner device
-315,credit_card_scanner_b,backup failover scanner
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+OPTIONS:
+        --include-guard-prefix <include-guard-prefix>
+            C header include guard prefix. [default: MODALITY_PROBE]
+    -l, --lang <lang>
+            The language to output the source in, either `c' or `rust' [default: C]
+    -o, --output-path <output-path>
+            Write output to file (instead of stdout)
+
+ARGS:
+    <component-path>    Component path
+```
+```
+$ modality-probe header-gen -o include/probes.h my-component
 ```
 
-and an event id mapping file like:
+`header-gen` generates the Rust or C files containing the definitions
+for your events and probes. As stated in the previous section, events
+and probes, at runtime, use an autogenerated id—an unsigned 32-bit
+integer. With `header-gen` you get to use their textual name in your
+code, and their name to id mappings are handled through code
+generation via this command, and `manifest-gen` before before it.
 
-```csv
-id,name,description
-90,purchase,whenever someone purchases something in the system
-92,unauth_access_error,someone with incorrect permissions tried to use the system
-```
-
-The generated C file will contain content similar to:
-
-```c
-#define SERVER_FOO 271
-#define CREDIT_CARD_SCANNER_A 314
-#define CREDIT_CARD_SCANNER_B 315
-
-#define PURCHASE 90
-#define UNAUTH_ACCESS_ERROR 92
-```
-
-Then, in a project that includes the generated file, one can refer to the
-named tracer locations and events without paying attention in the code
-to the exact numeric value of the ids.
-
-
-```c
-#include "ekotrace.h"
-#include "generated_ekotrace_ids.h"
-
-int main() {
-    uint8_t * storage = (uint8_t*)malloc(512);
-    ekotrace * t;
-    ekotrace_result result = ekotrace_initialize(storage, 512, SERVER, &t);
-    if (result != EKOTRACE_ERROR_OK) {
-        return 1;
-    }
-    result = ekotrace_record_event(t, PURCHASE);
-    if (result != EKOTRACE_ERROR_OK) {
-        return 1;
-    }
-    return 0;
-}
-```
-
-#### analysis
-
-Provides several examples of analysis that can be done with such trace data.
-
-## License
-
-Please see [LICENSE](../LICENSE) for more details.
+**Note:** you’ll need to run `header-gen` _before_ compilation to give
+definitions for those otherwise undefined symbols.
