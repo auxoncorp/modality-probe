@@ -64,6 +64,13 @@ jobs:
           cd modality-probe-capi
           cargo clippy --all
 
+      - name: Test (big endian target)
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: test
+          args: --all --features "std" --target=mips64-unknown-linux-gnuabi64
+
   windows:
     name: Windows
     runs-on: windows-latest

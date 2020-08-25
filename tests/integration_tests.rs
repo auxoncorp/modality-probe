@@ -311,7 +311,7 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
 }
 
 #[test]
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_endian = "little"))]
 fn export_cli_produces_a_reasonable_dot_file() {
     use std::{
         path::PathBuf,
