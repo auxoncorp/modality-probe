@@ -159,7 +159,103 @@ pub fn do_twist_command(&mut self) -> Result<(), TwistError> {
 }
 ```
 
-<!-- TODO: CLI, payloads, now, collector, jon's tracing example?, cli export -->
+### Generate Event Manifests and Definitions
+
+In the samples above, a macro is used to initialize a probe and to
+record events. Modality Probe's CLI has a subcommand that explores
+your code base for uses of these macros and turns those uses into what
+Modality calls a _Component_. A component has a name of its own, a
+list of probes (`probes.csv`), and a list of events
+(`events.csv`). Altogether, a component looks like this:
+
+```
+$ tree my-component
+├── Component.toml
+├── events.csv
+└── probes.csv
+```
+
+`manifest-gen` is the subcommand we use to do this. Use it like this:
+
+```shell
+$ modality-probe manifest-gen --component-name my-component -o my-component .
+```
+
+Now you'll have the `my-component` directory in your working directory
+and its contents should look like the example at the top of this
+section.
+
+Next, we'll want to generate the source code that gives those symbols
+we discussed in the code snippet examples in the previous section
+their definitions. To do that, we'll use `header-gen`:
+
+```shell
+$ modality-probe header-gen -o include/events.h my-component
+```
+
+This will deposit a file at `include/events.h` that contains
+definitions for each probe and event in the manifests in your
+component.
+
+If you're using Rust, you can tell the command to generate Rust
+instead using the `--lang` switch (C is the default):
+
+```shell
+$ modality-probe header-gen -o include/events.h -l rust my-component
+```
+
+### Collect Outgoing Reports
+
+Modality Probe also ships with a service that can collect via UDP the
+reports you generate from your probes. It writes those incoming
+reports as JSON lines to a file. Start it like so:
+
+```shell
+$ modality-probe-udp-collector
+Using the configuration:
+    addr: 0.0.0.0:2718
+    session id: 0
+    output file: /home/me/src/my-project/session_0_log_entries.jsonl
+
+```
+
+When the service starts, it prints the configuration it's using, in
+the example above it's using all defaults. You can also pass args to
+direct it to a certain port, or a specific output file.
+
+To get data out to a collector, you need to use the Probe's `report`
+API, and then send the report that that API creates along to your
+collector.
+
+That might look something like this:
+
+```rust
+use modality_probe::Probe;
+
+const REPORT_SIZE: usize = 1024;
+const MOD_COLLECTOR_ADDR: &'static str = "172.16.1.1:2716";
+
+fn send_report<P: Probe>(probe: P) -> Result<(), Error> {
+    let mut buf = [0; REPORT_SIZE];
+    if let Some(bytes_written) = probe.report(&mut buf)? {
+        let mut socket = UdpSocket::bind(MOD_COLLECTOR_ADDR)?;
+        socket.send(&buf[..bytes_written])?;
+    }
+    Ok(())
+}
+```
+
+### Visualizing Your Data with Graphviz
+
+Once you have a trace that you'd like to visualize, you can use the
+CLI's `export` subcommand to convert a trace file, that
+`session_0_log_entries.jsonl` file from the previous section, into dot
+code that you can then run Graphviz's `dot` command against:
+
+```shell
+$ modality-probe export acyclic --component ./my-component --report session_0_log_entries.jsonl > trace.dot
+$ dot -Tsvg trace.dot > trace.svg
+```
 
 ## Reading more
 

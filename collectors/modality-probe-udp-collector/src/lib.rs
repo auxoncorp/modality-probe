@@ -94,6 +94,7 @@ pub fn start_receiving_from_socket<W: Write>(
     let addr = socket.local_addr().map(|a| a.to_string());
     let mut buf = vec![0u8; 1024 * 1024];
     let mut log_entries_buffer: Vec<ReportLogEntry> = Vec::with_capacity(4096);
+    println!("ready.");
     loop {
         if shutdown_signal_receiver.try_recv().is_ok() {
             return;
