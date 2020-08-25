@@ -1,9 +1,11 @@
 //! A wire protocol for representing Modality probe causal snaphots
 
-use crate::{wire::le_bytes, ProbeEpoch, ProbeId, ProbeTicks, CausalSnapshot, LogicalClock, InvalidProbeId};
+use crate::{
+    wire::le_bytes, CausalSnapshot, InvalidProbeId, LogicalClock, ProbeEpoch, ProbeId, ProbeTicks,
+};
+use core::convert::TryFrom;
 use core::mem::size_of;
 use static_assertions::const_assert_eq;
-use core::convert::TryFrom;
 
 /// Everything that can go wrong when attempting to interpret a causal snaphot
 /// to/from the wire representation
@@ -70,6 +72,7 @@ mod field {
 
 impl<T: AsRef<[u8]>> WireCausalSnapshot<T> {
     /// Construct a causal snaphot from a byte buffer
+    #[inline]
     pub fn new_unchecked(buffer: T) -> WireCausalSnapshot<T> {
         WireCausalSnapshot { buffer }
     }
@@ -79,6 +82,7 @@ impl<T: AsRef<[u8]>> WireCausalSnapshot<T> {
     /// A combination of:
     /// * [new_unchecked](struct.CausalSnapshot.html#method.new_unchecked)
     /// * [check_len](struct.CausalSnapshot.html#method.check_len)
+    #[inline]
     pub fn new(buffer: T) -> Result<WireCausalSnapshot<T>, MissingBytes> {
         let r = Self::new_unchecked(buffer);
         r.check_len()?;
@@ -221,25 +225,29 @@ impl CausalSnapshot {
     /// Always writes exactly 12 bytes, the full length of the provided array.
     pub fn write_into_le_bytes_exact(&self, bytes: &mut [u8; 12]) {
         let mut wire = WireCausalSnapshot::new_unchecked(bytes);
-        wire.set_probe_id(self.clock.id);
-        wire.set_epoch(self.clock.epoch);
-        wire.set_ticks(self.clock.ticks);
-        wire.set_reserved_0(self.reserved_0);
-        wire.set_reserved_1(self.reserved_1);
+        self.write_le_bytes_fields(&mut wire)
     }
 
     /// Writes a causal snapshot into a slice of little endian bytes.
     ///
     /// Returns the number of bytes written, which should always be 12.
     pub fn write_into_le_bytes(&self, bytes: &mut [u8]) -> Result<usize, MissingBytes> {
-        let mut wire = WireCausalSnapshot::new_unchecked(bytes);
-        wire.check_len()?;
+        let mut wire = WireCausalSnapshot::new(bytes)?;
+        self.write_le_bytes_fields(&mut wire);
+        Ok(WireCausalSnapshot::<&[u8]>::min_buffer_len())
+    }
+
+    /// Helper for consistently complete writing of snapshot fields to the wire
+    #[inline]
+    fn write_le_bytes_fields<T: AsRef<[u8]> + AsMut<[u8]>>(
+        &self,
+        wire: &mut WireCausalSnapshot<T>,
+    ) {
         wire.set_probe_id(self.clock.id);
         wire.set_ticks(self.clock.ticks);
         wire.set_epoch(self.clock.epoch);
         wire.set_reserved_0(self.reserved_0);
         wire.set_reserved_1(self.reserved_1);
-        Ok(WireCausalSnapshot::<&[u8]>::min_buffer_len())
     }
 }
 

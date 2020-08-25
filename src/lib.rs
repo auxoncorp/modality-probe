@@ -53,7 +53,6 @@ pub struct CausalSnapshot {
     pub reserved_1: [u8; 2],
 }
 
-
 impl PartialEq for CausalSnapshot {
     fn eq(&self, other: &Self) -> bool {
         self.clock == other.clock
