@@ -619,6 +619,13 @@ impl TryFrom<&[u8]> for Report {
                     interpret_next_as = Next::DontKnow;
                 }
                 Next::Payload(id) => {
+                    if id == EventId::EVENT_LOG_ITEMS_MISSED {
+                        eprintln!(
+                            "ProbeId {} missed {} log entries; consider increasing its backing storage size or its reporting frequency",
+                            owned_report.probe_id.get(),
+                            raw
+                        );
+                    }
                     owned_report
                         .event_log
                         .push(EventLogEntry::EventWithPayload(id, raw));
