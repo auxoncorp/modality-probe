@@ -6,13 +6,12 @@ Collect the outgoing probe reports and persist them.
 ## Getting Started
 ### Dependencies
 The collector requires a Rust toolchain. The recommended toolchain
-management system for Rust is [Rustup].
+management system for Rust is [Rustup](https://rustup.sh).
 
 ### Building
 Once Rust is installed (don’t forget to follow directions about
-setting up `$PATH`), install the CLI with Cargo
-
-Clone this repository and use Cargo to build it locally:
+setting up `$PATH`), clone this repository and use Cargo to build it
+locally:
 
 ```
 $ git clone git@github.com:auxoncorp/modality-probe
@@ -44,7 +43,7 @@ OPTIONS:
 ```
 
 The collector receives the reports the probes send and writes them to
-the its output file.
+its output file.
 
 ```
 $ modality-probe-udp-collector -o trace.mtr -p 9999 -s 1
@@ -54,5 +53,5 @@ $ modality-probe-udp-collector -o trace.mtr -p 9999 -s 1
 A “session” is a unit used to demarcate distinct trace
 collections. You may want to change the session for each test run, or
 when you turn the collector off and back on again. It allows you to
-compare separate traces that, without distinct session is, would
+compare separate traces that, without distinct sessions, would
 otherwise be difficult to distinguish from one another.

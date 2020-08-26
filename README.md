@@ -201,7 +201,7 @@ If you're using Rust, you can tell the command to generate Rust
 instead using the `--lang` switch (C is the default):
 
 ```shell
-$ modality-probe header-gen -o include/events.h -l rust my-component
+$ modality-probe header-gen -o include/events.rs -l rust my-component
 ```
 
 ### Collect Outgoing Reports
@@ -235,11 +235,11 @@ use modality_probe::Probe;
 const REPORT_SIZE: usize = 1024;
 const MOD_COLLECTOR_ADDR: &'static str = "172.16.1.1:2716";
 
-fn send_report<P: Probe>(probe: P) -> Result<(), Error> {
+fn send_report<P: Probe>(probe: P) -> Result<(), ReportError> {
     let mut buf = [0; REPORT_SIZE];
     if let Some(bytes_written) = probe.report(&mut buf)? {
         let mut socket = UdpSocket::bind(MOD_COLLECTOR_ADDR)?;
-        socket.send(&buf[..bytes_written])?;
+        socket.send(&buf[..bytes_written.get()])?;
     }
     Ok(())
 }

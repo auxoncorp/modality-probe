@@ -12,7 +12,7 @@ pub enum Opts {
 
     /// Generate Rust/C header files with event/probe id constants
     HeaderGen(HeaderGen),
-    /// Export a collected as a Graphviz dot file.
+    /// Export a collected trace as a Graphviz dot file.
     Export(Export),
 }
 

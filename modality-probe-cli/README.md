@@ -33,10 +33,10 @@ FLAGS:
 	-V, --version	Prints version information
 
 SUBCOMMANDS:
-	export      	Export a collected event log in a well-known graph format
+	export      	Export a collected trace as a Graphviz dot file
 	header-gen  	Generate Rust/C header files with event/probe id constants
 	help        	Prints this message or the help of the given subcommand(s)
-	manifest-gen	Generate event and probe id manifest files from probe macro invocations
+	manifest-gen	Generate component, event and probe manifest files from probe macro invocations
 
 ```
 
