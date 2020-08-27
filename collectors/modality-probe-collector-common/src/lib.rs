@@ -562,9 +562,10 @@ impl TryFrom<&[u8]> for Report {
             event_log: vec![],
         };
 
+        let payload_len = report.payload_len();
+        let payload = &report.payload()[..payload_len];
         let clocks_len = report.n_clocks() as usize * mem::size_of::<LogicalClock>();
         let mut probe_id = None;
-        let payload = report.payload();
         for u32_bytes in payload[..clocks_len].chunks_exact(mem::size_of::<LogEntry>()) {
             let raw = le_bytes::read_u32(u32_bytes);
             if probe_id.is_none() {
@@ -1026,12 +1027,13 @@ pub(crate) mod test {
             // Need to make sure probe_clock.id and probe_id are the same
             report.probe_clock.id = report.probe_id;
 
+            const EXTRA_JUNK: usize = 256;
             const MEGABYTE: usize = 1024*1024;
-            let mut bytes = vec![0u8; MEGABYTE];
-            let bytes_written = report.write_into_le_bytes(&mut bytes).unwrap();
+            let mut bytes = vec![0u8; MEGABYTE + EXTRA_JUNK];
+            let bytes_written = report.write_into_le_bytes(&mut bytes[..MEGABYTE]).unwrap();
             prop_assert!(bytes_written > 0 && bytes_written <= bytes.len());
 
-            match Report::try_from(&bytes[..bytes_written]) {
+            match Report::try_from(&bytes[..bytes_written+EXTRA_JUNK]) {
                 Err(e) => prop_assert!(false, "Report::try_from(bytes) error: {:?}", e),
                 Ok(r) => prop_assert_eq!(report, r),
             }
