@@ -309,8 +309,11 @@ pub fn generate_output<W: io::Write>(
     Ok(())
 }
 
-pub fn run(opt: HeaderGen, internal_events: Vec<u32>) {
+pub fn run(opt: HeaderGen, internal_events: Option<Vec<Event>>) {
     opt.validate();
+
+    let internal_events = internal_events.unwrap_or_else(Events::internal_events);
+    let internal_event_ids: Vec<u32> = internal_events.iter().map(|event| event.id.0).collect();
 
     let io_out: Box<dyn io::Write> = if let Some(p) = &opt.output_path {
         Box::new(File::create(p).unwrap())
@@ -318,5 +321,5 @@ pub fn run(opt: HeaderGen, internal_events: Vec<u32>) {
         Box::new(io::stdout())
     };
 
-    generate_output(opt, io_out, internal_events).expect("Can't generate output");
+    generate_output(opt, io_out, internal_event_ids).expect("Can't generate output");
 }
