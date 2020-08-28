@@ -16,15 +16,15 @@ pub const DEFAULT_PORT: u16 = 2718;
     )
 )]
 pub struct Opts {
-    /// What localhost port is this server going to receive data on
+    /// The port that this server going to receive data on.
     #[cfg_attr(feature = "cli", structopt(short = "p", long))]
     pub port: Option<u16>,
 
-    /// Session id to associate with the collected trace data
+    /// The session id to associate with the collected trace data.
     #[cfg_attr(feature = "cli", structopt(short = "s", long = "session-id"))]
     pub session_id: Option<u32>,
 
-    /// Output file location
+    /// The output file location.
     #[cfg_attr(
         feature = "cli",
         structopt(short = "o", long = "output-file", parse(from_os_str))
@@ -37,7 +37,7 @@ impl From<Opts> for Config {
         let session_id = o.session_id.unwrap_or(0);
         Config {
             addr: SocketAddr::V4(SocketAddrV4::new(
-                Ipv4Addr::new(127, 0, 0, 1),
+                Ipv4Addr::new(0, 0, 0, 0),
                 o.port.unwrap_or(DEFAULT_PORT),
             )),
             session_id: session_id.into(),
