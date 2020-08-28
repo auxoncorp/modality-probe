@@ -28,7 +28,7 @@ commands in the following section should work.
 
 #### Linux
 
-Clone this repository, and start by navigating into its root folder
+Clone this repository, and start by navigating into its root folder.
 Then use Cargo to build the Modality Probe libraries and their related
 binaries.
 
@@ -219,7 +219,7 @@ Using the configuration:
 
 ```
 
-When the service starts, it prints the configuration it's using, in
+When the service starts it prints the configuration it's using. In
 the example above it's using all defaults. You can also pass args to
 direct it to a certain port, or a specific output file.
 
