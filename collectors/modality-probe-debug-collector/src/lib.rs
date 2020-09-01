@@ -2,6 +2,7 @@ use chrono::Utc;
 use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::fs::File;
+use std::io;
 use std::mem::size_of;
 use std::net::SocketAddrV4;
 use std::ops::Add;
@@ -12,17 +13,17 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use err_derive::Error;
-use field_offset::offset_of;
 use probe_rs::{MemoryInterface, Session};
 
 use fenced_ring_buffer::async_reader::{FencedReader, Snapper};
-use fenced_ring_buffer::{FencedRingBuffer, SeqNum, WholeEntry};
-use modality_probe::log::LogEntry;
+use fenced_ring_buffer::WholeEntry;
+use modality_probe::field_offsets::*;
 use modality_probe::{
-    DynamicHistory, EventId, LogicalClock, ModalityProbe, OrdClock, ProbeEpoch, ProbeId, ProbeTicks,
+    log::LogEntry, EventId, LogicalClock, OrdClock, ProbeEpoch, ProbeId, ProbeTicks,
 };
 use modality_probe_collector_common::{
-    add_log_report_to_entries, json::write_log_entries, Report, ReportLogEntry, SessionId,
+    add_log_report_to_entries, json::write_log_entries, Report, ReportLogEntry, SerializationError,
+    SessionId,
 };
 
 /// Either a u32 or u64, depending on the target architecture
@@ -70,50 +71,6 @@ impl Add<u64> for Word {
     }
 }
 
-// Offset of pointer to DynamicHistory in ModalityProbe struct, which is located in modality-probe/src/lib.rs
-fn history_ptr_offset() -> u64 {
-    offset_of!(ModalityProbe => history).get_byte_offset() as u64
-}
-
-// Address offsets of each needed field of the DynamicHistory struct, which is located in modality-probe/src/history.rs
-fn overwrite_priority_offset() -> u64 {
-    offset_of!(DynamicHistory => overwrite_priority).get_byte_offset() as u64
-}
-
-fn probe_id_offset() -> u64 {
-    offset_of!(DynamicHistory => probe_id).get_byte_offset() as u64
-}
-
-fn write_seqn_high_offset() -> u64 {
-    offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => write_seqn: SeqNum => high)
-        .get_byte_offset() as u64
-}
-
-fn write_seqn_low_offset() -> u64 {
-    offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => write_seqn: SeqNum => low)
-        .get_byte_offset() as u64
-}
-
-fn overwrite_seqn_high_offset() -> u64 {
-    offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => overwrite_seqn: SeqNum => high)
-        .get_byte_offset() as u64
-}
-
-fn overwrite_seqn_low_offset() -> u64 {
-    offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => overwrite_seqn: SeqNum => low)
-        .get_byte_offset() as u64
-}
-
-fn log_storage_addr_offset() -> u64 {
-    offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => storage).get_byte_offset()
-        as u64
-}
-
-fn log_storage_cap_offset(n_word_bytes: u8) -> u64 {
-    // Assume storage addr is a u32
-    log_storage_addr_offset() + n_word_bytes as u64
-}
-
 /// Configuration for running collector
 #[derive(Debug, PartialEq)]
 pub struct Config {
@@ -139,61 +96,66 @@ pub enum ProbeAddr {
     PtrAddr(Word),
 }
 
-/// Error in debug collector
 #[derive(Debug, Error)]
-pub enum DebugCollectorError {
-    #[error(display = "Error reading from/writing to target")]
-    TargetError,
-    #[error(display = "Invalid probe id read from device")]
-    ProbeIdError,
-    #[error(display = "Error processing the report's log")]
-    LogProcessingError,
-    #[error(display = "Error serializing the report")]
-    ReportSerializationError,
-    #[error(display = "Error using output file")]
-    FileError,
+pub enum Error {
+    #[error(display = "Error interacting with target: {}", _0)]
+    TargetError(#[error(from)] TargetError),
+    #[error(display = "Invalid probe id read from target probe")]
+    InvalidProbeId,
+    #[error(display = "Invalid probe id read from log")]
+    InvalidClockProbeId,
+    #[error(display = "Error serializing the report: {}", _0)]
+    ReportSerializationError(SerializationError),
+    #[error(display = "Error writing entries to file: {}", _0)]
+    OutputWritingError(modality_probe_collector_common::Error),
+    #[error(display = "Error opening output file: {}", _0)]
+    FileError(#[error(from)] io::Error),
+}
+
+#[derive(Debug, Error)]
+pub enum TargetError {
+    #[error(display = "No probes found to attach to; check connection to chip")]
+    NoProbesConnected,
+    #[error(display = "{}", _0)]
+    ProbeRsError(probe_rs::Error),
+    #[error(display = "Cannot directly attach to 64 bit chips")]
+    MustBe32Bit,
 }
 
 /// Trait used to specify backend used to access device memory
 pub trait MemoryAccessor {
-    fn read_word(&mut self, addr: Word) -> Result<Word, DebugCollectorError>;
-    fn read_32(&mut self, addr: Word) -> Result<u32, DebugCollectorError>;
-    fn write_32(&mut self, addr: Word, data: u32) -> Result<(), DebugCollectorError>;
+    fn read_word(&mut self, addr: Word) -> Result<Word, TargetError>;
+    fn read_32(&mut self, addr: Word) -> Result<u32, TargetError>;
+    fn write_32(&mut self, addr: Word, data: u32) -> Result<(), TargetError>;
 }
 
 /// MemoryAccessor that uses probe-rs to access device memory
 struct ProbeRsAccessor(Session);
 
 impl MemoryAccessor for ProbeRsAccessor {
-    fn read_word(&mut self, addr: Word) -> Result<Word, DebugCollectorError> {
+    fn read_word(&mut self, addr: Word) -> Result<Word, TargetError> {
         self.read_32(addr).map(Word::U32)
     }
 
-    fn read_32(&mut self, addr: Word) -> Result<u32, DebugCollectorError> {
+    fn read_32(&mut self, addr: Word) -> Result<u32, TargetError> {
         if let Word::U32(addr_raw) = addr {
-            let mut core = self
-                .0
-                .core(0)
-                .map_err(|_e| DebugCollectorError::TargetError)?;
+            let mut core = self.0.core(0).map_err(TargetError::ProbeRsError)?;
             core.read_word_32(addr_raw)
-                .map_err(|_e| DebugCollectorError::TargetError)
+                .map_err(TargetError::ProbeRsError)
         } else {
             // ProbeRs does not support 64 bit targets
-            Err(DebugCollectorError::TargetError)
+            Err(TargetError::MustBe32Bit)
         }
     }
 
-    fn write_32(&mut self, addr: Word, data: u32) -> Result<(), DebugCollectorError> {
+    fn write_32(&mut self, addr: Word, data: u32) -> Result<(), TargetError> {
         if let Word::U32(addr_raw) = addr {
-            let mut core = self
-                .0
-                .core(0)
-                .map_err(|_e| DebugCollectorError::TargetError)?;
+            let mut core = self.0.core(0).map_err(TargetError::ProbeRsError)?;
             core.write_word_32(addr_raw, data)
-                .map_err(|_e| DebugCollectorError::TargetError)
+                .map_err(TargetError::ProbeRsError)
         } else {
             // ProbeRs does not support 64 bit targets
-            Err(DebugCollectorError::TargetError)
+            Err(TargetError::MustBe32Bit)
         }
     }
 }
@@ -215,33 +177,33 @@ struct MemorySnapper {
 }
 
 impl Snapper<LogEntry> for MemorySnapper {
-    type Error = DebugCollectorError;
+    type Error = TargetError;
 
-    fn snap_write_seqn_high(&self) -> Result<u32, DebugCollectorError> {
+    fn snap_write_seqn_high(&self) -> Result<u32, TargetError> {
         self.mem_accessor
             .borrow_mut()
             .read_32(self.write_seqn_high_addr)
     }
 
-    fn snap_write_seqn_low(&self) -> Result<u32, DebugCollectorError> {
+    fn snap_write_seqn_low(&self) -> Result<u32, TargetError> {
         self.mem_accessor
             .borrow_mut()
             .read_32(self.write_seqn_low_addr)
     }
 
-    fn snap_overwrite_seqn_high(&self) -> Result<u32, DebugCollectorError> {
+    fn snap_overwrite_seqn_high(&self) -> Result<u32, TargetError> {
         self.mem_accessor
             .borrow_mut()
             .read_32(self.overwrite_seqn_high_addr)
     }
 
-    fn snap_overwrite_seqn_low(&self) -> Result<u32, DebugCollectorError> {
+    fn snap_overwrite_seqn_low(&self) -> Result<u32, TargetError> {
         self.mem_accessor
             .borrow_mut()
             .read_32(self.overwrite_seqn_low_addr)
     }
 
-    fn snap_storage(&self, index: usize) -> Result<LogEntry, DebugCollectorError> {
+    fn snap_storage(&self, index: usize) -> Result<LogEntry, TargetError> {
         let raw: u32 = self
             .mem_accessor
             .borrow_mut()
@@ -260,7 +222,7 @@ struct PriorityWriter {
 }
 
 impl PriorityWriter {
-    fn write(&mut self, level: u32) -> Result<(), DebugCollectorError> {
+    fn write(&mut self, level: u32) -> Result<(), TargetError> {
         self.mem_accessor
             .borrow_mut()
             .write_32(self.priority_field_addr, level)
@@ -286,28 +248,30 @@ impl Collector {
     pub fn initialize(
         probe_addr: &ProbeAddr,
         mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
-    ) -> Result<Self, DebugCollectorError> {
+    ) -> Result<Self, Error> {
         let addr = match *probe_addr {
             ProbeAddr::Addr(addr) => addr,
             // Read storage address from pointer
             ProbeAddr::PtrAddr(addr) => mem_accessor.borrow_mut().read_word(addr)?,
         };
-        let mut mem_borrow = mem_accessor.borrow_mut();
-        // Get address of DynamicHistory
-        let hist_addr = mem_borrow.read_word(addr + history_ptr_offset())?;
-        // Read DynamicHistory fields
-        let id_raw = mem_borrow.read_32(hist_addr + probe_id_offset())?;
-        let id = ProbeId::new(id_raw).ok_or_else(|| DebugCollectorError::ProbeIdError)?;
-        let buf_addr = mem_borrow.read_word(hist_addr + log_storage_addr_offset())?;
-        let buf_cap = mem_borrow
-            .read_word(hist_addr + log_storage_cap_offset(hist_addr.size()))?
-            .into();
+        let (hist_addr, id, buf_addr, buf_cap) = {
+            let mut mem_borrow = mem_accessor.borrow_mut();
+            // Get address of DynamicHistory
+            let hist_addr = mem_borrow.read_word(addr + history_ptr_offset())?;
+            // Read DynamicHistory fields
+            let id_raw = mem_borrow.read_32(hist_addr + probe_id_offset())?;
+            let id = ProbeId::new(id_raw).ok_or_else(|| Error::InvalidProbeId)?;
+            let buf_addr = mem_borrow.read_word(hist_addr + log_storage_addr_offset())?;
+            let buf_cap = mem_borrow
+                .read_word(hist_addr + log_storage_cap_offset(hist_addr.size()))?
+                .into();
+            (hist_addr, id, buf_addr, buf_cap)
+        };
         let write_seqn_high_addr = hist_addr + write_seqn_high_offset();
         let write_seqn_low_addr = hist_addr + write_seqn_low_offset();
         let overwrite_seqn_high_addr = hist_addr + overwrite_seqn_high_offset();
         let overwrite_seqn_low_addr = hist_addr + overwrite_seqn_low_offset();
         let priority_field_addr = hist_addr + overwrite_priority_offset();
-        drop(mem_borrow);
 
         let priority_mem_accessor = mem_accessor.clone();
         let mut clocks = Vec::new();
@@ -343,7 +307,8 @@ impl Collector {
     }
 
     /// Collect all new logs, return a report
-    pub fn collect_report(&mut self) -> Result<Report, DebugCollectorError> {
+    pub fn collect_report(&mut self) -> Result<Report, Error> {
+        self.rbuf.clear();
         let num_missed = self.reader.read(&mut self.rbuf)?;
         // Possibly add entries missed event
         if num_missed > 0 {
@@ -361,22 +326,19 @@ impl Collector {
             if let WholeEntry::Double(first, second) = entry {
                 if first.has_clock_bit_set() {
                     let id = ProbeId::new(first.interpret_as_logical_clock_probe_id())
-                        .ok_or_else(|| DebugCollectorError::LogProcessingError)?;
+                        .ok_or_else(|| Error::InvalidClockProbeId)?;
                     let (epoch, ticks) = modality_probe::unpack_clock_word(second.raw());
                     Self::merge_clock(&mut self.clocks, LogicalClock { id, epoch, ticks })
                 }
             }
         }
 
-        let report =
-            Report::try_from_log(self.clocks[0], self.seq_num, report_clocks, &self.rbuf[..])
-                .map(|report| {
-                    self.seq_num += 1;
-                    report
-                })
-                .map_err(|_e| DebugCollectorError::ReportSerializationError);
-        self.rbuf.clear();
-        report
+        Report::try_from_log(self.clocks[0], self.seq_num, report_clocks, &self.rbuf[..])
+            .map(|report| {
+                self.seq_num += 1;
+                report
+            })
+            .map_err(Error::ReportSerializationError)
     }
 
     fn merge_clock(clocks: &mut Vec<LogicalClock>, ext_clock: LogicalClock) {
@@ -388,6 +350,7 @@ impl Collector {
                     c.ticks = ext_clock.ticks;
                 }
                 existed = true;
+                break;
             }
         }
         if !existed {
@@ -396,25 +359,25 @@ impl Collector {
     }
 
     /// Write to "write priority" field in probe
-    pub fn set_overwrite_priority(&mut self, level: u32) -> Result<(), DebugCollectorError> {
+    pub fn set_overwrite_priority(&mut self, level: u32) -> Result<(), TargetError> {
         self.priority_writer.write(level)
     }
 }
 
 /// Open memory accessor based on config
-fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, DebugCollectorError> {
+fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, TargetError> {
     match &c.target {
         Target::ProbeRsTarget(target) => {
             let probes = probe_rs::Probe::list_all();
             if probes.is_empty() {
-                return Err(DebugCollectorError::TargetError);
+                return Err(TargetError::NoProbesConnected);
             }
             let probe = probes[0]
                 .open()
-                .map_err(|_e| DebugCollectorError::TargetError)?;
+                .map_err(|e| TargetError::ProbeRsError(e.into()))?;
             let session = probe
                 .attach(target)
-                .map_err(|_e| DebugCollectorError::TargetError)?;
+                .map_err(TargetError::ProbeRsError)?;
             Ok(Rc::new(RefCell::new(ProbeRsAccessor(session))))
         }
         // No probe rs target implies use of gdb, which is not implemented yet
@@ -426,7 +389,7 @@ fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, Debu
 fn initialize_collectors(
     c: &Config,
     mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
-) -> Result<Vec<Collector>, DebugCollectorError> {
+) -> Result<Vec<Collector>, Error> {
     let mut collectors = Vec::new();
     for probe_addr in c.probe_addrs.iter() {
         collectors.push(Collector::initialize(probe_addr, mem_accessor.clone())?);
@@ -435,27 +398,22 @@ fn initialize_collectors(
 }
 
 /// Write report to given file
-fn report_to_file(
-    out: &mut File,
-    report: Report,
-    session_id: SessionId,
-) -> Result<(), DebugCollectorError> {
+fn report_to_file(out: &mut File, report: Report, session_id: SessionId) -> Result<(), Error> {
     let mut entries: Vec<ReportLogEntry> = Vec::new();
 
     add_log_report_to_entries(&report, session_id, Utc::now(), &mut entries);
-    write_log_entries(out, &entries).map_err(|_e| DebugCollectorError::FileError)
+    write_log_entries(out, &entries).map_err(Error::OutputWritingError)
 }
 
 /// Run debug collector with given config
-pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<(), DebugCollectorError> {
+pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<(), Error> {
     let mem_accessor = open_mem_accessor(c)?;
     let mut collectors = initialize_collectors(c, mem_accessor)?;
 
     let mut out = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
-        .open(&c.output_path)
-        .map_err(|_e| DebugCollectorError::FileError)?;
+        .open(&c.output_path)?;
 
     loop {
         if shutdown_receiver.try_recv().is_ok() {
@@ -495,7 +453,7 @@ pub mod tests {
     struct DirectMemAccessor;
 
     impl MemoryAccessor for DirectMemAccessor {
-        fn write_32(&mut self, addr: Word, data: u32) -> Result<(), DebugCollectorError> {
+        fn write_32(&mut self, addr: Word, data: u32) -> Result<(), TargetError> {
             let ptr = match addr {
                 Word::U32(addr_raw) => {
                     assert!(size_of::<usize>() == size_of::<u32>());
@@ -510,7 +468,7 @@ pub mod tests {
             Ok(())
         }
 
-        fn read_32(&mut self, addr: Word) -> Result<u32, DebugCollectorError> {
+        fn read_32(&mut self, addr: Word) -> Result<u32, TargetError> {
             let ptr = match addr {
                 Word::U32(addr_raw) => {
                     assert!(size_of::<usize>() == size_of::<u32>());
@@ -524,7 +482,7 @@ pub mod tests {
             Ok(unsafe { *ptr })
         }
 
-        fn read_word(&mut self, addr: Word) -> Result<Word, DebugCollectorError> {
+        fn read_word(&mut self, addr: Word) -> Result<Word, TargetError> {
             match addr {
                 Word::U32(addr_raw) => {
                     assert!(size_of::<usize>() == size_of::<u32>());
@@ -722,7 +680,7 @@ pub mod tests {
         .unwrap();
 
         collector.set_overwrite_priority(1).unwrap();
-        assert_eq!(probe.history.overwrite_priority, 1);
+        assert_eq!(probe.get_overwrite_priority_level(), 1);
     }
 
     struct HashMapMemAccessor(HashMap<Word, u32>);
@@ -776,15 +734,15 @@ pub mod tests {
     }
 
     impl MemoryAccessor for HashMapMemAccessor {
-        fn read_word(&mut self, addr: Word) -> Result<Word, DebugCollectorError> {
+        fn read_word(&mut self, addr: Word) -> Result<Word, TargetError> {
             self.read_32(addr).map(|res| Word::U32(res))
         }
 
-        fn read_32(&mut self, addr: Word) -> Result<u32, DebugCollectorError> {
+        fn read_32(&mut self, addr: Word) -> Result<u32, TargetError> {
             Ok(*self.0.get(&addr).unwrap())
         }
 
-        fn write_32(&mut self, _: Word, _: u32) -> Result<(), DebugCollectorError> {
+        fn write_32(&mut self, _: Word, _: u32) -> Result<(), TargetError> {
             unimplemented!()
         }
     }

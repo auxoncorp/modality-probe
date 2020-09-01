@@ -15,7 +15,11 @@ fn main() {
             return;
         }
     };
-    let (_, shutdown_receiver) = channel();
+    let (shutdown_sender, shutdown_receiver) = channel();
+    ctrlc::set_handler(move || {
+        shutdown_sender.send(()).unwrap();
+    })
+    .expect("Error setting Ctrl-C handler");
     if let Err(err) = run(&config, shutdown_receiver) {
         println!("{}", err);
     }

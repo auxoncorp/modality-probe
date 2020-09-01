@@ -79,19 +79,18 @@ const_assert_eq!(
 /// backed by runtime-sized arrays of current logical clocks
 /// and probe log items
 ///
-/// Note: overwrite_priority, probe_id, and log must be accessed by the debug collector using direct memory access,
-/// so they must be public fields (in order for the debug collector to calculate their offsets).
+/// Note: overwrite_priority, probe_id, and log must be accessed by the debug collector using direct memory access.
 /// No non-repr(C) fields or usizes (including refs or slices) should be put before those fields,
 /// as that would result in the offsets of those fields to change depending on the architecture of the target.
 #[derive(Debug)]
 #[repr(C)]
 pub struct DynamicHistory<'a> {
     /// Minimum priority level of items that can be written to the log
-    pub overwrite_priority: u32,
+    pub(crate) overwrite_priority: u32,
     /// ID of this probe
-    pub probe_id: ProbeId,
+    pub(crate) probe_id: ProbeId,
     /// Log used to store events and trace clocks
-    pub log: LogBuffer<'a>,
+    pub(crate) log: LogBuffer<'a>,
     /// The number of events seen since the current
     /// probe's logical clock last increased.
     pub(crate) event_count: u32,
@@ -107,9 +106,8 @@ pub struct DynamicHistory<'a> {
 struct ClocksFullError;
 
 impl<'a> DynamicHistory<'a> {
-    /// Create new DynamicHistory at given destination
     #[inline]
-    pub fn new_at(
+    pub(crate) fn new_at(
         destination: &'a mut [u8],
         probe_id: ProbeId,
         restart_counter: RestartCounterProvider<'a>,

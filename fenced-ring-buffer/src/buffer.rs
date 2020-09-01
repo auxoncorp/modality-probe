@@ -1,7 +1,6 @@
 //! The writer of the FencedRingBuffer, which contains the actual buffer. Entries can be synchronously written and read/iterated
 //! from this struct.
 use crate::{get_seqn_index, num_missed, Entry, SeqNum, WholeEntry};
-//use core::iter::Iterator;
 use core::cmp::max;
 use core::fmt;
 use core::mem::size_of;

@@ -76,9 +76,6 @@ pub struct CLIOptions {
 
 /// Turn CLI options into configuration for the collector
 pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, CLIError> {
-    let mut probe_addrs = Vec::new();
-    let mut symbols = Vec::new();
-
     let mut elf_buf = Vec::new();
     let (use_64_bit, elf_file_opt) = if let Some(elf_path) = options.elf_path.as_ref() {
         let elf_file = open_elf(&elf_path, &mut elf_buf)?;
@@ -100,6 +97,8 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, CLIErro
         (options.word_size_64, None)
     };
 
+    let mut probe_addrs = Vec::new();
+    let mut symbols = Vec::new();
     for addr_str in options.probe_syms.iter() {
         match parse_probe_address(addr_str, use_64_bit)? {
             None => symbols.push(addr_str),
@@ -219,6 +218,7 @@ mod tests {
 
     const SYMBOLS_32_BIN_PATH: &str =
         "./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example";
+    #[cfg(all(target_pointer_width = "64", target_os = "linux"))]
     const EMPTY_BIN_PATH: &str = "./tests/empty-example/target/debug/empty-example";
 
     fn compile_symbol_example() {
@@ -232,6 +232,7 @@ mod tests {
         }
     }
 
+    #[cfg(all(target_pointer_width = "64", target_os = "linux"))]
     fn compile_empty_example() {
         let out = Command::new("cargo")
             .arg("build")

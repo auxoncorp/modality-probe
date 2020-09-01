@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use static_assertions::{assert_cfg, const_assert};
 
 pub use error::*;
-pub use history::DynamicHistory;
+use history::DynamicHistory;
 pub use id::*;
 pub use restart_counter::{
     next_sequence_id_fn, CRestartCounterProvider, RestartCounter, RestartCounterProvider,
@@ -29,6 +29,8 @@ pub use restart_counter::{
 };
 
 mod error;
+#[cfg(feature = "std")]
+pub mod field_offsets;
 mod history;
 mod id;
 pub mod log;
@@ -332,7 +334,7 @@ pub trait Probe {
 #[repr(C)]
 pub struct ModalityProbe<'a> {
     /// Publicly accessible for direct access by debug-collector
-    pub history: &'a mut DynamicHistory<'a>,
+    history: &'a mut DynamicHistory<'a>,
 }
 
 impl<'a> ModalityProbe<'a> {
@@ -460,6 +462,11 @@ impl<'a> ModalityProbe<'a> {
     /// for correlation with external systems.
     pub fn now(&self) -> ModalityProbeInstant {
         self.history.now()
+    }
+
+    /// Get current value of overwrite priority
+    pub fn get_overwrite_priority_level(&self) -> u32 {
+        self.history.overwrite_priority
     }
 }
 
