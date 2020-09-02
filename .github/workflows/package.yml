@@ -1,10 +1,10 @@
-name: Debian Package
+name: Packaging
 
 on: [pull_request]
 
 jobs:
   linux:
-    name: Ubuntu Linux
+    name: Tarball
     runs-on: ubuntu-latest
     steps:
       - name: Install system packages
@@ -19,7 +19,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
 
       - name: Install nightly toolchain
         uses: actions-rs/toolchain@v1
@@ -27,20 +27,20 @@ jobs:
           profile: minimal
           toolchain: nightly
           override: true
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
 
       - name: Fetch dependencies
         uses: actions-rs/cargo@v1
         with:
           command: fetch
 
-      - name: Install 'cargo-deb'
+      - name: Install 'cross'
         uses: actions-rs/cargo@v1
         with:
           command: install
-          args: cargo-deb
+          args: cross
 
-      - name: Generate debian package
+      - name: Generate tarball package
         run: |
-          cd package/debian/
+          cd package/tarball/
           ./build.sh
