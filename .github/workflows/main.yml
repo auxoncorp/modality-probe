@@ -79,7 +79,8 @@ jobs:
         with:
           use-cross: true
           command: test
-          args: --all --features "std" --target=mips64-unknown-linux-gnuabi64
+          # Exclude debug collector because libusb is required to build
+          args: --all --exclude modality-probe-debug-collector --features "std" --target=mips64-unknown-linux-gnuabi64
 
   windows:
     name: Windows
