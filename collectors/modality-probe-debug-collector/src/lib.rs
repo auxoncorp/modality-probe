@@ -794,7 +794,7 @@ pub mod tests {
 
         probe.record_event(ev(1));
         probe_2.record_event(ev(1));
-        let snap = probe.produce_snapshot().unwrap();
+        let snap = probe.produce_snapshot();
         probe_2.merge_snapshot(&snap).unwrap();
 
         let report = collector_2.collect_report().unwrap();
@@ -816,7 +816,7 @@ pub mod tests {
         );
 
         probe_2.record_event(ev(2));
-        let second_snap = probe_2.produce_snapshot().unwrap();
+        let second_snap = probe_2.produce_snapshot();
         probe.merge_snapshot(&second_snap).unwrap();
 
         let second_report = collector_2.collect_report().unwrap();
