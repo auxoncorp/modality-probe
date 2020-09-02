@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::convert::TryFrom;
 use std::fs::File;
 use std::io;
-use std::mem::size_of;
+use std::mem::{align_of, size_of};
 use std::net::SocketAddrV4;
 use std::ops::Add;
 use std::path::PathBuf;
@@ -338,7 +338,8 @@ impl Collector {
     ) -> Result<Word, Error> {
         match *probe_addr {
             ProbeAddr::Addr(addr) => {
-                let padded_probe_address = Self::scan_guard_bytes(addr, mem_accessor.clone())?;
+                let padded_probe_address = Self::scan_guard_bytes(addr, mem_accessor.clone())?
+                    .ok_or_else(|| Error::NoProbeAtAddress(addr.into()))?;
                 // Ensure probe has correct fingerprint
                 let fingerprint = mem_accessor.borrow_mut().read_32(padded_probe_address)?;
                 if fingerprint != ModalityProbe::STRUCT_FINGERPRINT {
@@ -351,7 +352,8 @@ impl Collector {
             ProbeAddr::PtrAddr(ptr_addr) => {
                 let deref_addr = mem_accessor.borrow_mut().read_word(ptr_addr)?;
                 let padded_probe_address =
-                    Self::scan_guard_bytes(deref_addr, mem_accessor.clone())?;
+                    Self::scan_guard_bytes(deref_addr, mem_accessor.clone())?
+                        .ok_or_else(|| Error::InvalidProbePointer(ptr_addr.into()))?;
 
                 // Ensure probe has correct fingerprint
                 let fingerprint = mem_accessor.borrow_mut().read_32(padded_probe_address)?;
@@ -364,21 +366,26 @@ impl Collector {
         }
     }
 
+    /// Loops through probe guard bytes starting at addr, returning the address of the first byte
+    /// after the guard bytes, or None if the guard bytes repeat for more than twice the alignment of a probe
     fn scan_guard_bytes(
-        mut addr: Word,
+        addr: Word,
         mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
-    ) -> Result<Word, Error> {
+    ) -> Result<Option<Word>, Error> {
         let mut mem = mem_accessor.borrow_mut();
-        loop {
-            let b = mem.read_byte(addr)?;
+        // Max guard bytes we are willing to check. In reality, the probe should appear within only 1 alignment
+        const MAX_GUARD_BYTES: usize = align_of::<ModalityProbe>() * 2;
+
+        for i in 0..MAX_GUARD_BYTES {
+            let cur_addr = addr + (i as u64);
+            let b = mem.read_byte(cur_addr)?;
             if b == ModalityProbe::PADDING_GUARD_BYTE {
-                // Currently reading guard bytes, loop through these bytes
-                addr = addr + 1;
                 continue;
             } else {
-                break Ok(addr);
+                return Ok(Some(cur_addr));
             }
         }
+        Ok(None)
     }
 
     /// Collect all new logs, return a report
@@ -513,7 +520,6 @@ pub mod tests {
     use maplit::hashmap;
     use std::collections::HashMap;
     use std::convert::TryInto;
-    use std::mem::align_of;
 
     use modality_probe::{EventId, ModalityProbe, Probe, RestartCounterProvider};
     use modality_probe_collector_common::{EventLogEntry, SequenceNumber};

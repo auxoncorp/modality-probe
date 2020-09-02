@@ -270,7 +270,8 @@ pub trait Probe {
 #[repr(C)]
 pub struct ModalityProbe<'a> {
     fingerprint: u32,
-    /// Pad fingerprint up to 8 bytes for consistent history offset
+    /// Pad fingerprint up to 8 bytes so that the history field
+    /// offset is the same on 32-bit and 64-bit architectures
     fingerprint_padding: u32,
     history: &'a mut DynamicHistory<'a>,
 }
@@ -327,6 +328,8 @@ impl<'a> ModalityProbe<'a> {
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut ModalityProbe<'a>, StorageSetupError> {
         // Align memory before embedding so that all padding is filled with guard bytes
+        // Note: For future improvement, this step could be included in fixed-slice-vec as a variant
+        // of the `embed` function
         let padding_offset = memory.as_ptr().align_offset(align_of::<Self>());
         let (padding, aligned_memory) = memory.split_at_mut(padding_offset);
         let aligned_ptr = aligned_memory.as_ptr();

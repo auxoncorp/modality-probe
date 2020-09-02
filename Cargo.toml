@@ -14,7 +14,7 @@ readme = "README.md"
 
 [features]
 default = []
-std = ["serde", "proptest", "schemars", "proptest-derive", "field-offset"]
+std = ["serde", "proptest", "schemars", "proptest-derive"]
 debug-collector-access = ["field-offset"]
 
 [workspace]
