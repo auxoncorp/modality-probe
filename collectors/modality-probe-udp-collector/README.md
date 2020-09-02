@@ -1,47 +1,57 @@
-# ekotrace-udp-collector
+# modality-probe-udp-collector
 
-CLI-driven process that receives [ekotrace reports](../schemas/log_reporting.lcm)
-over UDP and logs them to a file, per the defined
-[file format](../util/README.md#file-format).
+## Overview
+Collect the outgoing probe reports and persist them.
+
+## Getting Started
+### Dependencies
+The collector requires a Rust toolchain. The recommended toolchain
+management system for Rust is [Rustup](https://rustup.sh).
+
+### Building
+Once Rust is installed (don’t forget to follow directions about
+setting up `$PATH`), clone this repository and use Cargo to build it
+locally:
+
+```
+$ git clone git@github.com:auxoncorp/modality-probe
+cd modality-probe/modality-probe-udp-collector
+cargo build --release
+```
+
+This will deposit a file at
+`modality-probe/target/release/modality-probe-udp-collector` that can
+be run directly.
 
 ## Usage
 
-Building or installing requires a stable Rust toolchain.
+```
+Server that receives modality-probe reports via UDP and logs to file
 
-### Install and run from remote
+USAGE:
+	modality-probe-udp-collector [OPTIONS]
 
-Install and run from any directory. Runs with default configuration
-if no arguments are provided. 
-```shell script
-cargo install --git https://github.com/auxoncorp/ekotrace.git ekotrace-udp-collector
-ekotrace-udp-collector-cli
+FLAGS:
+	-h, --help   	Prints help information
+	-V, --version	Prints version information
+
+OPTIONS:
+	-o, --output-file <output-file>	Output file location
+	-p, --port <port>              	What localhost port is this server going to receive data on
+	-s, --session-id <session-id>  	Session id to associate with the collected trace data
+
 ```
 
-### Build Locally
+The collector receives the reports the probes send and writes them to
+its output file.
 
-From the current directory, demonstrating the use of the `--help` option
-```shell script
-cargo build --release
-../target/release/ekotrace-udp-collector-cli --help
+```
+$ modality-probe-udp-collector -o trace.mtr -p 9999 -s 1
 ```
 
-### Build and Run in Debug Mode
-
-From the current directory:
-```shell script
-cargo run -- --help
-```
-
-### CLI Options
-
-The user may optionally supply command line arguments to specify:
-* **--output-file** a path to the CSV file where the data will be logged.
-Does not have to exist prior to the invocation of this command.
-* **--port**  the port the server is listening on
-* **--session-id**  a session id to distinguish the trace data
-collected during this tracing run
-
-## Library
-
-This tool is also available as a Rust library, `ekotrace-udp-collector`,
-for use in integration testing.
+### Sessions
+A “session” is a unit used to demarcate distinct trace
+collections. You may want to change the session for each test run, or
+when you turn the collector off and back on again. It allows you to
+compare separate traces that, without distinct sessions, would
+otherwise be difficult to distinguish from one another.

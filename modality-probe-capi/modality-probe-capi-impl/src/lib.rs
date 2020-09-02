@@ -194,13 +194,8 @@ pub unsafe fn modality_probe_produce_snapshot(
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
-    match probe.produce_snapshot() {
-        Ok(snapshot) => {
-            *destination_snapshot = snapshot;
-            MODALITY_PROBE_ERROR_OK
-        }
-        Err(e) => produce_error_to_modality_probe_error(e),
-    }
+    *destination_snapshot = probe.produce_snapshot();
+    MODALITY_PROBE_ERROR_OK
 }
 
 /// # Safety

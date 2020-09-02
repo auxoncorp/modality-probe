@@ -66,11 +66,11 @@ typedef struct modality_probe_causal_snapshot {
     /*
      * Reserved field.
      */
-    uint16_t reserved_0;
+    uint8_t reserved_0[2];
     /*
      * Reserved field.
      */
-    uint16_t reserved_1;
+    uint8_t reserved_1[2];
 } modality_probe_causal_snapshot;
 
 /*

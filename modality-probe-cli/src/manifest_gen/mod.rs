@@ -1,7 +1,7 @@
 use crate::{
     component::{Component, ComponentHasher, ComponentHasherExt, ComponentUuid},
     error::GracefulExit,
-    events::Events,
+    events::{Event, Events},
     exit_error,
     lang::Lang,
     probes::Probes,
@@ -94,11 +94,9 @@ impl ManifestGen {
     }
 }
 
-pub fn run(opt: ManifestGen) {
+pub fn run(opt: ManifestGen, internal_events: Option<Vec<Event>>) {
     opt.validate();
 
-    // TODO - any reason to read in the component manifest?
-    // seems like it can be a only-write thing
     let component_directory = opt.output_path;
     let component_manifest_path = Component::component_manifest_path(&component_directory);
     let probes_manifest_path = Component::probes_manifest_path(&component_directory);
@@ -118,6 +116,7 @@ pub fn run(opt: ManifestGen) {
     let config = Config {
         lang: opt.lang,
         file_extensions: opt.file_extensions,
+        internal_events: internal_events.unwrap_or_else(Events::internal_events),
         ..Default::default()
     };
 
