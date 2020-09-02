@@ -9,7 +9,7 @@ assert_cfg!(not(target_pointer_width = "16"));
 use core::{
     cmp::{max, Ordering},
     convert::TryFrom,
-    mem::size_of,
+    mem::{align_of, size_of},
     num::NonZeroUsize,
 };
 
@@ -333,11 +333,18 @@ pub trait Probe {
 /// * Can produce and merge transparent snapshots
 #[repr(C)]
 pub struct ModalityProbe<'a> {
-    /// Publicly accessible for direct access by debug-collector
+    fingerprint: u32,
+    /// Pad fingerprint up to 8 bytes for consistent history offset
+    fingerprint_padding: u32,
     history: &'a mut DynamicHistory<'a>,
 }
 
 impl<'a> ModalityProbe<'a> {
+    /// Used to fill padding bytes at the start of an unaligned memory slice being used to store probe
+    pub const PADDING_GUARD_BYTE: u8 = 0xbd;
+    /// u32 fingerprint at the beginning of probe struct
+    pub const STRUCT_FINGERPRINT: u32 = 0x9a9a9a9a;
+
     /// Initialize a probe for this probe id.
     /// `probe_id` ought to be unique throughout the system,
     /// and must be greater than 0 and less than ProbeId::MAX_ID.
@@ -383,10 +390,21 @@ impl<'a> ModalityProbe<'a> {
         probe_id: ProbeId,
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut ModalityProbe<'a>, StorageSetupError> {
+        // Align memory before embedding so that all padding is filled with guard bytes
+        let padding_offset = memory.as_ptr().align_offset(align_of::<Self>());
+        let (padding, aligned_memory) = memory.split_at_mut(padding_offset);
+        let aligned_ptr = aligned_memory.as_ptr();
+        for b in padding.iter_mut() {
+            *b = Self::PADDING_GUARD_BYTE;
+        }
         match embed(memory, |history_memory| {
             ModalityProbe::new_with_storage(history_memory, probe_id, restart_counter)
         }) {
-            Ok(v) => Ok(v),
+            Ok(v) => {
+                // Check there is no extra padding beyond guard bytes
+                assert_eq!(v as *const ModalityProbe as usize, aligned_ptr as usize);
+                Ok(v)
+            }
             Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
                 Err(StorageSetupError::UnderMinimumAllowedSize)
             }
@@ -413,6 +431,8 @@ impl<'a> ModalityProbe<'a> {
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<ModalityProbe<'a>, StorageSetupError> {
         let mut t = ModalityProbe::<'a> {
+            fingerprint: Self::STRUCT_FINGERPRINT,
+            fingerprint_padding: 0,
             history: DynamicHistory::new_at(history_memory, probe_id, restart_counter)?,
         };
         t.record_event(EventId::EVENT_PROBE_INITIALIZED);

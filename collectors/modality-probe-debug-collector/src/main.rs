@@ -17,6 +17,7 @@ fn main() {
     };
     let (shutdown_sender, shutdown_receiver) = channel();
     ctrlc::set_handler(move || {
+        println!();
         shutdown_sender.send(()).unwrap();
     })
     .expect("Error setting Ctrl-C handler");

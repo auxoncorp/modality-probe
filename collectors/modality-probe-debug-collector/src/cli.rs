@@ -35,11 +35,11 @@ pub struct CLIOptions {
     session_id: u32,
 
     /// Specifies 32 bit architecture of target system
-    #[structopt(short = "32", long = "32-bit", conflicts_with = "word-size-64")]
+    #[structopt(long = "32-bit", conflicts_with = "word-size-64")]
     word_size_32: bool,
 
-    /// Specifies 32 bit architecture of target system
-    #[structopt(short = "64", long = "64-bit")]
+    /// Specifies 64 bit architecture of target system
+    #[structopt(long = "64-bit")]
     word_size_64: bool,
 
     /// Path of ELF file for endianness and symbol resolution

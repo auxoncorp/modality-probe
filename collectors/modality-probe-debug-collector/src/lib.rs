@@ -8,8 +8,8 @@ use std::net::SocketAddrV4;
 use std::ops::Add;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::mpsc::Receiver;
-use std::thread::sleep;
+use std::sync::mpsc::{channel, Receiver};
+use std::thread;
 use std::time::Duration;
 
 use err_derive::Error;
@@ -19,7 +19,7 @@ use fenced_ring_buffer::async_reader::{FencedReader, Snapper};
 use fenced_ring_buffer::WholeEntry;
 use modality_probe::field_offsets::*;
 use modality_probe::{
-    log::LogEntry, EventId, LogicalClock, OrdClock, ProbeEpoch, ProbeId, ProbeTicks,
+    log::LogEntry, EventId, LogicalClock, ModalityProbe, OrdClock, ProbeEpoch, ProbeId, ProbeTicks,
 };
 use modality_probe_collector_common::{
     add_log_report_to_entries, json::write_log_entries, Report, ReportLogEntry, SerializationError,
@@ -55,6 +55,15 @@ impl Into<usize> for Word {
         match self {
             Self::U32(n) => n as usize,
             Self::U64(n) => n as usize,
+        }
+    }
+}
+
+impl Into<u64> for Word {
+    fn into(self) -> u64 {
+        match self {
+            Self::U32(n) => n as u64,
+            Self::U64(n) => n,
         }
     }
 }
@@ -100,6 +109,13 @@ pub enum ProbeAddr {
 pub enum Error {
     #[error(display = "Error interacting with target: {}", _0)]
     TargetError(#[error(from)] TargetError),
+    #[error(display = "There is no probe at address {:X}", _0)]
+    NoProbeAtAddress(u64),
+    #[error(
+        display = "Pointer at address {:X} does not point to a valid probe",
+        _0
+    )]
+    InvalidProbePointer(u64),
     #[error(display = "Invalid probe id read from target probe")]
     InvalidProbeId,
     #[error(display = "Invalid probe id read from log")]
@@ -126,6 +142,7 @@ pub enum TargetError {
 pub trait MemoryAccessor {
     fn read_word(&mut self, addr: Word) -> Result<Word, TargetError>;
     fn read_32(&mut self, addr: Word) -> Result<u32, TargetError>;
+    fn read_byte(&mut self, addr: Word) -> Result<u8, TargetError>;
     fn write_32(&mut self, addr: Word, data: u32) -> Result<(), TargetError>;
 }
 
@@ -142,6 +159,19 @@ impl MemoryAccessor for ProbeRsAccessor {
             let mut core = self.0.core(0).map_err(TargetError::ProbeRsError)?;
             core.read_word_32(addr_raw)
                 .map_err(TargetError::ProbeRsError)
+        } else {
+            // ProbeRs does not support 64 bit targets
+            Err(TargetError::MustBe32Bit)
+        }
+    }
+
+    fn read_byte(&mut self, addr: Word) -> Result<u8, TargetError> {
+        if let Word::U32(addr_raw) = addr {
+            let mut core = self.0.core(0).map_err(TargetError::ProbeRsError)?;
+            let mut res = [0u8];
+            core.read_8(addr_raw, &mut res)
+                .map_err(TargetError::ProbeRsError)?;
+            Ok(res[0])
         } else {
             // ProbeRs does not support 64 bit targets
             Err(TargetError::MustBe32Bit)
@@ -249,20 +279,16 @@ impl Collector {
         probe_addr: &ProbeAddr,
         mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
     ) -> Result<Self, Error> {
-        let addr = match *probe_addr {
-            ProbeAddr::Addr(addr) => addr,
-            // Read storage address from pointer
-            ProbeAddr::PtrAddr(addr) => mem_accessor.borrow_mut().read_word(addr)?,
-        };
+        let addr = Self::find_probe(probe_addr, mem_accessor.clone())?;
         let (hist_addr, id, buf_addr, buf_cap) = {
-            let mut mem_borrow = mem_accessor.borrow_mut();
+            let mut mem = mem_accessor.borrow_mut();
             // Get address of DynamicHistory
-            let hist_addr = mem_borrow.read_word(addr + history_ptr_offset())?;
+            let hist_addr = mem.read_word(addr + history_ptr_offset())?;
             // Read DynamicHistory fields
-            let id_raw = mem_borrow.read_32(hist_addr + probe_id_offset())?;
+            let id_raw = mem.read_32(hist_addr + probe_id_offset())?;
             let id = ProbeId::new(id_raw).ok_or_else(|| Error::InvalidProbeId)?;
-            let buf_addr = mem_borrow.read_word(hist_addr + log_storage_addr_offset())?;
-            let buf_cap = mem_borrow
+            let buf_addr = mem.read_word(hist_addr + log_storage_addr_offset())?;
+            let buf_cap = mem
                 .read_word(hist_addr + log_storage_cap_offset(hist_addr.size()))?
                 .into();
             (hist_addr, id, buf_addr, buf_cap)
@@ -304,6 +330,55 @@ impl Collector {
                 priority_field_addr,
             },
         })
+    }
+
+    fn find_probe(
+        probe_addr: &ProbeAddr,
+        mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
+    ) -> Result<Word, Error> {
+        match *probe_addr {
+            ProbeAddr::Addr(addr) => {
+                let padded_probe_address = Self::scan_guard_bytes(addr, mem_accessor.clone())?;
+                // Ensure probe has correct fingerprint
+                let fingerprint = mem_accessor.borrow_mut().read_32(padded_probe_address)?;
+                if fingerprint != ModalityProbe::STRUCT_FINGERPRINT {
+                    Err(Error::NoProbeAtAddress(addr.into()))
+                } else {
+                    Ok(padded_probe_address)
+                }
+            }
+            // Read address from pointer
+            ProbeAddr::PtrAddr(ptr_addr) => {
+                let deref_addr = mem_accessor.borrow_mut().read_word(ptr_addr)?;
+                let padded_probe_address =
+                    Self::scan_guard_bytes(deref_addr, mem_accessor.clone())?;
+
+                // Ensure probe has correct fingerprint
+                let fingerprint = mem_accessor.borrow_mut().read_32(padded_probe_address)?;
+                if fingerprint != ModalityProbe::STRUCT_FINGERPRINT {
+                    Err(Error::InvalidProbePointer(ptr_addr.into()))
+                } else {
+                    Ok(padded_probe_address)
+                }
+            }
+        }
+    }
+
+    fn scan_guard_bytes(
+        mut addr: Word,
+        mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
+    ) -> Result<Word, Error> {
+        let mut mem = mem_accessor.borrow_mut();
+        loop {
+            let b = mem.read_byte(addr)?;
+            if b == ModalityProbe::PADDING_GUARD_BYTE {
+                // Currently reading guard bytes, loop through these bytes
+                addr = addr + 1;
+                continue;
+            } else {
+                break Ok(addr);
+            }
+        }
     }
 
     /// Collect all new logs, return a report
@@ -375,9 +450,7 @@ fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, Targ
             let probe = probes[0]
                 .open()
                 .map_err(|e| TargetError::ProbeRsError(e.into()))?;
-            let session = probe
-                .attach(target)
-                .map_err(TargetError::ProbeRsError)?;
+            let session = probe.attach(target).map_err(TargetError::ProbeRsError)?;
             Ok(Rc::new(RefCell::new(ProbeRsAccessor(session))))
         }
         // No probe rs target implies use of gdb, which is not implemented yet
@@ -414,18 +487,24 @@ pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<(), Error> {
         .append(true)
         .create(true)
         .open(&c.output_path)?;
-
     loop {
-        if shutdown_receiver.try_recv().is_ok() {
-            break;
-        }
         for collector in &mut collectors {
             let report = collector.collect_report()?;
             report_to_file(&mut out, report, c.session_id)?;
         }
-        sleep(c.interval);
+
+        let (sleep_sender, sleep_receiver) = channel();
+        let interval = c.interval;
+        thread::spawn(move || {
+            thread::sleep(interval);
+            sleep_sender.send(()).unwrap();
+        });
+        while sleep_receiver.try_recv().is_err() {
+            if shutdown_receiver.try_recv().is_ok() {
+                return Ok(());
+            }
+        }
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -434,6 +513,7 @@ pub mod tests {
     use maplit::hashmap;
     use std::collections::HashMap;
     use std::convert::TryInto;
+    use std::mem::align_of;
 
     use modality_probe::{EventId, ModalityProbe, Probe, RestartCounterProvider};
     use modality_probe_collector_common::{EventLogEntry, SequenceNumber};
@@ -477,6 +557,20 @@ pub mod tests {
                 Word::U64(addr_raw) => {
                     assert!(size_of::<usize>() == size_of::<u64>());
                     addr_raw as usize as *const u32
+                }
+            };
+            Ok(unsafe { *ptr })
+        }
+
+        fn read_byte(&mut self, addr: Word) -> Result<u8, TargetError> {
+            let ptr = match addr {
+                Word::U32(addr_raw) => {
+                    assert!(size_of::<usize>() == size_of::<u32>());
+                    addr_raw as usize as *const u8
+                }
+                Word::U64(addr_raw) => {
+                    assert!(size_of::<usize>() == size_of::<u64>());
+                    addr_raw as usize as *const u8
                 }
             };
             Ok(unsafe { *ptr })
@@ -537,6 +631,124 @@ pub mod tests {
                 persistent_epoch_counting: false,
             }
         )
+    }
+
+    #[test]
+    fn local_misaligned() {
+        let mut storage = [0u8; 1024];
+        let offset = 1 + storage.as_ptr().align_offset(align_of::<ModalityProbe>());
+        let storage_unaligned = &mut storage[offset..];
+        let storage_unaligned_ptr = storage_unaligned.as_ptr();
+
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let probe = ModalityProbe::initialize_at(
+            storage_unaligned,
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
+        let padding_len = (align_of::<ModalityProbe>() - 1) as isize;
+        for i in 0..padding_len {
+            assert_eq!(
+                unsafe { *(storage_unaligned_ptr.offset(i as isize)) },
+                ModalityProbe::PADDING_GUARD_BYTE
+            );
+        }
+        assert_eq!(
+            unsafe { *(storage_unaligned_ptr.offset(padding_len) as *const u32) },
+            ModalityProbe::STRUCT_FINGERPRINT
+        );
+
+        let addr_raw = storage_unaligned_ptr as usize;
+        #[cfg(target_pointer_width = "32")]
+        let addr = Word::U32(addr_raw as u32);
+        #[cfg(target_pointer_width = "64")]
+        let addr = Word::U64(addr_raw as u64);
+
+        let mut collector = Collector::initialize(
+            &ProbeAddr::Addr(addr),
+            Rc::new(RefCell::new(DirectMemAccessor)),
+        )
+        .unwrap();
+
+        probe.record_event(ev(1));
+        let report = collector.collect_report().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(0),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(ev(1))
+                ],
+                persistent_epoch_counting: false,
+            }
+        )
+    }
+
+    #[test]
+    fn local_invalid_address() {
+        let mut storage = [0u8; 1024];
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let probe = ModalityProbe::new_with_storage(
+            &mut storage[..],
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
+        let addr_raw = &probe as *const ModalityProbe as usize + 512;
+        #[cfg(target_pointer_width = "32")]
+        let addr = Word::U32(addr_raw as u32);
+        #[cfg(target_pointer_width = "64")]
+        let addr = Word::U64(addr_raw as u64);
+
+        let res = Collector::initialize(
+            &ProbeAddr::Addr(addr),
+            Rc::new(RefCell::new(DirectMemAccessor)),
+        );
+        match res {
+            Ok(_) => panic!("Collector should not have initialized with an invalid probe address"),
+            Err(err) => match err {
+                Error::NoProbeAtAddress(err_addr) => assert_eq!(err_addr, addr_raw as u64),
+                _ => panic!("Wrong error"),
+            },
+        }
+    }
+
+    #[test]
+    fn local_invalid_ptr() {
+        let mut storage = [0u8; 1024];
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let probe = ModalityProbe::new_with_storage(
+            &mut storage[..],
+            probe_id,
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
+        let addr_raw = &probe as *const ModalityProbe as usize + 512;
+        let ptr_addr_raw = &addr_raw as *const usize as usize;
+        #[cfg(target_pointer_width = "32")]
+        let ptr_addr = Word::U32(ptr_addr_raw as u32);
+        #[cfg(target_pointer_width = "64")]
+        let ptr_addr = Word::U64(ptr_addr_raw as u64);
+
+        let res = Collector::initialize(
+            &ProbeAddr::PtrAddr(ptr_addr),
+            Rc::new(RefCell::new(DirectMemAccessor)),
+        );
+        match res {
+            Ok(_) => panic!("Collector should not have initialized with an invalid probe pointer"),
+            Err(err) => match err {
+                Error::InvalidProbePointer(err_addr) => assert_eq!(err_addr, ptr_addr_raw as u64),
+                _ => panic!("Wrong error"),
+            },
+        }
     }
 
     #[test]
@@ -699,6 +911,7 @@ pub mod tests {
         ) -> Self {
             let map = hashmap! {
                 Self::PROBE_PTR_ADDR => Self::PROBE_ADDR.unwrap_32(),
+                Self::PROBE_ADDR => ModalityProbe::STRUCT_FINGERPRINT,
                 Self::PROBE_ADDR + history_ptr_offset() => Self::HIST_ADDR.unwrap_32(),
                 Self::HIST_ADDR + probe_id_offset() => probe_id.get().into(),
                 Self::HIST_ADDR + log_storage_addr_offset() => Self::STORAGE_ADDR.unwrap_32(),
@@ -740,6 +953,11 @@ pub mod tests {
 
         fn read_32(&mut self, addr: Word) -> Result<u32, TargetError> {
             Ok(*self.0.get(&addr).unwrap())
+        }
+
+        fn read_byte(&mut self, addr: Word) -> Result<u8, TargetError> {
+            let res = *self.0.get(&addr).unwrap();
+            Ok(res.to_le_bytes()[0])
         }
 
         fn write_32(&mut self, _: Word, _: u32) -> Result<(), TargetError> {
