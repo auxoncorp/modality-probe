@@ -29,14 +29,15 @@ pub use restart_counter::{
 };
 
 mod error;
-#[cfg(feature = "std")]
-pub mod field_offsets;
 mod history;
 mod id;
 pub mod log;
 mod macros;
 mod restart_counter;
 pub mod wire;
+
+#[cfg(feature = "debug-collector-access")]
+pub mod field_offsets;
 
 /// Snapshot of causal history for transmission around the system.
 ///
@@ -420,6 +421,7 @@ impl<'a> ModalityProbe<'a> {
     }
 
     /// Get current value of overwrite priority
+    #[cfg(feature = "debug-collector-access")]
     pub fn get_overwrite_priority_level(&self) -> u32 {
         self.history.overwrite_priority
     }

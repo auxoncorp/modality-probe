@@ -15,9 +15,6 @@ tempfile = "3.1.0"
 err-derive = "0.2.4"
 ctrlc = "3.1.6"
 
-modality-probe = { path = "../.." }
+fenced-ring-buffer = { path = "../../fenced-ring-buffer", features = ["std"] }
+modality-probe = { path = "../..", features = ["debug-collector-access"] }
 modality-probe-collector-common = { path = "../modality-probe-collector-common" }
-
-[dependencies.fenced-ring-buffer]
-path = "../../fenced-ring-buffer"
-features = ["std"]
