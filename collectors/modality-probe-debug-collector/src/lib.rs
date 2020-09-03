@@ -8,10 +8,11 @@ use std::net::SocketAddrV4;
 use std::ops::Add;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::Duration;
 
+use crossbeam_channel as channel;
 use err_derive::Error;
 use probe_rs::{MemoryInterface, Session};
 
@@ -84,15 +85,16 @@ impl Add<u64> for Word {
 #[derive(Debug, PartialEq)]
 pub struct Config {
     pub session_id: SessionId,
-    pub target: Target,
+    pub target: TargetConfig,
     pub interval: Duration,
     pub output_path: PathBuf,
+    pub init_timeout: Option<Duration>,
     pub probe_addrs: Vec<ProbeAddr>,
 }
 
 /// Target device, either directly through probe-rs or by proxy through a gdb server
 #[derive(Debug, PartialEq)]
-pub enum Target {
+pub enum TargetConfig {
     ProbeRsTarget(String),
     GdbAddr(SocketAddrV4),
 }
@@ -139,17 +141,23 @@ pub enum TargetError {
 }
 
 /// Trait used to specify backend used to access device memory
-pub trait MemoryAccessor {
+pub trait Target {
+    fn reset(&mut self) -> Result<(), TargetError>;
     fn read_word(&mut self, addr: Word) -> Result<Word, TargetError>;
     fn read_32(&mut self, addr: Word) -> Result<u32, TargetError>;
     fn read_byte(&mut self, addr: Word) -> Result<u8, TargetError>;
     fn write_32(&mut self, addr: Word, data: u32) -> Result<(), TargetError>;
 }
 
-/// MemoryAccessor that uses probe-rs to access device memory
-struct ProbeRsAccessor(Session);
+/// Target that uses probe-rs to access device memory
+struct ProbeRsTarget(Session);
 
-impl MemoryAccessor for ProbeRsAccessor {
+impl Target for ProbeRsTarget {
+    fn reset(&mut self) -> Result<(), TargetError> {
+        let mut core = self.0.core(0).map_err(TargetError::ProbeRsError)?;
+        core.reset().map_err(TargetError::ProbeRsError)
+    }
+
     fn read_word(&mut self, addr: Word) -> Result<Word, TargetError> {
         self.read_32(addr).map(Word::U32)
     }
@@ -193,7 +201,7 @@ impl MemoryAccessor for ProbeRsAccessor {
 /// Struct used to take snapshots of FencedRingBuffer on device
 struct MemorySnapper {
     /// Reader used to read device memory
-    mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
+    mem_accessor: Rc<RefCell<dyn Target>>,
     /// Address of FencedRingBuffer backing storage
     storage_addr: Word,
     /// Address of FencedRingBuffer write sequence number high word
@@ -246,7 +254,7 @@ impl Snapper<LogEntry> for MemorySnapper {
 /// Used to write to probe's "overwrite_priority" field
 struct PriorityWriter {
     /// Memory accessor used to write to device memoryt
-    mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
+    mem_accessor: Rc<RefCell<dyn Target>>,
     /// Address of priority field
     priority_field_addr: Word,
 }
@@ -277,7 +285,7 @@ impl Collector {
     /// Initialize collector by reading probe information
     pub fn initialize(
         probe_addr: &ProbeAddr,
-        mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
+        mem_accessor: Rc<RefCell<dyn Target>>,
     ) -> Result<Self, Error> {
         let addr = Self::find_probe(probe_addr, mem_accessor.clone())?;
         let (hist_addr, id, buf_addr, buf_cap) = {
@@ -334,7 +342,7 @@ impl Collector {
 
     fn find_probe(
         probe_addr: &ProbeAddr,
-        mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
+        mem_accessor: Rc<RefCell<dyn Target>>,
     ) -> Result<Word, Error> {
         match *probe_addr {
             ProbeAddr::Addr(addr) => {
@@ -370,7 +378,7 @@ impl Collector {
     /// after the guard bytes, or None if the guard bytes repeat for more than twice the alignment of a probe
     fn scan_guard_bytes(
         addr: Word,
-        mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
+        mem_accessor: Rc<RefCell<dyn Target>>,
     ) -> Result<Option<Word>, Error> {
         let mut mem = mem_accessor.borrow_mut();
         // Max guard bytes we are willing to check. In reality, the probe should appear within only 1 alignment
@@ -389,7 +397,7 @@ impl Collector {
     }
 
     /// Collect all new logs, return a report
-    pub fn collect_report(&mut self) -> Result<Report, Error> {
+    pub fn collect_report(&mut self) -> Result<Option<Report>, Error> {
         self.rbuf.clear();
         let num_missed = self.reader.read(&mut self.rbuf)?;
         // Possibly add entries missed event
@@ -399,6 +407,16 @@ impl Collector {
                 LogEntry::event_with_payload(EventId::EVENT_LOG_ITEMS_MISSED, num_missed_rounded);
             self.rbuf.insert(0, WholeEntry::Double(ev, payload));
         }
+
+        if self.rbuf.is_empty() {
+            // No entries to report
+            return Ok(None);
+        }
+
+        // Add report produced event
+        self.rbuf.push(WholeEntry::Single(LogEntry::event(
+            EventId::EVENT_PRODUCED_EXTERNAL_REPORT,
+        )));
 
         // Keep a copy of the clocks before this report which will be used as frontier clocks
         let report_clocks = self.clocks.clone();
@@ -420,6 +438,7 @@ impl Collector {
                 self.seq_num += 1;
                 report
             })
+            .map(Some)
             .map_err(Error::ReportSerializationError)
     }
 
@@ -447,9 +466,9 @@ impl Collector {
 }
 
 /// Open memory accessor based on config
-fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, TargetError> {
+fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn Target>>, TargetError> {
     match &c.target {
-        Target::ProbeRsTarget(target) => {
+        TargetConfig::ProbeRsTarget(target) => {
             let probes = probe_rs::Probe::list_all();
             if probes.is_empty() {
                 return Err(TargetError::NoProbesConnected);
@@ -458,17 +477,17 @@ fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn MemoryAccessor>>, Targ
                 .open()
                 .map_err(|e| TargetError::ProbeRsError(e.into()))?;
             let session = probe.attach(target).map_err(TargetError::ProbeRsError)?;
-            Ok(Rc::new(RefCell::new(ProbeRsAccessor(session))))
+            Ok(Rc::new(RefCell::new(ProbeRsTarget(session))))
         }
         // No probe rs target implies use of gdb, which is not implemented yet
-        Target::GdbAddr(_) => unimplemented!(),
+        TargetConfig::GdbAddr(_) => unimplemented!(),
     }
 }
 
 /// Initialize collectors of each probe based on config
 fn initialize_collectors(
     c: &Config,
-    mem_accessor: Rc<RefCell<dyn MemoryAccessor>>,
+    mem_accessor: Rc<RefCell<dyn Target>>,
 ) -> Result<Vec<Collector>, Error> {
     let mut collectors = Vec::new();
     for probe_addr in c.probe_addrs.iter() {
@@ -487,29 +506,36 @@ fn report_to_file(out: &mut File, report: Report, session_id: SessionId) -> Resu
 
 /// Run debug collector with given config
 pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<(), Error> {
-    let mem_accessor = open_mem_accessor(c)?;
-    let mut collectors = initialize_collectors(c, mem_accessor)?;
+    // Translate std shutdown channel to crossbeam channel
+    let (shutdown_sender_crossbeam, shutdown_receiver_crossbeam) = channel::unbounded();
+    thread::spawn(move || {
+        shutdown_receiver.recv().unwrap();
+        shutdown_sender_crossbeam.send(()).unwrap();
+    });
 
+    let mem_accessor = open_mem_accessor(c)?;
+    if let Some(timeout) = c.init_timeout {
+        mem_accessor.borrow_mut().reset()?;
+        channel::select! {
+            recv(shutdown_receiver_crossbeam) -> _ => return Ok(()),
+            default(timeout) => (),
+        }
+    }
+    let mut collectors = initialize_collectors(c, mem_accessor)?;
     let mut out = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
         .open(&c.output_path)?;
     loop {
         for collector in &mut collectors {
-            let report = collector.collect_report()?;
-            report_to_file(&mut out, report, c.session_id)?;
+            if let Some(report) = collector.collect_report()? {
+                report_to_file(&mut out, report, c.session_id)?;
+            }
         }
 
-        let (sleep_sender, sleep_receiver) = channel();
-        let interval = c.interval;
-        thread::spawn(move || {
-            thread::sleep(interval);
-            sleep_sender.send(()).unwrap();
-        });
-        while sleep_receiver.try_recv().is_err() {
-            if shutdown_receiver.try_recv().is_ok() {
-                return Ok(());
-            }
+        channel::select! {
+            recv(shutdown_receiver_crossbeam) -> _ => return Ok(()),
+            default(c.interval) => (),
         }
     }
 }
@@ -538,7 +564,12 @@ pub mod tests {
 
     struct DirectMemAccessor;
 
-    impl MemoryAccessor for DirectMemAccessor {
+    impl Target for DirectMemAccessor {
+        fn reset(&mut self) -> Result<(), TargetError> {
+            // Cannot reset own execution
+            unimplemented!()
+        }
+
         fn write_32(&mut self, addr: Word, data: u32) -> Result<(), TargetError> {
             let ptr = match addr {
                 Word::U32(addr_raw) => {
@@ -622,7 +653,7 @@ pub mod tests {
         .unwrap();
 
         probe.record_event(ev(1));
-        let report = collector.collect_report().unwrap();
+        let report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             report,
             Report {
@@ -632,7 +663,8 @@ pub mod tests {
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(ev(1))
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -679,7 +711,7 @@ pub mod tests {
         .unwrap();
 
         probe.record_event(ev(1));
-        let report = collector.collect_report().unwrap();
+        let report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             report,
             Report {
@@ -689,7 +721,8 @@ pub mod tests {
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(ev(1))
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -803,7 +836,7 @@ pub mod tests {
         let snap = probe.produce_snapshot();
         probe_2.merge_snapshot(&snap).unwrap();
 
-        let report = collector_2.collect_report().unwrap();
+        let report = collector_2.collect_report().unwrap().unwrap();
         assert_eq!(
             report,
             Report {
@@ -815,7 +848,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(ev(1)),
                     EventLogEntry::TraceClock(lc(pid_raw_2, 1, 1)),
-                    EventLogEntry::TraceClock(lc(pid_raw, 0, 0))
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 0)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -825,7 +859,7 @@ pub mod tests {
         let second_snap = probe_2.produce_snapshot();
         probe.merge_snapshot(&second_snap).unwrap();
 
-        let second_report = collector_2.collect_report().unwrap();
+        let second_report = collector_2.collect_report().unwrap().unwrap();
         assert_eq!(
             second_report,
             Report {
@@ -836,12 +870,13 @@ pub mod tests {
                 event_log: vec![
                     EventLogEntry::Event(ev(2)),
                     EventLogEntry::TraceClock(lc(pid_raw_2, 1, 2)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
         );
 
-        let third_report = collector.collect_report().unwrap();
+        let third_report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             third_report,
             Report {
@@ -855,12 +890,15 @@ pub mod tests {
                     EventLogEntry::TraceClock(lc(pid_raw, 1, 1)),
                     EventLogEntry::TraceClock(lc(pid_raw, 1, 2)),
                     EventLogEntry::TraceClock(lc(pid_raw_2, 1, 1)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
         );
 
-        let fourth_report = collector.collect_report().unwrap();
+        probe.record_event(ev(2));
+
+        let fourth_report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             fourth_report,
             Report {
@@ -869,7 +907,10 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 1, 2), lc(pid_raw_2, 1, 1)],
                 persistent_epoch_counting: false,
-                event_log: vec![],
+                event_log: vec![
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
             }
         );
     }
@@ -952,7 +993,11 @@ pub mod tests {
         }
     }
 
-    impl MemoryAccessor for HashMapMemAccessor {
+    impl Target for HashMapMemAccessor {
+        fn reset(&mut self) -> Result<(), TargetError> {
+            unimplemented!()
+        }
+
         fn read_word(&mut self, addr: Word) -> Result<Word, TargetError> {
             self.read_32(addr).map(|res| Word::U32(res))
         }
@@ -990,10 +1035,10 @@ pub mod tests {
 
         let mut collector = Collector::initialize(
             &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
-            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
         )
         .unwrap();
-        let report = collector.collect_report().unwrap();
+        let report = collector.collect_report().unwrap().unwrap();
 
         assert_eq!(
             report,
@@ -1005,7 +1050,8 @@ pub mod tests {
                 event_log: vec![
                     EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
                     EventLogEntry::Event(ev(3)),
-                    EventLogEntry::Event(ev(4))
+                    EventLogEntry::Event(ev(4)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -1031,10 +1077,10 @@ pub mod tests {
 
         let mut collector = Collector::initialize(
             &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
-            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
         )
         .unwrap();
-        let report = collector.collect_report().unwrap();
+        let report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             report,
             Report {
@@ -1046,7 +1092,8 @@ pub mod tests {
                     EventLogEntry::Event(ev(1)),
                     EventLogEntry::Event(ev(2)),
                     EventLogEntry::Event(ev(3)),
-                    EventLogEntry::Event(ev(4))
+                    EventLogEntry::Event(ev(4)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -1072,10 +1119,10 @@ pub mod tests {
 
         let mut collector = Collector::initialize(
             &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
-            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
         )
         .unwrap();
-        let report = collector.collect_report().unwrap();
+        let report = collector.collect_report().unwrap().unwrap();
 
         assert_eq!(
             report,
@@ -1089,7 +1136,8 @@ pub mod tests {
                     EventLogEntry::Event(ev(3)),
                     EventLogEntry::Event(ev(4)),
                     EventLogEntry::Event(ev(5)),
-                    EventLogEntry::Event(ev(6))
+                    EventLogEntry::Event(ev(6)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -1120,10 +1168,10 @@ pub mod tests {
 
         let mut collector = Collector::initialize(
             &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
-            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
         )
         .unwrap();
-        let report = collector.collect_report().unwrap();
+        let report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             report,
             Report {
@@ -1137,7 +1185,8 @@ pub mod tests {
                     EventLogEntry::Event(ev(1)),
                     EventLogEntry::Event(ev(2)),
                     EventLogEntry::Event(ev(3)),
-                    EventLogEntry::Event(ev(4))
+                    EventLogEntry::Event(ev(4)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -1156,7 +1205,7 @@ pub mod tests {
         mem_accessor.borrow_mut().set_write_seqn(16);
         mem_accessor.borrow_mut().set_overwrite_seqn(8);
 
-        let second_report = collector.collect_report().unwrap();
+        let second_report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             second_report,
             Report {
@@ -1172,7 +1221,8 @@ pub mod tests {
                     EventLogEntry::Event(ev(9)),
                     EventLogEntry::Event(ev(10)),
                     EventLogEntry::Event(ev(11)),
-                    EventLogEntry::Event(ev(12))
+                    EventLogEntry::Event(ev(12)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -1198,21 +1248,11 @@ pub mod tests {
 
         let mut collector = Collector::initialize(
             &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
-            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
         )
         .unwrap();
         let report = collector.collect_report().unwrap();
-        assert_eq!(
-            report,
-            Report {
-                probe_id,
-                probe_clock: lc(pid_raw, 0, 0),
-                seq_num: SequenceNumber(0),
-                frontier_clocks: vec![lc(pid_raw, 0, 0)],
-                event_log: vec![],
-                persistent_epoch_counting: false,
-            }
-        );
+        assert!(report.is_none());
     }
 
     /// Clock not read if only prefix has been written
@@ -1234,10 +1274,10 @@ pub mod tests {
 
         let mut collector = Collector::initialize(
             &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
-            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
         )
         .unwrap();
-        let report = collector.collect_report().unwrap();
+        let report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             report,
             Report {
@@ -1248,7 +1288,8 @@ pub mod tests {
                 event_log: vec![
                     EventLogEntry::Event(ev(1)),
                     EventLogEntry::Event(ev(2)),
-                    EventLogEntry::Event(ev(3))
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -1263,7 +1304,7 @@ pub mod tests {
         mem_accessor.borrow_mut().set_write_seqn(8);
         mem_accessor.borrow_mut().set_overwrite_seqn(4);
 
-        let second_report = collector.collect_report().unwrap();
+        let second_report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             second_report,
             Report {
@@ -1276,6 +1317,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(4)),
                     EventLogEntry::Event(ev(5)),
                     EventLogEntry::Event(ev(6)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -1301,10 +1343,10 @@ pub mod tests {
 
         let mut collector = Collector::initialize(
             &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
-            mem_accessor.clone() as Rc<RefCell<dyn MemoryAccessor>>,
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
         )
         .unwrap();
-        let report = collector.collect_report().unwrap();
+        let report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             report,
             Report {
@@ -1315,7 +1357,8 @@ pub mod tests {
                 event_log: vec![
                     EventLogEntry::Event(ev(1)),
                     EventLogEntry::Event(ev(2)),
-                    EventLogEntry::Event(ev(3))
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }
@@ -1330,7 +1373,7 @@ pub mod tests {
         mem_accessor.borrow_mut().set_write_seqn(8);
         mem_accessor.borrow_mut().set_overwrite_seqn(4);
 
-        let second_report = collector.collect_report().unwrap();
+        let second_report = collector.collect_report().unwrap().unwrap();
         assert_eq!(
             second_report,
             Report {
@@ -1343,6 +1386,7 @@ pub mod tests {
                     EventLogEntry::Event(ev(6)),
                     EventLogEntry::Event(ev(7)),
                     EventLogEntry::Event(ev(8)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
             }

@@ -8,10 +8,12 @@ use structopt::StructOpt;
 
 use goblin::elf::Elf;
 
-use modality_probe_debug_collector::{Config, ProbeAddr, Target, Word};
+use modality_probe_debug_collector::{Config, ProbeAddr, TargetConfig, Word};
 
 #[derive(Debug, Error)]
-pub enum CLIError {
+pub enum CliError {
+    #[error(display = "Must provide at least one probe symbol/address")]
+    NoSymbolsGiven,
     #[error(display = "Address is not valid or too large \"{}\"", _0)]
     AddressNotValid(String),
     #[error(display = "Error opening ELF file")]
@@ -19,7 +21,7 @@ pub enum CLIError {
     #[error(display = "Symbols were given but no elf file was specified")]
     MissingElfFileError,
     #[error(display = "Given interval not a valid duration: {}", _0)]
-    InvalidInterval(String),
+    InvalidDuration(String),
     #[error(display = "Symbol not found in given ELF file: \"{}\"", _0)]
     SymbolNotFound(String),
 }
@@ -53,19 +55,25 @@ pub struct CLIOptions {
         conflicts_with = "gdb-addr",
         required_unless = "gdb-addr"
     )]
-    attach: Option<String>,
+    chip_type: Option<String>,
 
     /// Address of gdb server to connect to
-    #[structopt(short = "g", long = "gdb-addr", required_unless = "attach")]
+    #[structopt(short = "g", long = "gdb-addr", required_unless = "chip-type")]
     gdb_addr: Option<SocketAddrV4>,
 
     /// Interval between log collections. Ex: "2 min 15 sec 500 milli 250 micro"
     #[structopt(short = "i", long = "interval")]
-    interval: String,
+    interval_duration: String,
 
     /// Output file location
-    #[structopt(short = "o", long = "output-file", parse(from_os_str))]
+    #[structopt(short = "o", long = "output", parse(from_os_str))]
     output_path: PathBuf,
+
+    /// Specifies that the target device's execution should be reset and allowed to run for the given
+    /// duration before the debug collector begins to read from the device. Must allow enough time
+    /// for probes to be initialized.
+    #[structopt(short = "r", long = "reset")]
+    init_timeout: Option<String>,
 
     /// Symbols and/or raw addresses of probes or probe pointers.
     /// Raw addresses should be in hex format, prefixed with '0x' or '0X'
@@ -75,7 +83,10 @@ pub struct CLIOptions {
 }
 
 /// Turn CLI options into configuration for the collector
-pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, CLIError> {
+pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, CliError> {
+    if options.probe_syms.is_empty() {
+        return Err(CliError::NoSymbolsGiven);
+    }
     let mut elf_buf = Vec::new();
     let (use_64_bit, elf_file_opt) = if let Some(elf_path) = options.elf_path.as_ref() {
         let elf_file = open_elf(&elf_path, &mut elf_buf)?;
@@ -116,22 +127,32 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, CLIErro
             }
         }
     } else if !symbols.is_empty() {
-        return Err(CLIError::MissingElfFileError);
+        return Err(CliError::MissingElfFileError);
     }
 
-    let interval = parse_duration::parse(&options.interval)
-        .map_err(|_e| CLIError::InvalidInterval(options.interval.to_string()))?;
+    let interval = parse_duration::parse(&options.interval_duration)
+        .map_err(|_e| CliError::InvalidDuration(options.interval_duration.to_string()))?;
 
-    let target = if let Some(probe_rs_target) = options.attach {
-        Target::ProbeRsTarget(probe_rs_target)
+    let init_timeout = if let Some(timeout) = options.init_timeout.as_ref() {
+        Some(
+            parse_duration::parse(timeout)
+                .map_err(|_e| CliError::InvalidDuration(timeout.to_string()))?,
+        )
+    } else {
+        None
+    };
+
+    let target = if let Some(probe_rs_target) = options.chip_type {
+        TargetConfig::ProbeRsTarget(probe_rs_target)
     } else if let Some(gdb_addr) = options.gdb_addr {
-        Target::GdbAddr(gdb_addr)
+        TargetConfig::GdbAddr(gdb_addr)
     } else {
         // StructOpt will exit if neither are provided
         unreachable!()
     };
 
     Ok(modality_probe_debug_collector::Config {
+        init_timeout,
         session_id: options.session_id.into(),
         target,
         interval,
@@ -141,7 +162,7 @@ pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, CLIErro
 }
 
 /// Parse a probe address from a given argument, or return none in case of a symbol
-fn parse_probe_address(input: &str, use_64_bit: bool) -> Result<Option<ProbeAddr>, CLIError> {
+fn parse_probe_address(input: &str, use_64_bit: bool) -> Result<Option<ProbeAddr>, CliError> {
     let is_address = ["0x", "0X", "*0x", "*0X"]
         .iter()
         .any(|prefix| input.starts_with(prefix));
@@ -156,12 +177,12 @@ fn parse_probe_address(input: &str, use_64_bit: bool) -> Result<Option<ProbeAddr
         .trim_start_matches("0x")
         .trim_start_matches("0X");
     let addr = u64::from_str_radix(trimmed, 16)
-        .map_err(|_e| CLIError::AddressNotValid(input.to_string()))?;
+        .map_err(|_e| CliError::AddressNotValid(input.to_string()))?;
     let addr_word = if use_64_bit {
         Word::U64(addr)
     } else {
         let addr_32 =
-            u32::try_from(addr).map_err(|_e| CLIError::AddressNotValid(input.to_string()))?;
+            u32::try_from(addr).map_err(|_e| CliError::AddressNotValid(input.to_string()))?;
         Word::U32(addr_32)
     };
     if input.starts_with('*') {
@@ -172,11 +193,11 @@ fn parse_probe_address(input: &str, use_64_bit: bool) -> Result<Option<ProbeAddr
 }
 
 /// Open elf file for parsing
-fn open_elf<'a>(path: &PathBuf, elf_buf: &'a mut Vec<u8>) -> Result<Elf<'a>, CLIError> {
-    let mut file = File::open(path).map_err(|_e| CLIError::ElfFileError)?;
+fn open_elf<'a>(path: &PathBuf, elf_buf: &'a mut Vec<u8>) -> Result<Elf<'a>, CliError> {
+    let mut file = File::open(path).map_err(|_e| CliError::ElfFileError)?;
     file.read_to_end(elf_buf)
-        .map_err(|_e| CLIError::ElfFileError)?;
-    Elf::parse(elf_buf).map_err(|_e| CLIError::ElfFileError)
+        .map_err(|_e| CliError::ElfFileError)?;
+    Elf::parse(elf_buf).map_err(|_e| CliError::ElfFileError)
 }
 
 /// Get value and size of given symbol, or None if symbol cannot be found
@@ -184,7 +205,7 @@ fn parse_symbol_info(
     elf_file: &Elf,
     symbol_name: &str,
     use_64_bit: bool,
-) -> Result<Word, CLIError> {
+) -> Result<Word, CliError> {
     let log_sym = elf_file
         .syms
         .iter()
@@ -196,12 +217,12 @@ fn parse_symbol_info(
                 false
             }
         })
-        .ok_or_else(|| CLIError::SymbolNotFound(symbol_name.to_string()))?;
+        .ok_or_else(|| CliError::SymbolNotFound(symbol_name.to_string()))?;
     if use_64_bit {
         Ok(Word::U64(log_sym.st_value))
     } else {
         let val_32 = u32::try_from(log_sym.st_value)
-            .map_err(|_e| CLIError::AddressNotValid(symbol_name.to_string()))?;
+            .map_err(|_e| CliError::AddressNotValid(symbol_name.to_string()))?;
         Ok(Word::U32(val_32))
     }
 }
@@ -258,15 +279,16 @@ mod tests {
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
-                --output-file ./out \
+                --output ./out \
                 0x100"
                 )
                 .unwrap()
             )
             .unwrap(),
             Config {
+                init_timeout: None,
                 session_id: 0.into(),
-                target: Target::ProbeRsTarget("stm32".to_string()),
+                target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
                 probe_addrs: vec![ProbeAddr::Addr(Word::U32(0x100))]
@@ -284,20 +306,36 @@ mod tests {
                 --session-id 0 \
                 --gdb-addr 127.0.0.1:3000 \
                 --interval 1s \
-                --output-file ./out \
+                --output ./out \
                 0x100"
                 )
                 .unwrap()
             )
             .unwrap(),
             Config {
+                init_timeout: None,
                 session_id: 0.into(),
-                target: Target::GdbAddr(SocketAddrV4::from_str("127.0.0.1:3000").unwrap()),
+                target: TargetConfig::GdbAddr(SocketAddrV4::from_str("127.0.0.1:3000").unwrap()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
                 probe_addrs: vec![ProbeAddr::Addr(Word::U32(0x100))]
             }
         )
+    }
+
+    /// Should error if no probe symbols/addresses supplied
+    #[test]
+    fn error_on_no_probes() {
+        assert!(config_from_options(
+            options_from_str(
+                "modality-probe-debug-collector \
+            --attach stm32 \
+            --interval 1s \
+            --output ./out",
+            )
+            .unwrap()
+        )
+        .is_err());
     }
 
     /// Should error if both attach target and gdb server specified
@@ -309,7 +347,7 @@ mod tests {
             --attach stm32 \
             --gdb-server 127.0.0.1:3000 \
             --interval 1s \
-            --output-file ./out \
+            --output ./out \
             0x100",
         )
         .is_err());
@@ -322,7 +360,7 @@ mod tests {
             "modality-probe-debug-collector \
             --session-id 0 \
             --interval 1s \
-            --output-file ./out \
+            --output ./out \
             0x100",
         )
         .is_err());
@@ -338,7 +376,7 @@ mod tests {
             --attach stm32 \
             --elf ./nonexistent
             --interval 1s \
-            --output-file ./out \
+            --output ./out \
             0x100 symbol",
             )
             .unwrap()
@@ -356,7 +394,7 @@ mod tests {
             --attach stm32 \
             --elf ./Cargo.toml
             --interval 1s \
-            --output-file ./out \
+            --output ./out \
             0x100 symbol",
             )
             .unwrap()
@@ -375,7 +413,7 @@ mod tests {
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
-                --output-file ./out \
+                --output ./out \
                 --32-bit \
                 --elf {} \
                 v1 v2 v3",
@@ -385,8 +423,9 @@ mod tests {
             )
             .unwrap(),
             Config {
+                init_timeout: None,
                 session_id: 0.into(),
-                target: Target::ProbeRsTarget("stm32".to_string()),
+                target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
                 probe_addrs: vec![
@@ -409,7 +448,7 @@ mod tests {
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
-                --output-file ./out \
+                --output ./out \
                 --elf {} \
                 --32-bit \
                 0X1 v1 v2 0x10 v3 0X100",
@@ -419,8 +458,9 @@ mod tests {
             )
             .unwrap(),
             Config {
+                init_timeout: None,
                 session_id: 0.into(),
-                target: Target::ProbeRsTarget("stm32".to_string()),
+                target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
                 probe_addrs: vec![
@@ -445,7 +485,7 @@ mod tests {
             --32-bit \
             --attach stm32 \
             --interval 1s \
-            --output-file ./out \
+            --output ./out \
             0x100",
         )
         .is_err());
@@ -463,7 +503,7 @@ mod tests {
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
-                --output-file ./out \
+                --output ./out \
                 --elf {} \
                 0x1",
                     EMPTY_BIN_PATH
@@ -472,8 +512,9 @@ mod tests {
             )
             .unwrap(),
             Config {
+                init_timeout: None,
                 session_id: 0.into(),
-                target: Target::ProbeRsTarget("stm32".to_string()),
+                target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
                 probe_addrs: vec![ProbeAddr::Addr(Word::U64(0x1))]
@@ -492,7 +533,7 @@ mod tests {
                 --session-id 0 \
                 --attach stm32 \
                 --interval 1s \
-                --output-file ./out \
+                --output ./out \
                 --elf {} \
                 *0X1 v1 *v2 *0x10 *v3 0x100",
                     SYMBOLS_32_BIN_PATH
@@ -501,8 +542,9 @@ mod tests {
             )
             .unwrap(),
             Config {
+                init_timeout: None,
                 session_id: 0.into(),
-                target: Target::ProbeRsTarget("stm32".to_string()),
+                target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
                 probe_addrs: vec![
@@ -528,7 +570,7 @@ mod tests {
                     --session-id 0 \
                     --attach stm32 \
                     --interval 1s \
-                    --output-file ./out \
+                    --output ./out \
                     --64-bit \
                     *0X1 0x10 *0x100"
                 ))
@@ -536,8 +578,9 @@ mod tests {
             )
             .unwrap(),
             Config {
+                init_timeout: None,
                 session_id: 0.into(),
-                target: Target::ProbeRsTarget("stm32".to_string()),
+                target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
                 probe_addrs: vec![
