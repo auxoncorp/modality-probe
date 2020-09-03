@@ -44,11 +44,11 @@ pub struct CLIOptions {
     #[structopt(long = "64-bit")]
     word_size_64: bool,
 
-    /// Path of ELF file for endianness and symbol resolution
+    /// Path of ELF file for symbol resolution and/or architecture detection
     #[structopt(short = "e", long = "elf", parse(from_os_str))]
     elf_path: Option<PathBuf>,
 
-    /// Chip type of target system to attach to
+    /// Chip type of target device for direct attachment
     #[structopt(
         short = "a",
         long = "attach",
@@ -57,21 +57,21 @@ pub struct CLIOptions {
     )]
     chip_type: Option<String>,
 
-    /// Address of gdb server to connect to
+    /// Address of gdb server attached to chip
     #[structopt(short = "g", long = "gdb-addr", required_unless = "chip-type")]
     gdb_addr: Option<SocketAddrV4>,
 
-    /// Interval between log collections. Ex: "2 min 15 sec 500 milli 250 micro"
+    /// Interval between collection rounds Ex: "2 min 15 sec 500 milli 250 micro"
     #[structopt(short = "i", long = "interval")]
     interval_duration: String,
 
-    /// Output file location
+    /// Output file path
     #[structopt(short = "o", long = "output", parse(from_os_str))]
     output_path: PathBuf,
 
-    /// Specifies that the target device's execution should be reset and allowed to run for the given
-    /// duration before the debug collector begins to read from the device. Must allow enough time
-    /// for probes to be initialized.
+    /// Reset the execution of the target device upon starting the collector, then wait 
+    /// `init-timeout` before attempting to read from probe state. If the initialization timeout is not long enough,
+    /// the collector may error when attempting to read uninitialized probe state.
     #[structopt(short = "r", long = "reset")]
     init_timeout: Option<String>,
 
