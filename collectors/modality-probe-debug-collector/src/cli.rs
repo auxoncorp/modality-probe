@@ -69,7 +69,7 @@ pub struct CLIOptions {
     #[structopt(short = "o", long = "output", parse(from_os_str))]
     output_path: PathBuf,
 
-    /// Reset the execution of the target device upon starting the collector, then wait 
+    /// Reset the execution of the target device upon starting the collector, then wait
     /// `init-timeout` before attempting to read from probe state. If the initialization timeout is not long enough,
     /// the collector may error when attempting to read uninitialized probe state.
     #[structopt(short = "r", long = "reset")]
