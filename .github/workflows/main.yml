@@ -7,7 +7,7 @@ jobs:
     name: Linux
     runs-on: ubuntu-latest
     steps:
-      - name: Install system packages
+      - name: Install libusb
         run: sudo apt-get install -y libusb-1.0-0-dev
       - name: install dot
         run: sudo apt-get install -y graphviz

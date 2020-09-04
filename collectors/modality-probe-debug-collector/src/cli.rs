@@ -31,7 +31,7 @@ pub enum CliError {
     name = "modality-probe-debug-collector",
     about = "Periodically collects logs from microcontrollers over debug interfaces; outputs them to a file."
 )]
-pub struct CLIOptions {
+pub struct Opts {
     /// Session id to associate with the collected trace data
     #[structopt(short = "s", long = "session-id", default_value = "0")]
     session_id: u32,
@@ -83,7 +83,7 @@ pub struct CLIOptions {
 }
 
 /// Turn CLI options into configuration for the collector
-pub(crate) fn config_from_options(options: CLIOptions) -> Result<Config, CliError> {
+pub(crate) fn config_from_options(options: Opts) -> Result<Config, CliError> {
     if options.probe_syms.is_empty() {
         return Err(CliError::NoSymbolsGiven);
     }
@@ -265,8 +265,8 @@ mod tests {
         }
     }
 
-    fn options_from_str(input: &str) -> Result<CLIOptions, structopt::clap::Error> {
-        CLIOptions::from_iter_safe(input.split(" "))
+    fn options_from_str(input: &str) -> Result<Opts, structopt::clap::Error> {
+        Opts::from_iter_safe(input.split(" "))
     }
 
     /// Test basic parsing

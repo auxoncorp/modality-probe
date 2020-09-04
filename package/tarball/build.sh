@@ -56,7 +56,8 @@ LLVM_STRIP=`find $(rustc --print sysroot) -name llvm-strip`
     cross build --release --target "$BINARY_TARGET_TRIPLE" \
         -p modality-probe-udp-collector --bin modality-probe-udp-collector
 
-    cross build --release --target "$BINARY_TARGET_TRIPLE" \
+    # Requires toolchain of target binary to be installed
+    PKG_CONFIG_ALLOW_CROSS=1 cargo build --release --target "$BINARY_TARGET_TRIPLE" \
         -p modality-probe-debug-collector --bin modality-probe-debug-collector
 
     $LLVM_STRIP --strip-unneeded --strip-debug \
