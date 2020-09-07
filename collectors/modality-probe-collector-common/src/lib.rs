@@ -51,7 +51,7 @@ newtype! {
 
 newtype! {
     /// A log report sequence number
-    #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Copy, Clone)]
+    #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Copy, Clone, Ord, PartialOrd)]
     pub struct SequenceNumber(pub u64);
 }
 
