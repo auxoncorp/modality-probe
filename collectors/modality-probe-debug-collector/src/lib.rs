@@ -15,8 +15,12 @@ use std::time::Duration;
 use crossbeam_channel as channel;
 use err_derive::Error;
 use probe_rs::{MemoryInterface, Session};
+
+#[cfg(not(target_os = "windows"))]
 use regex::Regex;
+#[cfg(not(target_os = "windows"))]
 use rexpect::session::PtySession;
+#[cfg(not(target_os = "windows"))]
 #[macro_use]
 extern crate lazy_static;
 
@@ -151,16 +155,22 @@ pub enum TargetError {
     ProbeRsError(probe_rs::Error),
     #[error(display = "Cannot directly attach to 64 bit chips")]
     MustBe32Bit,
+    #[cfg(not(target_os = "windows"))]
     #[error(display = "Error interacting with gdb process: {}", _0)]
     GdbProcError(rexpect::errors::Error),
+    #[cfg(not(target_os = "windows"))]
     #[error(display = "Error loading program binary in gdb: {}", _0)]
     GdbElfError(rexpect::errors::Error),
+    #[cfg(not(target_os = "windows"))]
     #[error(display = "Error connecting to gdb server: {}", _0)]
     GdbConnectionError(rexpect::errors::Error),
+    #[cfg(not(target_os = "windows"))]
     #[error(display = "Gdb error: {}", _0)]
     GdbError(String),
+    #[cfg(not(target_os = "windows"))]
     #[error(display = "Unexpected output from gdb:\n {}", _0)]
     UnexpectedGdbOutput(String),
+    #[cfg(not(target_os = "windows"))]
     #[error(display = "Unexpected memory contents response:\n {}", _0)]
     InvalidGdbMemoryOutput(String),
 }
@@ -238,11 +248,13 @@ impl Target for ProbeRsTarget {
 }
 
 /// Target that connects to a remote gdb server to access memory
+#[cfg(not(target_os = "windows"))]
 struct GdbTarget {
     session: PtySession,
     endian: Endian,
 }
 
+#[cfg(not(target_os = "windows"))]
 impl GdbTarget {
     fn new(
         addr: SocketAddrV4,
@@ -330,6 +342,7 @@ impl GdbTarget {
     }
 }
 
+#[cfg(not(target_os = "windows"))]
 impl Target for GdbTarget {
     fn reset(&mut self) -> Result<(), TargetError> {
         self.send_command("-interpreter-exec console \"monitor reset\"")?;
@@ -421,6 +434,7 @@ fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn Target>>, TargetError>
             Ok(Rc::new(RefCell::new(ProbeRsTarget::new(target)?)))
         }
         // No probe rs target implies use of gdb, which is not implemented yet
+        #[cfg(not(target_os = "windows"))]
         TargetConfig::GdbTarget { addr, bin } => {
             // Safe because elf path is required by structopt if gdb is used
             let elf_path = c.elf_path.clone().unwrap();
@@ -430,6 +444,11 @@ fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn Target>>, TargetError>
                 elf_path,
                 c.endian,
             )?)))
+        }
+        #[cfg(target_os = "windows")]
+        TargetConfig::GdbTarget { addr: _, bin: _ } => {
+            println!("Connecting to a GDB server is currently not supported on windows");
+            std::process::exit(0);
         }
     }
 }

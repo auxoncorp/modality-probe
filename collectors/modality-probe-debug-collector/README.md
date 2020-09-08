@@ -49,6 +49,8 @@ one single-core cpu linked to the host (collector-side) device.
 
 #### Connect to a GDB server
 
+Note: This feature is currently unavailable for windows.
+
 Alternatively, a GDB server like OpenOCD, pyOCD, etc, can be used to connect to the chip.
 For example, to use OpenOCD, first download and install [OpenOCD](http://openocd.org/). Then,
 we will create a configuration file. For the [NUCLEO-F767ZI board](https://www.st.com/en/evaluation-tools/nucleo-f767zi.html), our configuration file will have the following contents:
