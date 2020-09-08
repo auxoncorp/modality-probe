@@ -8,7 +8,7 @@ use structopt::StructOpt;
 
 use goblin::elf::Elf;
 
-use modality_probe_debug_collector::{Config, ProbeAddr, TargetConfig, Word};
+use modality_probe_debug_collector::{Config, Endian, ProbeAddr, TargetConfig, Word};
 
 #[derive(Debug, Error)]
 pub enum CliError {
@@ -44,6 +44,14 @@ pub struct Opts {
     #[structopt(long = "64-bit")]
     word_size_64: bool,
 
+    /// Specifies little endian architecture of target system
+    #[structopt(short = "le", long = "little-endian", conflicts_with = "big-endian")]
+    little_endian: bool,
+
+    /// Specifies big endian architecture of target system
+    #[structopt(short = "be", long = "big-endian")]
+    big_endian: bool,
+
     /// Path of ELF file for symbol resolution and/or architecture detection
     #[structopt(short = "e", long = "elf", parse(from_os_str))]
     elf_path: Option<PathBuf>,
@@ -58,8 +66,12 @@ pub struct Opts {
     chip_type: Option<String>,
 
     /// Address of gdb server attached to chip
-    #[structopt(short = "g", long = "gdb-addr", required_unless = "chip-type")]
+    #[structopt(short = "c", long = "gdb-addr", required_unless = "chip-type", requires_all = &["gdb-bin", "elf-path"])]
     gdb_addr: Option<SocketAddrV4>,
+
+    /// Gdb client binary that should be used to connect to the remote server
+    #[structopt(short = "g", long = "gdb-bin", required_unless = "chip-type", requires_all = &["gdb-addr", "elf-path"])]
+    gdb_bin: Option<String>,
 
     /// Interval between collection rounds Ex: "2 min 15 sec 500 milli 250 micro"
     #[structopt(short = "i", long = "interval")]
@@ -88,7 +100,7 @@ pub(crate) fn config_from_options(options: Opts) -> Result<Config, CliError> {
         return Err(CliError::NoSymbolsGiven);
     }
     let mut elf_buf = Vec::new();
-    let (use_64_bit, elf_file_opt) = if let Some(elf_path) = options.elf_path.as_ref() {
+    let (use_64_bit, endian, elf_file_opt) = if let Some(elf_path) = options.elf_path.as_ref() {
         let elf_file = open_elf(&elf_path, &mut elf_buf)?;
         let use_64_bit = if !options.word_size_32 && !options.word_size_64 {
             const HEADER_SIZE_32: u16 = 52;
@@ -99,13 +111,28 @@ pub(crate) fn config_from_options(options: Opts) -> Result<Config, CliError> {
         } else {
             options.word_size_64
         };
-        (use_64_bit, Some(elf_file))
+
+        let endian = if options.little_endian || (elf_file.little_endian && !options.big_endian) {
+            Endian::Little
+        } else {
+            Endian::Big
+        };
+
+        (use_64_bit, endian, Some(elf_file))
     } else {
         // Use 32 bit unless otherwise specified
         if !options.word_size_32 && !options.word_size_64 {
             println!("Warning: Pointer width not specified; using 32 bit");
         }
-        (options.word_size_64, None)
+        let endian = if options.big_endian {
+            Endian::Big
+        } else if options.little_endian {
+            Endian::Little
+        } else {
+            println!("Warning: Endianness not specified; using little");
+            Endian::Little
+        };
+        (options.word_size_64, endian, None)
     };
 
     let mut probe_addrs = Vec::new();
@@ -145,18 +172,24 @@ pub(crate) fn config_from_options(options: Opts) -> Result<Config, CliError> {
     let target = if let Some(probe_rs_target) = options.chip_type {
         TargetConfig::ProbeRsTarget(probe_rs_target)
     } else if let Some(gdb_addr) = options.gdb_addr {
-        TargetConfig::GdbAddr(gdb_addr)
+        TargetConfig::GdbTarget {
+            addr: gdb_addr,
+            // If addr is present, bin will also be present
+            bin: options.gdb_bin.unwrap(),
+        }
     } else {
         // StructOpt will exit if neither are provided
         unreachable!()
     };
 
-    Ok(modality_probe_debug_collector::Config {
+    Ok(Config {
         init_timeout,
         session_id: options.session_id.into(),
         target,
+        endian,
         interval,
         output_path: options.output_path,
+        elf_path: options.elf_path,
         probe_addrs,
     })
 }
@@ -236,11 +269,56 @@ mod tests {
     use std::str::from_utf8;
     use std::str::FromStr;
     use std::time::Duration;
+    use tempfile::{NamedTempFile, TempPath};
 
     const SYMBOLS_32_BIN_PATH: &str =
         "./tests/symbols-example/target/thumbv7em-none-eabihf/debug/symbols-example";
     #[cfg(all(target_pointer_width = "64", target_os = "linux"))]
     const EMPTY_BIN_PATH: &str = "./tests/empty-example/target/debug/empty-example";
+    const BE_BIN_RAW: [u8; 616] = [
+        0x7f, 0x45, 0x4c, 0x46, 0x01, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x02, 0x00, 0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x34, 0x00, 0x00, 0x01, 0x50, 0x05, 0x00, 0x02, 0x00, 0x00, 0x34, 0x00, 0x20, 0x00,
+        0x03, 0x00, 0x28, 0x00, 0x07, 0x00, 0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x34,
+        0xff, 0xff, 0xf0, 0x34, 0xff, 0xff, 0xf0, 0x34, 0x00, 0x00, 0x00, 0x60, 0x00, 0x00, 0x00,
+        0x60, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+        0x00, 0x00, 0xff, 0xff, 0xf0, 0x00, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x94, 0x00,
+        0x00, 0x00, 0x94, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x10, 0x00, 0x64, 0x74, 0xe5, 0x51,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x41, 0x00,
+        0x00, 0x00, 0x2f, 0x61, 0x65, 0x61, 0x62, 0x69, 0x00, 0x01, 0x00, 0x00, 0x00, 0x25, 0x43,
+        0x32, 0x2e, 0x30, 0x39, 0x00, 0x06, 0x0a, 0x07, 0x52, 0x08, 0x01, 0x09, 0x02, 0x0e, 0x00,
+        0x11, 0x01, 0x14, 0x02, 0x15, 0x00, 0x17, 0x03, 0x18, 0x01, 0x19, 0x01, 0x22, 0x01, 0x26,
+        0x01, 0x4c, 0x69, 0x6e, 0x6b, 0x65, 0x72, 0x3a, 0x20, 0x4c, 0x4c, 0x44, 0x20, 0x39, 0x2e,
+        0x30, 0x2e, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0xff, 0xf1, 0x00, 0x2e, 0x64, 0x65, 0x62, 0x75, 0x67,
+        0x5f, 0x61, 0x72, 0x61, 0x6e, 0x67, 0x65, 0x73, 0x00, 0x2e, 0x41, 0x52, 0x4d, 0x2e, 0x61,
+        0x74, 0x74, 0x72, 0x69, 0x62, 0x75, 0x74, 0x65, 0x73, 0x00, 0x2e, 0x63, 0x6f, 0x6d, 0x6d,
+        0x65, 0x6e, 0x74, 0x00, 0x2e, 0x73, 0x79, 0x6d, 0x74, 0x61, 0x62, 0x00, 0x2e, 0x73, 0x68,
+        0x73, 0x74, 0x72, 0x74, 0x61, 0x62, 0x00, 0x2e, 0x73, 0x74, 0x72, 0x74, 0x61, 0x62, 0x00,
+        0x00, 0x34, 0x72, 0x35, 0x67, 0x64, 0x39, 0x73, 0x6b, 0x66, 0x68, 0x32, 0x33, 0x37, 0x66,
+        0x6b, 0x62, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
+        0x70, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x94, 0x00, 0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x01, 0x00,
+        0x00, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc4, 0x00, 0x00, 0x00, 0x12,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00, 0x29, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0xd8, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x06, 0x00,
+        0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x31,
+        0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0xf8, 0x00, 0x00, 0x00, 0x43, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3b, 0x00, 0x00, 0x00, 0x03, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x3b, 0x00, 0x00, 0x00, 0x12,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x00,
+    ];
 
     fn compile_symbol_example() {
         let out = Command::new("cargo")
@@ -263,6 +341,12 @@ mod tests {
         if !out.stderr.is_empty() {
             println!("{}", from_utf8(&out.stderr[..]).unwrap())
         }
+    }
+
+    fn create_be_example() -> TempPath {
+        let mut file = NamedTempFile::new().unwrap();
+        file.as_file_mut().write(&BE_BIN_RAW).unwrap();
+        file.into_temp_path()
     }
 
     fn options_from_str(input: &str) -> Result<Opts, structopt::clap::Error> {
@@ -288,9 +372,11 @@ mod tests {
             Config {
                 init_timeout: None,
                 session_id: 0.into(),
+                endian: Endian::Little,
                 target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
+                elf_path: None,
                 probe_addrs: vec![ProbeAddr::Addr(Word::U32(0x100))]
             }
         )
@@ -301,22 +387,30 @@ mod tests {
     fn specify_gdb_server() {
         assert_eq!(
             config_from_options(
-                options_from_str(
+                options_from_str(&format!(
                     "modality-probe-debug-collector \
                 --session-id 0 \
                 --gdb-addr 127.0.0.1:3000 \
+                --gdb-bin gdb-multiarch \
+                --elf {} \
                 --interval 1s \
                 --output ./out \
-                0x100"
-                )
+                0x100",
+                    SYMBOLS_32_BIN_PATH
+                ))
                 .unwrap()
             )
             .unwrap(),
             Config {
                 init_timeout: None,
                 session_id: 0.into(),
-                target: TargetConfig::GdbAddr(SocketAddrV4::from_str("127.0.0.1:3000").unwrap()),
+                endian: Endian::Little,
+                target: TargetConfig::GdbTarget {
+                    addr: SocketAddrV4::from_str("127.0.0.1:3000").unwrap(),
+                    bin: "gdb-multiarch".to_string()
+                },
                 interval: Duration::from_millis(1000),
+                elf_path: Some(SYMBOLS_32_BIN_PATH.to_string().into()),
                 output_path: "./out".into(),
                 probe_addrs: vec![ProbeAddr::Addr(Word::U32(0x100))]
             }
@@ -424,10 +518,12 @@ mod tests {
             .unwrap(),
             Config {
                 init_timeout: None,
+                endian: Endian::Little,
                 session_id: 0.into(),
                 target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
+                elf_path: Some(SYMBOLS_32_BIN_PATH.to_string().into()),
                 probe_addrs: vec![
                     ProbeAddr::Addr(Word::U32(0x20000000)),
                     ProbeAddr::Addr(Word::U32(0x20000004)),
@@ -459,10 +555,12 @@ mod tests {
             .unwrap(),
             Config {
                 init_timeout: None,
+                endian: Endian::Little,
                 session_id: 0.into(),
                 target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
+                elf_path: Some(SYMBOLS_32_BIN_PATH.to_string().into()),
                 probe_addrs: vec![
                     ProbeAddr::Addr(Word::U32(0x1)),
                     ProbeAddr::Addr(Word::U32(0x10)),
@@ -513,9 +611,11 @@ mod tests {
             .unwrap(),
             Config {
                 init_timeout: None,
+                endian: Endian::Little,
                 session_id: 0.into(),
                 target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
+                elf_path: Some(EMPTY_BIN_PATH.to_string().into()),
                 output_path: "./out".into(),
                 probe_addrs: vec![ProbeAddr::Addr(Word::U64(0x1))]
             }
@@ -543,9 +643,11 @@ mod tests {
             .unwrap(),
             Config {
                 init_timeout: None,
+                endian: Endian::Little,
                 session_id: 0.into(),
                 target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
+                elf_path: Some(SYMBOLS_32_BIN_PATH.to_string().into()),
                 output_path: "./out".into(),
                 probe_addrs: vec![
                     ProbeAddr::PtrAddr(Word::U32(0x1)),
@@ -579,15 +681,154 @@ mod tests {
             .unwrap(),
             Config {
                 init_timeout: None,
+                endian: Endian::Little,
                 session_id: 0.into(),
                 target: TargetConfig::ProbeRsTarget("stm32".to_string()),
                 interval: Duration::from_millis(1000),
                 output_path: "./out".into(),
+                elf_path: None,
                 probe_addrs: vec![
                     ProbeAddr::PtrAddr(Word::U64(0x1)),
                     ProbeAddr::Addr(Word::U64(0x10)),
                     ProbeAddr::PtrAddr(Word::U64(0x100)),
                 ]
+            }
+        )
+    }
+
+    /// Should error if both big and little endian specified
+    #[test]
+    fn error_specify_both_endianness() {
+        assert!(options_from_str(
+            "modality-probe-debug-collector \
+            --session-id 0 \
+            --little-endian \
+            --big-endian \
+            --attach stm32 \
+            --interval 1s \
+            --output ./out \
+            0x100",
+        )
+        .is_err());
+    }
+
+    /// Default to little endian if none specified and no ELF given
+    #[test]
+    fn specify_neither_endianness() {
+        compile_symbol_example();
+        assert_eq!(
+            config_from_options(
+                options_from_str(
+                    "modality-probe-debug-collector \
+                --session-id 0 \
+                --attach stm32 \
+                --interval 1s \
+                --output ./out \
+                0x1"
+                )
+                .unwrap()
+            )
+            .unwrap(),
+            Config {
+                init_timeout: None,
+                session_id: 0.into(),
+                endian: Endian::Little,
+                target: TargetConfig::ProbeRsTarget("stm32".to_string()),
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                elf_path: None,
+                probe_addrs: vec![ProbeAddr::Addr(Word::U32(0x1))]
+            }
+        )
+    }
+
+    #[test]
+    fn specify_big_endian() {
+        compile_symbol_example();
+        assert_eq!(
+            config_from_options(
+                options_from_str(
+                    "modality-probe-debug-collector \
+                --session-id 0 \
+                --big-endian \
+                --attach stm32 \
+                --interval 1s \
+                --output ./out \
+                0x1"
+                )
+                .unwrap()
+            )
+            .unwrap(),
+            Config {
+                init_timeout: None,
+                session_id: 0.into(),
+                endian: Endian::Big,
+                target: TargetConfig::ProbeRsTarget("stm32".to_string()),
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                elf_path: None,
+                probe_addrs: vec![ProbeAddr::Addr(Word::U32(0x1))]
+            }
+        )
+    }
+
+    /// Imply endianness from ELF if not specified
+    #[test]
+    fn imply_endianness() {
+        compile_symbol_example();
+        assert_eq!(
+            config_from_options(
+                options_from_str(&format!(
+                    "modality-probe-debug-collector \
+                --session-id 0 \
+                --attach stm32 \
+                --interval 1s \
+                --output ./out \
+                --elf {} \
+                0x1",
+                    SYMBOLS_32_BIN_PATH
+                ))
+                .unwrap()
+            )
+            .unwrap(),
+            Config {
+                init_timeout: None,
+                session_id: 0.into(),
+                endian: Endian::Little,
+                target: TargetConfig::ProbeRsTarget("stm32".to_string()),
+                interval: Duration::from_millis(1000),
+                output_path: "./out".into(),
+                elf_path: Some(SYMBOLS_32_BIN_PATH.to_string().into()),
+                probe_addrs: vec![ProbeAddr::Addr(Word::U32(0x1))]
+            }
+        );
+
+        let be_example_path = create_be_example();
+        let be_example_path_str = be_example_path.to_str().unwrap().to_string();
+        assert_eq!(
+            config_from_options(
+                options_from_str(&format!(
+                    "modality-probe-debug-collector \
+                --session-id 0 \
+                --attach stm32 \
+                --interval 1s \
+                --output ./out \
+                --elf {} \
+                0x1",
+                    &be_example_path_str
+                ))
+                .unwrap()
+            )
+            .unwrap(),
+            Config {
+                init_timeout: None,
+                session_id: 0.into(),
+                endian: Endian::Big,
+                target: TargetConfig::ProbeRsTarget("stm32".to_string()),
+                interval: Duration::from_millis(1000),
+                elf_path: Some(be_example_path_str.into()),
+                output_path: "./out".into(),
+                probe_addrs: vec![ProbeAddr::Addr(Word::U32(0x1))]
             }
         )
     }

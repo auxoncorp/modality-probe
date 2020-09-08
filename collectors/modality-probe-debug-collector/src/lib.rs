@@ -15,6 +15,10 @@ use std::time::Duration;
 use crossbeam_channel as channel;
 use err_derive::Error;
 use probe_rs::{MemoryInterface, Session};
+use regex::Regex;
+use rexpect::session::PtySession;
+#[macro_use]
+extern crate lazy_static;
 
 use fenced_ring_buffer::async_reader::{FencedReader, Snapper};
 use fenced_ring_buffer::WholeEntry;
@@ -86,8 +90,10 @@ impl Add<u64> for Word {
 pub struct Config {
     pub session_id: SessionId,
     pub target: TargetConfig,
+    pub endian: Endian,
     pub interval: Duration,
     pub output_path: PathBuf,
+    pub elf_path: Option<PathBuf>,
     pub init_timeout: Option<Duration>,
     pub probe_addrs: Vec<ProbeAddr>,
 }
@@ -96,7 +102,14 @@ pub struct Config {
 #[derive(Debug, PartialEq)]
 pub enum TargetConfig {
     ProbeRsTarget(String),
-    GdbAddr(SocketAddrV4),
+    GdbTarget { addr: SocketAddrV4, bin: String },
+}
+
+/// Endianness of target architecture
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum Endian {
+    Little,
+    Big,
 }
 
 /// Struct representing a probe address, either the address of the probe itself or of
@@ -109,7 +122,7 @@ pub enum ProbeAddr {
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error(display = "Error interacting with target: {}", _0)]
+    #[error(display = "{}", _0)]
     TargetError(#[error(from)] TargetError),
     #[error(display = "There is no probe at address {:X}", _0)]
     NoProbeAtAddress(u64),
@@ -138,6 +151,18 @@ pub enum TargetError {
     ProbeRsError(probe_rs::Error),
     #[error(display = "Cannot directly attach to 64 bit chips")]
     MustBe32Bit,
+    #[error(display = "Error interacting with gdb process: {}", _0)]
+    GdbProcError(rexpect::errors::Error),
+    #[error(display = "Error loading program binary in gdb: {}", _0)]
+    GdbElfError(rexpect::errors::Error),
+    #[error(display = "Error connecting to gdb server: {}", _0)]
+    GdbConnectionError(rexpect::errors::Error),
+    #[error(display = "Gdb error: {}", _0)]
+    GdbError(String),
+    #[error(display = "Unexpected output from gdb:\n {}", _0)]
+    UnexpectedGdbOutput(String),
+    #[error(display = "Unexpected memory contents response:\n {}", _0)]
+    InvalidGdbMemoryOutput(String),
 }
 
 /// Trait used to specify backend used to access device memory
@@ -151,6 +176,20 @@ pub trait Target {
 
 /// Target that uses probe-rs to access device memory
 struct ProbeRsTarget(Session);
+
+impl ProbeRsTarget {
+    fn new(target: &str) -> Result<Self, TargetError> {
+        let probes = probe_rs::Probe::list_all();
+        if probes.is_empty() {
+            return Err(TargetError::NoProbesConnected);
+        }
+        let probe = probes[0]
+            .open()
+            .map_err(|e| TargetError::ProbeRsError(e.into()))?;
+        let session = probe.attach(target).map_err(TargetError::ProbeRsError)?;
+        Ok(ProbeRsTarget(session))
+    }
+}
 
 impl Target for ProbeRsTarget {
     fn reset(&mut self) -> Result<(), TargetError> {
@@ -194,6 +233,203 @@ impl Target for ProbeRsTarget {
         } else {
             // ProbeRs does not support 64 bit targets
             Err(TargetError::MustBe32Bit)
+        }
+    }
+}
+
+/// Target that connects to a remote gdb server to access memory
+struct GdbTarget {
+    session: PtySession,
+    endian: Endian,
+}
+
+impl GdbTarget {
+    fn new(
+        addr: SocketAddrV4,
+        gdb_bin: String,
+        elf_path: PathBuf,
+        endian: Endian,
+    ) -> Result<Self, TargetError> {
+        const TIMEOUT_MILLIS: u64 = 5_000;
+        let session = rexpect::session::spawn(
+            &format!("{} --interpreter mi", gdb_bin),
+            Some(TIMEOUT_MILLIS),
+        )
+        .map_err(TargetError::GdbProcError)?;
+        let mut target = GdbTarget { session, endian };
+        target
+            .send_command(&format!("-file-exec-and-symbols {}", elf_path.display()))
+            .map_err(|e| {
+                if let TargetError::GdbProcError(inner) = e {
+                    TargetError::GdbElfError(inner)
+                } else {
+                    e
+                }
+            })?;
+        target
+            .send_command(&format!("-target-select remote {}", addr))
+            .map_err(|e| {
+                if let TargetError::GdbProcError(inner) = e {
+                    TargetError::GdbConnectionError(inner)
+                } else {
+                    e
+                }
+            })?;
+        Ok(target)
+    }
+
+    fn send_command(&mut self, command: &str) -> Result<String, TargetError> {
+        self.session
+            .send_line(command)
+            .map_err(TargetError::GdbProcError)?;
+        let info = self
+            .session
+            .exp_char('^')
+            .map_err(TargetError::GdbProcError)?;
+        let output = self
+            .session
+            .exp_string("\r\n(gdb)")
+            .map_err(TargetError::GdbProcError)?;
+        lazy_static! {
+            static ref ERROR_RE: Regex = Regex::new(r"error,msg=(.*)").unwrap();
+        }
+        lazy_static! {
+            static ref SUCCEEDED_RE: Regex = Regex::new(r"(?:done|connected),?(.*)").unwrap();
+        }
+        if let Some(capture) = ERROR_RE.captures(&output) {
+            let msg = capture[1].to_string();
+            Err(TargetError::GdbError(msg))
+        } else if let Some(capture) = SUCCEEDED_RE.captures(&output) {
+            let res = capture[1].to_string();
+            Ok(res)
+        } else {
+            Err(TargetError::UnexpectedGdbOutput(format!(
+                "{}\n^{}",
+                info, output
+            )))
+        }
+    }
+
+    fn examine_memory(&mut self, addr: u64, n_bytes: u64) -> Result<String, TargetError> {
+        let res = self.send_command(&format!("-data-read-memory-bytes {} {}", addr, n_bytes))?;
+        lazy_static! {
+            static ref CONTENTS_RE: Regex =
+                Regex::new(r#"memory=\[\{.*contents="([0-9a-f]{2,})".*\}\]"#).unwrap();
+        }
+        if let Some(capture) = CONTENTS_RE.captures(&res) {
+            let bytes_str = capture[1].to_string();
+            Ok(bytes_str)
+        } else {
+            Err(TargetError::UnexpectedGdbOutput(res))
+        }
+    }
+
+    fn write_to_memory(&mut self, addr: u64, hex_str: String) -> Result<(), TargetError> {
+        self.send_command(&format!("-data-write-memory-bytes {} {}", addr, hex_str))?;
+        Ok(())
+    }
+}
+
+impl Target for GdbTarget {
+    fn reset(&mut self) -> Result<(), TargetError> {
+        self.send_command("-interpreter-exec console \"monitor reset\"")?;
+        self.send_command("-interpreter-exec console \"monitor resume\"")?;
+        Ok(())
+    }
+
+    fn read_word(&mut self, addr: Word) -> Result<Word, TargetError> {
+        match addr {
+            Word::U32(addr_raw) => {
+                let hex_str = self.examine_memory(addr_raw as u64, size_of::<u32>() as u64)?;
+                let bytes = hex::decode(&hex_str)
+                    .map_err(|_e| TargetError::InvalidGdbMemoryOutput(hex_str.clone()))?;
+                if bytes.len() != size_of::<u32>() {
+                    return Err(TargetError::InvalidGdbMemoryOutput(hex_str));
+                }
+                if self.endian == Endian::Little {
+                    Ok(Word::U32(u32::from_le_bytes([
+                        bytes[0], bytes[1], bytes[2], bytes[3],
+                    ])))
+                } else {
+                    Ok(Word::U32(u32::from_be_bytes([
+                        bytes[0], bytes[1], bytes[2], bytes[3],
+                    ])))
+                }
+            }
+            Word::U64(addr_raw) => {
+                let hex_str = self.examine_memory(addr_raw as u64, size_of::<u64>() as u64)?;
+                let bytes = hex::decode(&hex_str)
+                    .map_err(|_e| TargetError::InvalidGdbMemoryOutput(hex_str.clone()))?;
+                if bytes.len() != size_of::<u64>() {
+                    return Err(TargetError::InvalidGdbMemoryOutput(hex_str));
+                }
+                if self.endian == Endian::Little {
+                    Ok(Word::U64(u64::from_le_bytes([
+                        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6],
+                        bytes[7],
+                    ])))
+                } else {
+                    Ok(Word::U64(u64::from_be_bytes([
+                        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6],
+                        bytes[7],
+                    ])))
+                }
+            }
+        }
+    }
+
+    fn read_32(&mut self, addr: Word) -> Result<u32, TargetError> {
+        let hex_str = self.examine_memory(addr.into(), size_of::<u32>() as u64)?;
+        let bytes = hex::decode(&hex_str)
+            .map_err(|_e| TargetError::InvalidGdbMemoryOutput(hex_str.clone()))?;
+        if bytes.len() != size_of::<u32>() {
+            return Err(TargetError::InvalidGdbMemoryOutput(hex_str));
+        }
+        if self.endian == Endian::Little {
+            Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        } else {
+            Ok(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        }
+    }
+
+    fn read_byte(&mut self, addr: Word) -> Result<u8, TargetError> {
+        let hex_str = self.examine_memory(addr.into(), size_of::<u8>() as u64)?;
+        let bytes = hex::decode(&hex_str)
+            .map_err(|_e| TargetError::InvalidGdbMemoryOutput(hex_str.clone()))?;
+        if bytes.len() != size_of::<u8>() {
+            Err(TargetError::InvalidGdbMemoryOutput(hex_str))
+        } else {
+            Ok(bytes[0])
+        }
+    }
+
+    fn write_32(&mut self, addr: Word, data: u32) -> Result<(), TargetError> {
+        let bytes = if self.endian == Endian::Little {
+            data.to_le_bytes()
+        } else {
+            data.to_be_bytes()
+        };
+        let hex_str = hex::encode(bytes);
+        self.write_to_memory(addr.into(), hex_str)
+    }
+}
+
+/// Open target based on config
+fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn Target>>, TargetError> {
+    match &c.target {
+        TargetConfig::ProbeRsTarget(target) => {
+            Ok(Rc::new(RefCell::new(ProbeRsTarget::new(target)?)))
+        }
+        // No probe rs target implies use of gdb, which is not implemented yet
+        TargetConfig::GdbTarget { addr, bin } => {
+            // Safe because elf path is required by structopt if gdb is used
+            let elf_path = c.elf_path.clone().unwrap();
+            Ok(Rc::new(RefCell::new(GdbTarget::new(
+                *addr,
+                bin.clone(),
+                elf_path,
+                c.endian,
+            )?)))
         }
     }
 }
@@ -462,25 +698,6 @@ impl Collector {
     /// Write to "write priority" field in probe
     pub fn set_overwrite_priority(&mut self, level: u32) -> Result<(), TargetError> {
         self.priority_writer.write(level)
-    }
-}
-
-/// Open memory accessor based on config
-fn open_mem_accessor(c: &Config) -> Result<Rc<RefCell<dyn Target>>, TargetError> {
-    match &c.target {
-        TargetConfig::ProbeRsTarget(target) => {
-            let probes = probe_rs::Probe::list_all();
-            if probes.is_empty() {
-                return Err(TargetError::NoProbesConnected);
-            }
-            let probe = probes[0]
-                .open()
-                .map_err(|e| TargetError::ProbeRsError(e.into()))?;
-            let session = probe.attach(target).map_err(TargetError::ProbeRsError)?;
-            Ok(Rc::new(RefCell::new(ProbeRsTarget(session))))
-        }
-        // No probe rs target implies use of gdb, which is not implemented yet
-        TargetConfig::GdbAddr(_) => unimplemented!(),
     }
 }
 

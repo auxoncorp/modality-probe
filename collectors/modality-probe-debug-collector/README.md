@@ -34,7 +34,7 @@ it locally:
 ```
 $ git clone git@github.com:auxoncorp/modality-probe
 cd modality-probe/collectors/modality-probe-debug-collector
-cargo install
+cargo install --path . --bin modality-probe-debug-collector
 ```
 
 ### Choosing an attachment method
@@ -49,7 +49,21 @@ one single-core cpu linked to the host (collector-side) device.
 
 #### Connect to a GDB server
 
-This option is under development.
+Alternatively, a GDB server like OpenOCD, pyOCD, etc, can be used to connect to the chip.
+For example, to use OpenOCD, first download and install [OpenOCD](http://openocd.org/). Then,
+we will create a configuration file. For the [NUCLEO-F767ZI board](https://www.st.com/en/evaluation-tools/nucleo-f767zi.html), our configuration file will have the following contents:
+
+###### openocd.cfg
+```
+source [find interface/stlink-v2-1.cfg]
+source [find target/stm32f7x.cfg]
+```
+
+To run the OpenOCD server, link the target device to the host, and run `openocd -f openocd.cfg`.
+
+To connect to the server using the debug collector, use the `--gdb-addr <ip-addr>` and `--gdb-bin <gdb-binary>`. The GDB binary option is the gdb version that should be used to connect to the server. For the [NUCLEO-F767ZI board](https://www.st.com/en/evaluation-tools/nucleo-f767zi.html), we can install and use `gdb-multiarch`.
+
+Note: The `--reset` option is guaranteed to work when connecting to an OpenOCD server, and will work for any other server that accepts `monitor reset` and `monitor resume` commands. 
 
 ### Probe Symbols/Addresses
 
