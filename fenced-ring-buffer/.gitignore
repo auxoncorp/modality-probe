@@ -1,0 +1,9 @@
+*.out
+*.pdf
+*.dvi
+*.tex
+*.check
+*.out
+*/metadir
+*/tla2tools.jar
+states

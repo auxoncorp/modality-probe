@@ -254,7 +254,7 @@ impl EventId {
 
     /// Get the underlying value as a convenient primitive
     #[inline]
-    pub fn get_raw(self) -> u32 {
+    pub const fn get_raw(self) -> u32 {
         self.0.get()
     }
 

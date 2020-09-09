@@ -7,6 +7,8 @@ jobs:
     name: Linux
     runs-on: ubuntu-latest
     steps:
+      - name: Install libusb
+        run: sudo apt-get install -y libusb-1.0-0-dev
       - name: install dot
         run: sudo apt-get install -y graphviz
 
@@ -28,6 +30,14 @@ jobs:
           toolchain: nightly-2020-07-12
           override: true
           components: rustfmt, clippy
+
+      # Used by debug-collector tests to generate binaries
+      - name: Install thumbv7em-none-eabihf target
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: thumbv7em-none-eabihf
+          override: true
 
       - name: Fetch dependencies
         uses: actions-rs/cargo@v1
@@ -69,7 +79,8 @@ jobs:
         with:
           use-cross: true
           command: test
-          args: --all --features "std" --target=mips64-unknown-linux-gnuabi64
+          # Exclude debug collector because libusb is required to build
+          args: --all --exclude modality-probe-debug-collector --features "std" --target=mips64-unknown-linux-gnuabi64
 
   windows:
     name: Windows
@@ -93,6 +104,14 @@ jobs:
           toolchain: nightly
           override: true
           components: rustfmt, clippy
+
+      # Used by debug-collector tests to generate binaries
+      - name: Install thumbv7em-none-eabihf target
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: thumbv7em-none-eabihf
+          override: true
 
       - name: Fetch dependencies
         uses: actions-rs/cargo@v1

@@ -7,6 +7,7 @@ use std::{
 
 use chrono::prelude::*;
 use err_derive::Error;
+use fenced_ring_buffer::WholeEntry;
 use serde::{Deserialize, Serialize};
 use static_assertions::assert_eq_size;
 
@@ -646,6 +647,54 @@ enum Next {
 }
 
 impl Report {
+    /// Try to create a report from a list of log entries
+    pub fn try_from_log(
+        source_clock: LogicalClock,
+        seq_num: u64,
+        frontier_clocks: Vec<LogicalClock>,
+        log: &[WholeEntry<LogEntry>],
+    ) -> Result<Self, SerializationError> {
+        let mut owned_report = Report {
+            probe_id: source_clock.id,
+            probe_clock: source_clock,
+            seq_num: SequenceNumber(seq_num),
+            frontier_clocks,
+            event_log: vec![],
+            persistent_epoch_counting: false,
+        };
+
+        for entry in log {
+            match entry {
+                WholeEntry::Single(ev) => {
+                    owned_report.event_log.push(EventLogEntry::Event(
+                        ev.interpret_as_event_id()
+                            .ok_or_else(|| SerializationError::InvalidEventId(*ev))?,
+                    ));
+                }
+                WholeEntry::Double(first, second) => {
+                    if first.has_clock_bit_set() {
+                        let id = ProbeId::new(first.interpret_as_logical_clock_probe_id())
+                            .ok_or_else(|| SerializationError::InvalidProbeId(*first))?;
+                        let (epoch, ticks) = modality_probe::unpack_clock_word(second.raw());
+                        owned_report
+                            .event_log
+                            .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
+                    } else {
+                        debug_assert!(first.has_event_with_payload_bit_set());
+                        let ev = first
+                            .interpret_as_event_id()
+                            .ok_or_else(|| SerializationError::InvalidEventId(*first))?;
+                        let payload = second.raw();
+                        owned_report
+                            .event_log
+                            .push(EventLogEntry::EventWithPayload(ev, payload));
+                    }
+                }
+            }
+        }
+        Ok(owned_report)
+    }
+
     pub fn write_into_le_bytes(&self, bytes: &mut [u8]) -> Result<usize, SerializationError> {
         if self.frontier_clocks.len() > std::u16::MAX as usize {
             return Err(SerializationError::TooManyFrontierClocks(

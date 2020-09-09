@@ -288,7 +288,7 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
         let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         assert_eq!(log_report.n_clocks(), 1);
-        assert_eq!(log_report.n_log_entries(), 86);
+        assert_eq!(log_report.n_log_entries(), 84);
 
         let offset = log_report.n_clocks() as usize * mem::size_of::<LogicalClock>();
         let log_bytes = &log_report.payload()[offset..];
@@ -304,7 +304,7 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
             EventId::EVENT_LOG_ITEMS_MISSED
         );
 
-        assert_eq!(raw_payload, 941);
+        assert_eq!(raw_payload, 943);
     }
 
     Ok(())

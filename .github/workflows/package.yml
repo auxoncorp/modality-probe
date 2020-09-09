@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install system packages
-        run: sudo apt-get install -y help2man gzip
+        run: sudo apt-get install -y help2man gzip libusb-1.0-0-dev musl-tools
 
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -28,6 +28,13 @@ jobs:
           toolchain: nightly
           override: true
           components: rustfmt, clippy, llvm-tools-preview
+
+      - name: Install musl toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-musl
+          override: true
 
       - name: Fetch dependencies
         uses: actions-rs/cargo@v1

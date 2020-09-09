@@ -12,6 +12,7 @@ chrono = { version = "0.4", features = ["serde"] }
 err-derive = "0.2.4"
 
 modality-probe = { path = "../../", features = ["std"] }
+fenced-ring-buffer = { path = "../../fenced-ring-buffer" }
 
 [dev-dependencies]
 proptest = "0.9"
