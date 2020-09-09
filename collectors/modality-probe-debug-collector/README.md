@@ -49,7 +49,7 @@ one single-core cpu linked to the host (collector-side) device.
 
 #### Connect to a GDB server
 
-This option is currently not available.
+This option is under development.
 
 ### Probe Symbols/Addresses
 
