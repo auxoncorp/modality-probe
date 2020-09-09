@@ -1,11 +1,13 @@
 # `modality-probe-capi`
+
+A C API for Modality Probe.
+
 ## Overview
 `modality-probe-capi` is a library with a C API that can be used to
 record events into a probe’s log, share snapshots across probes,
 report a probe’s log to a collector, and provide way to associate
 Modality's log with your other logging infrastructure. The library is
-also targeted by the code and manifest generation that the CLI
-does<!--link to cli -->.
+also targeted by the code and manifest generation that the CLI does.
 
 ## Getting Started
 
@@ -235,6 +237,31 @@ clock value into your log messages:
 Now, when using your usual methods of log analysis, you get
 correspondences of what happened causally, by finding these clock
 “instances” in your logs and looking them up in the Modality Probe
-causal graph by feeding your collected trace<!--TODO link to
-collector--> to the CLI's `export` subcommand<!-- TODO link to export
-command-->.
+causal graph by feeding your collected trace
+ to the CLI's `export` subcommand.
+
+## API
+
+See [probe.h](./include/probe.h).
+
+## Running the tests
+
+Use Cargo:
+
+```shell
+$ cargo test
+```
+
+## License
+
+See [LICENSE](../LICENSE) for more details.
+Copyright 2020 Auxon Corporation
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
