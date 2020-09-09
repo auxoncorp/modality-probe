@@ -1,9 +1,15 @@
 # modality-probe-udp-collector
 
-## Overview
 Collect the outgoing probe reports and persist them.
 
+## Overview
+
+The UDP collector is a service that's meant to be targeted by a
+system's probes as a report collector. It serializes the incoming
+reports into json lines and writes those lines to a file.
+
 ## Getting Started
+
 ### Dependencies
 The collector requires a Rust toolchain. The recommended toolchain
 management system for Rust is [Rustup](https://rustup.sh).
@@ -42,16 +48,43 @@ OPTIONS:
 
 ```
 
-The collector receives the reports the probes send and writes them to
-its output file.
-
 ```
-$ modality-probe-udp-collector -o trace.mtr -p 9999 -s 1
+$ modality-probe-udp-collector
+Using the configuration:
+    addr:               0.0.0.0:2718
+    session id:         0
+    output file:        /home/dpitt/src/modality-probe/collectors/modality-probe-udp-collector/session_0_log_entries.jsonl
 ```
 
-### Sessions
+This example uses the default configuration, but as seen above, a
+port, session, and file can be given via CLI options.
+
+## Sessions
+
 A “session” is a unit used to demarcate distinct trace
 collections. You may want to change the session for each test run, or
 when you turn the collector off and back on again. It allows you to
 compare separate traces that, without distinct sessions, would
 otherwise be difficult to distinguish from one another.
+
+## Running the tests
+
+Use Cargo:
+
+```shell
+$ cargo test
+```
+
+## License
+
+See [LICENSE](../LICENSE) for more details.
+Copyright 2020 Auxon Corporation
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

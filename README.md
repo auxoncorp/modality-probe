@@ -1,4 +1,8 @@
-# `modality-probe`
+# modality-probe
+
+An embedded-friendly causal tracing system.
+
+## Overview
 
 `modality-probe` is an open source part of Auxon’s Modality™
 continuous verification & validation platform. Its role is to record
@@ -15,16 +19,18 @@ recording events and exchanging causality data does not depend on any
 sort of standard library and is fully functional in bare-metal or RTOS
 environments.
 
-## How do I use it?
+## Getting Started
 
-### Install Rust
+### Dependencies
+
+#### Rust
 
 If you don't have Rust installed, the recommended way to do so is with
 [`rustup`](https://rustup.rs/). After following the directions at that
 link, you should have the `cargo` command available to you and the
 commands in the following section should work.
 
-### Build It
+### Building
 
 #### Linux
 
@@ -56,9 +62,9 @@ searches:
 # ldconfig -v 2>/dev/null | grep ^/ | tr -d ':'
 ```
 
-### Integrate It
+### Usage
 
-#### In C
+#### Instrumenting In C
 
 Begin by initializing your probe:
 
@@ -112,7 +118,7 @@ void do_twist_command(void)
 }
 ```
 
-#### In Rust
+#### Instrumenting In Rust
 
 Begin by initializing your probe:
 
@@ -135,7 +141,7 @@ fn main() {
         "The controller"
     ).expect("Could not initialize probe");
 
-    // ...
+    // …
 }
 ```
 
@@ -155,7 +161,7 @@ pub fn do_twist_command(&mut self) -> Result<(), TwistError> {
         "A twist command was received",
     )?;
 
-    // ...
+    // …
 }
 ```
 
@@ -257,6 +263,27 @@ $ modality-probe export acyclic --component ./my-component --report session_0_lo
 $ dot -Tsvg trace.dot > trace.svg
 ```
 
+## Running the tests
+
+There is a top-level testing script that executes the tests from each
+subcrate: [test.sh](./test.sh).
+
 ## Reading more
 
 See each subcrate's local readme for more information.
+
+## License
+
+See [LICENSE](../LICENSE) for more details.
+
+Copyright 2020 Auxon Corporation
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

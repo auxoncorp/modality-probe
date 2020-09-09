@@ -1,7 +1,16 @@
 # modality-probe-cli
-The purview / responsibility of the CLI in the context of the greater modality ecosystem
+Generate Modality Probe event definitions and declarations and
+visualize a trace.
+
+## Overview
+
+The Modality Probe CLI can be used to generate manifests containing
+metadata for your events and probes, and then can generate code for
+their definitions from those manifests. It can also be used to export
+a collected trace as Graphviz dot code.
 
 ## Getting Started
+
 ### Dependencies
 The CLI requires a Rust toolchain. The recommended toolchain
 management system for Rust is [Rustup](https://rustup.sh).
@@ -172,3 +181,25 @@ $ modality-probe header-gen -o include/probes.h my-component
 
 **Note:** you’ll need to run `header-gen` _before_ compilation to give
 definitions for those otherwise undefined symbols.
+
+## Running the tests
+
+Use Cargo:
+
+```shell
+$ cargo test
+```
+
+## License
+
+See [LICENSE](../LICENSE) for more details.
+Copyright 2020 Auxon Corporation
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+    http://www.apache.org/licenses/LICENSE-2.0
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
