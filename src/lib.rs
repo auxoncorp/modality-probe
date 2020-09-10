@@ -74,6 +74,8 @@ impl PartialOrd for CausalSnapshot {
 pub struct ProbeEpoch(pub u16);
 
 impl ProbeEpoch {
+    /// The minimum (starting) value for a probe epoch
+    pub const MIN: Self = ProbeEpoch(0);
     /// The maximum value a probe epoch can inhabit.
     pub const MAX: Self = ProbeEpoch(u16::MAX);
     const WRAPAROUND_THRESHOLD_TOP: Self = ProbeEpoch(u16::MAX - 3);
@@ -98,6 +100,12 @@ impl From<ProbeEpoch> for u16 {
     }
 }
 
+impl Default for ProbeEpoch {
+    fn default() -> Self {
+        ProbeEpoch::MIN
+    }
+}
+
 /// The clock part of a probe's logical clock
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -105,6 +113,8 @@ impl From<ProbeEpoch> for u16 {
 pub struct ProbeTicks(pub u16);
 
 impl ProbeTicks {
+    /// The minimum (starting) value for a probe epoch
+    pub const MIN: Self = ProbeTicks(0);
     /// The maximum value a probe tick can inhabit.
     pub const MAX: Self = ProbeTicks(u16::MAX);
 }
@@ -118,6 +128,12 @@ impl From<u16> for ProbeTicks {
 impl From<ProbeTicks> for u16 {
     fn from(t: ProbeTicks) -> Self {
         t.0
+    }
+}
+
+impl Default for ProbeTicks {
+    fn default() -> Self {
+        ProbeTicks::MIN
     }
 }
 
