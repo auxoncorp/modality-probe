@@ -1,0 +1,6 @@
+/src/*.o
+/src/*.dep
+/example-component
+/include/component_definitions.h
+/c-example
+/artifacts

@@ -11,17 +11,22 @@ cargo test --workspace
     cargo test --workspace
 )
 
-(
-    cd examples/rust-example/
-    cargo test
-)
-
 # Windows MSVC doesn't like the no-std modality-probe-capi cdylib build
 if [ $# -ne 0 ]; then
     if [ "$1" = "windows" ]; then
         exit 0
     fi
 fi
+
+(
+    cd examples/rust-example/
+    cargo test
+)
+
+(
+    cd examples/c-example/
+    make test
+)
 
 (
     cd modality-probe-capi/ctest
