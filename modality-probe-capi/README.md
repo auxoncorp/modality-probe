@@ -16,10 +16,12 @@ This library requires a Rust toolchain. The recommended toolchain
 management system for Rust is [Rustup](https://rustup.sh).
 
 ### Building
-Once Rust is installed, build the C API using cargo:
+Once Rust is installed, build the C API using Cargo:
 
 ```shell
-modality-probe/modality-probe-capi $ cargo build --release
+$ git clone https://github.com/auxoncorp/modality-probe.git
+$ cd modality-probe/modality-probe-capi
+$ cargo build --release
 ```
 
 ### Cross-platform Builds
@@ -33,7 +35,7 @@ First, make `RUST_TOOLCHAIN` available in the current shell for
 `cross` to have access to.
 
 ```shell
-modality-probe $ export RUSTUP_TOOLCHAIN=`cat modality-probe-capi/rust-toolchain`
+$ export RUSTUP_TOOLCHAIN=`cat modality-probe-capi/rust-toolchain`
 ```
 
 Then, make sure you have an up-to-date nightly build of Rust. You'll
@@ -41,16 +43,16 @@ also want to make sure the target you intend to build for is
 installed.
 
 ```shell
-modality-probe $ rustup update
-modality-probe $ rustup target add thumbv7em-none-eabi
+$ rustup update
+$ rustup target add thumbv7em-none-eabi
 ```
 
 Now you can install `cross`, and then build the library for your
 target.
 
 ```shell
-modality-probe $ cargo install cross --force
-modality-probe $ cross build --manifest-path modality-probe-capi/Cargo.toml --target thumbv7em-none-eabi --release
+$ cargo install cross --force
+$ cross build --manifest-path modality-probe-capi/Cargo.toml --target thumbv7em-none-eabi --release
 ```
 
 When using `cross` for cross-compilation, the output artifacts’
@@ -66,7 +68,7 @@ example using Cargo from inside that directory.
 
 ```shell
 $ cd ../examples/c-example
-$ cargo test
+$ make test
 ```
 
 The probe API consists of five behaviors: initialization, event
@@ -269,11 +271,11 @@ Using the configuration:
     output file: /home/me/src/modality-probe/modality-probe-capi/session_0_log_entries.jsonl
 ```
 
-Then, in another terminal, navigate to the Rust example and run it.
+Then, in another terminal, navigate to the C example and run it.
 
 ```shell
-$ cd collectors/examples/rust-examples
-$ cargo run
+$ cd ../examples/c-examples
+$ make run
     Finished dev [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/rust-example`
 [2020-09-10T22:31:59Z INFO  rust_example] Modality probe reports will be sent to 127.0.0.1:2718

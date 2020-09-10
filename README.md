@@ -33,43 +33,25 @@ environments.
 
 ### Dependencies
 
-#### Rust
+Modality Probe requires a Rust toolchain. The recommended toolchain
+management system for Rust is [Rustup](https://rustup.sh).
 
-If you don't have Rust installed, the recommended way to do so is with
-[`rustup`](https://rustup.rs/). After following the directions at that
-link, you should have the `cargo` command available to you and the
-commands in the following section should work.
+### Building
 
-### Building and Install
-
-#### Linux
-
-Clone this repository, and start by navigating into its root folder.
-Then use Cargo to build the Modality Probe libraries and their related
-binaries.
+Once Rust is installed, build Modality Probe using Cargo:
 
 ```shell
-modality-probe $ cargo install --release --all
+$ git clone https://github.com/auxoncorp/modality-probe.git
+$ cd modality-probe
+$ cargo build --release --all
 ```
 
 If you're targeting a C application, you'll also want to build
-`modality-probe-capi`, it's what builds the C-linkable `.so` and `.a`
-that you can link into your C application. We'll run the same command
-modulo the `--all` switch from its directory.
+`modality-probe-capi`.
 
 ```shell
-modality-probe/modality-probe-capi $ cargo build --release
-```
-
-Now you should find the cli and the udp collector in the root
-`target/release` directory, and the `.so` / `.a` for
-`libmodality_probe` in the C API's `target/release` directory. Move
-these to, respectively, `$PATH` and somewhere that your linker can
-find them. On Linux, you can use `ldconfig` to see where the linker
-searches:
-
-```shell
-# ldconfig -v 2>/dev/null | grep ^/ | tr -d ':'
+$ cd modality-probe/modality-probe-capi
+$ cargo build --release
 ```
 
 ## Usage
@@ -316,7 +298,7 @@ Using the configuration:
 Then, in another terminal, navigate to the Rust example and run it.
 
 ```shell
-$ cd collectors/examples/rust-examples
+$ cd examples/rust-examples
 $ cargo run
     Finished dev [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/rust-example`
