@@ -12,8 +12,12 @@ fn main() {
     println!("    addr:\t\t{}", config.addr);
     println!("    session id:\t\t{}", config.session_id.0);
     println!("    output file:\t{}", config.output_file.display());
-    let (_shutdown_sender, shutdown_receiver) =
+    let (shutdown_sender, shutdown_receiver) =
         modality_probe_udp_collector::ShutdownSignalSender::new(config.addr);
+    ctrlc::set_handler(move || {
+        shutdown_sender.shutdown();
+    })
+    .expect("Could not set the Ctrl-C handler");
     modality_probe_udp_collector::start_receiving(config, shutdown_receiver)
         .expect("Could not set up UDP Socket");
 }
