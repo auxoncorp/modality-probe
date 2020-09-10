@@ -60,187 +60,284 @@ example above, the artifacts would be placed at
 
 ## Usage
 
-The probe API consists of four behaviors: event recording, snapshot
-production and merging, report generation, and associating a Modality
-timeline with other log data (termed “now”).
+In the following sections we'll be using excerpts from the
+[examples](/examples/rust-example). You can actually run the complete
+example using Cargo from inside that directory.
 
-### Event Recording
-
-To record an event into a probe’s log, use one of the variants of
-`MODALITY_PROBE_RECORD`. In the example below, we’ve initialized a
-probe as a global variable called `g_probe`. You’ll also note that
-there are a few seemingly undefined symbols: `TWISTED` and
-`CONTROLLER`. These are given definitions by making use of Modality
-Probe’s CLI sub-command `header-gen` which you can read more about at
-its readme<!--todo link here -->. The short of it is that you’ll need
-to run the header-gen tool against your codebase before it can be
-compiled because the Modality Probe CLI generates the definitions to
-those symbols.
-
-```c
-#include <modality/probe.h>
-
-/* Output of the CLI's header-gen sub-command */
-#include "generated_component_ids.h"
-
-/* The probe will be given 1024 bytes of storage space to work with */
-#define DEFAULT_PROBE_SIZE (1024)
-static uint8_t g_probe_buffer[DEFAULT_PROBE_SIZE];
-
-/* The probe instance, global for convenience */
-static modality_probe *g_probe = MODALITY_PROBE_NULL_INITIALIZER;
-
-void do_twist_command(void)
-{
-    size_t err = MODALITY_PROBE_RECORD(
-            g_probe,
-            TWISTED,
-            MODALITY_TAGS("actuation"),
-            "A twist command was received");
-    assert(err == MODALITY_PROBE_ERROR_OK);
-
-    /* ... */
-}
-
-int main(int argc, char **argv)
-{
-    size_t err = MODALITY_PROBE_INIT(
-            &g_probe_buffer[0],
-            DEFAULT_PROBE_SIZE,
-            CONTROLLER,
-            NULL, /* This probe does not track probe restarts */
-            NULL,
-            &g_probe,
-            MODALITY_TAGS("controller"),
-            "The controller");
-
-    /* ... */
-}
-```
-### Interacting with Snapshots
-
-In Modality, the probes keep track of time _logically_, this is done
-by incrementing a local counter any time a probe interacts with
-another probe. The events that are recorded between these interactions
-are associated with that value, which then allows Modality to create a
-partial order of what happened in the system by sorting the events by
-what their associated clock value was. A snapshot is how these
-interactions are captured. With a snapshot, a probe sends the current
-value of its own clock to another probe which then _merges_ that
-snapshot. When the receiving probe merges that snapshot, it does 2
-things: 1. it increments its own clock and 2. it records its
-neighbor's clock along with its own. This allows Modality to associate
-these two values, making the inference “When my clock was 5, my
-neighbor's was 7. Anything that follows from this point was _caused
-by_ the events that were recorded before this exchange.”
-
-This work best when snapshots are used in-band. That is, they’re added
-onto an existing interaction as an extra few bytes that can be
-unpacked on the other end and interpreted as a snapshot for the probe
-on the receiving end to merge. When this occurs out of band, the
-veracity of the causal relationships Modality Probe is meant to
-capture erodes—the exchanges tell us only that two components are
-related, but not how.
-
-To produce a snapshot, use `modality_probe_produce_snapshot`.
-
-``` c
-modality_causal_snapshot snap;
-err = modality_probe_produce_snapshot(CONTROLLER, &snap);
+```shell
+$ cd examples/c-example
+$ cargo test
 ```
 
-Dually, on the receiving side, use `modality_probe_merge_snapshot` to
-include that snapshot into the receiving probe's timeline.
+The probe API consists of five behaviors: initialization, event
+recording, snapshot production and merging, report generation, and
+associating a Modality trace with other log data (termed “now”). We'll
+be covering each of these individually below.
+
+### Initializing a Probe
+
+Step one is to initialize your probe. Modality probes are _not_
+thread-safe on their own, so it is recommended that you use a new
+probe for each thread.
 
 ```c
-err = modality_probe_merge_snapshot(ACTUATOR, &snap);
+err = MODALITY_PROBE_INIT(
+        &g_producer_probe_buffer[0],
+        sizeof(g_producer_probe_buffer),
+        PRODUCER_PROBE,
+        NULL,
+        NULL,
+        &g_producer_probe,
+        MODALITY_TAGS("c-example", "measurement", "producer"),
+        "Measurement producer probe");
+assert(err == MODALITY_PROBE_ERROR_OK);
 ```
 
-### Reporting
+### Recording Events
 
-In order to assemble a unified causal history for the system being
-analyzed as a whole, each probe must periodically report out what’s in
-its log, i.e., the events and interactions it’s recorded. To do that,
-you use the report API.
-
-**Note:** How often a report should be generated and sent depends on
-two things: 1. The number of events you're recording, and 2. how large
-your probe's buffer is. If you're not reporting often enough, the
-probe can run of space to store events. When this happens, the first
-threshold causes the probe to discard regular recorded events _at
-record time_ to save room for interactions and system events. When the
-log is completely full, all recorded events and interactions are
-discarded.
-
-The report API serializes that probe’s log into the given buffer,
-which you’d then send along to your collector, probably via UDP:
+Step two is to start recording events. The `MODALITY_PROBE_RECORD`
+callsite takes a probe, an event _name_, a description of the event,
+and any tags you want to associate with this event.
 
 ```c
-#include <modality/probe.h>
+err = MODALITY_PROBE_RECORD(
+        g_producer_probe,
+        PRODUCER_STARTED,
+        MODALITY_TAGS("producer"),
+        "Measurement producer started");
+assert(err == MODALITY_PROBE_ERROR_OK);
+```
 
-#define REPORT_BUFFER_SIZE (1024)
-static uint8_t g_report_buffer[REPORT_BUFFER_SIZE];
+Events can also be recorded with payloads up to 4 bytes in size.
 
-static int g_report_socket = -1;
-static struct sockaddr_in g_collector_addr;
+```c
+const int8_t sample = g_producer_measurement.m + (int8_t) (-1 + (rand() % 4));
 
-/* Assumes g_report_socket and g_collector_addr have already been setup */
-static void send_report(void)
+err = MODALITY_PROBE_RECORD_W_I8(
+        g_producer_probe,
+        PRODUCER_MEASUREMENT_SAMPLED,
+        sample,
+        MODALITY_TAGS("producer", "measurement sample"),
+        "Measurement producer sampled a value for transmission");
+assert(err == MODALITY_PROBE_ERROR_OK);
+```
+
+### Recording Expectations
+
+Expectations are special events that get tagged as expectations and
+also include a binary payload denoting whether or not the expectation
+passed or failed.
+
+```rust
+err = MODALITY_PROBE_EXPECT(
+        g_producer_probe,
+        PRODUCER_SAMPLE_DELTA_OK,
+        (sample - g_producer_measurement.m) <= 2,
+        MODALITY_TAGS("producer", "SEVERITY_10"),
+        "Measurement delta within ok range");
+```
+
+### Tracking Interactions
+To connect two probe's causal history, they must exchange
+_snapshots_. A snapshot contains the sender's current logical clock
+and it can be merged into the receiver's log, creating a causal
+relationship between the two probes.
+
+To produce a snapshot, use `produce_snapshot`:
+
+```c
+err = modality_probe_produce_snapshot(
+        g_producer_probe,
+        &g_producer_measurement.snapshot);
+```
+
+It should then be sent in-band if possible to the receiver. When
+snapshots are sent out of band, the veracity of the causal
+relationships Modality Probe is meant to capture erodes—the exchanges
+tell us only that two components are related, but not necessarily how.
+
+To merge an incoming snapshot use `merge_snapshot`.
+
+```c
+err = modality_probe_merge_snapshot(
+        g_consumer_probe,
+        &measurement.snapshot);
+assert(err == MODALITY_PROBE_ERROR_OK);
+```
+
+### Generating Manifests & Headers
+
+In the samples above, a macro is used to initialize a probe and to
+record events. Modality Probe's CLI has a subcommand that explores
+your code base for uses of these macros and turns those uses into what
+Modality calls a Component. A component has a name of its own, a list
+of probes (`probes.csv`), and a list of events (`events.csv`). Altogether,
+a component looks like this:
+
+```shell
+$ tree my-component
+├── Component.toml
+├── events.csv
+└── probes.csv
+```
+
+First, install the cli and then use `manifest-gen` to do this.
+
+``` shell
+$ cd modality-probe-cli
+$ cargo install --path .
+$ cd ../
+$ modality-probe manifest-gen \
+    --lang c \
+    --file-extension c \
+    --component-name example-component \
+    --output-path example-component \
+    examples/c-example
+```
+
+Next, we'll want to generate the source code that gives those symbols
+we discussed in the code snippet examples in the previous section
+their definitions. To do that, we'll use `header-gen`:
+
+```shell
+$ mkdir -p examples/c-example/include
+$ modality-probe header-gen \
+    --lang rust
+    --output-path examples/c-example/include/component_definitions.h
+    example-component
+```
+
+### Setting up a Collector
+
+Modality Probe also ships with [a service that can collect via
+UDP](/collectors/modality-probe-udp-collector) the reports you
+generate from your probes. It writes those incoming reports as JSON
+lines to a file. Start it like so:
+
+```
+$ cd collectors/modality-probe-udp-collector
+$ cargo install --path .
+$ cd ../../
+$ modality-probe-udp-collector
+Using the configuration:
+    addr: 0.0.0.0:2718
+    session id: 0
+    output file: /home/me/src/my-project/session_0_log_entries.jsonl
+```
+
+When the service starts it prints the configuration it's using. In the
+example above it's using all defaults. You can also pass args to
+direct it to a certain port, or a specific output file.
+
+To get data out to a collector, use the Probe's `report` API, and then
+send the report that that API creates along to your collector.
+
+```c
+static void send_report(modality_probe * const probe)
 {
     size_t report_size;
     const size_t err = modality_probe_report(
-            g_probe,
+            probe,
             &g_report_buffer[0],
-            REPORT_BUFFER_SIZE,
+            sizeof(g_report_buffer),
             &report_size);
     assert(err == MODALITY_PROBE_ERROR_OK);
 
     if(report_size != 0)
     {
-        const ssize_t sendto_err = sendto(
+        const ssize_t status = sendto(
                 g_report_socket,
                 &g_report_buffer[0],
                 report_size,
                 0,
                 (const struct sockaddr*) &g_collector_addr,
                 sizeof(g_collector_addr));
-        assert(sendto_err != -1);
+        assert(status != -1);
     }
 }
 ```
 
-If a probe does not have network access but can communicate with
-another probe that does, relay this buffer there and let that
-network-capable component send it on to the collector.
+### Running the Instrumented Example
 
-### Integrating a Probe’s data into your existing logging (“Now”)
+In one terminal, run the UDP collector.
 
-Modality Probe’s “now” API allows you to associate traced events with
-your existing logging infrastructure by embedding a probe’s current
-clock value into your log messages:
+```shell
+$ modality-probe-udp-collector
+Using the configuration:
+    addr: 0.0.0.0:2718
+    session id: 0
+    output file: /home/me/src/modality-probe/session_0_log_entries.jsonl
+```
+
+Then, in another terminal, navigate to the Rust example and run it.
+
+```shell
+$ cd collectors/examples/rust-examples
+$ cargo run
+    Finished dev [unoptimized + debuginfo] target(s) in 0.01s
+     Running `target/debug/rust-example`
+[2020-09-10T22:31:59Z INFO  rust_example] Modality probe reports will be sent to 127.0.0.1:2718
+[2020-09-10T22:31:59Z INFO  rust_example] Sensor measurement consumer thread starting
+[2020-09-10T22:31:59Z INFO  rust_example] Sensor measurement producer thread starting
+[2020-09-10T22:31:59Z INFO  rust_example] Consumer recvd 2
+[2020-09-10T22:31:59Z INFO  rust_example] Consumer recvd 1
+[2020-09-10T22:31:59Z INFO  rust_example] Consumer recvd 2
+[2020-09-10T22:31:59Z INFO  rust_example] Consumer recvd 3
+[2020-09-10T22:32:00Z INFO  rust_example] Consumer recvd 4
+[2020-09-10T22:32:00Z INFO  rust_example] Consumer recvd 4
+…
+```
+
+The `/home/me/src/modality-probe/session_0_log_entries.jsonl` file,
+which is in the working directory of where you ran the collector,
+should have been created with content that looks like something like
+this:
+
+```shell
+$ head session_0_log_entries.jsonl
+{"session_id":0,"sequence_number":0,"sequence_index":0,"probe_id":187273104,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":187273104,"epoch":0,"ticks":0}},"receive_time":"2020-09-10T22:31:59.684888465Z"}
+{"session_id":0,"sequence_number":0,"sequence_index":1,"probe_id":187273104,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-10T22:31:59.684888465Z"}
+{"session_id":0,"sequence_number":0,"sequence_index":2,"probe_id":187273104,"persistent_epoch_counting":false,"data":{"Event":5},"receive_time":"2020-09-10T22:31:59.684888465Z"}
+{"session_id":0,"sequence_number":0,"sequence_index":0,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":85665369,"epoch":0,"ticks":0}},"receive_time":"2020-09-10T22:31:59.685081942Z"}
+{"session_id":0,"sequence_number":0,"sequence_index":1,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-10T22:31:59.685081942Z"}
+{"session_id":0,"sequence_number":0,"sequence_index":2,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"Event":1},"receive_time":"2020-09-10T22:31:59.685081942Z"}
+{"session_id":0,"sequence_number":1,"sequence_index":0,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":85665369,"epoch":0,"ticks":0}},"receive_time":"2020-09-10T22:32:00.588266562Z"}
+{"session_id":0,"sequence_number":1,"sequence_index":1,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"Event":1073741822},"receive_time":"2020-09-10T22:32:00.588266562Z"}
+{"session_id":0,"sequence_number":1,"sequence_index":2,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"EventWithPayload":[2,2]},"receive_time":"2020-09-10T22:32:00.588266562Z"}
+{"session_id":0,"sequence_number":1,"sequence_index":3,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"TraceClock":{"id":85665369,"epoch":1,"ticks":1}},"receive_time":"2020-09-10T22:32:00.588266562Z"}
+```
+
+### Visualizing the Trace
+Now we can use this collected trace and visualize it as a graph with `modality-probe export`:
+
+```shell
+$ modality-probe export acyclic --component ./example-component --report session_0_log_entries.jsonl > trace.dot
+$ dot -Tpng trace.dot > trace.png
+```
+
+You can then open `trace.png` and see something like this:
+
+![trace](https://user-images.githubusercontent.com/1194436/92818571-b6683b80-f37c-11ea-9f50-aa1fd2fbf430.png)
+
+### Associating Causality with your Existing Logging
+
+A Modality probe's timeline can be integrated with your existing
+logging infrastructure by providing a logical sense of `now` according
+to the probe's clock. This can then be included in your logging as a
+breadcrumb for finding a specific event in a trace. That might look
+something like this:
 
 ```c
-#ifdef MODALITY_PROBE_MACROS_ENABLED
-    modality_probe_instant now = modality_probe_now(CONTROLLER);
-    LOG(
-        “controller: sent a twist command, probe clock (%d, %d, %d, %d)”,
+const modality_probe_instant now = modality_probe_now(g_producer_probe);
+printf(
+        "Producer top of the loop (%" PRIu32 ", %" PRIu16 ", %" PRIu16 ", %" PRIu32 ")\n",
         now.clock.id,
         now.clock.epoch,
         now.clock.ticks,
-        now.clock.event_count
-    );
-#else
-    LOG(“controller: sent a twist command”);
-#endif
+        now.event_count);
 ```
 
-Now, when using your usual methods of log analysis, you get
-correspondences of what happened causally, by finding these clock
-“instances” in your logs and looking them up in the Modality Probe
-causal graph by feeding your collected trace
- to the CLI's `export` subcommand.
-
-## Running the tests
+## Running the Tests
 
 Use Cargo:
 
