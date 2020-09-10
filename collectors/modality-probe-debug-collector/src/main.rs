@@ -20,7 +20,7 @@ fn main() {
         println!();
         shutdown_sender.send(()).unwrap();
     })
-    .expect("Error setting Ctrl-C handler");
+    .expect("Could not set the Ctrl-C handler");
     if let Err(err) = run(&config, shutdown_receiver) {
         println!("{}", err);
     }
