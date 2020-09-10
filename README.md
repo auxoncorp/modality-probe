@@ -160,7 +160,7 @@ relationship between the two probes.
 
 To produce a snapshot, use `produce_snapshot`:
 
-```
+```rust
 let snapshot = probe.produce_snapshot();
 let measurement = Measurement { m, snapshot };
 tx.send(measurement);
@@ -198,12 +198,13 @@ First, install the cli and then use `manifest-gen` to do this.
 ``` shell
 $ cd modality-probe-cli
 $ cargo install --path .
+$ cd ../
 $ modality-probe manifest-gen \
     --lang rust \
     --file-extension rs \
     --component-name example-component \
     --output-path example-component \
-    .
+    examples/rust-example
 ```
 
 Next, we'll want to generate the source code that gives those symbols
@@ -213,7 +214,7 @@ their definitions. To do that, we'll use `header-gen`:
 ```shell
 $ modality-probe header-gen \
     --lang rust
-    --output-path src/component_definitions.rs
+    --output-path examples/rust-example/src/component_definitions.rs
     example-component
 ```
 
