@@ -2,14 +2,6 @@
 
 set -ex
 
-(
-    cd examples/
-    rm -f events.csv probes.csv Component.toml
-    mkdir -p generated_ids/
-    cargo run -p modality-probe-cli -- manifest-gen --file-extension="rs" --output-path example-component .
-    cargo run -p modality-probe-cli -- header-gen --lang Rust --output-path generated_ids/mod.rs example-component
-)
-
 cargo build --all
 cargo test --no-run --workspace --features "std"
 cargo test --workspace
@@ -25,6 +17,16 @@ if [ $# -ne 0 ]; then
         exit 0
     fi
 fi
+
+(
+    cd examples/rust-example/
+    cargo test
+)
+
+(
+    cd examples/c-example/
+    make test
+)
 
 (
     cd modality-probe-capi/ctest
