@@ -21,12 +21,12 @@ environments.
 
 ### This Repository
 
-* [C API](../modality-probe-capi): Interact with a Modality probe from C.
-* [CLI](../modality-probe-cli): The CLI used for code generation for
+* [C API](./modality-probe-capi): Interact with a Modality probe from C.
+* [CLI](./modality-probe-cli): The CLI used for code generation for
   probes and the visualization of a trace.
-* [UDP Collector](../collectors/modality-probe-udp-collector): A
+* [UDP Collector](./collectors/modality-probe-udp-collector): A
   UDP-based service that collects probes' outgoing reports.
-* [Debug Collector](../collectors/modality-probe-debug-collector): A
+* [Debug Collector](./collectors/modality-probe-debug-collector): A
   collector that uses JTAG to retrieve data from the probes' logs.
 
 ## Getting Started
@@ -75,7 +75,7 @@ searches:
 ## Usage
 
 In the following sections we'll be using excerpts from the
-[examples](/examples/rust-example). You can actually run the complete
+[examples](./examples/rust-example). You can actually run the complete
 example using Cargo from inside that directory.
 
 ```shell
@@ -265,8 +265,8 @@ let status = Command::new(&cli)
 
 ### Setting up a Collector
 
-Modality Probe also ships with [a service that can collect via
-UDP](/collectors/modality-probe-udp-collector) the reports you
+Modality Probe also ships with [a service that can collect reports via
+UDP](./collectors/modality-probe-udp-collector) the reports you
 generate from your probes. It writes those incoming reports as JSON
 lines to a file. Start it like so:
 
@@ -278,7 +278,7 @@ $ modality-probe-udp-collector
 Using the configuration:
     addr: 0.0.0.0:2718
     session id: 0
-    output file: /home/me/src/my-project/session_0_log_entries.jsonl
+    output file: /home/me/src/modality-probe/session_0_log_entries.jsonl
 ```
 
 When the service starts it prints the configuration it's using. In the
@@ -389,7 +389,7 @@ $ ./test.sh
 
 ## License
 
-See [LICENSE](../LICENSE) for more details.
+See [LICENSE](./LICENSE) for more details.
 
 ```
 Copyright 2020 Auxon Corporation

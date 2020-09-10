@@ -61,11 +61,11 @@ example above, the artifacts would be placed at
 ## Usage
 
 In the following sections we'll be using excerpts from the
-[examples](/examples/rust-example). You can actually run the complete
+[examples](/examples/c-example). You can actually run the complete
 example using Cargo from inside that directory.
 
 ```shell
-$ cd examples/c-example
+$ cd ../examples/c-example
 $ cargo test
 ```
 
@@ -184,9 +184,9 @@ $ tree my-component
 First, install the cli and then use `manifest-gen` to do this.
 
 ``` shell
-$ cd modality-probe-cli
+$ cd ../modality-probe-cli
 $ cargo install --path .
-$ cd ../
+$ cd ../modality-probe-capi
 $ modality-probe manifest-gen \
     --lang c \
     --file-extension c \
@@ -200,10 +200,10 @@ we discussed in the code snippet examples in the previous section
 their definitions. To do that, we'll use `header-gen`:
 
 ```shell
-$ mkdir -p examples/c-example/include
+$ mkdir -p ../examples/c-example/include
 $ modality-probe header-gen \
     --lang rust
-    --output-path examples/c-example/include/component_definitions.h
+    --output-path ../examples/c-example/include/component_definitions.h
     example-component
 ```
 
@@ -215,14 +215,14 @@ generate from your probes. It writes those incoming reports as JSON
 lines to a file. Start it like so:
 
 ```
-$ cd collectors/modality-probe-udp-collector
+$ cd ../collectors/modality-probe-udp-collector
 $ cargo install --path .
-$ cd ../../
+$ cd ../../modality-probe-capi
 $ modality-probe-udp-collector
 Using the configuration:
     addr: 0.0.0.0:2718
     session id: 0
-    output file: /home/me/src/my-project/session_0_log_entries.jsonl
+    output file: /home/me/src/modality-probe/modality-probe-capi/session_0_log_entries.jsonl
 ```
 
 When the service starts it prints the configuration it's using. In the
@@ -266,7 +266,7 @@ $ modality-probe-udp-collector
 Using the configuration:
     addr: 0.0.0.0:2718
     session id: 0
-    output file: /home/me/src/modality-probe/session_0_log_entries.jsonl
+    output file: /home/me/src/modality-probe/modality-probe-capi/session_0_log_entries.jsonl
 ```
 
 Then, in another terminal, navigate to the Rust example and run it.

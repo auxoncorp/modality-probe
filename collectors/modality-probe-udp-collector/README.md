@@ -77,7 +77,7 @@ $ cargo test
 
 ## License
 
-See [LICENSE](../LICENSE) for more details.
+See [LICENSE](../../LICENSE) for more details.
 
 ```
 Copyright 2020 Auxon Corporation
