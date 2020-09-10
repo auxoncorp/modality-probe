@@ -62,9 +62,9 @@ searches:
 # ldconfig -v 2>/dev/null | grep ^/ | tr -d ':'
 ```
 
-### Usage
+## Usage
 
-#### Instrumenting In C
+### Instrumenting In C
 
 Begin by initializing your probe:
 
@@ -118,7 +118,7 @@ void do_twist_command(void)
 }
 ```
 
-#### Instrumenting In Rust
+### Instrumenting In Rust
 
 Begin by initializing your probe:
 
