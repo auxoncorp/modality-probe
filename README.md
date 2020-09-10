@@ -270,7 +270,13 @@ subcrate: [test.sh](./test.sh).
 
 ## Reading more
 
-See each subcrate's local readme for more information.
+* [C API](../modality-probe-capi): Interact with a Modality probe from C.
+* [CLI](../modality-probe-cli): The CLI used for code generation for
+  probes and the visualization of a trace.
+* [UDP Collector](../collectors/modality-probe-udp-collector): A
+  UDP-based service that collects probes' outgoing reports.
+* [Debug Collector](../collectors/modality-probe-debug-collector): A
+  collector that uses JTAG to retrieve data from the probes' logs.
 
 ## License
 
