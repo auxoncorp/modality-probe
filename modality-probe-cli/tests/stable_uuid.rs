@@ -21,12 +21,19 @@ fn stable_uuid() {
 
     let c_src_path = src_path.join("main.c");
     let rust_src_path = src_path.join("main.rs");
+    let c_excluded_src_path = src_path.join("exclude.c");
 
     // Scope this so the files get immediately closed; this matters on windows
     {
         let mut c_src_file = File::create(&c_src_path).unwrap();
         c_src_file.write_all(C_SRC.as_bytes()).unwrap();
         c_src_file.sync_all().unwrap();
+
+        let mut c_exclude_src_file = File::create(&c_excluded_src_path).unwrap();
+        c_exclude_src_file
+            .write_all(C_EXCLUDE_SRC.as_bytes())
+            .unwrap();
+        c_exclude_src_file.sync_all().unwrap();
 
         let mut rust_src_file = File::create(&rust_src_path).unwrap();
         rust_src_file.write_all(RUST_SRC.as_bytes()).unwrap();
@@ -42,6 +49,8 @@ fn stable_uuid() {
     // Start with a component file without hashes
     let out = run_cli(&vec![
         "manifest-gen",
+        "--exclude",
+        "exclude.c",
         "--file-extension",
         "c",
         "--file-extension",
@@ -66,6 +75,8 @@ fn stable_uuid() {
 
     let out = run_cli(&vec![
         "manifest-gen",
+        "--exclude",
+        "exclude.c",
         "--file-extension",
         "c",
         "--file-extension",
@@ -110,6 +121,8 @@ size_t err = MODALITY_PROBE_RECORD_W_U8(
         MODALITY_TAGS("tag 1", "tag 2", "tag 3"));
 assert(err == MODALITY_PROBE_ERROR_OK);
 "#;
+
+const C_EXCLUDE_SRC: &'static str = "#include <stdlib.h>";
 
 const RUST_SRC: &'static str = r#"
 let probe = try_initialize_at!(

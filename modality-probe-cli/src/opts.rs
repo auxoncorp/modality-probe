@@ -33,6 +33,7 @@ mod test {
             Opts::ManifestGen(ManifestGen {
                 lang: None,
                 file_extensions: None,
+                exclude_patterns: None,
                 event_id_offset: None,
                 probe_id_range: None,
                 regen_component_id: false,
@@ -52,8 +53,10 @@ mod test {
                     "10",
                     "--file-extension=c",
                     "--regen-component-id",
+                    "--exclude=stuff.txt",
                     "--file-extension=cpp",
                     "--probe-id-range=1..=12",
+                    "--exclude=file.dep",
                     "--output-path",
                     "/out",
                     "--component-name",
@@ -66,6 +69,7 @@ mod test {
                 lang: Some(Lang::C),
                 event_id_offset: Some(10),
                 file_extensions: Some(vec!["c".to_string(), "cpp".to_string()]),
+                exclude_patterns: Some(vec!["stuff.txt".to_string(), "file.dep".to_string()]),
                 probe_id_range: Some(
                     NonZeroIdRange::new(NonZeroU32::new(1).unwrap(), NonZeroU32::new(12).unwrap())
                         .unwrap()
