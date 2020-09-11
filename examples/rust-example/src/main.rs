@@ -5,15 +5,7 @@ use modality_probe::{
     Probe, RestartCounterProvider,
 };
 use rand::{thread_rng, Rng};
-use std::{
-    env, fmt,
-    net::UdpSocket,
-    process,
-    sync::atomic::{AtomicUsize, Ordering},
-    sync::Arc,
-    thread::sleep,
-    time::Duration,
-};
+use std::{env, fmt, net::UdpSocket};
 
 // Import the generated component manifest definitions
 mod component_definitions;
@@ -22,7 +14,6 @@ use component_definitions::*;
 const PROBE_SIZE: usize = 1024;
 const REPORT_SIZE: usize = 1024;
 const COLLECTOR_ADDR: &str = "127.0.0.1:2718";
-const SLEEP_DURATION: Duration = Duration::from_millis(100);
 
 fn main() {
     // Default to info level if not set
@@ -30,20 +21,6 @@ fn main() {
         env::set_var("RUST_LOG", "info");
     }
     env_logger::init();
-    let running = Arc::new(AtomicUsize::new(0));
-    let r_producer = running.clone();
-    let r_consumer = running.clone();
-    let r = running;
-    ctrlc::set_handler(move || {
-        let prev = r.fetch_add(1, Ordering::SeqCst);
-        if prev == 0 {
-            info!("Shutting down");
-        } else {
-            info!("Force exit");
-            process::exit(0);
-        }
-    })
-    .expect("Error setting Ctrl-C handler");
 
     info!("Modality probe reports will be sent to {}", COLLECTOR_ADDR);
 
@@ -51,11 +28,11 @@ fn main() {
 
     thread::scope(|s| {
         let a = s.spawn(move |_| {
-            measurement_producer_thread(r_producer, tx);
+            measurement_producer_thread(tx);
         });
 
         let b = s.spawn(move |_| {
-            measurement_consumer_thread(r_consumer, rx);
+            measurement_consumer_thread(rx);
         });
 
         let res = a.join();
@@ -81,10 +58,7 @@ impl fmt::Display for Measurement {
     }
 }
 
-fn measurement_producer_thread(
-    running: Arc<AtomicUsize>,
-    tx: crossbeam_channel::Sender<Measurement>,
-) {
+fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
     info!("Sensor measurement producer thread starting");
 
     let mut storage = [0u8; PROBE_SIZE];
@@ -100,10 +74,6 @@ fn measurement_producer_thread(
     let mut report_buffer = vec![0u8; REPORT_SIZE];
     let socket = UdpSocket::bind("0.0.0.0:0").expect("Could not bind");
 
-    // Producer will send a randomly moving i8 measurement
-    let mut rng = thread_rng();
-    let mut m: i8 = 1;
-
     try_record!(
         probe,
         PRODUCER_STARTED,
@@ -112,52 +82,34 @@ fn measurement_producer_thread(
     )
     .expect("Could not record event");
 
-    send_report(&socket, probe, &mut report_buffer);
+    let instant = probe.now();
+    trace!("Producer now {:?}", instant);
 
-    let mut loop_counter: usize = 0;
-    while running.load(Ordering::SeqCst) == 0 {
-        let instant = probe.now();
-        trace!("Producer top of the loop {:?}", instant);
+    let mut rng = thread_rng();
+    let m: i8 = 1 + rng.gen_range(-1, 2);
 
-        let delta: i8 = rng.gen_range(-1, 2);
-        m = m.wrapping_add(delta);
+    try_record_w_i8!(
+        probe,
+        PRODUCER_MEASUREMENT_SAMPLED,
+        m,
+        tags!("producer", "measurement sample"),
+        "Measurement producer sampled a value for transmission"
+    )
+    .expect("could not record event with payload");
 
-        try_record_w_i8!(
-            probe,
-            PRODUCER_MEASUREMENT_SAMPLED,
-            m,
-            tags!("producer", "measurement sample"),
-            "Measurement producer sampled a value for transmission"
-        )
-        .expect("could not record event with payload");
+    // Construct a measurement for transmission with a Modality probe snapshot in-band
+    let snapshot = probe.produce_snapshot();
+    let measurement = Measurement { m, snapshot };
 
-        // Construct a measurement for transmission with a Modality probe snapshot in-band
-        let snapshot = probe.produce_snapshot();
-        let measurement = Measurement { m, snapshot };
-
-        let tx_status = tx.send(measurement);
-        try_expect!(
-            probe,
-            PRODUCER_TX_STATUS_OK,
-            tx_status.is_ok(),
-            "Measurement producer send result status",
-            tags!("producer", "SEVERITY_10")
-        )
-        .expect("Could not record event");
-
-        if tx_status.is_err() {
-            info!("Producer failed to send measurement");
-            break;
-        }
-
-        // Send a report periodically, every 10 iterations here ~= once a second
-        loop_counter = loop_counter.wrapping_add(1);
-        if loop_counter % 10 == 0 {
-            send_report(&socket, probe, &mut report_buffer);
-        }
-
-        sleep(SLEEP_DURATION);
-    }
+    let tx_status = tx.send(measurement);
+    try_expect!(
+        probe,
+        PRODUCER_MEASUREMENT_SENT,
+        tx_status.is_ok(),
+        "Measurement producer sent a measurement",
+        tags!("producer", "transmit", "SEVERITY_10")
+    )
+    .expect("Could not record event");
 
     try_record!(
         probe,
@@ -170,10 +122,7 @@ fn measurement_producer_thread(
     send_report(&socket, probe, &mut report_buffer);
 }
 
-fn measurement_consumer_thread(
-    running: Arc<AtomicUsize>,
-    rx: crossbeam_channel::Receiver<Measurement>,
-) {
+fn measurement_consumer_thread(rx: crossbeam_channel::Receiver<Measurement>) {
     info!("Sensor measurement consumer thread starting");
 
     let mut storage = [0u8; PROBE_SIZE];
@@ -197,19 +146,10 @@ fn measurement_consumer_thread(
     )
     .expect("Could not record event");
 
-    send_report(&socket, probe, &mut report_buffer);
-
-    let mut loop_counter: usize = 0;
-    while running.load(Ordering::SeqCst) == 0 {
-        // Wait for a new measurement from the producer or a disconnect
-        let measurement = if let Ok(m) = rx.recv() {
-            m
-        } else {
-            break;
-        };
-
+    // Wait for a new measurement from the producer or a disconnect
+    if let Ok(measurement) = rx.recv() {
         let instant = probe.now();
-        trace!("Consumer top of the loop {:?}", instant);
+        trace!("Consumer now {:?}", instant);
 
         // Merge the snapshot from the producer's probe with our (the consumer) probe
         probe
@@ -226,12 +166,6 @@ fn measurement_consumer_thread(
         .expect("could not record event with payload");
 
         info!("Consumer recvd {}", measurement);
-
-        // Send a report periodically, every 10 iterations here ~= once a second
-        loop_counter = loop_counter.wrapping_add(1);
-        if loop_counter % 10 == 0 {
-            send_report(&socket, probe, &mut report_buffer);
-        }
     }
 
     try_record!(

@@ -19,7 +19,8 @@ fn end_to_end_workflow() -> io::Result<()> {
     let report_log_path = artifact_path.join("report_log.jsonl");
 
     // The exported graph of the log file
-    let graph_path = artifact_path.join("graph.dot");
+    let cyclic_graph_path = artifact_path.join("cyclic_graph.dot");
+    let acyclic_graph_path = artifact_path.join("acyclic_graph.dot");
 
     let example_bin_path = Path::new(env!("CARGO_BIN_EXE_rust-example"));
     assert!(example_bin_path.exists());
@@ -69,34 +70,11 @@ fn end_to_end_workflow() -> io::Result<()> {
 
     thread::sleep(Duration::from_secs(1));
 
-    // Start up the example application
-    let mut example_app_child = Command::new(&example_bin_path)
-        .spawn()
-        .expect("Could not spawn rust-example application");
+    // Run the example application
+    let status = Command::new(&example_bin_path).status().unwrap();
+    assert!(status.success(), "Could not run rust-example application");
 
-    println!(
-        "Started the example application, process-id: {}",
-        example_app_child.id()
-    );
-
-    // Run the example for a few seconds
-    thread::sleep(Duration::from_secs(5));
-
-    #[cfg(target_family = "unix")]
-    signal::kill(Pid::from_raw(example_app_child.id() as _), Signal::SIGINT).unwrap();
-
-    #[cfg(target_family = "windows")]
-    example_app_child
-        .kill()
-        .expect("Could not kill the example application");
-
-    let status = example_app_child
-        .wait()
-        .expect("Could not wait on rust-example application child");
-    assert!(
-        status.success(),
-        "rust-example application returned a non-zero exit status"
-    );
+    thread::sleep(Duration::from_secs(1));
 
     #[cfg(target_family = "unix")]
     signal::kill(Pid::from_raw(udp_collector_child.id() as _), Signal::SIGINT).unwrap();
@@ -127,7 +105,21 @@ fn end_to_end_workflow() -> io::Result<()> {
         .output()
         .unwrap();
     assert!(output.status.success(), "Could not export a graph");
-    fs::write(&graph_path, output.stdout).expect("Could not write graph output");
+    fs::write(&cyclic_graph_path, output.stdout).expect("Could not write graph output");
+
+    let output = Command::new(&cli)
+        .args(&[
+            "export",
+            "acyclic",
+            "--components",
+            "example-component",
+            "--report",
+            report_log_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Could not export a graph");
+    fs::write(&acyclic_graph_path, output.stdout).expect("Could not write graph output");
 
     Ok(())
 }

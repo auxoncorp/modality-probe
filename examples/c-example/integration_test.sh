@@ -9,7 +9,8 @@ COLLECTOR="../../target/debug/modality-probe-udp-collector"
 APP="./c-example"
 ARTIFACTS_DIR="artifacts"
 REPORT_LOG="$ARTIFACTS_DIR/report_log.jsonl"
-GRAPH_DOT="$ARTIFACTS_DIR/graph.dot"
+CYCLIC_GRAPH_DOT="$ARTIFACTS_DIR/cyclic_graph.dot"
+ACYCLIC_GRAPH_DOT="$ARTIFACTS_DIR/acyclic_graph.dot"
 
 if [ ! -f "$APP" ] || [ ! -f "$CLI" ] || [ ! -f "$COLLECTOR" ]; then
     echo "Run this script from the Makefile test target: make test"
@@ -25,23 +26,16 @@ COLLECTOR_PID=$!
 echo "Started the UDP collector, process-id: $COLLECTOR_PID"
 sleep 1
 
-# Start up the example application
-"$APP" &
-APP_PID=$!
-echo "Started the example application, process-id: $APP_PID"
-
-# Run the example for a few seconds
-sleep 5
-
-# Gracefully terminate the application
-kill -SIGINT $APP_PID
-wait $APP_PID
+# Run the example application
+"$APP"
 
 # Gracefully terminate the UDP collector
+sleep 1
 kill -SIGINT $COLLECTOR_PID
 wait $COLLECTOR_PID
 
 # Use the cli to export a graph
-"$CLI" export cyclic --components example-component --report "$REPORT_LOG" > "$GRAPH_DOT"
+"$CLI" export cyclic --components example-component --report "$REPORT_LOG" > "$CYCLIC_GRAPH_DOT"
+"$CLI" export acyclic --components example-component --report "$REPORT_LOG" > "$ACYCLIC_GRAPH_DOT"
 
 exit 0

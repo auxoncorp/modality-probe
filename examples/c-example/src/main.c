@@ -5,7 +5,6 @@
 #include <inttypes.h>
 #include <stdint.h>
 #include <unistd.h>
-#include <signal.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -22,7 +21,6 @@
 #define REPORT_SIZE (1024)
 #define COLLECTOR_ADDRESS "127.0.0.1"
 #define COLLECTOR_PORT (2718)
-#define MILLIS_TO_MICROS(ms) (ms * 1000)
 
 typedef struct
 {
@@ -30,12 +28,6 @@ typedef struct
     modality_probe_causal_snapshot snapshot;
 } measurement_s;
 
-static const unsigned int SLEEP_DURATION = MILLIS_TO_MICROS(100);
-
-/* Send a report periodically, every 10 iterations here ~= once a second */
-const uint64_t REPORT_ITERATION_INTERVAL = 10;
-
-static volatile sig_atomic_t g_exit_signaled = 0;
 static struct sockaddr_in g_collector_addr;
 static int g_report_socket = -1;
 static uint8_t g_report_buffer[REPORT_SIZE];
@@ -49,25 +41,6 @@ static uint8_t g_consumer_probe_buffer[PROBE_SIZE];
 
 /* Simple 1-element deep pretend queue */
 static measurement_s *g_measurement_queue = NULL;
-
-static void sigint_handler(int sig)
-{
-    (void) sig; /* Assume it's SIGINT, that's all we register for */
-    g_exit_signaled = 1;
-}
-
-static void register_sigint_handler(void)
-{
-    struct sigaction act;
-    memset(&act, 0, sizeof(act));
-    act.sa_flags = SA_RESTART;
-    act.sa_handler = sigint_handler;
-    if(sigaction(SIGINT, &act, 0) < 0)
-    {
-        perror("sigaction(SIGINT)");
-        exit(1);
-    }
-}
 
 static void send_report(modality_probe * const probe)
 {
@@ -117,8 +90,6 @@ static void init_producer(void)
             MODALITY_TAGS("producer"),
             "Measurement producer started");
     assert(err == MODALITY_PROBE_ERROR_OK);
-
-    send_report(g_producer_probe);
 }
 
 static void deinit_producer(void)
@@ -135,15 +106,14 @@ static void deinit_producer(void)
     send_report(g_producer_probe);
 }
 
-static void do_producer_loop(void)
+static void run_producer(void)
 {
     size_t err;
-    static uint64_t counter = 0;
 
     const modality_probe_instant now = modality_probe_now(g_producer_probe);
     syslog(
             LOG_INFO,
-            "Producer top of the loop "
+            "Producer now "
             "(id: %" PRIu32 ", epoch: %" PRIu16 ", ticks: %" PRIu16 ", event_count: %" PRIu32 ")\n",
             now.clock.id,
             now.clock.epoch,
@@ -176,12 +146,12 @@ static void do_producer_loop(void)
     g_producer_measurement.m = sample;
     g_measurement_queue = &g_producer_measurement;
 
-    if((counter % REPORT_ITERATION_INTERVAL) == 0)
-    {
-        send_report(g_producer_probe);
-    }
-
-    counter += 1;
+    err = MODALITY_PROBE_RECORD(
+            g_producer_probe,
+            PRODUCER_MEASUREMENT_SENT,
+            MODALITY_TAGS("producer", "transmit"),
+            "Measurement producer sent a measurement");
+    assert(err == MODALITY_PROBE_ERROR_OK);
 }
 
 static void init_consumer(void)
@@ -207,8 +177,6 @@ static void init_consumer(void)
             MODALITY_TAGS("consumer"),
             "Measurement consumer started");
     assert(err == MODALITY_PROBE_ERROR_OK);
-
-    send_report(g_consumer_probe);
 }
 
 static void deinit_consumer(void)
@@ -225,16 +193,15 @@ static void deinit_consumer(void)
     send_report(g_consumer_probe);
 }
 
-static void do_consumer_loop(void)
+static void run_consumer(void)
 {
     size_t err;
-    static uint64_t counter = 1;
     measurement_s measurement;
 
     const modality_probe_instant now = modality_probe_now(g_consumer_probe);
     syslog(
             LOG_INFO,
-            "Consumer top of the loop "
+            "Consumer now "
             "(id: %" PRIu32 ", epoch: %" PRIu16 ", ticks: %" PRIu16 ", event_count: %" PRIu32 ")\n",
             now.clock.id,
             now.clock.epoch,
@@ -255,19 +222,12 @@ static void do_consumer_loop(void)
                 g_consumer_probe,
                 CONSUMER_MEASUREMENT_RECVD,
                 measurement.m,
-                MODALITY_TAGS("consumer", "measurement"),
+                MODALITY_TAGS("consumer", "measurement", "receive"),
                 "Measurement consumer recvd a new value");
         assert(err == MODALITY_PROBE_ERROR_OK);
 
         printf("Consumer recvd %" PRIi8 "\n", measurement.m);
     }
-
-    if((counter % REPORT_ITERATION_INTERVAL) == 0)
-    {
-        send_report(g_consumer_probe);
-    }
-
-    counter += 1;
 }
 
 int main(int argc, char **argv)
@@ -291,16 +251,9 @@ int main(int argc, char **argv)
 
     init_consumer();
 
-    register_sigint_handler();
+    run_producer();
 
-    while(g_exit_signaled == 0)
-    {
-        do_producer_loop();
-
-        do_consumer_loop();
-
-        (void) usleep(SLEEP_DURATION);
-    }
+    run_consumer();
 
     printf("Shutting down\n");
 
