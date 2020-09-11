@@ -11,8 +11,15 @@ cargo clean
 )
 
 (
-    cd examples
-    rm -rf example-component generated_ids/mod.rs
+    cd examples/rust-example/
+    cargo clean
+    rm -rf example-component src/component_definitions.rs Cargo.lock
+)
+
+(
+    cd examples/c-example/
+    make clean
+    rm -rf example-component include/component_definitions.h
 )
 
 (

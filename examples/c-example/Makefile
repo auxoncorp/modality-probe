@@ -22,7 +22,7 @@ LIBS = ../../modality-probe-capi/target/debug/libmodality_probe.a
 
 all: probe-utils gen-manifest gen-header $(TARGET)
 
-# Build the C API, cli, and UDP collector
+# Build the C API, CLI, and UDP collector
 probe-utils:
 	@cd ../../modality-probe-capi && cargo build
 	@cd ../../ && cargo build -p modality-probe-cli
