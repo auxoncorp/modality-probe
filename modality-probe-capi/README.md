@@ -12,8 +12,8 @@ also targeted by the code and manifest generation that the CLI does.
 ## Getting Started
 
 ### Dependencies
-This library requires a Rust toolchain. The recommended toolchain
-management system for Rust is [Rustup](https://rustup.sh).
+
+* [Rust Toolchain](https://rustup.sh)
 
 ### Building
 Once Rust is installed, build the C API using Cargo:

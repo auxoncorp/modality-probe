@@ -33,8 +33,7 @@ environments.
 
 ### Dependencies
 
-Modality Probe requires a Rust toolchain. The recommended toolchain
-management system for Rust is [Rustup](https://rustup.sh).
+* [Rust Toolchain](https://rustup.sh)
 
 ### Building
 

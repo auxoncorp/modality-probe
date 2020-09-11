@@ -8,27 +8,10 @@ to the target program.
 ## Getting Started
 
 ### Dependencies
-The collector requires a Rust toolchain. The recommended toolchain
-management system for Rust is [Rustup](https://rustup.sh).
 
-The collector depends on libusb and libftdi. On linux these can be
-installed with your package manager:
-
-```
-$ sudo apt install -y libusb-dev libusb-1.0 libftdi1-dev
-```
-
-On Windows you can use
-[vcpkg](https://github.com/microsoft/vcpkg#quick-start-windows):
-
-```
-# dynamic linking 64-bit
-> vcpkg install libftdi1:x64-windows libusb:x64-windows
-> set VCPKGRS_DYNAMIC=1
-
-# static linking 64-bit
-> vcpkg install libftdi1:x64-windows-static-md libusb:x64-windows-static-md
-```
+* [Rust Toolchain](https://rustup.sh)
+* [libusb](https://libusb.info/)
+* [libftd](https://www.intra2net.com/en/developer/libftdi/)
 
 ### Building
 

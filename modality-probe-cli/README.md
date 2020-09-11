@@ -12,8 +12,8 @@ a collected trace as Graphviz dot code.
 ## Getting Started
 
 ### Dependencies
-The CLI requires a Rust toolchain. The recommended toolchain
-management system for Rust is [Rustup](https://rustup.sh).
+
+* [Rust Toolchain](https://rustup.sh)
 
 ### Building
 Once Rust is installed (don’t forget to follow directions about
