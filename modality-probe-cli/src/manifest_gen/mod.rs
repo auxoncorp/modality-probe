@@ -37,6 +37,10 @@ pub struct ManifestGen {
     #[structopt(long = "file-extension")]
     pub file_extensions: Option<Vec<String>>,
 
+    /// Exclude files that match the given pattern
+    #[structopt(long = "exclude")]
+    pub exclude_patterns: Option<Vec<String>>,
+
     /// Component name used when generating a component manifest
     #[structopt(long, default_value = "component")]
     pub component_name: String,
@@ -72,6 +76,7 @@ impl Default for ManifestGen {
         ManifestGen {
             lang: None,
             file_extensions: None,
+            exclude_patterns: None,
             component_name: String::from("component"),
             event_id_offset: None,
             probe_id_range: None,
@@ -116,6 +121,7 @@ pub fn run(opt: ManifestGen, internal_events: Option<Vec<Event>>) {
     let config = Config {
         lang: opt.lang,
         file_extensions: opt.file_extensions,
+        exclude_patterns: opt.exclude_patterns,
         internal_events: internal_events.unwrap_or_else(Events::internal_events),
         ..Default::default()
     };

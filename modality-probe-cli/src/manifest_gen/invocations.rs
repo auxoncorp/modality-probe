@@ -68,6 +68,7 @@ pub struct Config<'cfg> {
     pub c_parser: CParser<'cfg>,
     pub rust_parser: RustParser<'cfg>,
     pub file_extensions: Option<Vec<String>>,
+    pub exclude_patterns: Option<Vec<String>>,
     pub internal_events: Vec<Event>,
 }
 
@@ -78,6 +79,7 @@ impl<'cfg> Default for Config<'cfg> {
             c_parser: CParser::default(),
             rust_parser: RustParser::default(),
             file_extensions: None,
+            exclude_patterns: None,
             internal_events: Events::internal_events(),
         }
     }
@@ -100,7 +102,12 @@ impl Invocations {
                 exts.iter()
                     .any(|ext| Some(OsStr::new(ext)) == entry.path().extension())
             });
-            if should_consider {
+            let should_exclude = config.exclude_patterns.as_ref().map_or(false, |excludes| {
+                excludes
+                    .iter()
+                    .any(|exclude| entry.path().to_string_lossy().contains(exclude.as_str()))
+            });
+            if should_consider && !should_exclude {
                 let mut f = File::open(entry.path())
                     .map_err(|e| CreationError::Io(entry.path().to_path_buf(), e))?;
 
