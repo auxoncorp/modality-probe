@@ -10,10 +10,13 @@ fn end_to_end_workflow() -> io::Result<()> {
     // This test will store artifacts (report logs, export graph, etc) in target/artifacts
     let src_dir = env!("CARGO_MANIFEST_DIR");
     let artifact_path = Path::new(src_dir).join("target").join("artifacts");
+    if artifact_path.exists() {
+        fs::remove_dir_all(&artifact_path).expect("Could not clean artifact path");
+    }
     fs::create_dir_all(&artifact_path).expect("Could not create artifacts path");
 
     // The report log file storing the output of modality-probe-udp-collector
-    let report_log_path = artifact_path.join("report_log");
+    let report_log_path = artifact_path.join("report_log.jsonl");
 
     // The exported graph of the log file
     let graph_path = artifact_path.join("graph.dot");
@@ -63,6 +66,8 @@ fn end_to_end_workflow() -> io::Result<()> {
         "Started the UDP collector, process-id: {}",
         udp_collector_child.id()
     );
+
+    thread::sleep(Duration::from_secs(1));
 
     // Start up the example application
     let mut example_app_child = Command::new(&example_bin_path)

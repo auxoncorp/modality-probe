@@ -7,17 +7,17 @@ set -e
 CLI="../../target/debug/modality-probe"
 COLLECTOR="../../target/debug/modality-probe-udp-collector"
 APP="./c-example"
-ARTIFACTS_DIR="artifacts/"
-REPORT_LOG="$ARTIFACTS_DIR/report_log"
+ARTIFACTS_DIR="artifacts"
+REPORT_LOG="$ARTIFACTS_DIR/report_log.jsonl"
 GRAPH_DOT="$ARTIFACTS_DIR/graph.dot"
-
-mkdir -p "$ARTIFACTS_DIR"
-rm -f "$ARTIFACTS_DIR/*"
 
 if [ ! -f "$APP" ] || [ ! -f "$CLI" ] || [ ! -f "$COLLECTOR" ]; then
     echo "Run this script from the Makefile test target: make test"
     exit 1
 fi
+
+mkdir -p "$ARTIFACTS_DIR"
+rm -f "$ARTIFACTS_DIR/"*
 
 # Start up the UDP collector
 "$COLLECTOR" --port 2718 --session-id 1 --output-file "$REPORT_LOG" &

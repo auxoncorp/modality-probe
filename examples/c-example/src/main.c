@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <syslog.h>
 #include <assert.h>
 
 #include "probe.h"
@@ -140,8 +141,10 @@ static void do_producer_loop(void)
     static uint64_t counter = 0;
 
     const modality_probe_instant now = modality_probe_now(g_producer_probe);
-    printf(
-            "Producer top of the loop (%" PRIu32 ", %" PRIu16 ", %" PRIu16 ", %" PRIu32 ")\n",
+    syslog(
+            LOG_INFO,
+            "Producer top of the loop "
+            "(id: %" PRIu32 ", epoch: %" PRIu16 ", ticks: %" PRIu16 ", event_count: %" PRIu32 ")\n",
             now.clock.id,
             now.clock.epoch,
             now.clock.ticks,
@@ -168,6 +171,7 @@ static void do_producer_loop(void)
             (sample - g_producer_measurement.m) <= 2,
             MODALITY_TAGS("producer", "SEVERITY_10"),
             "Measurement delta within ok range");
+    assert(err == MODALITY_PROBE_ERROR_OK);
 
     g_producer_measurement.m = sample;
     g_measurement_queue = &g_producer_measurement;
@@ -226,10 +230,12 @@ static void do_consumer_loop(void)
     size_t err;
     static uint64_t counter = 1;
     measurement_s measurement;
-    
+
     const modality_probe_instant now = modality_probe_now(g_consumer_probe);
-    printf(
-            "Consumer top of the loop (%" PRIu32 ", %" PRIu16 ", %" PRIu16 ", %" PRIu32 ")\n",
+    syslog(
+            LOG_INFO,
+            "Consumer top of the loop "
+            "(id: %" PRIu32 ", epoch: %" PRIu16 ", ticks: %" PRIu16 ", event_count: %" PRIu32 ")\n",
             now.clock.id,
             now.clock.epoch,
             now.clock.ticks,
@@ -268,6 +274,8 @@ int main(int argc, char **argv)
 {
     time_t t;
     srand((unsigned int) time(&t));
+
+    openlog("c-example", LOG_NDELAY | LOG_PID, LOG_USER);
 
     (void) memset(&g_collector_addr, 0, sizeof(g_collector_addr));
     g_collector_addr.sin_family = AF_INET;
