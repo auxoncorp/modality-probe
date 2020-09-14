@@ -74,6 +74,16 @@ jobs:
           cd modality-probe-capi
           cargo clippy --all
 
+      - name: Run cargo fmt (Rust example)
+        run: |
+          cd examples/rust-example
+          cargo fmt -- --check
+
+      - name: Run cargo clippy (Rust example)
+        run: |
+          cd examples/rust-example
+          cargo clippy --all
+
       - name: Test (big endian target)
         uses: actions-rs/cargo@v1
         with:

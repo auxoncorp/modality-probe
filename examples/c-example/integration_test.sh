@@ -38,4 +38,14 @@ wait $COLLECTOR_PID
 "$CLI" export cyclic --components example-component --report "$REPORT_LOG" > "$CYCLIC_GRAPH_DOT"
 "$CLI" export acyclic --components example-component --report "$REPORT_LOG" > "$ACYCLIC_GRAPH_DOT"
 
+if [ ! -s "$CYCLIC_GRAPH_DOT" ]; then
+    echo "$CYCLIC_GRAPH_DOT is empty"
+    exit 1
+fi
+
+if [ ! -s "$ACYCLIC_GRAPH_DOT" ]; then
+    echo "$ACYCLIC_GRAPH_DOT is empty"
+    exit 1
+fi
+
 exit 0
