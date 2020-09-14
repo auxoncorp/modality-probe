@@ -120,13 +120,14 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     );
 
     // When a probe inits, it also logs an internal event
-    assert_eq!(log_report.n_log_entries(), 2);
+    assert_eq!(log_report.n_log_entries(), 4);
 
     let payload_len = log_report.payload_len();
     let payload = &log_report.payload()[..payload_len];
     assert_eq!(
         payload_len,
-        core::mem::size_of::<LogicalClock>() + (2 * core::mem::size_of::<log::LogEntry>())
+        // One frontier clock and the initial trace clock.
+        (core::mem::size_of::<LogicalClock>() * 2) + (2 * core::mem::size_of::<log::LogEntry>())
     );
     let item = unsafe {
         log::LogEntry::new_unchecked(u32::from_le_bytes([
@@ -278,7 +279,7 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
     let event = EventId::new(2).unwrap();
 
     // Should be repeatable, counts are cleared on each report
-    for _ in 0..3 {
+    for i in 0..3 {
         for _ in 0..NUM_STORAGE_BYTES * 2 {
             probe.record_event(event);
         }
@@ -304,7 +305,11 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
             EventId::EVENT_LOG_ITEMS_MISSED
         );
 
-        assert_eq!(raw_payload, 943);
+        if i == 0 {
+            assert_eq!(raw_payload, 945);
+        } else {
+            assert_eq!(raw_payload, 943);
+        }
     }
 
     Ok(())

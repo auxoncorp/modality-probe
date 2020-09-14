@@ -194,10 +194,6 @@ impl LogicalClock {
         if overflow {
             self.epoch = ProbeEpoch(self.epoch.0.wrapping_add(1));
         }
-
-        // This handles both wrapping around to 1 and going from the zero epoch
-        // (uninitialized) to epoch 1
-        self.epoch = ProbeEpoch(max(self.epoch.0, 1));
         overflow
     }
 

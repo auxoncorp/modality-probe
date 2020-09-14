@@ -675,7 +675,7 @@ mod test {
         let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         assert_eq!(log_report.n_clocks() as usize, h.clocks.capacity());
-        assert_eq!(log_report.n_log_entries(), 17);
+        assert_eq!(log_report.n_log_entries(), 19);
 
         let offset = log_report.n_clocks() as usize * size_of::<LogicalClock>();
         let log_bytes = &log_report.payload()[offset..];
@@ -721,7 +721,7 @@ mod test {
 
         // Each report (excluding the first, and until drained) adds an
         // extra internal event: EventId::EVENT_PRODUCED_EXTERNAL_REPORT.
-        const EXPECTED_LOG_ENTRIES: usize = EXPECTED_LOG_CAPACITY + 4;
+        const EXPECTED_LOG_ENTRIES: usize = EXPECTED_LOG_CAPACITY + 6;
 
         // Drain into a buffer that is ~1/4 of the log buffer capacity
         let report_buffer_size =
@@ -742,10 +742,10 @@ mod test {
 
         // One more to get the remainder
         let bytes_written = h.report(&mut report_dest).unwrap().unwrap();
-        assert_eq!(bytes_written.get(), 51);
+        assert_eq!(bytes_written.get(), 59);
         let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
-        assert_eq!(log_report.n_log_entries(), 4);
+        assert_eq!(log_report.n_log_entries(), 6);
         reported_log_entries += log_report.n_log_entries() as usize;
 
         assert_eq!(reported_log_entries, EXPECTED_LOG_ENTRIES);
