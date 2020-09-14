@@ -202,7 +202,7 @@ impl<'a> DynamicHistory<'a> {
             restart_counter: RestartSequenceCounter::new(restart_counter),
         };
         history.retreive_next_persistent_epoch();
-
+        history.write_clocks_to_log(&[history.self_clock]);
         Ok(history)
     }
 
