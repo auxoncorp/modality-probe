@@ -187,4 +187,10 @@ pub fn run(opt: ManifestGen, internal_events: Option<Vec<Event>>) {
     component_manifest.write_toml(&component_manifest_path);
     events.write_csv(&events_manifest_path);
     probes.write_csv(&probes_manifest_path);
+
+    println!(
+        "Updated component {} in {}",
+        component_manifest.name,
+        component_manifest_path.display()
+    );
 }
