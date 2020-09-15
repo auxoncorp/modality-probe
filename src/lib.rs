@@ -74,6 +74,8 @@ impl PartialOrd for CausalSnapshot {
 pub struct ProbeEpoch(pub u16);
 
 impl ProbeEpoch {
+    /// The minimum value a probe epoch can inhabit.
+    pub const MIN: Self = ProbeEpoch(u16::MIN);
     /// The maximum value a probe epoch can inhabit.
     pub const MAX: Self = ProbeEpoch(u16::MAX);
     const WRAPAROUND_THRESHOLD_TOP: Self = ProbeEpoch(u16::MAX - 3);
@@ -83,6 +85,12 @@ impl ProbeEpoch {
     pub fn overflowing_add(self, n: u16) -> (ProbeEpoch, bool) {
         let (n, overflow) = self.0.overflowing_add(n);
         (n.into(), overflow)
+    }
+}
+
+impl Default for ProbeEpoch {
+    fn default() -> Self {
+        Self::MIN
     }
 }
 
@@ -105,8 +113,16 @@ impl From<ProbeEpoch> for u16 {
 pub struct ProbeTicks(pub u16);
 
 impl ProbeTicks {
+    /// The minimum value a probe tick can inhabit.
+    pub const MIN: Self = ProbeTicks(u16::MIN);
     /// The maximum value a probe tick can inhabit.
     pub const MAX: Self = ProbeTicks(u16::MAX);
+}
+
+impl Default for ProbeTicks {
+    fn default() -> Self {
+        Self::MIN
+    }
 }
 
 impl From<u16> for ProbeTicks {
