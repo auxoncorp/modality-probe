@@ -267,7 +267,7 @@ bool test_now(void) {
      * the event_count should reset to 0
      */
     instant_a = modality_probe_now(probe_a);
-    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 1 || instant_a.clock.ticks != 1 || instant_a.event_count != 0) {
+    if (instant_a.clock.id != DEFAULT_PROBE_ID || instant_a.clock.epoch != 0 || instant_a.clock.ticks != 1 || instant_a.event_count != 0) {
         passed = false;
     }
 
@@ -277,20 +277,20 @@ bool test_now(void) {
     }
     modality_probe_merge_snapshot(probe_b, &snap_a);
     instant_b = modality_probe_now(probe_b);
-    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 1 || instant_b.clock.ticks != 1 || instant_b.event_count != 0) {
+    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 0 || instant_b.clock.ticks != 1 || instant_b.event_count != 0) {
         passed = false;
     }
     modality_probe_causal_snapshot snap_b;
     result = modality_probe_produce_snapshot(probe_b, &snap_b);
     ERROR_CHECK(result, passed);
     instant_b = modality_probe_now(probe_b);
-    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 1 || instant_b.clock.ticks != 2 || instant_b.event_count != 0) {
+    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 0 || instant_b.clock.ticks != 2 || instant_b.event_count != 0) {
         passed = false;
     }
     result = modality_probe_record_event(probe_b, EVENT_A);
     ERROR_CHECK(result, passed);
     instant_b = modality_probe_now(probe_b);
-    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 1 || instant_b.clock.ticks != 2 || instant_b.event_count != 1) {
+    if (instant_b.clock.id != probe_b_id || instant_b.clock.epoch != 0 || instant_b.clock.ticks != 2 || instant_b.event_count != 1) {
         passed = false;
     }
 
@@ -302,7 +302,7 @@ bool test_now(void) {
     if (instant_b.clock.id != probe_b_id) {
         passed = false;
     }
-    if (instant_b.clock.epoch != 1) {
+    if (instant_b.clock.epoch != 0) {
         passed = false;
     }
     if (instant_b.clock.ticks != 2) {

@@ -980,6 +980,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }],
                 event_log: vec![
+                    EventLogEntry::TraceClock(LogicalClock {
+                        id: ProbeId::new(1).unwrap(),
+                        epoch: ProbeEpoch(0),
+                        ticks: ProbeTicks(0),
+                    }),
                     EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(EventId::new(1).unwrap())
                 ],
@@ -1001,7 +1006,7 @@ pub(crate) mod test {
                 probe_id: ProbeId::new(1).unwrap(),
                 probe_clock: LogicalClock {
                     id: ProbeId::new(1).unwrap(),
-                    epoch: ProbeEpoch(1),
+                    epoch: ProbeEpoch(0),
                     ticks: ProbeTicks(1),
                 },
                 seq_num: 1.into(),
@@ -1015,7 +1020,7 @@ pub(crate) mod test {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT),
                     EventLogEntry::TraceClock(LogicalClock {
                         id: ProbeId::new(1).unwrap(),
-                        epoch: ProbeEpoch(1),
+                        epoch: ProbeEpoch(0),
                         ticks: ProbeTicks(1),
                     })
                 ],
@@ -1035,7 +1040,7 @@ pub(crate) mod test {
                 probe_id: ProbeId::new(2).unwrap(),
                 probe_clock: LogicalClock {
                     id: ProbeId::new(2).unwrap(),
-                    epoch: ProbeEpoch(1),
+                    epoch: ProbeEpoch(0),
                     ticks: ProbeTicks(1),
                 },
                 seq_num: 0.into(),
@@ -1046,11 +1051,16 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }],
                 event_log: vec![
+                    EventLogEntry::TraceClock(LogicalClock {
+                        id: ProbeId::new(2).unwrap(),
+                        epoch: ProbeEpoch(0),
+                        ticks: ProbeTicks(0),
+                    }),
                     EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(EventId::new(2).unwrap()),
                     EventLogEntry::TraceClock(LogicalClock {
                         id: ProbeId::new(2).unwrap(),
-                        epoch: ProbeEpoch(1),
+                        epoch: ProbeEpoch(0),
                         ticks: ProbeTicks(1),
                     }),
                     EventLogEntry::TraceClock(LogicalClock {

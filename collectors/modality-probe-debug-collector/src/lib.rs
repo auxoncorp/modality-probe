@@ -662,6 +662,7 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
+                    EventLogEntry::TraceClock(lc(probe_id.get_raw(), 0, 0)),
                     EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(ev(1)),
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
@@ -720,6 +721,7 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
+                    EventLogEntry::TraceClock(lc(probe_id.get_raw(), 0, 0)),
                     EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(ev(1)),
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
@@ -841,13 +843,14 @@ pub mod tests {
             report,
             Report {
                 probe_id: probe_id_2,
-                probe_clock: lc(pid_raw_2, 1, 1),
+                probe_clock: lc(pid_raw_2, 0, 1),
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw_2, 0, 0)],
                 event_log: vec![
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 0)),
                     EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(ev(1)),
-                    EventLogEntry::TraceClock(lc(pid_raw_2, 1, 1)),
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 1)),
                     EventLogEntry::TraceClock(lc(pid_raw, 0, 0)),
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
@@ -864,12 +867,12 @@ pub mod tests {
             second_report,
             Report {
                 probe_id: probe_id_2,
-                probe_clock: lc(pid_raw_2, 1, 2),
+                probe_clock: lc(pid_raw_2, 0, 2),
                 seq_num: SequenceNumber(1),
-                frontier_clocks: vec![lc(pid_raw_2, 1, 1), lc(pid_raw, 0, 0)],
+                frontier_clocks: vec![lc(pid_raw_2, 0, 1), lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::Event(ev(2)),
-                    EventLogEntry::TraceClock(lc(pid_raw_2, 1, 2)),
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 2)),
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
@@ -881,15 +884,16 @@ pub mod tests {
             third_report,
             Report {
                 probe_id: probe_id,
-                probe_clock: lc(pid_raw, 1, 2),
+                probe_clock: lc(pid_raw, 0, 2),
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 0)),
                     EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
                     EventLogEntry::Event(ev(1)),
-                    EventLogEntry::TraceClock(lc(pid_raw, 1, 1)),
-                    EventLogEntry::TraceClock(lc(pid_raw, 1, 2)),
-                    EventLogEntry::TraceClock(lc(pid_raw_2, 1, 1)),
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 2)),
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 1)),
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
@@ -903,9 +907,9 @@ pub mod tests {
             fourth_report,
             Report {
                 probe_id: probe_id,
-                probe_clock: lc(pid_raw, 1, 2),
+                probe_clock: lc(pid_raw, 0, 2),
                 seq_num: SequenceNumber(1),
-                frontier_clocks: vec![lc(pid_raw, 1, 2), lc(pid_raw_2, 1, 1)],
+                frontier_clocks: vec![lc(pid_raw, 0, 2), lc(pid_raw_2, 0, 1)],
                 persistent_epoch_counting: false,
                 event_log: vec![
                     EventLogEntry::Event(ev(2)),
