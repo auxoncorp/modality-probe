@@ -217,8 +217,8 @@ fn file_sha256<P: AsRef<Path>>(path: P) -> String {
 
 pub fn generate_output<W: io::Write>(
     opt: HeaderGen,
-    mut w: W,
     internal_events: Vec<u32>,
+    mut w: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let component_manifest_path = Component::component_manifest_path(&opt.component_path);
     let probes_manifest_path = Component::probes_manifest_path(&opt.component_path);
@@ -306,6 +306,14 @@ pub fn generate_output<W: io::Write>(
         )?;
     }
 
+    if let Some(p) = &opt.output_path {
+        println!(
+            "Generated definitions for component {} in {}",
+            component.name,
+            p.display(),
+        );
+    }
+
     Ok(())
 }
 
@@ -321,5 +329,5 @@ pub fn run(opt: HeaderGen, internal_events: Option<Vec<Event>>) {
         Box::new(io::stdout())
     };
 
-    generate_output(opt, io_out, internal_event_ids).expect("Can't generate output");
+    generate_output(opt, internal_event_ids, io_out).expect("Can't generate output");
 }
