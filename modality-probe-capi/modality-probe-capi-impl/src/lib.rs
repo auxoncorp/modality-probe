@@ -152,16 +152,16 @@ pub unsafe fn modality_probe_report(
     if log_report_destination.is_null() {
         return MODALITY_PROBE_ERROR_NULL_POINTER;
     }
-    let written_bytes = match probe.report(core::slice::from_raw_parts_mut(
+    match probe.report(core::slice::from_raw_parts_mut(
         log_report_destination,
         log_report_destination_size_bytes,
     )) {
-        Ok(b) => b.map(|nonzero| nonzero.get()).unwrap_or(0),
+        Ok(b) => {
+            *out_written_bytes = b.map(|nonzero| nonzero.get()).unwrap_or(0);
+            MODALITY_PROBE_ERROR_OK
+        }
         Err(e) => report_error_to_modality_probe_error(e),
-    };
-
-    *out_written_bytes = written_bytes;
-    MODALITY_PROBE_ERROR_OK
+    }
 }
 
 fn report_error_to_modality_probe_error(report_error: ReportError) -> ModalityProbeError {
@@ -376,6 +376,22 @@ mod tests {
         assert_eq!(MODALITY_PROBE_ERROR_OK, result);
         assert!(bytes_written > 0);
         assert!(!&backend.iter().all(|b| *b == 0));
+
+        unsafe {
+            modality_probe_record_event(probe, 100);
+        }
+        let mut bytes_written: usize = 0;
+        let result = unsafe {
+            modality_probe_report(
+                probe,
+                (&mut backend[..6]).as_mut_ptr(),
+                6,
+                &mut bytes_written as *mut usize,
+            )
+        };
+        assert_eq!(MODALITY_PROBE_ERROR_INSUFFICIENT_DESTINATION_BYTES, result);
+        assert_eq!(bytes_written, 0);
+
         let snap_b = stack_snapshot(probe);
         // We expect the local clock to have progressed thanks to recording an event
         // internally when we successfully transmitted the state to the backend.
