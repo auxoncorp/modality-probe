@@ -1,5 +1,9 @@
-use std::fs;
-use std::process::Command;
+#![deny(warnings)]
+
+use std::{
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 fn main() {
     // Build modality-probe-cli
@@ -10,7 +14,7 @@ fn main() {
         .unwrap();
     assert!(status.success(), "Could not build modality-probe-cli");
 
-    let cli = fs::canonicalize("../../target/debug/modality-probe")
+    let cli = executable_path("../../target/debug/modality-probe")
         .expect("Could not find modality-probe binary");
 
     // Use the cli to generate component manifests
@@ -47,4 +51,13 @@ fn main() {
 
     // Re-run this build script if source changes
     println!("cargo:rerun-if-changed=src/main.rs");
+}
+
+fn executable_path(path: &str) -> Result<PathBuf, ()> {
+    let p = Path::new(&format!("{}{}", path, std::env::consts::EXE_SUFFIX)).to_path_buf();
+    if p.exists() {
+        Ok(p)
+    } else {
+        Err(())
+    }
 }

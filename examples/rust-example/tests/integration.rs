@@ -1,9 +1,17 @@
+#![deny(warnings)]
+
 #[cfg(target_family = "unix")]
 use nix::{
     sys::signal::{self, Signal},
     unistd::Pid,
 };
-use std::{fs, io, path::Path, process::Command, thread, time::Duration};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+    process::Command,
+    thread,
+    time::Duration,
+};
 
 #[test]
 fn end_to_end_workflow() -> io::Result<()> {
@@ -19,7 +27,8 @@ fn end_to_end_workflow() -> io::Result<()> {
     let report_log_path = artifact_path.join("report_log.jsonl");
 
     // The exported graph of the log file
-    let graph_path = artifact_path.join("graph.dot");
+    let cyclic_graph_path = artifact_path.join("cyclic_graph.dot");
+    let acyclic_graph_path = artifact_path.join("acyclic_graph.dot");
 
     let example_bin_path = Path::new(env!("CARGO_BIN_EXE_rust-example"));
     assert!(example_bin_path.exists());
@@ -32,7 +41,7 @@ fn end_to_end_workflow() -> io::Result<()> {
         .unwrap();
     assert!(status.success(), "Could not build modality-probe-cli");
 
-    let cli = fs::canonicalize("../../target/debug/modality-probe")
+    let cli = executable_path("../../target/debug/modality-probe")
         .expect("Could not find modality-probe binary");
 
     // Build modality-probe-udp-collector
@@ -46,7 +55,7 @@ fn end_to_end_workflow() -> io::Result<()> {
         "Could not build modality-probe-udp-collector"
     );
 
-    let udp_collector = fs::canonicalize("../../target/debug/modality-probe-udp-collector")
+    let udp_collector = executable_path("../../target/debug/modality-probe-udp-collector")
         .expect("Could not find modality-probe-udp-collector binary");
 
     // Start up the UDP collector
@@ -69,34 +78,11 @@ fn end_to_end_workflow() -> io::Result<()> {
 
     thread::sleep(Duration::from_secs(1));
 
-    // Start up the example application
-    let mut example_app_child = Command::new(&example_bin_path)
-        .spawn()
-        .expect("Could not spawn rust-example application");
+    // Run the example application
+    let status = Command::new(&example_bin_path).status().unwrap();
+    assert!(status.success(), "Could not run rust-example application");
 
-    println!(
-        "Started the example application, process-id: {}",
-        example_app_child.id()
-    );
-
-    // Run the example for a few seconds
-    thread::sleep(Duration::from_secs(5));
-
-    #[cfg(target_family = "unix")]
-    signal::kill(Pid::from_raw(example_app_child.id() as _), Signal::SIGINT).unwrap();
-
-    #[cfg(target_family = "windows")]
-    example_app_child
-        .kill()
-        .expect("Could not kill the example application");
-
-    let status = example_app_child
-        .wait()
-        .expect("Could not wait on rust-example application child");
-    assert!(
-        status.success(),
-        "rust-example application returned a non-zero exit status"
-    );
+    thread::sleep(Duration::from_secs(1));
 
     #[cfg(target_family = "unix")]
     signal::kill(Pid::from_raw(udp_collector_child.id() as _), Signal::SIGINT).unwrap();
@@ -106,13 +92,21 @@ fn end_to_end_workflow() -> io::Result<()> {
         .kill()
         .expect("Could not kill the example application");
 
-    let status = udp_collector_child
+    #[cfg(target_family = "unix")]
+    {
+        let status = udp_collector_child
+            .wait()
+            .expect("Could not wait on modality-probe-udp-collector child");
+        assert!(
+            status.success(),
+            "modality-probe-udp-collector returned a non-zero exit status"
+        );
+    }
+
+    #[cfg(target_family = "windows")]
+    let _status = udp_collector_child
         .wait()
         .expect("Could not wait on modality-probe-udp-collector child");
-    assert!(
-        status.success(),
-        "modality-probe-udp-collector returned a non-zero exit status"
-    );
 
     // Use the cli to export a graph
     let output = Command::new(&cli)
@@ -126,8 +120,35 @@ fn end_to_end_workflow() -> io::Result<()> {
         ])
         .output()
         .unwrap();
-    assert!(output.status.success(), "Could not export a graph");
-    fs::write(&graph_path, output.stdout).expect("Could not write graph output");
+    assert!(output.status.success(), "Could not export cyclic graph");
+    fs::write(&cyclic_graph_path, output.stdout).expect("Could not write cyclic graph output");
+    let metadata = fs::metadata(&cyclic_graph_path).expect("Could not read cyclic graph output");
+    assert_ne!(metadata.len(), 0);
+
+    let output = Command::new(&cli)
+        .args(&[
+            "export",
+            "acyclic",
+            "--components",
+            "example-component",
+            "--report",
+            report_log_path.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "Could not export acyclic graph");
+    fs::write(&acyclic_graph_path, output.stdout).expect("Could not write acyclic graph output");
+    let metadata = fs::metadata(&acyclic_graph_path).expect("Could not read acyclic graph output");
+    assert_ne!(metadata.len(), 0);
 
     Ok(())
+}
+
+fn executable_path(path: &str) -> Result<PathBuf, ()> {
+    let p = Path::new(&format!("{}{}", path, std::env::consts::EXE_SUFFIX)).to_path_buf();
+    if p.exists() {
+        Ok(p)
+    } else {
+        Err(())
+    }
 }

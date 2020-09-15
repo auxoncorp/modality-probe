@@ -276,18 +276,12 @@ Then, in another terminal, navigate to the C example and run it.
 ```shell
 $ cd ../examples/c-examples
 $ make run
-    Finished dev [unoptimized + debuginfo] target(s) in 0.01s
-     Running `target/debug/rust-example`
-[2020-09-10T22:31:59Z INFO  rust_example] Modality probe reports will be sent to 127.0.0.1:2718
-[2020-09-10T22:31:59Z INFO  rust_example] Sensor measurement consumer thread starting
-[2020-09-10T22:31:59Z INFO  rust_example] Sensor measurement producer thread starting
-[2020-09-10T22:31:59Z INFO  rust_example] Consumer recvd 2
-[2020-09-10T22:31:59Z INFO  rust_example] Consumer recvd 1
-[2020-09-10T22:31:59Z INFO  rust_example] Consumer recvd 2
-[2020-09-10T22:31:59Z INFO  rust_example] Consumer recvd 3
-[2020-09-10T22:32:00Z INFO  rust_example] Consumer recvd 4
-[2020-09-10T22:32:00Z INFO  rust_example] Consumer recvd 4
-…
+Modality probe reports will be sent to 127.0.0.1:2718
+Sensor measurement producer starting
+Sensor measurement consumer starting
+Consumer recvd -1
+Shutting down
+All done
 ```
 
 The `/home/me/src/modality-probe/session_0_log_entries.jsonl` file,
@@ -297,16 +291,16 @@ this:
 
 ```shell
 $ head session_0_log_entries.jsonl
-{"session_id":0,"sequence_number":0,"sequence_index":0,"probe_id":187273104,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":187273104,"epoch":0,"ticks":0}},"receive_time":"2020-09-10T22:31:59.684888465Z"}
-{"session_id":0,"sequence_number":0,"sequence_index":1,"probe_id":187273104,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-10T22:31:59.684888465Z"}
-{"session_id":0,"sequence_number":0,"sequence_index":2,"probe_id":187273104,"persistent_epoch_counting":false,"data":{"Event":5},"receive_time":"2020-09-10T22:31:59.684888465Z"}
-{"session_id":0,"sequence_number":0,"sequence_index":0,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":85665369,"epoch":0,"ticks":0}},"receive_time":"2020-09-10T22:31:59.685081942Z"}
-{"session_id":0,"sequence_number":0,"sequence_index":1,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-10T22:31:59.685081942Z"}
-{"session_id":0,"sequence_number":0,"sequence_index":2,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"Event":1},"receive_time":"2020-09-10T22:31:59.685081942Z"}
-{"session_id":0,"sequence_number":1,"sequence_index":0,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":85665369,"epoch":0,"ticks":0}},"receive_time":"2020-09-10T22:32:00.588266562Z"}
-{"session_id":0,"sequence_number":1,"sequence_index":1,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"Event":1073741822},"receive_time":"2020-09-10T22:32:00.588266562Z"}
-{"session_id":0,"sequence_number":1,"sequence_index":2,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"EventWithPayload":[2,2]},"receive_time":"2020-09-10T22:32:00.588266562Z"}
-{"session_id":0,"sequence_number":1,"sequence_index":3,"probe_id":85665369,"persistent_epoch_counting":false,"data":{"TraceClock":{"id":85665369,"epoch":1,"ticks":1}},"receive_time":"2020-09-10T22:32:00.588266562Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":0,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":697885215,"epoch":0,"ticks":0}},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":1,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":2,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":1},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":3,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"EventWithPayload":[3,1]},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":4,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"TraceClock":{"id":697885215,"epoch":1,"ticks":1}},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":5,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"EventWithPayload":[4,1]},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":6,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":5},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":7,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":2},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":0,"probe_id":354168348,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":354168348,"epoch":0,"ticks":0}},"receive_time":"2020-09-14T15:10:35.939494439Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":1,"probe_id":354168348,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-14T15:10:35.939494439Z"}
 ```
 
 ### Visualizing the Trace
@@ -331,8 +325,10 @@ something like this:
 
 ```c
 const modality_probe_instant now = modality_probe_now(g_producer_probe);
-printf(
-        "Producer top of the loop (%" PRIu32 ", %" PRIu16 ", %" PRIu16 ", %" PRIu32 ")\n",
+syslog(
+        LOG_INFO,
+        "Producer now "
+        "(id: %" PRIu32 ", epoch: %" PRIu16 ", ticks: %" PRIu16 ", event_count: %" PRIu32 ")\n",
         now.clock.id,
         now.clock.epoch,
         now.clock.ticks,
