@@ -11,6 +11,8 @@ use modality_probe_collector_common::{json, Error as CollectorError};
 
 use crate::{component::Component, events::Events};
 
+mod templates;
+
 mod graph;
 use graph::{EventMeta, ProbeMeta};
 
