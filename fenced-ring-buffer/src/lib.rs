@@ -1,5 +1,5 @@
-//! FencedRingBuffer, a single producer, single consumer, shared memory ring buffer which maintains
-//! consistency while operating under race conditions.
+//! FencedRingBuffer, a single producer, single consumer, shared memory ring
+//! buffer which maintains consistency while operating under race conditions.
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(warnings)]
 #![deny(missing_docs)]
@@ -9,8 +9,9 @@ use core::ops::{Add, AddAssign, Sub};
 use core::sync::atomic::{fence, Ordering};
 
 /// The index of an entry in the sequence of all entries written to the buffer
-/// Note: This struct is 2 separate 32 bit words so they can be read in one cpu instruction on 32 bit machines,
-/// for asynchronous reading. It is public so it can be directly accessed from the asynchronous reader.
+/// Note: This struct is 2 separate 32 bit words so they can be read in one cpu
+/// instruction on 32 bit machines, for asynchronous reading. It is public so it
+/// can be directly accessed from the asynchronous reader.
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(C)]
 pub struct SeqNum {
@@ -33,14 +34,15 @@ impl SeqNum {
         high & Self::UPDATING_HIGH_MASK != 0
     }
 
-    /// Set the high bit of the high word so the asynchronous reader does not try to use the sequence number
-    /// in an inconsistent state
+    /// Set the high bit of the high word so the asynchronous reader does not
+    /// try to use the sequence number in an inconsistent state
     fn set_updating_high_bit(&mut self) {
         self.high |= Self::UPDATING_HIGH_MASK;
     }
 
-    /// Increment the sequence number by the given amount, using an "updating" flag to ensure the asynchronous
-    /// reader does not use the sequence number in an inconsistent state
+    /// Increment the sequence number by the given amount, using an "updating"
+    /// flag to ensure the asynchronous reader does not use the sequence
+    /// number in an inconsistent state
     pub(crate) fn increment(&mut self, n: Self) {
         let (new_low, overflowed) = self.low.overflowing_add(n.low);
         let high_increment = n.high + if overflowed { 1 } else { 0 };
@@ -127,7 +129,8 @@ impl Sub<u64> for SeqNum {
 /// Returns the corresponding index in backing storage to given sequence number
 #[inline]
 fn get_seqn_index(storage_cap: usize, seqn: SeqNum, use_base_2_indexing: bool) -> usize {
-    // Cast to usize safe because index in storage slice cannot be greater than usize
+    // Cast to usize safe because index in storage slice cannot be greater than
+    // usize
     if use_base_2_indexing {
         // Index is lowest n bits of seqn where storage_cap is 2^n
         (u64::from(seqn) & (storage_cap as u64 - 1)) as usize
@@ -136,7 +139,8 @@ fn get_seqn_index(storage_cap: usize, seqn: SeqNum, use_base_2_indexing: bool) -
     }
 }
 
-/// Calculate the number of entries missed based on the read and overwrite sequence numbers
+/// Calculate the number of entries missed based on the read and overwrite
+/// sequence numbers
 #[inline]
 fn num_missed(read_seqn: SeqNum, overwrite_seqn: SeqNum) -> SeqNum {
     if overwrite_seqn < read_seqn {
@@ -276,8 +280,8 @@ pub mod tests {
         .unwrap();
     }
 
-    // Perform many reads and writes concurrently with random timeouts, and random snapshot errors
-    // check if read buffer is in order and consistent
+    // Perform many reads and writes concurrently with random timeouts, and random
+    // snapshot errors check if read buffer is in order and consistent
     #[test]
     fn async_output_timeouts_and_errors() {
         const NUM_WRITES: u32 = 10_000;

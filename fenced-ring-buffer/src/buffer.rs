@@ -1,5 +1,5 @@
-//! The writer of the FencedRingBuffer, which contains the actual buffer. Entries can be synchronously written and read/iterated
-//! from this struct.
+//! The writer of the FencedRingBuffer, which contains the actual buffer.
+//! Entries can be synchronously written and read/iterated from this struct.
 use crate::{get_seqn_index, num_missed, Entry, SeqNum, WholeEntry};
 use core::cmp::max;
 use core::fmt;
@@ -55,7 +55,8 @@ impl<'a, E> FencedRingBuffer<'a, E>
 where
     E: Entry,
 {
-    /// Create new FencedRingBuffer. Returns error if storage capacity is smaller than the minimum size
+    /// Create new FencedRingBuffer. Returns error if storage capacity is
+    /// smaller than the minimum size
     pub fn new(
         storage: &'a mut [MaybeUninit<E>],
         use_base_2_indexing: bool,
@@ -87,7 +88,8 @@ where
         buf
     }
 
-    /// Create new FencedRingBuffer with properly aligned backing storage, return unused bytes
+    /// Create new FencedRingBuffer with properly aligned backing storage,
+    /// return unused bytes
     #[inline]
     pub fn align_from_bytes(
         bytes: &'a mut [u8],
@@ -106,7 +108,8 @@ where
         )
     }
 
-    /// Get value of backing storage corresponding at index corresponding to given sequence number
+    /// Get value of backing storage corresponding at index corresponding to
+    /// given sequence number
     #[inline]
     pub(crate) unsafe fn read_storage(&self, seqn: SeqNum) -> E {
         self.storage[get_seqn_index(self.capacity(), seqn, self.use_base_2_indexing)].assume_init()
@@ -141,11 +144,13 @@ where
 
     /// Write single entry to buffer
     pub fn push(&mut self, entry: E) -> Option<WholeEntry<E>> {
-        // Overwrite when write sequence number is 1 buffer capacity ahead of overwrite sequence number.
+        // Overwrite when write sequence number is 1 buffer capacity ahead of overwrite
+        // sequence number.
         let possible_overwritten =
             if self.write_seqn == self.overwrite_seqn + self.capacity() as u64 {
-                // Reading storage directly in front of overwrite sequence number is safe because write cursor is ahead of
-                // that entry, and the overwrite sequence number is behind it
+                // Reading storage directly in front of overwrite sequence number is safe
+                // because write cursor is ahead of that entry, and the
+                // overwrite sequence number is behind it
                 let overwritten = self.read_at(self.overwrite_seqn).unwrap();
                 self.overwrite_seqn
                     .increment((overwritten.size() as u64).into());
@@ -173,13 +178,15 @@ where
         (first_overwritten, second_overwritten)
     }
 
-    /// Return number of items missed between tail and oldest entry present in the buffer, or 0 if tail is currently present
+    /// Return number of items missed between tail and oldest entry present in
+    /// the buffer, or 0 if tail is currently present
     pub fn num_missed(&self) -> u64 {
         num_missed(self.read_seqn, self.overwrite_seqn).into()
     }
 
-    /// Read the entry at tail, or the oldest entry present in the buffer if tail has already been overwritten.
-    /// Returns None if the tail is caught up to the head
+    /// Read the entry at tail, or the oldest entry present in the buffer if
+    /// tail has already been overwritten. Returns None if the tail is
+    /// caught up to the head
     pub fn peek(&self) -> Option<WholeEntry<E>> {
         if self.read_seqn == self.write_seqn {
             None
@@ -190,9 +197,10 @@ where
         }
     }
 
-    /// Read the entry at tail, or the oldest entry present in the buffer if tail has already been overwritten, move
-    /// the tail to point to the entry after the one that was popped.
-    /// Returns None if the tail is caught up to the head
+    /// Read the entry at tail, or the oldest entry present in the buffer if
+    /// tail has already been overwritten, move the tail to point to the
+    /// entry after the one that was popped. Returns None if the tail is
+    /// caught up to the head
     pub fn pop(&mut self) -> Option<WholeEntry<E>> {
         let tail = self.peek();
         let increment = if let Some(entry) = tail {
@@ -204,7 +212,8 @@ where
         tail
     }
 
-    /// Create iterator over the entries currently present in the buffer without changing the tail
+    /// Create iterator over the entries currently present in the buffer without
+    /// changing the tail
     #[inline]
     pub fn iter<'b>(&'b self) -> Iter<'a, 'b, E> {
         let start_seqn = max(self.read_seqn, self.overwrite_seqn);
@@ -217,8 +226,8 @@ where
         Drain::new(self)
     }
 
-    /// Get two slices which together represent the entries currently present in the buffer, where the second
-    /// slice comes directly after the first
+    /// Get two slices which together represent the entries currently present in
+    /// the buffer, where the second slice comes directly after the first
     pub fn get_linear_slices(&self) -> (&[E], &[E]) {
         let overwrite_seqn_index = get_seqn_index(
             self.capacity(),
@@ -227,7 +236,8 @@ where
         );
         let write_seqn_index =
             get_seqn_index(self.capacity(), self.write_seqn, self.use_base_2_indexing);
-        // Safe to assume entries in front of overwrite sequence number and behind write sequence number are initialized
+        // Safe to assume entries in front of overwrite sequence number and behind write
+        // sequence number are initialized
         if overwrite_seqn_index >= write_seqn_index
             && (u64::from(self.overwrite_seqn) != 0 || u64::from(self.write_seqn) != 0)
         {
@@ -252,7 +262,8 @@ where
         }
     }
 
-    /// Get the number of items currently in the buffer which have not been read yet
+    /// Get the number of items currently in the buffer which have not been read
+    /// yet
     pub fn len(&self) -> usize {
         let start_seqn = self.read_seqn.max(self.overwrite_seqn);
         let len: u64 = (self.write_seqn - start_seqn).into();
@@ -302,7 +313,8 @@ impl<'a, 'b, E> Drain<'a, 'b, E>
 where
     E: Entry,
 {
-    /// Create a new iterator over the FencedRingBuffer at the given starting sequence number
+    /// Create a new iterator over the FencedRingBuffer at the given starting
+    /// sequence number
     fn new(buffer: &'b mut FencedRingBuffer<'a, E>) -> Self {
         Self { buffer }
     }
@@ -333,7 +345,8 @@ impl<'a, 'b, E> Iter<'a, 'b, E>
 where
     E: Entry,
 {
-    /// Create a new iterator over the FencedRingBuffer at the given starting sequence number
+    /// Create a new iterator over the FencedRingBuffer at the given starting
+    /// sequence number
     fn new(buffer: &'b FencedRingBuffer<'a, E>, start_seqn: SeqNum) -> Self {
         Self {
             buffer,
@@ -528,7 +541,8 @@ mod tests {
             OrderedEntry::from_index_prefix(2),
             OrderedEntry::from_index_suffix(3),
         );
-        // Push 3 entries, meaning only first entry of above double has new entry written over it
+        // Push 3 entries, meaning only first entry of above double has new entry
+        // written over it
         buf.push_double(
             OrderedEntry::from_index_prefix(4),
             OrderedEntry::from_index_suffix(5),
