@@ -369,12 +369,26 @@ where
     }
 }
 
-#[cfg(feature = "std")]
-#[cfg(test)]
+#[cfg(all(feature = "std", test))]
 mod tests {
     use super::*;
     use crate::test_support::OrderedEntry;
     use core::mem::MaybeUninit;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn round_to_power_of_two(num in 1..=usize::MAX) {
+            let rounded_num = round_to_power_2(num);
+            prop_assert!(rounded_num > 0);
+            let mut n = rounded_num;
+            while n != 1 {
+                prop_assert_eq!(n % 2, 0);
+                prop_assert_eq!(n & 1, 0);
+                n = n / 2;
+            }
+        }
+    }
 
     /// Test backing storage size rounding and minimum size enforcement
     #[test]
@@ -411,44 +425,70 @@ mod tests {
             })
             .collect();
         assert_eq!(&[4, 4, 4, 4, 8, 8, 8, 16][..], &rounded_output_sizes[..]);
+
+        proptest!(
+            ProptestConfig::default(),
+            |(size in MIN_STORAGE_CAP..=3333)| {
+                let use_power_of_2 = false;
+                let mut storage = vec![MaybeUninit::<OrderedEntry>::uninit(); size];
+                let len = FencedRingBuffer::new(&mut storage[..], use_power_of_2)
+                    .unwrap()
+                    .get_slice()
+                    .len();
+                prop_assert_eq!(size, len);
+
+                let use_power_of_2 = true;
+                let mut storage = vec![MaybeUninit::<OrderedEntry>::uninit(); size];
+                let len = FencedRingBuffer::new(&mut storage[..], use_power_of_2)
+                    .unwrap()
+                    .get_slice()
+                    .len();
+                prop_assert_eq!(round_to_power_2(size), len);
+            }
+        );
     }
 
-    #[test]
-    fn test_from_bytes() {
-        const STORAGE_CAP: usize = 16;
-        let mut storage = [0u8; STORAGE_CAP * size_of::<OrderedEntry>()];
-        let buf =
-            FencedRingBuffer::<OrderedEntry>::new_from_bytes(&mut storage[..], false).unwrap();
-        // Should not lose more than one entry
-        assert!(buf.capacity() == 16 || buf.capacity() == 15)
+    proptest! {
+        #[test]
+        fn test_from_bytes(storage_cap in MIN_STORAGE_CAP..=7777) {
+            let mut storage = vec![0u8; storage_cap * size_of::<OrderedEntry>()];
+            let buf =
+                FencedRingBuffer::<OrderedEntry>::new_from_bytes(&mut storage[..], false).unwrap();
+            // Should not lose more than one entry
+            prop_assert!(buf.capacity() == storage_cap || (buf.capacity() == storage_cap - 1))
+        }
     }
 
-    #[test]
-    fn test_read_at() {
-        const STORAGE_CAP: usize = 8;
-        let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
-        let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
+    proptest! {
+        #[test]
+        fn test_read_at(base_storage_cap in MIN_STORAGE_CAP..=8192) {
+            let cap = round_to_power_2(base_storage_cap) as u64;
+            let cap_2x = cap * 2;
+            let cap_4x = cap * 4;
+            let mut storage = vec![MaybeUninit::uninit(); cap as usize];
+            let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
 
-        for i in 0..16 {
-            // None written yet
-            assert_eq!(buf.read_at(i.into()), None);
-        }
-        for i in 0..16 {
-            buf.push(OrderedEntry::from_index(i));
-        }
-        for i in 0..8 {
-            // First 8 overwritten
-            assert_eq!(buf.read_at(i.into()), None);
-        }
-        for i in 8..16 {
-            assert_eq!(
-                buf.read_at(i.into()),
-                Some(WholeEntry::Single(OrderedEntry::from_index(i as u32)))
-            );
-        }
-        for i in 16..32 {
-            // Not written yet
-            assert_eq!(buf.read_at(i.into()), None);
+            for i in 0..cap_2x {
+                // None written yet
+                assert_eq!(buf.read_at(i.into()), None);
+            }
+            for i in 0..cap_2x {
+                buf.push(OrderedEntry::from_index(i as u32));
+            }
+            for i in 0..cap {
+                // First N overwritten
+                assert_eq!(buf.read_at(i.into()), None);
+            }
+            for i in cap..cap_2x {
+                assert_eq!(
+                    buf.read_at(i.into()),
+                    Some(WholeEntry::Single(OrderedEntry::from_index(i as u32)))
+                );
+            }
+            for i in cap_2x..cap_4x {
+                // Not written yet
+                assert_eq!(buf.read_at(i.into()), None);
+            }
         }
     }
 
@@ -669,5 +709,49 @@ mod tests {
                 &[][..]
             )
         );
+    }
+
+    proptest! {
+        #[test]
+        fn missed_entries_are_accounted_for(
+            single_entry_overflows in 1_usize..=64_usize,
+            double_entry_overflows in 1_usize..=64_usize,
+        ) {
+            let storage_cap = 1 + single_entry_overflows + (2 * double_entry_overflows);
+
+            let mut storage = vec![MaybeUninit::uninit(); storage_cap];
+            let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
+            prop_assert_eq!(buf.capacity(), storage_cap);
+            prop_assert_eq!(buf.is_empty(), true);
+
+            // Fills to capacity
+            for i in 0..storage_cap {
+                buf.push(OrderedEntry::from_index(i as _));
+            }
+            prop_assert_eq!(buf.num_missed(), 0);
+            prop_assert_eq!(buf.is_empty(), false);
+            prop_assert_eq!(buf.len(), storage_cap);
+
+            // Overflowing single entries accounted for
+            for i in 0..single_entry_overflows {
+                buf.push(OrderedEntry::from_index(i as _));
+            }
+            prop_assert_eq!(buf.num_missed(), single_entry_overflows as u64);
+            prop_assert_eq!(buf.is_empty(), false);
+            prop_assert_eq!(buf.len(), storage_cap);
+
+            for i in 0..double_entry_overflows {
+                buf.push_double(
+                    OrderedEntry::from_index_prefix(i as _),
+                    OrderedEntry::from_index_prefix((i + 1) as _),
+                );
+            }
+            prop_assert_eq!(
+                buf.num_missed(),
+                (single_entry_overflows + (2 * double_entry_overflows)) as u64
+            );
+            prop_assert_eq!(buf.is_empty(), false);
+            prop_assert_eq!(buf.len(), storage_cap);
+        }
     }
 }

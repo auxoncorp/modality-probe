@@ -202,8 +202,7 @@ where
     }
 }
 
-#[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", test))]
 mod tests {
     use super::*;
     use crate::test_support::{OrderedEntry, PtrSnapper};
