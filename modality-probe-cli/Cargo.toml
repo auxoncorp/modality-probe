@@ -48,6 +48,9 @@ path = "../"
 version = "1"
 features = ["derive"]
 
+[dependencies.serde_json]
+version = "1"
+
 [dependencies.nom]
 version = "5.0"
 default-features = false

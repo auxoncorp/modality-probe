@@ -1,22 +1,16 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Write,
-    hash::Hash,
-    iter::Peekable,
-    ops::Deref,
-};
+use std::{collections::HashSet, hash::Hash, iter::Peekable};
 
 use colorous::{Color, Gradient};
 use serde::{Deserialize, Serialize};
 use tinytemplate::TinyTemplate;
 use uuid::Uuid;
 
-use modality_probe::{EventId, LogicalClock, ProbeId};
+use modality_probe::{EventId, ProbeId};
 use modality_probe_collector_common::{ReportIter, ReportLogEntry};
 use modality_probe_graph::{EventDigraph, Graph, GraphEvent};
 
 use super::{
-    templates::{Component, ComponentSet, EdgeSet, Probe, ProbeSet},
+    templates::{self, Component, ComponentSet, Context, Edge, EdgeSet, Event, Probe, ProbeSet},
     {Cfg, ExportError},
 };
 
@@ -46,13 +40,13 @@ pub(super) struct ProbeMeta {
 
 pub(super) fn log_to_graph<I>(
     log: Peekable<I>,
-) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent, ()>>, ExportError>
+) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent>>, ExportError>
 where
     I: Iterator<Item = ReportLogEntry>,
 {
     let mut graph = EventDigraph::new(NodeAndEdgeLists {
-        nodes: HashMap::new(),
-        edges: HashMap::new(),
+        nodes: HashSet::new(),
+        edges: HashSet::new(),
     });
     let report_iter = ReportIter::new(log);
     for report in report_iter {
@@ -67,39 +61,22 @@ where
 }
 
 #[derive(Default)]
-pub(super) struct NodeAndEdgeLists<G, NW = (), EW = ()> {
-    nodes: HashMap<G, NW>,
-    edges: HashMap<(G, G), EW>,
+pub(super) struct NodeAndEdgeLists<G>
+where
+    G: Hash + Eq,
+{
+    nodes: HashSet<G>,
+    edges: HashSet<(G, G)>,
 }
 
-impl<G> NodeAndEdgeLists<G>
-where
-    G: Deref<Target = GraphEvent> + Hash + Eq,
-{
-    pub fn filter<'a, NF, EF>(&'a self, node_filter: NF, edge_filter: EF) -> NodeAndEdgeLists<&'a G>
-    where
-        NF: Fn(&'a G) -> bool,
-        EF: Fn(&'a G, &'a G) -> bool,
-    {
-        let nodes = self
-            .nodes
-            .iter()
-            .filter(|(n, _)| node_filter(n))
-            .map(|(n, _)| (n, ()))
-            .collect();
-
-        let edges = self
-            .edges
-            .iter()
-            .filter(|((s, t), _)| edge_filter(s, t))
-            .map(|((s, t), _)| ((s, t), ()))
-            .collect();
-        NodeAndEdgeLists { nodes, edges }
+impl NodeAndEdgeLists<GraphEvent> {
+    pub fn as_complete<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+        self.filter(|_| true, |_, _| true)
     }
 
     /// Pare down a complete graph into only trace clocks, which is to
     /// say, only the interactions between probes.
-    pub fn as_interactions<'a>(&'a self) -> NodeAndEdgeLists<&'a G> {
+    pub fn as_interactions<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
         let mut node_set = HashSet::new();
         let mut edge_set = HashSet::new();
         self.filter(
@@ -112,7 +89,7 @@ where
     }
 
     /// Pare down a complete graph into the event transitions.
-    pub fn into_states<'a>(&'a self) -> NodeAndEdgeLists<&'a G> {
+    pub fn as_states<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
         let mut node_set = HashSet::new();
         let mut edge_set = HashSet::new();
         self.filter(
@@ -123,7 +100,7 @@ where
 
     /// Pare down a complete graph into just the probes and their
     /// communication topology.
-    pub fn into_topology<'a>(&'a self) -> NodeAndEdgeLists<&'a G> {
+    pub fn as_topology<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
         let mut node_set = HashSet::new();
         let mut edge_set = HashSet::new();
         self.filter(
@@ -132,32 +109,61 @@ where
         )
     }
 
-    /// Spit out a string containing dot code representing a complete
-    /// graph.
-    pub fn to_dot(
+    fn filter<'a, NF, EF>(
+        &'a self,
+        mut node_filter: NF,
+        mut edge_filter: EF,
+    ) -> NodeAndEdgeLists<&'a GraphEvent>
+    where
+        NF: FnMut(&'a GraphEvent) -> bool,
+        EF: FnMut(&'a GraphEvent, &'a GraphEvent) -> bool,
+    {
+        let nodes = self
+            .nodes
+            .iter()
+            .filter(|n| node_filter(n))
+            .map(|n| n)
+            .collect();
+
+        let edges = self
+            .edges
+            .iter()
+            .filter(|(s, t)| edge_filter(s, t))
+            .map(|(s, t)| (s, t))
+            .collect();
+        NodeAndEdgeLists { nodes, edges }
+    }
+}
+
+impl<'a> NodeAndEdgeLists<&'a GraphEvent> {
+    pub fn dot(
         &self,
         cfg: &Cfg,
         name: &'static str,
         temp: &'static str,
     ) -> Result<String, ExportError> {
-        let ctx = graph_to_tree(
-            self.nodes.keys().map(Deref::deref),
-            self.edges.keys().map(|(s, t)| (s.deref(), t.deref())),
-            cfg,
-        );
+        let ctx = graph_to_tree(&self.nodes, &self.edges, cfg);
         let mut tt = TinyTemplate::new();
+        tt.add_formatter(
+            "discrete_color_formatter",
+            templates::discrete_color_formatter,
+        );
+        tt.add_formatter(
+            "gradient_color_formatter",
+            templates::gradient_color_formatter,
+        );
         tt.add_template(name, temp).unwrap();
         Ok(tt.render(name, &ctx).unwrap())
     }
 }
 
-impl Graph for NodeAndEdgeLists<GraphEvent, ()> {
+impl Graph for NodeAndEdgeLists<GraphEvent> {
     fn add_node(&mut self, node: GraphEvent) {
-        self.nodes.insert(node, ());
+        self.nodes.insert(node);
     }
 
     fn add_edge(&mut self, source: GraphEvent, target: GraphEvent) {
-        self.edges.insert((source, target), ());
+        self.edges.insert((source, target));
     }
 }
 
@@ -198,42 +204,11 @@ fn parsed_payload(th: &str, pl: u32) -> Result<String, ExportError> {
     }
 }
 
-struct Palette<C, S> {
-    cursor: C,
-    set: S,
-}
-
-impl Palette<f64, Gradient> {
-    fn new(set: Gradient) -> Self {
-        Palette { cursor: 0.0, set }
-    }
-
-    fn next(&mut self) -> Color {
-        self.cursor = (self.cursor + 0.1) % 1.0;
-        self.set.eval_continuous(self.cursor)
-    }
-}
-
-impl Palette<usize, [Color; 10]> {
-    fn new(set: [Color; 10]) -> Self {
-        Palette { cursor: 0, set }
-    }
-
-    fn next(&mut self) -> Color {
-        self.cursor = (self.cursor + 1) % 10;
-        self.set[self.cursor]
-    }
-}
-
-use super::templates::complete::Context;
-
-fn graph_to_tree<'a>(
-    nodes: impl Iterator<Item = &'a GraphEvent>,
-    edges: impl Iterator<Item = (&'a GraphEvent, &'a GraphEvent)>,
+fn graph_to_tree(
+    nodes: &HashSet<&GraphEvent>,
+    edges: &HashSet<(&GraphEvent, &GraphEvent)>,
     cfg: &Cfg,
 ) -> Context {
-    use crate::export::templates::complete::*;
-
     let mut ctx = Context {
         components: ComponentSet::new(),
         edges: EdgeSet::new(),
@@ -242,7 +217,37 @@ fn graph_to_tree<'a>(
     let mut cluster_idx = 0;
 
     for node in nodes {
-        let probe = update_comps_and_probes(node, &mut ctx.components, &cfg, &mut cluster_idx);
+        let (comp_name, probe_name) = if let Some(pmeta) = cfg.probes.get(&node.probe_id.get_raw())
+        {
+            let comp_id = pmeta.component_id.to_string();
+            if let Some(cname) = cfg.component_names.get(&comp_id) {
+                (cname.clone(), pmeta.name.clone())
+            } else {
+                (comp_id, pmeta.name.clone())
+            }
+        } else {
+            (
+                "UNKNOWN".to_string(),
+                format!("UNKNOWN_PROBE_{}", node.probe_id.get_raw()),
+            )
+        };
+        let comp = ctx.components.entry(comp_name.clone()).or_insert_with(|| {
+            cluster_idx += 1;
+            Component {
+                cluster_idx: cluster_idx,
+                name: comp_name,
+                probes: ProbeSet::new(),
+            }
+        });
+        let probe = comp.probes.entry(probe_name.clone()).or_insert_with(|| {
+            cluster_idx += 1;
+            Probe {
+                cluster_idx: cluster_idx,
+                name: probe_name.clone(),
+                raw_id: node.probe_id.get_raw(),
+                events: vec![],
+            }
+        });
 
         if let Ok(emeta) = get_event_meta(cfg, &node.probe_id, &node.id) {
             let payload = node.payload.and_then(|pl| {
@@ -259,6 +264,7 @@ fn graph_to_tree<'a>(
                 meta: Some(emeta.clone()),
                 raw_id: node.id.get_raw(),
                 raw_probe_id: node.probe_id.get_raw(),
+                clock: node.clock.pack().1,
                 seq: node.seq.0,
                 seq_idx: node.seq_idx,
             });
@@ -271,6 +277,7 @@ fn graph_to_tree<'a>(
                 payload: None,
                 raw_id: node.id.get_raw(),
                 raw_probe_id: node.probe_id.get_raw(),
+                clock: node.clock.pack().1,
                 seq: node.seq.0,
                 seq_idx: node.seq_idx,
             });
@@ -293,6 +300,7 @@ fn graph_to_tree<'a>(
                     raw_probe_id: s.probe_id.get_raw(),
                     seq: s.seq.0,
                     seq_idx: s.seq_idx,
+                    clock: s.clock.pack().1,
                     // Payloads aren't needed for edge
                     // enumeration.
                     payload: None,
@@ -307,6 +315,7 @@ fn graph_to_tree<'a>(
                     raw_probe_id: s.probe_id.get_raw(),
                     seq: s.seq.0,
                     seq_idx: s.seq_idx,
+                    clock: s.clock.pack().1,
                     // Payloads aren't needed for edge
                     // enumeration.
                     payload: None,
@@ -329,6 +338,7 @@ fn graph_to_tree<'a>(
                     raw_probe_id: t.probe_id.get_raw(),
                     seq: t.seq.0,
                     seq_idx: t.seq_idx,
+                    clock: t.clock.pack().1,
                     // Payloads aren't needed for edge
                     // enumeration.
                     payload: None,
@@ -343,6 +353,7 @@ fn graph_to_tree<'a>(
                     raw_probe_id: t.probe_id.get_raw(),
                     seq: t.seq.0,
                     seq_idx: t.seq_idx,
+                    clock: t.clock.pack().1,
                     // Payloads aren't needed for edge
                     // enumeration.
                     payload: None,
@@ -356,55 +367,11 @@ fn graph_to_tree<'a>(
     ctx
 }
 
-fn update_comps_and_probes<'a, E: Serialize>(
-    node: &'a GraphEvent,
-    comps: &'a mut ComponentSet<E>,
-    cfg: &Cfg,
-    cluster_idx: &mut usize,
-) -> &'a mut Probe<E> {
-    let mut comp_palette = Palette::<_, Gradient>::new(colorous::GREYS);
-    let mut probe_palette = Palette::<_, [Color; 10]>::new(colorous::TABLEAU10);
-
-    let (comp_name, probe_name) = if let Some(pmeta) = cfg.probes.get(&node.probe_id.get_raw()) {
-        let comp_id = pmeta.component_id.to_string();
-        if let Some(cname) = cfg.component_names.get(&comp_id) {
-            (cname.clone(), pmeta.name.clone())
-        } else {
-            (comp_id, pmeta.name.clone())
-        }
-    } else {
-        (
-            "UNKNOWN".to_string(),
-            format!("UNKNOWN_PROBE_{}", node.probe_id.get_raw()),
-        )
-    };
-    let comp = comps.entry(comp_name.clone()).or_insert_with(|| {
-        *cluster_idx += 1;
-        Component {
-            cluster_idx: *cluster_idx,
-            name: comp_name,
-            fill_color: format!("#{:x}", comp_palette.next()),
-            probes: ProbeSet::new(),
-        }
-    });
-    let probe = comp.probes.entry(probe_name.clone()).or_insert_with(|| {
-        *cluster_idx += 1;
-        Probe {
-            cluster_idx: *cluster_idx,
-            name: probe_name.clone(),
-            raw_id: node.probe_id.get_raw(),
-            fill_color: format!("#{:x}", probe_palette.next()),
-            events: vec![],
-        }
-    });
-    probe
-}
-
 #[cfg(test)]
 mod test {
     use std::convert::TryInto;
 
-    use super::*;
+    use super::{super::templates, *};
 
     fn cfg() -> Cfg {
         let a_uuid = Uuid::new_v4();
@@ -531,48 +498,64 @@ mod test {
             .peekable();
         let graph = super::log_to_graph(diamond_log).unwrap();
 
-        let dot = graph.graph.to_dot(&cfg).unwrap();
+        let dot = graph
+            .graph
+            .as_complete()
+            .dot(&cfg, "complete", templates::COMPLETE)
+            .unwrap();
         assert!(dot.contains("one_one_1_0 -> two_two_1_2"), dot);
     }
 
-    // #[test]
-    // fn interactions_dot() {
-    //     let cfg = cfg();
-    //     let diamond_log = modality_probe_graph::test_support::diamond()
-    //         .into_iter()
-    //         .map(|e| (&e).try_into().unwrap())
-    //         .peekable();
-    //     let graph = super::log_to_graph(diamond_log).unwrap();
+    #[test]
+    fn interactions_dot() {
+        let cfg = cfg();
+        let diamond_log = modality_probe_graph::test_support::diamond()
+            .into_iter()
+            .map(|e| (&e).try_into().unwrap())
+            .peekable();
+        let graph = super::log_to_graph(diamond_log).unwrap();
 
-    //     let dot = graph.graph.into_interactions().to_dot(&cfg).unwrap();
-    //     assert!(dot.contains("one_0 -> two_1"), dot);
-    // }
+        let dot = graph
+            .graph
+            .as_interactions()
+            .dot(&cfg, "interactions", templates::INTERACTIONS)
+            .unwrap();
+        assert!(dot.contains("one_0 -> two_1"), dot);
+    }
 
-    // #[test]
-    // fn states_dot() {
-    //     let cfg = cfg();
-    //     let diamond_log = modality_probe_graph::test_support::diamond()
-    //         .into_iter()
-    //         .map(|e| (&e).try_into().unwrap())
-    //         .peekable();
-    //     let graph = super::log_to_graph(diamond_log).unwrap();
+    #[test]
+    fn states_dot() {
+        let cfg = cfg();
+        let diamond_log = modality_probe_graph::test_support::diamond()
+            .into_iter()
+            .map(|e| (&e).try_into().unwrap())
+            .peekable();
+        let graph = super::log_to_graph(diamond_log).unwrap();
 
-    //     let dot = graph.graph.into_states().to_dot(&cfg).unwrap();
-    //     assert!(dot.contains("one -> two"), dot);
-    // }
+        let dot = graph
+            .graph
+            .as_states()
+            .dot(&cfg, "states", templates::STATES)
+            .unwrap();
+        assert!(dot.contains("one -> two"), dot);
+    }
 
-    // #[test]
-    // fn topo_dot() {
-    //     let cfg = cfg();
-    //     let diamond_log = modality_probe_graph::test_support::diamond()
-    //         .into_iter()
-    //         .map(|e| (&e).try_into().unwrap())
-    //         .peekable();
-    //     let graph = super::log_to_graph(diamond_log).unwrap();
+    #[test]
+    fn topo_dot() {
+        let cfg = cfg();
+        let diamond_log = modality_probe_graph::test_support::diamond()
+            .into_iter()
+            .map(|e| (&e).try_into().unwrap())
+            .peekable();
+        let graph = super::log_to_graph(diamond_log).unwrap();
 
-    //     let dot = graph.graph.into_topology().to_dot(&cfg).unwrap();
-    //     assert!(dot.contains("one -> two"), dot);
-    // }
+        let dot = graph
+            .graph
+            .as_topology()
+            .dot(&cfg, "topo", templates::TOPO)
+            .unwrap();
+        assert!(dot.contains("one -> two"), dot);
+    }
 
     #[test]
     fn palette_doesnt_panic() {
