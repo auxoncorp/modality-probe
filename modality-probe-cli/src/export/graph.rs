@@ -1,6 +1,5 @@
 use std::{collections::HashSet, hash::Hash, iter::Peekable};
 
-use colorous::{Color, Gradient};
 use serde::{Deserialize, Serialize};
 use tinytemplate::TinyTemplate;
 use uuid::Uuid;
@@ -555,17 +554,5 @@ mod test {
             .dot(&cfg, "topo", templates::TOPO)
             .unwrap();
         assert!(dot.contains("one -> two"), dot);
-    }
-
-    #[test]
-    fn palette_doesnt_panic() {
-        let mut p = Palette::<f64, _>::new(colorous::CUBEHELIX);
-        for _ in 0..20 {
-            p.next();
-        }
-        let mut p = Palette::<usize, _>::new(colorous::TABLEAU10);
-        for _ in 0..20 {
-            p.next();
-        }
     }
 }

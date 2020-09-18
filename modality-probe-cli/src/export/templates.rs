@@ -1,6 +1,7 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
     fmt::Write,
+    hash::{Hash, Hasher},
     ops::{Deref, DerefMut},
 };
 
@@ -158,45 +159,59 @@ pub fn discrete_color_formatter(
     val: &Value,
     out: &mut String,
 ) -> Result<(), tinytemplate::error::Error> {
-    match val {
+    let idx = match val {
         Value::Number(n) => {
             if n.is_u64() {
-                let c = colorous::TABLEAU10[(n.as_u64().unwrap() % 10) as usize];
-                write!(out, "#{:x}", c)?;
-                Ok(())
+                (n.as_u64().unwrap() % 10) as usize
             } else {
-                Err(tinytemplate::error::Error::GenericError {
+                return Err(tinytemplate::error::Error::GenericError {
                     msg: "invalid value given to discrete_color_formatter".to_string(),
-                })
+                });
             }
         }
-        _ => Err(tinytemplate::error::Error::GenericError {
-            msg: "invalid value given to discrete_color_formatter".to_string(),
-        }),
-    }
+        Value::String(s) => {
+            let mut h = DefaultHasher::new();
+            s.hash(&mut h);
+            (h.finish() % 10) as usize
+        }
+        _ => {
+            return Err(tinytemplate::error::Error::GenericError {
+                msg: "invalid value given to discrete_color_formatter".to_string(),
+            })
+        }
+    };
+    write!(out, "#{:x}", colorous::TABLEAU10[idx])?;
+    Ok(())
 }
 
 pub fn gradient_color_formatter(
     val: &Value,
     out: &mut String,
 ) -> Result<(), tinytemplate::error::Error> {
-    match val {
+    let idx = match val {
         Value::Number(n) => {
             if n.is_u64() {
-                let c = colorous::GREYS;
                 let n_float = n.as_u64().unwrap() as f64;
-                write!(out, "#{:x}", c.eval_continuous((n_float % 10.0) / 10.0))?;
-                Ok(())
+                (n_float % 10.0) / 10.0
             } else {
-                Err(tinytemplate::error::Error::GenericError {
+                return Err(tinytemplate::error::Error::GenericError {
                     msg: "invalid value given to discrete_color_formatter".to_string(),
-                })
+                });
             }
         }
-        _ => Err(tinytemplate::error::Error::GenericError {
-            msg: "invalid value given to discrete_color_formatter".to_string(),
-        }),
-    }
+        Value::String(s) => {
+            let mut h = DefaultHasher::new();
+            s.hash(&mut h);
+            (h.finish() as f64 % 10.0) / 10.0
+        }
+        _ => {
+            return Err(tinytemplate::error::Error::GenericError {
+                msg: "invalid value given to discrete_color_formatter".to_string(),
+            })
+        }
+    };
+    write!(out, "#{:x}", colorous::GREYS.eval_continuous(idx))?;
+    Ok(())
 }
 
 pub const COMPLETE: &'static str = "digraph G \\{
@@ -206,14 +221,14 @@ pub const COMPLETE: &'static str = "digraph G \\{
     subgraph cluster_{ comp.cluster_idx } \\{
         label = \"{ comp.name }\"
         style = filled
-        color = \"{ @index | gradient_color_formatter }\"
+        color = \"{ comp.name | gradient_color_formatter }\"
         {{ for probe in comp.probes }}
         subgraph cluster_{ probe.cluster_idx } \\{
             label = \"{ probe.name }\"
             fontcolor = \"#ffffff\"
             rank = same
             style = filled
-            color = \"{ @index | discrete_color_formatter }\"
+            color = \"{ probe.name | discrete_color_formatter }\"
             {{ for event in probe.events }}
             {{ if event.is_known }}
             { event.meta.name }_{ event.probe_name }_{ event.seq }_{ event.seq_idx } [
@@ -253,14 +268,14 @@ pub const INTERACTIONS: &'static str = "digraph G \\{
     subgraph cluster_{ comp.cluster_idx } \\{
         label = \"{ comp.name }\"
         style = filled
-        color = \"{ @index | gradient_color_formatter }\"
+        color = \"{ comp.name | gradient_color_formatter }\"
         {{ for probe in comp.probes }}
         subgraph cluster_{ probe.cluster_idx } \\{
             label = \"{ probe.name }\"
             fontcolor = \"#ffffff\"
             rank = same
             style = filled
-            color = \"{ @index | discrete_color_formatter }\"
+            color = \"{ probe.name | discrete_color_formatter }\"
             {{ for event in probe.events }}
             { event.probe_name }_{ event.clock } [
                 {{if event.is_known }}label        = \"{ event.meta.name }\"
