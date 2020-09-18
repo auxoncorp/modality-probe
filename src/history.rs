@@ -178,10 +178,13 @@ impl<'a> DynamicHistory<'a> {
         if clocks.capacity() < MIN_CLOCKS_LEN || (log.capacity() as usize) < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
+        let mut restart_counter = RestartSequenceCounter::new(restart_counter);
+        let (initial_epoch, restart_counter_had_error) =
+            DynamicHistory::calculate_next_epoch(&mut restart_counter, probe_id, None);
         clocks
             .try_push(LogicalClock {
                 id: probe_id,
-                epoch: ProbeEpoch(0),
+                epoch: initial_epoch,
                 ticks: ProbeTicks(0),
             })
             .expect(
@@ -193,16 +196,19 @@ impl<'a> DynamicHistory<'a> {
             event_count: 0,
             self_clock: LogicalClock {
                 id: probe_id,
-                epoch: ProbeEpoch(0),
+                epoch: initial_epoch,
                 ticks: ProbeTicks(0),
             },
             probe_id,
             clocks,
             log,
-            restart_counter: RestartSequenceCounter::new(restart_counter),
+            restart_counter,
         };
-        history.retreive_next_persistent_epoch();
         history.write_clocks_to_log(&[history.self_clock]);
+        history.record_event(EventId::EVENT_PROBE_INITIALIZED);
+        if restart_counter_had_error.0 {
+            history.record_event(EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID);
+        }
         Ok(history)
     }
 
@@ -219,17 +225,35 @@ impl<'a> DynamicHistory<'a> {
         }
     }
 
-    fn retreive_next_persistent_epoch(&mut self) {
-        if self.restart_counter.is_tracking_restarts() {
-            match self.restart_counter.next_sequence_id(self.probe_id) {
-                Some(next_persistent_epoch) => {
-                    self.self_clock.epoch = next_persistent_epoch.get().into()
-                }
-                None => {
-                    self.self_clock.epoch = 0.into();
-                    self.record_event(EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID);
-                }
+    /// Isolated function for figuring out what the next epoch should be for the probe.
+    fn calculate_next_epoch(
+        restart_counter: &mut RestartSequenceCounter,
+        probe_id: ProbeId,
+        prior_epoch: Option<ProbeEpoch>,
+    ) -> (ProbeEpoch, RestartCounterProvidedInvalidEpochSeqId) {
+        if restart_counter.is_tracking_restarts() {
+            if let Some(next_persistent_sequence_epoch) = restart_counter.next_sequence_id(probe_id)
+            {
+                (
+                    ProbeEpoch(next_persistent_sequence_epoch.get()),
+                    RestartCounterProvidedInvalidEpochSeqId(false),
+                )
+            } else {
+                (
+                    ProbeEpoch::MIN,
+                    RestartCounterProvidedInvalidEpochSeqId(true),
+                )
             }
+        } else if let Some(prior_epoch) = prior_epoch {
+            (
+                ProbeEpoch(core::cmp::max(1, prior_epoch.0.wrapping_add(1))),
+                RestartCounterProvidedInvalidEpochSeqId(false),
+            )
+        } else {
+            (
+                ProbeEpoch::MIN,
+                RestartCounterProvidedInvalidEpochSeqId(false),
+            )
         }
     }
 
@@ -263,18 +287,24 @@ impl<'a> DynamicHistory<'a> {
     /// Increments the clock in the logical clock corresponding to this probe instance
     #[inline]
     fn increment_local_clock(&mut self) {
-        // N.B. We rely on the fact that the first member of the clocks
-        // collection is always the clock for this probe
+        let original_epoch = self.self_clock.epoch;
         let did_overflow = self.self_clock.increment();
         self.event_count = 0;
 
         if did_overflow {
-            self.retreive_next_persistent_epoch();
-
+            let (fresh_epoch, restart_counter_had_error) = DynamicHistory::calculate_next_epoch(
+                &mut self.restart_counter,
+                self.probe_id,
+                Some(original_epoch),
+            );
+            self.self_clock.epoch = fresh_epoch;
             self.record_event_with_payload(
                 EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED,
                 self.self_clock.epoch.0 as u32,
             );
+            if restart_counter_had_error.0 {
+                self.record_event(EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID);
+            }
         }
     }
 
@@ -484,6 +514,13 @@ impl<'a> DynamicHistory<'a> {
         external_epoch: ProbeEpoch,
         external_clock: ProbeTicks,
     ) -> Result<(), MergeError> {
+        if external_id == self.probe_id {
+            // Quietly ignore self-snapshots in order to reduce complexity
+            // around divergence between the self-clock and the frontier set
+            // and to allow self-clocks in the log to remain the canonical
+            // logical-segment transition point.
+            return Ok(());
+        }
         self.increment_local_clock();
         self.write_clocks_to_log(&[
             self.self_clock,
@@ -534,6 +571,8 @@ impl<'a> DynamicHistory<'a> {
         Ok(())
     }
 }
+
+struct RestartCounterProvidedInvalidEpochSeqId(bool);
 
 #[cfg(test)]
 mod test {
@@ -675,7 +714,7 @@ mod test {
         let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         assert_eq!(log_report.n_clocks() as usize, h.clocks.capacity());
-        assert_eq!(log_report.n_log_entries(), 19);
+        assert_eq!(log_report.n_log_entries(), 20);
 
         let offset = log_report.n_clocks() as usize * size_of::<LogicalClock>();
         let log_bytes = &log_report.payload()[offset..];
@@ -841,15 +880,236 @@ mod test {
         let h = DynamicHistory::new_at(&mut storage, probe_id, provider).unwrap();
 
         let now = h.now();
-        assert_eq!(now.clock.epoch.0, 0);
-        assert_eq!(now.clock.ticks.0, 0);
+        assert_eq!(now.clock.epoch, ProbeEpoch::MIN);
+        assert_eq!(now.clock.ticks, ProbeTicks::MIN);
 
         let mut found_error_event_count = 0;
-        while let Some(WholeEntry::Single(entry)) = h.log.pop() {
-            if entry.interpret_as_event_id() == Some(EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID) {
-                found_error_event_count += 1;
+        while let Some(entry) = h.log.pop() {
+            match entry {
+                WholeEntry::Single(entry)
+                    if entry.interpret_as_event_id()
+                        == Some(EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID) =>
+                {
+                    found_error_event_count += 1;
+                }
+                _ => (),
             }
         }
         assert_eq!(1, found_error_event_count);
+    }
+
+    mod now_tests {
+        use super::*;
+        #[test]
+        fn produce_and_merge_snapshot_ticks_clock() {
+            let probe_id = ProbeId::new(1).unwrap();
+            let mut storage = [0u8; 512];
+            let h = DynamicHistory::new_at(
+                &mut storage,
+                probe_id,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .unwrap();
+            let epoch = ProbeEpoch(0);
+
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(0)
+                    },
+                    event_count: 1
+                }
+            );
+
+            let local_snap_a = h.produce_snapshot();
+            assert_eq!(
+                local_snap_a,
+                CausalSnapshot {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(0)
+                    },
+                    reserved_0: [0, 0],
+                    reserved_1: [0, 0]
+                }
+            );
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(1)
+                    },
+                    event_count: 0
+                }
+            );
+
+            let local_snap_b = h.produce_snapshot();
+            assert_eq!(
+                &local_snap_b,
+                &CausalSnapshot {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(1)
+                    },
+                    reserved_0: [0, 0],
+                    reserved_1: [0, 0]
+                }
+            );
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(2)
+                    },
+                    event_count: 0
+                }
+            );
+
+            let remote_probe_id = ProbeId::new(probe_id.get_raw() + 1).unwrap();
+            let remote_snap = CausalSnapshot {
+                clock: LogicalClock {
+                    id: remote_probe_id,
+                    epoch,
+                    ticks: ProbeTicks(2),
+                },
+                reserved_0: [0, 0],
+                reserved_1: [0, 0],
+            };
+            h.merge_snapshot(&remote_snap).unwrap();
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(3)
+                    },
+                    event_count: 0
+                }
+            );
+        }
+        #[test]
+        fn record_events_ticks_event_counts() {
+            let probe_id = ProbeId::new(1).unwrap();
+            let mut storage = [0u8; 512];
+            let h = DynamicHistory::new_at(
+                &mut storage,
+                probe_id,
+                RestartCounterProvider::NoRestartTracking,
+            )
+            .unwrap();
+            let epoch = ProbeEpoch(0);
+
+            // event_count starts at 1 because of the EventId::EVENT_PROBE_INITIALIZED event
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(0)
+                    },
+                    event_count: 1
+                }
+            );
+            let event_id = EventId::new(456).unwrap();
+            h.record_event(event_id);
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(0)
+                    },
+                    event_count: 2
+                }
+            );
+            for _ in 0..8 {
+                h.record_event(event_id);
+            }
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(0)
+                    },
+                    event_count: 10
+                }
+            );
+
+            // A produce-induced clock tick resets the event count
+            let _ = h.produce_snapshot();
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(1)
+                    },
+                    event_count: 0
+                }
+            );
+            h.record_event(event_id);
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(1)
+                    },
+                    event_count: 1
+                }
+            );
+
+            // A merge-induced clock tick resets the event count
+            let remote_probe_id = ProbeId::new(probe_id.get_raw() + 1).unwrap();
+            let remote_snap = CausalSnapshot {
+                clock: LogicalClock {
+                    id: remote_probe_id,
+                    epoch,
+                    ticks: ProbeTicks(2),
+                },
+                reserved_0: [0, 0],
+                reserved_1: [0, 0],
+            };
+            h.merge_snapshot(&remote_snap).unwrap();
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(2)
+                    },
+                    event_count: 0
+                }
+            );
+            h.record_event(event_id);
+            assert_eq!(
+                h.now(),
+                ModalityProbeInstant {
+                    clock: LogicalClock {
+                        id: probe_id,
+                        epoch,
+                        ticks: ProbeTicks(2)
+                    },
+                    event_count: 1
+                }
+            );
+        }
     }
 }

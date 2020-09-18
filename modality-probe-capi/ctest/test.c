@@ -325,6 +325,7 @@ static int g_next_seq_id = 100;
 static bool g_next_seq_id_fn_was_called = false;
 static uint16_t next_persistent_sequence_id(uint32_t probe_id, void *user_state)
 {
+
     assert(probe_id ==  DEFAULT_PROBE_ID);
     assert(user_state == (void*) 1);
     g_next_seq_id_fn_was_called = true;
@@ -340,6 +341,8 @@ bool test_persistent_restart_sequence_id(void) {
 
     uint8_t * destination = (uint8_t*)malloc(DEFAULT_PROBE_SIZE);
     modality_probe * probe;
+    int g_next_seq_id_cache = g_next_seq_id;
+
     modality_probe_error result = modality_probe_initialize(
             destination,
             DEFAULT_PROBE_SIZE,
@@ -361,6 +364,9 @@ bool test_persistent_restart_sequence_id(void) {
     free(destination);
 
     if (g_next_seq_id_fn_was_called != true) {
+        passed = false;
+    }
+    if (g_next_seq_id != g_next_seq_id_cache + 1) {
         passed = false;
     }
 
