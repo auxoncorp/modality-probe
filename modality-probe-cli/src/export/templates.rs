@@ -302,5 +302,45 @@ pub const INTERACTIONS: &'static str = "digraph G \\{
     {{ endfor }}
 }";
 
-pub const STATES: &'static str = "";
-pub const TOPO: &'static str = "";
+pub const STATES: &'static str = "digraph G \\{
+    node [ color = \"#ffffff\" style = filled ]
+    edge [ color = \"#ffffff\" ]
+    {{ for comp in components }}
+    subgraph cluster_{ comp.cluster_idx } \\{
+        label = \"{ comp.name }\"
+        style = filled
+        color = \"{ comp.name | gradient_color_formatter }\"
+        {{ for probe in comp.probes }}
+        subgraph cluster_{ probe.cluster_idx } \\{
+            label = \"{ probe.name }\"
+            fontcolor = \"#ffffff\"
+            rank = same
+            style = filled
+            color = \"{ probe.name | discrete_color_formatter }\"
+            {{ for event in probe.events }}
+            {{ if event.is_known }}{ event.meta.name }_AT_{ event.probe_name } [
+                label        = \"{ event.meta.name } @ {event.probe_name }\"
+                description  = \"{ event.meta.description }\"
+                file         = \"{ event.meta.file }\"
+                probe        = \"{ event.probe_name }\"
+                tags         = \"{ event.meta.tags }\"{{ if event.has_payload }}
+                payload      = { event.payload }{{ endif }}
+                raw_event_id = { event.raw_id }
+                raw_probe_id = { event.raw_probe_id }
+            {{ else }}UNKNOWN_EVENT_{ event.raw_id }_AT_{ event.probe_name } [
+                label        = \"UNKNOWN_EVENT_{ event.raw_id } @ { event.probe_name }\"
+                probe        = \"{ event.probe_name }\"
+                raw_event_id = { event.raw_id }
+                raw_probe_id = { event.raw_probe_id } {{ endif }}
+            ];
+            {{ endfor}}
+        }
+        {{ endfor }}
+    }
+    {{ endfor }}
+
+    {{ for edge in edges }}
+    {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}UNKNOWN_EVENT_{ event.raw_id }{{ endif }}_AT_{ edge.from.probe_name } ->
+    {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}UNKNOWN_EVENT_{ event.raw_id }{{ endif }}_AT_{ edge.to.probe_name }
+    {{ endfor }}
+}";

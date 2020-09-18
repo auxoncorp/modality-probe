@@ -104,7 +104,7 @@ impl NodeAndEdgeLists<GraphEvent> {
         let mut edge_set = HashSet::new();
         self.filter(
             |n| node_set.insert(n.probe_id),
-            |s, t| edge_set.insert((s.probe_id, t.probe_id)),
+            |s, t| s.probe_id != t.probe_id && edge_set.insert((s.probe_id, t.probe_id)),
         )
     }
 
