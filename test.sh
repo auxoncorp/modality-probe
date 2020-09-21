@@ -12,23 +12,23 @@ cargo test --workspace
 )
 
 (
-    cd examples/rust-example/
-    cargo test
-)
-
-# Windows MSVC doesn't like the no-std modality-probe-capi cdylib build
-if [ $# -ne 0 ]; then
-    if [ "$1" = "windows" ]; then
-        exit 0
-    fi
-fi
-
-(
-    cd examples/c-example/
+    cd modality-probe-capi/ctest
     make test
 )
 
 (
-    cd modality-probe-capi/ctest
-    ./build_and_run
+    cd examples/rust-example/
+    cargo test
+)
+
+(
+    cd examples/c-example/
+
+    # The C example's integration test bash script isn't windows friendly yet,
+    # we just build and run the example on windows for now
+    if [ $# -ne 0 ] && [ "$1" = "windows" ]; then
+        make run
+    else
+        make test
+    fi
 )

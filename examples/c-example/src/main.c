@@ -1,16 +1,25 @@
+#if defined _WIN32 || defined __CYGWIN__
+#define WINDOWS
+#endif
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
 #include <inttypes.h>
 #include <stdint.h>
+#include <assert.h>
+#ifdef WINDOWS
+#include <winsock2.h>
+#include <windows.h>
+#else
+#include <syslog.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <syslog.h>
-#include <assert.h>
+#endif
 
 #include "probe.h"
 
@@ -29,8 +38,12 @@ typedef struct
 } measurement_s;
 
 static struct sockaddr_in g_collector_addr;
-static int g_report_socket = -1;
 static uint8_t g_report_buffer[REPORT_SIZE];
+#ifdef WINDOWS
+static SOCKET g_report_socket = INVALID_SOCKET;
+#else
+static int g_report_socket = -1;
+#endif
 
 static modality_probe *g_producer_probe = MODALITY_PROBE_NULL_INITIALIZER;
 static uint8_t g_producer_probe_buffer[PROBE_SIZE];
@@ -56,7 +69,7 @@ static void send_report(modality_probe * const probe)
     {
         const ssize_t status = sendto(
                 g_report_socket,
-                &g_report_buffer[0],
+                (const char*) &g_report_buffer[0],
                 report_size,
                 0,
                 (const struct sockaddr*) &g_collector_addr,
@@ -111,8 +124,12 @@ static void run_producer(void)
     size_t err;
 
     const modality_probe_instant now = modality_probe_now(g_producer_probe);
+#ifdef WINDOWS
+    printf(
+#else
     syslog(
             LOG_INFO,
+#endif
             "Producer now "
             "(id: %" PRIu32 ", epoch: %" PRIu16 ", ticks: %" PRIu16 ", event_count: %" PRIu32 ")\n",
             now.clock.id,
@@ -199,8 +216,12 @@ static void run_consumer(void)
     measurement_s measurement;
 
     const modality_probe_instant now = modality_probe_now(g_consumer_probe);
+#ifdef WINDOWS
+    printf(
+#else
     syslog(
             LOG_INFO,
+#endif
             "Consumer now "
             "(id: %" PRIu32 ", epoch: %" PRIu16 ", ticks: %" PRIu16 ", event_count: %" PRIu32 ")\n",
             now.clock.id,
@@ -235,7 +256,15 @@ int main(int argc, char **argv)
     time_t t;
     srand((unsigned int) time(&t));
 
+#ifdef WINDOWS
+    WSADATA wsa;
+    const int wsa_err = WSAStartup(MAKEWORD(2, 2), &wsa);
+    assert(wsa_err == 0);
+#endif
+
+#ifndef WINDOWS
     openlog("c-example", LOG_NDELAY | LOG_PID, LOG_USER);
+#endif
 
     (void) memset(&g_collector_addr, 0, sizeof(g_collector_addr));
     g_collector_addr.sin_family = AF_INET;
@@ -243,7 +272,11 @@ int main(int argc, char **argv)
     g_collector_addr.sin_addr.s_addr = inet_addr(COLLECTOR_ADDRESS);
 
     g_report_socket = socket(AF_INET, SOCK_DGRAM, 0);
+#ifdef WINDOWS
+    assert(g_report_socket != INVALID_SOCKET);
+#else
     assert(g_report_socket != -1);
+#endif
 
     printf("Modality probe reports will be sent to %s:%u\n", COLLECTOR_ADDRESS, COLLECTOR_PORT);
 
@@ -260,7 +293,15 @@ int main(int argc, char **argv)
     deinit_producer();
     deinit_consumer();
 
+#ifdef WINDOWS
+    (void) closesocket(g_report_socket);
+#else
     (void) close(g_report_socket);
+#endif
+
+#ifdef WINDOWS
+    WSACleanup();
+#endif
 
     printf("All done\n");
 

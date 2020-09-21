@@ -1,4 +1,3 @@
-test
-test_static
-test_dyn
-test_noop
+test-static
+test-dyn
+test-noop
