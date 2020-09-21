@@ -55,7 +55,7 @@ const_assert_eq!(
         + size_of::<u32>()
         + size_of::<LogicalClock>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
-        + size_of::<RestartSequenceCounter<'_>>()
+        + size_of::<RestartCounterProvider<'_>>()
         + size_of::<u64>(),
     size_of::<DynamicHistory>()
 );
