@@ -323,9 +323,8 @@ bool test_now(void) {
 
 static int g_next_seq_id = 100;
 static bool g_next_seq_id_fn_was_called = false;
-static uint16_t next_persistent_sequence_id(uint32_t probe_id, void *user_state)
+static size_t next_persistent_sequence_id(uint32_t probe_id, void *user_state, uint16_t* out_sequence_id)
 {
-
     assert(probe_id ==  DEFAULT_PROBE_ID);
     assert(user_state == (void*) 1);
     g_next_seq_id_fn_was_called = true;
@@ -333,7 +332,8 @@ static uint16_t next_persistent_sequence_id(uint32_t probe_id, void *user_state)
     const uint16_t next_seq_id = (uint16_t) g_next_seq_id;
     g_next_seq_id += 1;
     assert(next_seq_id != 0);
-    return next_seq_id;
+    *out_sequence_id = next_seq_id;
+    return MODALITY_PROBE_ERROR_OK;
 }
 
 bool test_persistent_restart_sequence_id(void) {

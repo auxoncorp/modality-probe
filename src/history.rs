@@ -15,10 +15,10 @@ use fenced_ring_buffer::{FencedRingBuffer, WholeEntry};
 
 use crate::{
     log::{LogBuffer, LogEntry},
-    restart_counter::{RestartCounterProvider, RestartSequenceCounter},
+    restart_counter::RestartCounterProvider,
     wire::{report::WireReport, WireCausalSnapshot},
     CausalSnapshot, EventId, LogicalClock, MergeError, ModalityProbeInstant, OrdClock, ProbeEpoch,
-    ProbeId, ProbeTicks, ProduceError, ReportError, StorageSetupError,
+    ProbeId, ProbeTicks, ProduceError, ReportError, RestartCounter, StorageSetupError,
 };
 
 pub const MIN_CLOCKS_LEN: usize = 2;
@@ -70,7 +70,7 @@ const_assert_eq!(
         + size_of::<LogicalClock>()
         + 4
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
-        + size_of::<RestartSequenceCounter<'_>>()
+        + size_of::<RestartCounterProvider<'_>>()
         + size_of::<u64>(),
     size_of::<DynamicHistory>()
 );
@@ -98,7 +98,7 @@ pub struct DynamicHistory<'a> {
     /// Invariants:
     ///   * The first clock is always that of the local probe id
     pub(crate) clocks: FixedSliceVec<'a, LogicalClock>,
-    pub(crate) restart_counter: RestartSequenceCounter<'a>,
+    pub(crate) restart_counter: RestartCounterProvider<'a>,
     pub(crate) report_seq_num: u64,
 }
 
@@ -157,7 +157,7 @@ impl<'a> DynamicHistory<'a> {
     fn new(
         dynamic_region_slice: &'a mut [u8],
         probe_id: ProbeId,
-        restart_counter: RestartCounterProvider<'a>,
+        mut restart_counter: RestartCounterProvider<'a>,
     ) -> Result<Self, StorageSetupError> {
         let max_n_clocks = cmp::max(
             MIN_CLOCKS_LEN,
@@ -178,7 +178,6 @@ impl<'a> DynamicHistory<'a> {
         if clocks.capacity() < MIN_CLOCKS_LEN || (log.capacity() as usize) < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
-        let mut restart_counter = RestartSequenceCounter::new(restart_counter);
         let (initial_epoch, restart_counter_had_error) =
             DynamicHistory::calculate_next_epoch(&mut restart_counter, probe_id, None);
         clocks
@@ -227,15 +226,14 @@ impl<'a> DynamicHistory<'a> {
 
     /// Isolated function for figuring out what the next epoch should be for the probe.
     fn calculate_next_epoch(
-        restart_counter: &mut RestartSequenceCounter,
+        restart_counter: &mut RestartCounterProvider,
         probe_id: ProbeId,
         prior_epoch: Option<ProbeEpoch>,
     ) -> (ProbeEpoch, RestartCounterProvidedInvalidEpochSeqId) {
         if restart_counter.is_tracking_restarts() {
-            if let Some(next_persistent_sequence_epoch) = restart_counter.next_sequence_id(probe_id)
-            {
+            if let Ok(next_persistent_sequence_epoch) = restart_counter.next_sequence_id(probe_id) {
                 (
-                    ProbeEpoch(next_persistent_sequence_epoch.get()),
+                    ProbeEpoch(next_persistent_sequence_epoch),
                     RestartCounterProvidedInvalidEpochSeqId(false),
                 )
             } else {
@@ -577,20 +575,23 @@ struct RestartCounterProvidedInvalidEpochSeqId(bool);
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::restart_counter::RestartSequenceIdUnavailable;
     use crate::{RestartCounter, RustRestartCounterProvider};
-    use core::num::NonZeroU16;
 
     struct PersistentRestartProvider {
-        next_seq_id: NonZeroU16,
+        next_seq_id: u16,
         count: usize,
     }
 
     impl RestartCounter for PersistentRestartProvider {
-        fn next_sequence_id(&mut self, _probe_id: ProbeId) -> Option<NonZeroU16> {
+        fn next_sequence_id(
+            &mut self,
+            _probe_id: ProbeId,
+        ) -> Result<u16, RestartSequenceIdUnavailable> {
             let next = self.next_seq_id;
-            self.next_seq_id = NonZeroU16::new(next.get() + 1).unwrap();
+            self.next_seq_id = next.wrapping_add(1);
             self.count += 1;
-            Some(next)
+            Ok(next)
         }
     }
 
@@ -810,7 +811,7 @@ mod test {
         let probe_a = ProbeId::new(1).unwrap();
 
         let mut next_id_provider = PersistentRestartProvider {
-            next_seq_id: NonZeroU16::new(100).unwrap(),
+            next_seq_id: 100,
             count: 0,
         };
 
@@ -828,7 +829,7 @@ mod test {
             assert_eq!(now.clock.epoch.0, 100);
             assert_eq!(now.clock.ticks.0, 0);
         }
-        assert_eq!(next_id_provider.next_seq_id.get(), 101);
+        assert_eq!(next_id_provider.next_seq_id, 101);
         assert_eq!(next_id_provider.count, 1);
 
         {
@@ -857,7 +858,7 @@ mod test {
             assert_eq!(now.clock.epoch.0, 102);
             assert_eq!(now.clock.ticks.0, 1);
         }
-        assert_eq!(next_id_provider.next_seq_id.get(), 103);
+        assert_eq!(next_id_provider.next_seq_id, 103);
         assert_eq!(next_id_provider.count, 3);
     }
 
@@ -865,8 +866,11 @@ mod test {
     fn misbehaving_persistent_epoch_event() {
         struct MisbehavingRestartProvider {}
         impl RestartCounter for MisbehavingRestartProvider {
-            fn next_sequence_id(&mut self, _probe_id: ProbeId) -> Option<NonZeroU16> {
-                None
+            fn next_sequence_id(
+                &mut self,
+                _probe_id: ProbeId,
+            ) -> Result<u16, RestartSequenceIdUnavailable> {
+                Err(RestartSequenceIdUnavailable)
             }
         }
 

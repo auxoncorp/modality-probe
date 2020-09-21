@@ -25,7 +25,7 @@ use history::DynamicHistory;
 pub use id::*;
 pub use restart_counter::{
     next_sequence_id_fn, CRestartCounterProvider, RestartCounter, RestartCounterProvider,
-    RustRestartCounterProvider,
+    RestartSequenceIdUnavailable, RustRestartCounterProvider,
 };
 
 mod error;
