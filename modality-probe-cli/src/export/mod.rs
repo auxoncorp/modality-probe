@@ -21,7 +21,7 @@ use graph::{EventMeta, ProbeMeta};
 #[derive(Debug, PartialEq, StructOpt)]
 pub struct Export {
     /// Generate the graph showing only the causal relationships,
-    /// eliding the events inbetween.
+    /// eliding the events in between.
     #[structopt(short, long)]
     pub interactions_only: bool,
     /// The path to a component directory. To include multiple

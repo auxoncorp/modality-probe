@@ -253,7 +253,7 @@ impl Snapper<LogEntry> for MemorySnapper {
 
 /// Used to write to probe's "overwrite_priority" field
 struct PriorityWriter {
-    /// Memory accessor used to write to device memoryt
+    /// Memory accessor used to write to device memory
     mem_accessor: Rc<RefCell<dyn Target>>,
     /// Address of priority field
     priority_field_addr: Word,
