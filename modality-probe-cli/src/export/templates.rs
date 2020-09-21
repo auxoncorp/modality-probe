@@ -11,31 +11,33 @@ use serde::{
 };
 use serde_json::Value;
 
-use super::graph::EventMeta;
+use super::graph::{EventMeta, ProbeMeta};
 
 #[derive(Serialize)]
-pub struct Component<E: Serialize> {
+pub struct Component<'a> {
     pub cluster_idx: usize,
     pub name: String,
-    pub probes: ProbeSet<E>,
+    pub probes: ProbeSet<'a>,
 }
 
 #[derive(Serialize)]
-pub struct Probe<E: Serialize> {
+pub struct Probe<'a> {
     pub cluster_idx: usize,
+    pub meta: Option<&'a ProbeMeta>,
+    pub is_known: bool,
     pub name: String,
     pub raw_id: u32,
-    pub events: Vec<E>,
+    pub events: Vec<Event<'a>>,
 }
-pub struct ComponentSet<E: Serialize>(HashMap<String, Component<E>>);
+pub struct ComponentSet<'a>(HashMap<String, Component<'a>>);
 
-impl<E: Serialize> ComponentSet<E> {
+impl<'a> ComponentSet<'a> {
     pub fn new() -> Self {
         ComponentSet(HashMap::new())
     }
 }
 
-impl<E: Serialize> Serialize for ComponentSet<E> {
+impl<'a> Serialize for ComponentSet<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -48,28 +50,28 @@ impl<E: Serialize> Serialize for ComponentSet<E> {
     }
 }
 
-impl<E: Serialize> Deref for ComponentSet<E> {
-    type Target = HashMap<String, Component<E>>;
+impl<'a> Deref for ComponentSet<'a> {
+    type Target = HashMap<String, Component<'a>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<E: Serialize> DerefMut for ComponentSet<E> {
+impl<'a> DerefMut for ComponentSet<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-pub struct ProbeSet<E: Serialize>(HashMap<String, Probe<E>>);
+pub struct ProbeSet<'a>(HashMap<String, Probe<'a>>);
 
-impl<E: Serialize> ProbeSet<E> {
+impl<'a> ProbeSet<'a> {
     pub fn new() -> Self {
         ProbeSet(HashMap::new())
     }
 }
 
-impl<E: Serialize> Serialize for ProbeSet<E> {
+impl<'a> Serialize for ProbeSet<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -82,41 +84,41 @@ impl<E: Serialize> Serialize for ProbeSet<E> {
     }
 }
 
-impl<E: Serialize> Deref for ProbeSet<E> {
-    type Target = HashMap<String, Probe<E>>;
+impl<'a> Deref for ProbeSet<'a> {
+    type Target = HashMap<String, Probe<'a>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<E: Serialize> DerefMut for ProbeSet<E> {
+impl<'a> DerefMut for ProbeSet<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-pub struct EdgeSet<E: Serialize>(HashSet<E>);
+pub struct EdgeSet<'a>(HashSet<Edge<'a>>);
 
-impl<E: Serialize> EdgeSet<E> {
+impl<'a> EdgeSet<'a> {
     pub fn new() -> Self {
         EdgeSet(HashSet::new())
     }
 }
 
-impl<E: Serialize> Deref for EdgeSet<E> {
-    type Target = HashSet<E>;
+impl<'a> Deref for EdgeSet<'a> {
+    type Target = HashSet<Edge<'a>>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<E: Serialize> DerefMut for EdgeSet<E> {
+impl<'a> DerefMut for EdgeSet<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<E: Serialize> Serialize for EdgeSet<E> {
+impl<'a> Serialize for EdgeSet<'a> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -130,15 +132,15 @@ impl<E: Serialize> Serialize for EdgeSet<E> {
 }
 
 #[derive(Serialize)]
-pub struct Context {
-    pub components: ComponentSet<Event>,
-    pub edges: EdgeSet<Edge>,
+pub struct Context<'a> {
+    pub components: ComponentSet<'a>,
+    pub edges: EdgeSet<'a>,
 }
 
 #[derive(Hash, PartialEq, Eq, Serialize)]
-pub struct Event {
+pub struct Event<'a> {
     pub is_known: bool,
-    pub meta: Option<EventMeta>,
+    pub meta: Option<&'a EventMeta>,
     pub has_payload: bool,
     pub payload: Option<String>,
     pub raw_id: u32,
@@ -150,9 +152,9 @@ pub struct Event {
 }
 
 #[derive(PartialEq, Eq, Hash, Serialize)]
-pub struct Edge {
-    pub from: Event,
-    pub to: Event,
+pub struct Edge<'a> {
+    pub from: Event<'a>,
+    pub to: Event<'a>,
 }
 
 pub fn discrete_color_formatter(
@@ -342,5 +344,32 @@ pub const STATES: &'static str = "digraph G \\{
     {{ for edge in edges }}
     {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}UNKNOWN_EVENT_{ event.raw_id }{{ endif }}_AT_{ edge.from.probe_name } ->
     {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}UNKNOWN_EVENT_{ event.raw_id }{{ endif }}_AT_{ edge.to.probe_name }
+    {{ endfor }}
+}";
+pub const TOPO: &'static str = "digraph G \\{
+    edge [ color = \"#ffffff\" ]
+    {{ for comp in components }}
+    subgraph cluster_{ comp.cluster_idx } \\{
+        label = \"{ comp.name }\"
+        style = filled
+        color = \"{ comp.name | gradient_color_formatter }\"
+        {{ for probe in comp.probes }}
+        { probe.name } [
+            color = \"{ probe.name | discrete_color_formatter }\"
+            style = \"filled\"
+            label = \"{ probe.name }\"
+            raw_id = { probe.raw_id }
+            {{ if probe.is_known }}
+            description = \"{ probe.meta.description }\"
+            file = \"{ probe.meta.file }\"
+            line = { probe.meta.line }
+            {{ endif }}
+        ];
+        {{ endfor }}
+    }
+    {{ endfor }}
+
+    {{ for edge in edges }}
+    { edge.from.probe_name } -> { edge.to.probe_name }
     {{ endfor }}
 }";

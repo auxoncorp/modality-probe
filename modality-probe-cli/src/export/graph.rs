@@ -27,8 +27,8 @@ pub struct EventMeta {
 }
 
 /// A row in probes.csv for a component.
-#[derive(PartialEq, Debug, Clone, Deserialize)]
-pub(super) struct ProbeMeta {
+#[derive(PartialEq, Serialize, Debug, Clone, Deserialize)]
+pub struct ProbeMeta {
     pub component_id: Uuid,
     pub id: u32,
     pub name: String,
@@ -203,11 +203,11 @@ fn parsed_payload(th: &str, pl: u32) -> Result<String, ExportError> {
     }
 }
 
-fn graph_to_tree(
+fn graph_to_tree<'a>(
     nodes: &HashSet<&GraphEvent>,
     edges: &HashSet<(&GraphEvent, &GraphEvent)>,
-    cfg: &Cfg,
-) -> Context {
+    cfg: &'a Cfg,
+) -> Context<'a> {
     let mut ctx = Context {
         components: ComponentSet::new(),
         edges: EdgeSet::new(),
@@ -216,19 +216,16 @@ fn graph_to_tree(
     let mut cluster_idx = 0;
 
     for node in nodes {
-        let (comp_name, probe_name) = if let Some(pmeta) = cfg.probes.get(&node.probe_id.get_raw())
+        let (comp_name, probe_meta) = if let Some(pmeta) = cfg.probes.get(&node.probe_id.get_raw())
         {
             let comp_id = pmeta.component_id.to_string();
             if let Some(cname) = cfg.component_names.get(&comp_id) {
-                (cname.clone(), pmeta.name.clone())
+                (cname.clone(), Some(pmeta))
             } else {
-                (comp_id, pmeta.name.clone())
+                (comp_id, Some(pmeta))
             }
         } else {
-            (
-                "UNKNOWN".to_string(),
-                format!("UNKNOWN_PROBE_{}", node.probe_id.get_raw()),
-            )
+            ("UNKNOWN".to_string(), None)
         };
         let comp = ctx.components.entry(comp_name.clone()).or_insert_with(|| {
             cluster_idx += 1;
@@ -238,11 +235,14 @@ fn graph_to_tree(
                 probes: ProbeSet::new(),
             }
         });
+        let probe_name = format!("UNKNOWN_PROBE_{}", node.probe_id.get_raw());
         let probe = comp.probes.entry(probe_name.clone()).or_insert_with(|| {
             cluster_idx += 1;
             Probe {
                 cluster_idx: cluster_idx,
-                name: probe_name.clone(),
+                name: probe_meta.map(|p| p.name.clone()).unwrap_or(probe_name),
+                is_known: probe_meta.is_some(),
+                meta: probe_meta,
                 raw_id: node.probe_id.get_raw(),
                 events: vec![],
             }
@@ -260,7 +260,7 @@ fn graph_to_tree(
                 probe_name: probe.name.clone(),
                 has_payload: payload.is_some(),
                 payload,
-                meta: Some(emeta.clone()),
+                meta: Some(emeta),
                 raw_id: node.id.get_raw(),
                 raw_probe_id: node.probe_id.get_raw(),
                 clock: node.clock.pack().1,
@@ -294,7 +294,7 @@ fn graph_to_tree(
                 Event {
                     is_known: true,
                     probe_name: probe_name.clone(),
-                    meta: Some(emeta.clone()),
+                    meta: Some(emeta),
                     raw_id: s.id.get_raw(),
                     raw_probe_id: s.probe_id.get_raw(),
                     seq: s.seq.0,
@@ -332,7 +332,7 @@ fn graph_to_tree(
                 Event {
                     is_known: true,
                     probe_name: probe_name.clone(),
-                    meta: Some(emeta.clone()),
+                    meta: Some(emeta),
                     raw_id: t.id.get_raw(),
                     raw_probe_id: t.probe_id.get_raw(),
                     seq: t.seq.0,
