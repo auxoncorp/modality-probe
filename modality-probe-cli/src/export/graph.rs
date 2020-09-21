@@ -230,7 +230,7 @@ fn graph_to_tree<'a>(
         let comp = ctx.components.entry(comp_name.clone()).or_insert_with(|| {
             cluster_idx += 1;
             Component {
-                cluster_idx: cluster_idx,
+                cluster_idx,
                 name: comp_name,
                 probes: ProbeSet::new(),
             }
@@ -239,7 +239,7 @@ fn graph_to_tree<'a>(
         let probe = comp.probes.entry(probe_name.clone()).or_insert_with(|| {
             cluster_idx += 1;
             Probe {
-                cluster_idx: cluster_idx,
+                cluster_idx,
                 name: probe_meta.map(|p| p.name.clone()).unwrap_or(probe_name),
                 is_known: probe_meta.is_some(),
                 meta: probe_meta,
@@ -502,7 +502,7 @@ mod test {
             .as_complete()
             .dot(&cfg, "complete", templates::COMPLETE)
             .unwrap();
-        assert!(dot.contains("one_one_1_0 -> two_two_1_2"), dot);
+        assert!(dot.contains("one_one_1_0 ->\n    two_two_1_2"), dot);
     }
 
     #[test]
@@ -536,7 +536,7 @@ mod test {
             .as_states()
             .dot(&cfg, "states", templates::STATES)
             .unwrap();
-        assert!(dot.contains("one -> two"), dot);
+        assert!(dot.contains("one_AT_one ->\n    two_AT_two"), dot);
     }
 
     #[test]
