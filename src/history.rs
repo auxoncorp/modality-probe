@@ -244,7 +244,7 @@ impl<'a> DynamicHistory<'a> {
             }
         } else if let Some(prior_epoch) = prior_epoch {
             (
-                ProbeEpoch(core::cmp::max(1, prior_epoch.0.wrapping_add(1))),
+                ProbeEpoch(prior_epoch.0.wrapping_add(1)),
                 RestartCounterProvidedInvalidEpochSeqId(false),
             )
         } else {
