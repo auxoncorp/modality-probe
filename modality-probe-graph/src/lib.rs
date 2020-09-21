@@ -18,8 +18,8 @@ pub trait Graph {
     fn add_edge(&mut self, source: GraphEvent, target: GraphEvent);
 }
 
-#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
 /// A node in the event digraph.
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
 pub struct GraphEvent {
     pub id: EventId,
     pub clock: LogicalClock,

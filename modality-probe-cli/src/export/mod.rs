@@ -11,6 +11,8 @@ use modality_probe_collector_common::{json, Error as CollectorError};
 
 use crate::{component::Component, events::Events};
 
+mod templates;
+
 mod graph;
 use graph::{EventMeta, ProbeMeta};
 
@@ -89,10 +91,34 @@ pub fn run(mut exp: Export) -> Result<(), ExportError> {
     )?;
 
     match (exp.graph_type, exp.interactions_only) {
-        (GraphType::Acyclic, false) => println!("{}", graph.graph.to_dot(&cfg)?),
-        (GraphType::Acyclic, true) => println!("{}", graph.graph.into_interactions().to_dot(&cfg)?),
-        (GraphType::Cyclic, false) => println!("{}", graph.graph.into_states().to_dot(&cfg)?),
-        (GraphType::Cyclic, true) => println!("{}", graph.graph.into_topology().to_dot(&cfg)?),
+        (GraphType::Acyclic, false) => println!(
+            "{}",
+            graph
+                .graph
+                .as_complete()
+                .dot(&cfg, "complete", templates::COMPLETE)?
+        ),
+        (GraphType::Acyclic, true) => println!(
+            "{}",
+            graph
+                .graph
+                .as_interactions()
+                .dot(&cfg, "interactions", templates::INTERACTIONS)?
+        ),
+        (GraphType::Cyclic, false) => println!(
+            "{}",
+            graph
+                .graph
+                .as_states()
+                .dot(&cfg, "states", templates::STATES)?
+        ),
+        (GraphType::Cyclic, true) => println!(
+            "{}",
+            graph
+                .graph
+                .as_topology()
+                .dot(&cfg, "topo", templates::TOPO)?
+        ),
     }
 
     Ok(())

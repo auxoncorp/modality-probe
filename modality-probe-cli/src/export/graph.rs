@@ -1,22 +1,21 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Write,
-    iter::Peekable,
-};
+use std::{collections::HashSet, hash::Hash, iter::Peekable};
 
-use colorous::{Color, Gradient};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use tinytemplate::TinyTemplate;
 use uuid::Uuid;
 
-use modality_probe::{EventId, LogicalClock, ProbeId};
+use modality_probe::{EventId, ProbeId};
 use modality_probe_collector_common::{ReportIter, ReportLogEntry};
 use modality_probe_graph::{EventDigraph, Graph, GraphEvent};
 
-use super::{Cfg, ExportError};
+use super::{
+    templates::{self, Component, ComponentSet, Context, Edge, EdgeSet, Event, Probe, ProbeSet},
+    {Cfg, ExportError},
+};
 
 /// A row in the events.csv for a component.
-#[derive(PartialEq, Debug, Clone, Deserialize)]
-pub(super) struct EventMeta {
+#[derive(PartialEq, Eq, Debug, Clone, Deserialize, Hash, Serialize)]
+pub struct EventMeta {
     pub component_id: Uuid,
     pub id: u32,
     pub name: String,
@@ -28,8 +27,8 @@ pub(super) struct EventMeta {
 }
 
 /// A row in probes.csv for a component.
-#[derive(PartialEq, Debug, Clone, Deserialize)]
-pub(super) struct ProbeMeta {
+#[derive(PartialEq, Serialize, Debug, Clone, Deserialize)]
+pub struct ProbeMeta {
     pub component_id: Uuid,
     pub id: u32,
     pub name: String,
@@ -40,13 +39,13 @@ pub(super) struct ProbeMeta {
 
 pub(super) fn log_to_graph<I>(
     log: Peekable<I>,
-) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent, ()>>, ExportError>
+) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent>>, ExportError>
 where
     I: Iterator<Item = ReportLogEntry>,
 {
     let mut graph = EventDigraph::new(NodeAndEdgeLists {
-        nodes: HashMap::new(),
-        edges: HashMap::new(),
+        nodes: HashSet::new(),
+        edges: HashSet::new(),
     });
     let report_iter = ReportIter::new(log);
     for report in report_iter {
@@ -61,470 +60,109 @@ where
 }
 
 #[derive(Default)]
-pub(super) struct NodeAndEdgeLists<G, W> {
-    nodes: HashMap<G, W>,
-    edges: HashMap<(G, G), W>,
+pub(super) struct NodeAndEdgeLists<G>
+where
+    G: Hash + Eq,
+{
+    nodes: HashSet<G>,
+    edges: HashSet<(G, G)>,
 }
 
-impl NodeAndEdgeLists<GraphEvent, ()> {
-    /// pare down a complete graph into only trace clocks, which is to
-    /// say, only the interactions between probes.
-    pub fn into_interactions(self) -> NodeAndEdgeLists<(ProbeId, LogicalClock), u32> {
-        let mut nodes = HashMap::new();
-        for (n, _) in self.nodes.into_iter() {
-            let weight = nodes.entry((n.probe_id, n.clock)).or_insert(0);
-            *weight += 1;
-        }
+impl NodeAndEdgeLists<GraphEvent> {
+    pub fn as_complete<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+        self.filter(|_| true, |_, _| true)
+    }
 
-        let mut edges = HashMap::new();
-        for ((s, t), _) in self.edges.into_iter() {
-            if s.probe_id != t.probe_id {
-                let weight = edges
-                    .entry(((s.probe_id, s.clock), (t.probe_id, t.clock)))
-                    .or_insert(0);
-                *weight += 1;
-            }
-        }
-        NodeAndEdgeLists { nodes, edges }
+    /// Pare down a complete graph into only trace clocks, which is to
+    /// say, only the interactions between probes.
+    pub fn as_interactions<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+        let mut node_set = HashSet::new();
+        let mut edge_set = HashSet::new();
+        self.filter(
+            |n| node_set.insert((n.probe_id, n.clock)),
+            |s, t| {
+                s.probe_id != t.probe_id
+                    && edge_set.insert(((s.probe_id, s.clock), (t.probe_id, t.clock)))
+            },
+        )
     }
 
     /// Pare down a complete graph into the event transitions.
-    pub fn into_states(self) -> NodeAndEdgeLists<(ProbeId, EventId), u32> {
-        let mut nodes = HashMap::new();
-        for (n, _) in self.nodes.into_iter() {
-            let weight = nodes.entry((n.probe_id, n.id)).or_insert(0);
-            *weight += 1;
-        }
-
-        let mut edges = HashMap::new();
-        for ((s, t), _) in self.edges.into_iter() {
-            let weight = edges
-                .entry(((s.probe_id, s.id), (t.probe_id, t.id)))
-                .or_insert(0);
-            *weight += 1;
-        }
-
-        NodeAndEdgeLists { nodes, edges }
+    pub fn as_states<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+        let mut node_set = HashSet::new();
+        let mut edge_set = HashSet::new();
+        self.filter(
+            |n| node_set.insert((n.probe_id, n.id)),
+            |s, t| edge_set.insert(((s.probe_id, s.id), (t.probe_id, t.id))),
+        )
     }
 
     /// Pare down a complete graph into just the probes and their
     /// communication topology.
-    pub fn into_topology(self) -> NodeAndEdgeLists<ProbeId, u32> {
-        let mut nodes = HashMap::new();
-        for (n, _) in self.nodes.into_iter() {
-            let weight = nodes.entry(n.probe_id).or_insert(0);
-            *weight += 1;
-        }
+    pub fn as_topology<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+        let mut node_set = HashSet::new();
+        let mut edge_set = HashSet::new();
+        self.filter(
+            |n| node_set.insert(n.probe_id),
+            |s, t| s.probe_id != t.probe_id && edge_set.insert((s.probe_id, t.probe_id)),
+        )
+    }
 
-        let mut edges = HashMap::new();
-        for ((s, t), _) in self.edges.into_iter() {
-            if s.probe_id != t.probe_id {
-                let weight = edges.entry((s.probe_id, t.probe_id)).or_insert(0);
-                *weight += 1;
-            }
-        }
+    fn filter<'a, NF, EF>(
+        &'a self,
+        mut node_filter: NF,
+        mut edge_filter: EF,
+    ) -> NodeAndEdgeLists<&'a GraphEvent>
+    where
+        NF: FnMut(&'a GraphEvent) -> bool,
+        EF: FnMut(&'a GraphEvent, &'a GraphEvent) -> bool,
+    {
+        let nodes = self
+            .nodes
+            .iter()
+            .filter(|n| node_filter(n))
+            .map(|n| n)
+            .collect();
 
+        let edges = self
+            .edges
+            .iter()
+            .filter(|(s, t)| edge_filter(s, t))
+            .map(|(s, t)| (s, t))
+            .collect();
         NodeAndEdgeLists { nodes, edges }
     }
+}
 
-    /// Spit out a string containing dot code representing a complete
-    /// graph.
-    pub fn to_dot(&self, cfg: &Cfg) -> Result<String, ExportError> {
-        let mut out = String::new();
-        let mut comps = HashMap::new();
-        let mut probes = HashMap::new();
-
-        writeln!(out, "digraph G {{")?;
-        writeln!(out, "    node [ color = \"#ffffff\" style = filled ]")?;
-        writeln!(out, "    edge [ color = \"#ffffff\" ]")?;
-
-        for (node, _) in self.nodes.iter() {
-            let pname = if let Some(pmeta) = cfg.probes.get(&node.probe_id.get_raw()) {
-                let comp = comps
-                    .entry(pmeta.component_id.to_string())
-                    .or_insert_with(HashSet::new);
-                comp.insert(pmeta.name.clone());
-                pmeta.name.clone()
-            } else {
-                let pname = format!("UNKNOWN_PROBE_{}", node.probe_id.get_raw());
-                let comp = comps
-                    .entry("UNKNOWN".to_string())
-                    .or_insert_with(HashSet::new);
-                comp.insert(pname.clone());
-                pname
-            };
-            if let Ok(emeta) = get_event_meta(cfg, &node.probe_id, &node.id) {
-                let probe = probes.entry(pname.clone()).or_insert_with(Vec::new);
-                probe.push(
-                    format!(
-                        "{}_{}_{}_{} [ label = \"{}\" description = \"{}\" file = \"{}\" {} probe = \"{}\" tags = \"{}\" raw_event_id = {} raw_probe_id = {} {} ]",
-                        emeta.name,
-                        pname,
-                        node.seq.0,
-                        node.seq_idx,
-                        emeta.name,
-                        emeta.description,
-                        emeta.file,
-                        if emeta.line.is_empty() {
-                            String::new()
-                        } else {
-                            format!("line = {}", emeta.line)
-                        },
-                        pname,
-                        emeta.tags,
-                        node.id.get_raw(),
-                        node.probe_id.get_raw(),
-                        if let Some(pl) = node.payload {
-                            if let Some(ref th) = emeta.type_hint {
-                                format!("payload = {} ", parsed_payload(th, pl)?)
-                            }  else {
-                                String::new()
-                            }
-                        } else {
-                            String::new()
-                        }
-                    )
-                );
-            } else {
-                let probe = probes.entry(pname.clone()).or_insert_with(Vec::new);
-                probe.push(
-                    format!(
-                        "UNKNOWN_EVENT_{}_{}_{}_{} [ label = \"UNKNOWN_EVENT_{}\" raw_event_id = {} probe = \"{}\" raw_probe_id = {} ]",
-                        node.id.get_raw(),
-                        pname,
-                        node.seq.0,
-                        node.seq_idx,
-                        node.id.get_raw(),
-                        node.id.get_raw(),
-                        pname,
-                        node.probe_id.get_raw()
-                    )
-                );
-            }
-        }
-
-        write_comps_and_probes(&comps, &probes, cfg, &mut out)?;
-
-        for ((s, t), _) in self.edges.iter() {
-            let sprobe_name = if let Some(pmeta) = cfg.probes.get(&s.probe_id.get_raw()) {
-                pmeta.name.clone()
-            } else {
-                format!("UNKNOWN_PROBE_{}", s.probe_id.get_raw())
-            };
-            let tprobe_name = if let Some(pmeta) = cfg.probes.get(&t.probe_id.get_raw()) {
-                pmeta.name.clone()
-            } else {
-                format!("UNKNOWN_PROBE_{}", t.probe_id.get_raw())
-            };
-
-            let source_name = if let Ok(meta) = get_event_meta(cfg, &s.probe_id, &s.id) {
-                meta.name.clone()
-            } else {
-                format!("UNKNOWN_EVENT_{}", s.id.get_raw())
-            };
-            let target_name = if let Ok(meta) = get_event_meta(cfg, &t.probe_id, &t.id) {
-                meta.name.clone()
-            } else {
-                format!("UNKNOWN_EVENT_{}", t.id.get_raw())
-            };
-            writeln!(
-                out,
-                "    {}_{}_{}_{} -> {}_{}_{}_{}",
-                source_name,
-                sprobe_name,
-                s.seq.0,
-                s.seq_idx,
-                target_name,
-                tprobe_name,
-                t.seq.0,
-                t.seq_idx
-            )?;
-        }
-
-        writeln!(out, "}}")?;
-        Ok(out)
+impl<'a> NodeAndEdgeLists<&'a GraphEvent> {
+    pub fn dot(
+        &self,
+        cfg: &Cfg,
+        name: &'static str,
+        temp: &'static str,
+    ) -> Result<String, ExportError> {
+        let ctx = graph_to_tree(&self.nodes, &self.edges, cfg);
+        let mut tt = TinyTemplate::new();
+        tt.add_formatter(
+            "discrete_color_formatter",
+            templates::discrete_color_formatter,
+        );
+        tt.add_formatter(
+            "gradient_color_formatter",
+            templates::gradient_color_formatter,
+        );
+        tt.add_template(name, temp).unwrap();
+        Ok(tt.render(name, &ctx).unwrap())
     }
 }
 
-impl NodeAndEdgeLists<(ProbeId, LogicalClock), u32> {
-    /// Spit out dot code representing an interaction graph.
-    pub fn to_dot(&self, cfg: &Cfg) -> Result<String, ExportError> {
-        let mut out = String::new();
-        let mut comps = HashMap::new();
-        let mut probes = HashMap::new();
-
-        writeln!(out, "digraph G {{")?;
-        writeln!(out, "    node [ color = \"#ffffff\" style = filled ]")?;
-        writeln!(out, "    edge [ color = \"#ffffff\" ]")?;
-
-        for ((probe_id, clock), w) in self.nodes.iter() {
-            if let Some(pmeta) = cfg.probes.get(&probe_id.get_raw()) {
-                let comp = comps
-                    .entry(pmeta.component_id.to_string())
-                    .or_insert_with(HashSet::new);
-                comp.insert(pmeta.name.clone());
-                let probe = probes.entry(pmeta.name.clone()).or_insert_with(Vec::new);
-                probe.push(format!(
-                    "{}_{} [ label = \"{}_{}\" description = \"{}\" file = \"{}\" {} raw_probe_id = {} weight = {} ]",
-                    pmeta.name,
-                    modality_probe::pack_clock_word(clock.epoch, clock.ticks),
-                    pmeta.name,
-                    modality_probe::pack_clock_word(clock.epoch, clock.ticks),
-                    pmeta.description,
-                    pmeta.file,
-                    if pmeta.line.is_empty() {
-                        String::new()
-                    } else {
-                        format!("line = {}", pmeta.line)
-                    },
-                    probe_id.get_raw(),
-                    w
-                ));
-            } else {
-                let pname = format!("UNKNOWN_PROBE_{}", probe_id.get_raw());
-                let comp = comps
-                    .entry("UNKNOWN_COMPONENT".to_string())
-                    .or_insert_with(HashSet::new);
-                comp.insert(pname.clone());
-                let probe = probes.entry(pname).or_insert_with(Vec::new);
-                probe.push(format!(
-                    "UNKNOWN_PROBE_{}_{} [ label = \"UNKNOWN_PROBE_{}_{}\" raw_probe_id = {} ]",
-                    probe_id.get_raw(),
-                    modality_probe::pack_clock_word(clock.epoch, clock.ticks),
-                    probe_id.get_raw(),
-                    modality_probe::pack_clock_word(clock.epoch, clock.ticks),
-                    probe_id.get_raw(),
-                ));
-            }
-        }
-
-        write_comps_and_probes(&comps, &probes, cfg, &mut out)?;
-
-        for (((sprobe, sclock), (tprobe, tclock)), _) in self.edges.iter() {
-            let source_name = if let Some(meta) = cfg.probes.get(&sprobe.get_raw()) {
-                meta.name.clone()
-            } else {
-                format!("UNKNOWN_PROBE_{}", sprobe.get_raw())
-            };
-            let target_name = if let Some(meta) = cfg.probes.get(&tprobe.get_raw()) {
-                meta.name.clone()
-            } else {
-                format!("UNKNOWN_PROBE_{}", tprobe.get_raw())
-            };
-            writeln!(
-                out,
-                "    {}_{} -> {}_{}",
-                source_name,
-                modality_probe::pack_clock_word(sclock.epoch, sclock.ticks),
-                target_name,
-                modality_probe::pack_clock_word(tclock.epoch, tclock.ticks)
-            )?;
-        }
-
-        writeln!(out, "}}")?;
-        Ok(out)
-    }
-}
-
-impl NodeAndEdgeLists<(ProbeId, EventId), u32> {
-    /// Spit out dot code representing an event transition state
-    /// machine.
-    pub fn to_dot(&self, cfg: &Cfg) -> Result<String, ExportError> {
-        let mut out = String::new();
-        let mut comps = HashMap::new();
-        writeln!(out, "digraph G {{")?;
-        writeln!(out, "    node [ color = \"#ffffff\" style = filled ]")?;
-        writeln!(out, "    edge [ color = \"#ffffff\" ]")?;
-        for ((pid, eid), w) in self.nodes.iter() {
-            let (pname, comp) = if let Some(pmeta) = cfg.probes.get(&pid.get_raw()) {
-                (
-                    pmeta.name.clone(),
-                    comps
-                        .entry(pmeta.component_id.to_string())
-                        .or_insert_with(Vec::new),
-                )
-            } else {
-                (
-                    format!("UNKNOWN_PROBE_{}", pid.get_raw()),
-                    comps
-                        .entry("UNKNOWN_COMPONENT".to_string())
-                        .or_insert_with(Vec::new),
-                )
-            };
-            if let Ok(emeta) = get_event_meta(&cfg, pid, eid) {
-                comp.push(format!(
-                    "{}_AT_{} [ label = \"{} @ {}\" description = \"{}\" file = \"{}\" {} tags = \"{}\" raw_event_id = {} weight = {} ]",
-                    emeta.name,
-                    pname,
-                    emeta.name,
-                    pname,
-                    emeta.description,
-                    emeta.file,
-                    if emeta.line.is_empty() {
-                        String::new()
-                    } else {
-                        format!("line = {}", emeta.line)
-                    },
-                    emeta.tags,
-                    eid.get_raw(),
-                    w
-                ));
-            } else {
-                comp.push(format!(
-                    "UNKNOWN_EVENT_{}_AT_{} [ label = \"UNKNOWN_EVENT_{} @ {}\" raw_event_id = {} raw_probe_id = {} ]",
-                    eid.get_raw(),
-                    pname,
-                    eid.get_raw(),
-                    pname,
-                    eid.get_raw(),
-                    pid.get_raw(),
-                ));
-            }
-        }
-
-        let mut comp_palette = Palette::new(colorous::CUBEHELIX);
-        for (c_idx, (id, comp)) in comps.iter().enumerate() {
-            writeln!(out, "    subgraph cluster_{} {{", c_idx)?;
-            writeln!(
-                out,
-                "        label = \"{}\"",
-                if let Some(n) = cfg.component_names.get(id) {
-                    n
-                } else {
-                    id
-                }
-            )?;
-            writeln!(out, "        fontcolor = \"#ffffff\"")?;
-            writeln!(out, "        style = filled")?;
-            writeln!(out, "        color = \"#{:x}\"", comp_palette.next())?;
-            for ev in comp {
-                writeln!(out, "        {}", ev)?;
-            }
-            writeln!(out, "    }}")?;
-        }
-
-        for (((sp, se), (tp, te)), w) in self.edges.iter() {
-            let source_probe = if let Some(pmeta) = cfg.probes.get(&sp.get_raw()) {
-                pmeta.name.clone()
-            } else {
-                format!("UNKNOWN_PROBE_{}", sp.get_raw())
-            };
-            let source_event = if let Ok(emeta) = get_event_meta(&cfg, sp, se) {
-                emeta.name.clone()
-            } else {
-                format!("UNKNOWN_EVENT_{}", se.get_raw())
-            };
-            let target_probe = if let Some(pmeta) = cfg.probes.get(&tp.get_raw()) {
-                pmeta.name.clone()
-            } else {
-                format!("UNKNOWN_PROBE_{}", tp.get_raw())
-            };
-            let target_event = if let Ok(emeta) = get_event_meta(&cfg, sp, te) {
-                emeta.name.clone()
-            } else {
-                format!("UNKNOWN_EVENT_{}", te.get_raw())
-            };
-            writeln!(
-                out,
-                "    {}_AT_{} -> {}_AT_{} [ weight = {} ]",
-                source_event, source_probe, target_event, target_probe, w
-            )?;
-        }
-
-        writeln!(out, "}}")?;
-        Ok(out)
-    }
-}
-
-impl NodeAndEdgeLists<ProbeId, u32> {
-    /// Spit out dot code representing a topology graph.
-    pub fn to_dot(&self, cfg: &Cfg) -> Result<String, ExportError> {
-        let mut out = String::new();
-
-        writeln!(out, "digraph G {{")?;
-        writeln!(out, "    node [ color = \"#ffffff\" style = filled ]")?;
-        writeln!(out, "    edge [ color = \"#ffffff\" ]")?;
-
-        let mut comps = HashMap::new();
-
-        for (node, w) in self.nodes.iter() {
-            if let Some(pmeta) = cfg.probes.get(&node.get_raw()) {
-                let comp = comps
-                    .entry(pmeta.component_id.to_string())
-                    .or_insert_with(Vec::new);
-                comp.push(format!(
-                    "{} [ label = \"{}\" description = \"{}\" file = \"{}\" line = {} raw_probe_id = {} weight = {} ]",
-                    pmeta.name,
-                    pmeta.name,
-                    pmeta.description,
-                    pmeta.file,
-                    pmeta.line,
-                    node.get_raw(),
-                    w
-            ));
-            } else {
-                let comp = comps
-                    .entry("UNKNOWN_COMPONENT".to_string())
-                    .or_insert_with(Vec::new);
-                comp.push(format!(
-                    "UNKNOWN_PROBE_{} [ label = \"UNKNOWN_PROBE_{}\" ]",
-                    node.get_raw(),
-                    node.get_raw()
-                ));
-            }
-        }
-
-        let mut comp_palette = Palette::new(colorous::CUBEHELIX);
-        for (c_idx, (id, comp)) in comps.iter().enumerate() {
-            writeln!(out, "    subgraph cluster_{} {{", c_idx)?;
-            writeln!(
-                out,
-                "        label = \"{}\"",
-                if let Some(n) = cfg.component_names.get(id) {
-                    n
-                } else {
-                    id
-                }
-            )?;
-            writeln!(out, "        fontcolor = \"#ffffff\"")?;
-            writeln!(out, "        style = filled")?;
-            writeln!(out, "        color = \"#{:x}\"", comp_palette.next())?;
-            for ev in comp {
-                writeln!(out, "        {}", ev)?;
-            }
-            writeln!(out, "    }}")?;
-        }
-
-        for ((s, t), w) in self.edges.iter() {
-            let source_name = if let Some(pmeta) = cfg.probes.get(&s.get_raw()) {
-                pmeta.name.clone()
-            } else {
-                format!("UNKNOWN_PROBE_{}", s.get_raw())
-            };
-            let target_name = if let Some(pmeta) = cfg.probes.get(&t.get_raw()) {
-                pmeta.name.clone()
-            } else {
-                format!("UNKNOWN_PROBE_{}", t.get_raw())
-            };
-            writeln!(
-                out,
-                "    {} -> {} [ weight = {} ]",
-                source_name, target_name, w,
-            )?;
-        }
-
-        writeln!(out, "}}")?;
-        Ok(out)
-    }
-}
-
-impl Graph for NodeAndEdgeLists<GraphEvent, ()> {
+impl Graph for NodeAndEdgeLists<GraphEvent> {
     fn add_node(&mut self, node: GraphEvent) {
-        self.nodes.insert(node, ());
+        self.nodes.insert(node);
     }
 
     fn add_edge(&mut self, source: GraphEvent, target: GraphEvent) {
-        self.edges.insert((source, target), ());
+        self.edges.insert((source, target));
     }
 }
 
@@ -565,66 +203,174 @@ fn parsed_payload(th: &str, pl: u32) -> Result<String, ExportError> {
     }
 }
 
-struct Palette {
-    cursor: f64,
-    set: Gradient,
-}
+fn graph_to_tree<'a>(
+    nodes: &HashSet<&GraphEvent>,
+    edges: &HashSet<(&GraphEvent, &GraphEvent)>,
+    cfg: &'a Cfg,
+) -> Context<'a> {
+    let mut ctx = Context {
+        components: ComponentSet::new(),
+        edges: EdgeSet::new(),
+    };
 
-impl Palette {
-    fn new(set: Gradient) -> Self {
-        Palette { cursor: 0.0, set }
-    }
+    let mut cluster_idx = 0;
 
-    fn next(&mut self) -> Color {
-        self.cursor = (self.cursor + 0.1) % 1.0;
-        self.set.eval_continuous(self.cursor)
-    }
-}
-
-fn write_comps_and_probes<W: Write>(
-    comps: &HashMap<String, HashSet<String>>,
-    probes: &HashMap<String, Vec<String>>,
-    cfg: &Cfg,
-    mut out: W,
-) -> Result<(), ExportError> {
-    let mut probe_palette = Palette::new(colorous::CUBEHELIX);
-    let mut comp_palette = Palette::new(colorous::GREYS);
-    for (c_idx, (comp, probe_names)) in comps.iter().enumerate() {
-        writeln!(out, "    subgraph cluster_{} {{", c_idx)?;
-        writeln!(
-            out,
-            "        label = \"{}\"",
-            if let Some(comp_name) = cfg.component_names.get(comp) {
-                comp_name
+    for node in nodes {
+        let (comp_name, probe_meta) = if let Some(pmeta) = cfg.probes.get(&node.probe_id.get_raw())
+        {
+            let comp_id = pmeta.component_id.to_string();
+            if let Some(cname) = cfg.component_names.get(&comp_id) {
+                (cname.clone(), Some(pmeta))
             } else {
-                comp
+                (comp_id, Some(pmeta))
             }
-        )?;
-        writeln!(out, "        style = filled")?;
-        writeln!(out, "        color = \"#{:x}\"", comp_palette.next())?;
-        for (p_idx, probe_name) in probe_names.iter().enumerate() {
-            writeln!(out, "        subgraph cluster_{} {{", p_idx)?;
-            writeln!(out, "            label = \"{}\"", probe_name)?;
-            writeln!(out, "            fontcolor = \"#ffffff\"")?;
-            writeln!(out, "            rank = same")?;
-            writeln!(out, "            style = filled")?;
-            writeln!(out, "            color = \"#{:x}\"", probe_palette.next())?;
-            if let Some(evs) = probes.get(probe_name) {
-                for ev_line in evs {
-                    writeln!(out, "            {}", ev_line)?;
+        } else {
+            ("UNKNOWN".to_string(), None)
+        };
+        let comp = ctx.components.entry(comp_name.clone()).or_insert_with(|| {
+            cluster_idx += 1;
+            Component {
+                cluster_idx,
+                name: comp_name,
+                probes: ProbeSet::new(),
+            }
+        });
+        let probe_name = format!("UNKNOWN_PROBE_{}", node.probe_id.get_raw());
+        let probe = comp.probes.entry(probe_name.clone()).or_insert_with(|| {
+            cluster_idx += 1;
+            Probe {
+                cluster_idx,
+                name: probe_meta.map(|p| p.name.clone()).unwrap_or(probe_name),
+                is_known: probe_meta.is_some(),
+                meta: probe_meta,
+                raw_id: node.probe_id.get_raw(),
+                events: vec![],
+            }
+        });
+
+        if let Ok(emeta) = get_event_meta(cfg, &node.probe_id, &node.id) {
+            let payload = node.payload.and_then(|pl| {
+                emeta
+                    .type_hint
+                    .as_ref()
+                    .and_then(|th| parsed_payload(&th, pl).ok())
+            });
+            probe.events.push(Event {
+                is_known: true,
+                probe_name: probe.name.clone(),
+                has_payload: payload.is_some(),
+                payload,
+                meta: Some(emeta),
+                raw_id: node.id.get_raw(),
+                raw_probe_id: node.probe_id.get_raw(),
+                clock: node.clock.pack().1,
+                seq: node.seq.0,
+                seq_idx: node.seq_idx,
+            });
+        } else {
+            probe.events.push(Event {
+                is_known: false,
+                probe_name: probe.name.clone(),
+                meta: None,
+                has_payload: false,
+                payload: None,
+                raw_id: node.id.get_raw(),
+                raw_probe_id: node.probe_id.get_raw(),
+                clock: node.clock.pack().1,
+                seq: node.seq.0,
+                seq_idx: node.seq_idx,
+            });
+        }
+    }
+
+    for (s, t) in edges {
+        let from = {
+            let probe_name = if let Some(pmeta) = cfg.probes.get(&s.probe_id.get_raw()) {
+                pmeta.name.clone()
+            } else {
+                format!("UNKNOWN_PROBE_{}", s.probe_id.get_raw())
+            };
+            if let Ok(emeta) = get_event_meta(cfg, &s.probe_id, &s.id) {
+                Event {
+                    is_known: true,
+                    probe_name: probe_name.clone(),
+                    meta: Some(emeta),
+                    raw_id: s.id.get_raw(),
+                    raw_probe_id: s.probe_id.get_raw(),
+                    seq: s.seq.0,
+                    seq_idx: s.seq_idx,
+                    clock: s.clock.pack().1,
+                    // Payloads aren't needed for edge
+                    // enumeration.
+                    payload: None,
+                    has_payload: false,
+                }
+            } else {
+                Event {
+                    is_known: false,
+                    probe_name: probe_name.clone(),
+                    meta: None,
+                    raw_id: s.id.get_raw(),
+                    raw_probe_id: s.probe_id.get_raw(),
+                    seq: s.seq.0,
+                    seq_idx: s.seq_idx,
+                    clock: s.clock.pack().1,
+                    // Payloads aren't needed for edge
+                    // enumeration.
+                    payload: None,
+                    has_payload: false,
                 }
             }
-            writeln!(out, "}}")?;
-        }
-        writeln!(out, "}}")?;
+        };
+        let to = {
+            let probe_name = if let Some(pmeta) = cfg.probes.get(&t.probe_id.get_raw()) {
+                pmeta.name.clone()
+            } else {
+                format!("UNKNOWN_PROBE_{}", s.probe_id.get_raw())
+            };
+            if let Ok(emeta) = get_event_meta(cfg, &t.probe_id, &t.id) {
+                Event {
+                    is_known: true,
+                    probe_name: probe_name.clone(),
+                    meta: Some(emeta),
+                    raw_id: t.id.get_raw(),
+                    raw_probe_id: t.probe_id.get_raw(),
+                    seq: t.seq.0,
+                    seq_idx: t.seq_idx,
+                    clock: t.clock.pack().1,
+                    // Payloads aren't needed for edge
+                    // enumeration.
+                    payload: None,
+                    has_payload: false,
+                }
+            } else {
+                Event {
+                    is_known: false,
+                    probe_name: probe_name.clone(),
+                    meta: None,
+                    raw_id: t.id.get_raw(),
+                    raw_probe_id: t.probe_id.get_raw(),
+                    seq: t.seq.0,
+                    seq_idx: t.seq_idx,
+                    clock: t.clock.pack().1,
+                    // Payloads aren't needed for edge
+                    // enumeration.
+                    payload: None,
+                    has_payload: false,
+                }
+            }
+        };
+
+        ctx.edges.insert(Edge { from, to });
     }
-    Ok(())
+    ctx
 }
+
 #[cfg(test)]
 mod test {
     use std::convert::TryInto;
 
-    use super::*;
+    use super::{super::templates, *};
 
     fn cfg() -> Cfg {
         let a_uuid = Uuid::new_v4();
@@ -751,8 +497,12 @@ mod test {
             .peekable();
         let graph = super::log_to_graph(diamond_log).unwrap();
 
-        let dot = graph.graph.to_dot(&cfg).unwrap();
-        assert!(dot.contains("one_one_1_0 -> two_two_1_2"), dot);
+        let dot = graph
+            .graph
+            .as_complete()
+            .dot(&cfg, "complete", templates::COMPLETE)
+            .unwrap();
+        assert!(dot.contains("one_one_1_0 ->\n    two_two_1_2"), dot);
     }
 
     #[test]
@@ -764,7 +514,11 @@ mod test {
             .peekable();
         let graph = super::log_to_graph(diamond_log).unwrap();
 
-        let dot = graph.graph.into_interactions().to_dot(&cfg).unwrap();
+        let dot = graph
+            .graph
+            .as_interactions()
+            .dot(&cfg, "interactions", templates::INTERACTIONS)
+            .unwrap();
         assert!(dot.contains("one_0 -> two_1"), dot);
     }
 
@@ -777,8 +531,12 @@ mod test {
             .peekable();
         let graph = super::log_to_graph(diamond_log).unwrap();
 
-        let dot = graph.graph.into_states().to_dot(&cfg).unwrap();
-        assert!(dot.contains("one -> two"), dot);
+        let dot = graph
+            .graph
+            .as_states()
+            .dot(&cfg, "states", templates::STATES)
+            .unwrap();
+        assert!(dot.contains("one_AT_one ->\n    two_AT_two"), dot);
     }
 
     #[test]
@@ -790,15 +548,11 @@ mod test {
             .peekable();
         let graph = super::log_to_graph(diamond_log).unwrap();
 
-        let dot = graph.graph.into_topology().to_dot(&cfg).unwrap();
+        let dot = graph
+            .graph
+            .as_topology()
+            .dot(&cfg, "topo", templates::TOPO)
+            .unwrap();
         assert!(dot.contains("one -> two"), dot);
-    }
-
-    #[test]
-    fn palette_doesnt_panic() {
-        let mut p = Palette::new(colorous::CUBEHELIX);
-        for _ in 0..20 {
-            p.next();
-        }
     }
 }

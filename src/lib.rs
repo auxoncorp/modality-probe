@@ -167,6 +167,14 @@ pub struct LogicalClock {
     pub ticks: ProbeTicks,
 }
 
+impl LogicalClock {
+    /// Produce a tuple containing the probe id and a packed version
+    /// of the clock.
+    pub fn pack(&self) -> (ProbeId, u32) {
+        (self.id, pack_clock_word(self.epoch, self.ticks))
+    }
+}
+
 impl PartialOrd for LogicalClock {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.id != other.id {
