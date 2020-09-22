@@ -31,6 +31,9 @@ pub const MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES: ModalityProbeError = 7
 /// such as by having a probe_id out of the allowed value range.
 /// Detected during merging.
 pub const MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS: ModalityProbeError = 8;
+/// The user-supplied restart persistence counter failed
+/// to produce the next sequence id.
+pub const MODALITY_PROBE_ERROR_RESTART_PERSISTENCE_SEQUENCE_ID_UNAVAILABLE: ModalityProbeError = 9;
 
 /// # Safety
 ///

@@ -3,7 +3,7 @@
 set -ex
 
 cargo build --all
-cargo test --no-run --workspace --features "std"
+cargo test --workspace --features "std"
 cargo test --workspace
 
 (

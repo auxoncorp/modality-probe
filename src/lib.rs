@@ -25,7 +25,7 @@ use history::DynamicHistory;
 pub use id::*;
 pub use restart_counter::{
     next_sequence_id_fn, CRestartCounterProvider, RestartCounter, RestartCounterProvider,
-    RustRestartCounterProvider,
+    RestartSequenceIdUnavailable, RustRestartCounterProvider,
 };
 
 mod error;
@@ -389,13 +389,11 @@ impl<'a> ModalityProbe<'a> {
         probe_id: ProbeId,
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<ModalityProbe<'a>, StorageSetupError> {
-        let mut t = ModalityProbe::<'a> {
+        Ok(ModalityProbe::<'a> {
             fingerprint: Self::STRUCT_FINGERPRINT,
             fingerprint_padding: 0,
             history: DynamicHistory::new_at(history_memory, probe_id, restart_counter)?,
-        };
-        t.record_event(EventId::EVENT_PROBE_INITIALIZED);
-        Ok(t)
+        })
     }
 
     /// Record that an event occurred. The end user is responsible
