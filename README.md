@@ -199,49 +199,32 @@ $ modality-probe header-gen \
     example-component
 ```
 
-You could also include this process in your `build.rs` file.
+You could also include this process in your `build.rs` file
+using the CLI's library interface.
 
 ```rust
-let status = Command::new("cargo")
-    .current_dir("../../")
-    .args(&["build", "-p", "modality-probe-cli"])
-    .status()
-    .unwrap();
-assert!(status.success(), "Could not build modality-probe-cli");
+use modality_probe_cli::{header_gen, lang::Lang, manifest_gen};
 
-let cli = fs::canonicalize("../../target/debug/modality-probe")
-    .expect("Could not find modality-probe binary");
+fn main() {
+    // Use the CLI to generate component manifests
+    let manifest_gen_opts = manifest_gen::ManifestGen {
+        lang: Some(Lang::Rust),
+        component_name: "example-component".into(),
+        output_path: "example-component".into(),
+        source_path: "src".into(),
+        ..Default::default()
+    };
+    manifest_gen::run(manifest_gen_opts, None);
 
-// Use the cli to generate component manifests
-let status = Command::new(&cli)
-    .args(&[
-        "manifest-gen",
-        "--lang",
-        "rust",
-        "--file-extension",
-        "rs",
-        "--component-name",
-        "example-component",
-        "--output-path",
-        "example-component",
-        ".",
-    ])
-    .status()
-    .unwrap();
-assert!(status.success(), "Could not generate component manifests");
-
-// Use the cli to generate Rust definitions from the component manifests
-let status = Command::new(&cli)
-    .args(&[
-        "header-gen",
-        "--lang",
-        "rust",
-        "--output-path",
-        "src/component_definitions.rs",
-        "example-component",
-    ])
-    .status()
-    .unwrap();
+    // Use the CLI to generate Rust definitions from the component manifests
+    let header_gen_opts = header_gen::HeaderGen {
+        lang: Lang::Rust,
+        output_path: Some("src/component_definitions.rs".into()),
+        component_path: "example-component".into(),
+        ..Default::default()
+    };
+    header_gen::run(header_gen_opts, None);
+}
 ```
 
 ### Setting up a Collector
