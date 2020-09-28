@@ -69,8 +69,11 @@ where
 }
 
 impl NodeAndEdgeLists<GraphEvent> {
-    pub fn as_complete<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
-        self.filter(|_| true, |_, _| true)
+    pub fn as_complete<'a>(&'a self, include_internals: bool) -> NodeAndEdgeLists<&'a GraphEvent> {
+        self.filter(
+            |n| include_internals || !n.id.is_internal(),
+            |s, t| include_internals || (!s.id.is_internal() && !t.id.is_internal()),
+        )
     }
 
     /// Pare down a complete graph into only trace clocks, which is to
@@ -88,12 +91,22 @@ impl NodeAndEdgeLists<GraphEvent> {
     }
 
     /// Pare down a complete graph into the event transitions.
-    pub fn as_states<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+    pub fn as_states<'a>(&'a self, include_internals: bool) -> NodeAndEdgeLists<&'a GraphEvent> {
         let mut node_set = HashSet::new();
         let mut edge_set = HashSet::new();
         self.filter(
-            |n| node_set.insert((n.probe_id, n.id)),
-            |s, t| edge_set.insert(((s.probe_id, s.id), (t.probe_id, t.id))),
+            |n| {
+                (include_internals && node_set.insert((n.probe_id, n.id)))
+                    || (!include_internals
+                        && !n.id.is_internal()
+                        && node_set.insert((n.probe_id, n.id)))
+            },
+            |s, t| {
+                (include_internals && edge_set.insert(((s.probe_id, s.id), (t.probe_id, t.id))))
+                    || (!include_internals
+                        && !(s.id.is_internal() || t.id.is_internal())
+                        && edge_set.insert(((s.probe_id, s.id), (t.probe_id, t.id))))
+            },
         )
     }
 
@@ -499,7 +512,7 @@ mod test {
 
         let dot = graph
             .graph
-            .as_complete()
+            .as_complete(false)
             .dot(&cfg, "complete", templates::COMPLETE)
             .unwrap();
         assert!(dot.contains("one_one_1_0 ->\n    two_two_1_2"), dot);
@@ -533,7 +546,7 @@ mod test {
 
         let dot = graph
             .graph
-            .as_states()
+            .as_states(false)
             .dot(&cfg, "states", templates::STATES)
             .unwrap();
         assert!(dot.contains("one_AT_one ->\n    two_AT_two"), dot);

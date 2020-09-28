@@ -22,8 +22,11 @@ use graph::{EventMeta, ProbeMeta};
 pub struct Export {
     /// Generate the graph showing only the causal relationships,
     /// eliding the events in between.
-    #[structopt(short, long)]
+    #[structopt(long)]
     pub interactions_only: bool,
+    /// Include probe-generated events in the output.
+    #[structopt(long)]
+    pub include_internal_events: bool,
     /// The path to a component directory. To include multiple
     /// components, provide this switch multiple times.
     #[structopt(short, long, required = true)]
@@ -93,10 +96,11 @@ pub fn run(mut exp: Export) -> Result<(), ExportError> {
     match (exp.graph_type, exp.interactions_only) {
         (GraphType::Acyclic, false) => println!(
             "{}",
-            graph
-                .graph
-                .as_complete()
-                .dot(&cfg, "complete", templates::COMPLETE)?
+            graph.graph.as_complete(exp.include_internal_events).dot(
+                &cfg,
+                "complete",
+                templates::COMPLETE
+            )?
         ),
         (GraphType::Acyclic, true) => println!(
             "{}",
@@ -107,10 +111,11 @@ pub fn run(mut exp: Export) -> Result<(), ExportError> {
         ),
         (GraphType::Cyclic, false) => println!(
             "{}",
-            graph
-                .graph
-                .as_states()
-                .dot(&cfg, "states", templates::STATES)?
+            graph.graph.as_states(exp.include_internal_events).dot(
+                &cfg,
+                "states",
+                templates::STATES
+            )?
         ),
         (GraphType::Cyclic, true) => println!(
             "{}",

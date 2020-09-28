@@ -132,6 +132,7 @@ mod test {
             ),
             Opts::Export(Export {
                 interactions_only: false,
+                include_internal_events: false,
                 components: vec![PathBuf::from("component")],
                 report: PathBuf::from("report.csv"),
                 graph_type: GraphType::Acyclic,
@@ -153,6 +154,7 @@ mod test {
             ),
             Opts::Export(Export {
                 interactions_only: true,
+                include_internal_events: false,
                 components: vec![PathBuf::from("component")],
                 report: PathBuf::from("report.csv"),
                 graph_type: GraphType::Cyclic,
