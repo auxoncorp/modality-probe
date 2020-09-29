@@ -1,0 +1,119 @@
+# Kick off a release build and artifact upload to github releases.
+# Note that the triggering tag must be signed and that the releases
+# created are drafts.
+
+name: Release
+
+# Push events to matching v*, i.e. v1.0, v20.15.10
+on:
+  push:
+    tags:
+    - 'v*'
+
+jobs:
+  check:
+    name: Check Signed Tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      stringver: ${{ steps.contentrel.outputs.stringver }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.ref }}
+          path: src/github.com/auxon/modality-probe
+
+      - name: Check signature
+        run: |
+          releasever=${{ github.ref }}
+          releasever="${releasever#refs/tags/}"
+          TAGCHECK=$(git tag -v ${releasever} 2>&1 >/dev/null) ||
+          echo "${TAGCHECK}" | grep -q "error" && {
+              echo "::error::tag ${releasever} is not a signed tag. Failing release process."
+              exit 1
+          } || {
+              echo "Tag ${releasever} is signed."
+              exit 0
+          }
+        working-directory: src/github.com/auxon/modality-probe
+
+  build:
+    name: Build and Upload Release Assets
+    runs-on: ubuntu-latest
+    needs: [check]
+    steps:
+      - name: Install system packages
+        run: sudo apt-get install -y help2man gzip libusb-1.0-0-dev musl-tools
+
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy, llvm-tools-preview
+
+      - name: Install nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+          components: rustfmt, clippy, llvm-tools-preview
+
+      - name: Install musl toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-unknown-linux-musl
+          override: true
+
+      - name: Fetch dependencies
+        uses: actions-rs/cargo@v1
+        with:
+          command: fetch
+
+      - name: Install 'cross'
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cross
+
+      - name: Generate tarball package
+        run: |
+          cd package/tarball/
+          ./build.sh
+
+      - name: Prepare Artifacts
+        run: |
+          ARTIFACT_NAME=modality-probe_$(git describe --always).tar.gz
+          ARTIFACT_PATH=target/package/tarball/${ARTIFACT_NAME}
+          echo ::set-env name=ARTIFACT_NAME::${ARTIFACT_NAME}
+          echo ::set-env name=ARTIFACT_PATH::${ARTIFACT_PATH}
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: true
+          prerelease: false
+
+      - name: Upload Release Asset
+        id: upload-release-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ env.ARTIFACT_PATH }}
+          asset_name: ${{ env.ARTIFACT_NAME }}
+          asset_content_type: application/gzip

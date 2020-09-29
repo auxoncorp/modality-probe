@@ -1,5 +1,4 @@
-## 0.2.0
+## 0.3.0
 
 * Initial public release of modality-probe client library, C API,
-event/tracer-location manifest management tools, and analysis
-examples.
+event/probe-location manifest management tools, and examples.
