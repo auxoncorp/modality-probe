@@ -162,6 +162,29 @@ impl NodeAndEdgeLists<GraphEvent> {
             .collect();
         NodeAndEdgeLists { nodes, edges }
     }
+
+    pub fn probe_log<'a>(&'a self, probe_id: ProbeId) -> Vec<&'a GraphEvent> {
+        let mut log = Vec::new();
+        for (s, t) in self.edges.iter().filter(|(_, t)| t.probe_id == probe_id) {
+            if s.probe_id != probe_id {
+                for nn in self
+                    .nodes
+                    .iter()
+                    .filter(|n| n.clock == s.clock && n.probe_id == s.probe_id)
+                {
+                    log.push((nn, (t.clock.pack().1 as f32 - 0.5, nn.seq, nn.seq_idx)));
+                }
+            } else {
+                log.push((s, (s.clock.pack().1 as f32, s.seq, s.seq_idx)));
+                log.push((t, (t.clock.pack().1 as f32, t.seq, t.seq_idx)));
+            }
+        }
+        log.sort_by(|a, b| {
+            a.1.partial_cmp(&b.1)
+                .expect("error: should be able to compare two floats")
+        });
+        log.into_iter().map(|(g, _)| g).collect()
+    }
 }
 
 impl<'a> NodeAndEdgeLists<&'a GraphEvent> {
@@ -196,7 +219,7 @@ impl Graph for NodeAndEdgeLists<GraphEvent> {
     }
 }
 
-fn get_event_meta<'a>(
+pub fn get_event_meta<'a>(
     cfg: &'a Cfg,
     pid: &ProbeId,
     eid: &EventId,
@@ -219,7 +242,7 @@ fn get_event_meta<'a>(
     })?)
 }
 
-fn parsed_payload(th: &str, pl: u32) -> Result<String, ExportError> {
+pub fn parsed_payload(th: &str, pl: u32) -> Result<String, ExportError> {
     match th {
         "i8" => Ok(format!("{}", pl as i8)),
         "i16" => Ok(format!("{}", pl as i16)),

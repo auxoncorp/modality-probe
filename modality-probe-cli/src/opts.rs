@@ -1,4 +1,8 @@
-use crate::{export::Export, header_gen::HeaderGen, manifest_gen::ManifestGen};
+use crate::{
+    export::{Export, Log},
+    header_gen::HeaderGen,
+    manifest_gen::ManifestGen,
+};
 use structopt::StructOpt;
 
 #[derive(Debug, PartialEq, StructOpt)]
@@ -14,6 +18,8 @@ pub enum Opts {
     HeaderGen(HeaderGen),
     /// Export a collected trace as a Graphviz dot file.
     Export(Export),
+    /// Inspect the event log from the perspective of a single probe.
+    Log(Log),
 }
 
 #[cfg(test)]
