@@ -7,6 +7,7 @@ use err_derive::Error;
 use structopt::StructOpt;
 use uuid::Uuid;
 
+use modality_probe::ProbeId;
 use modality_probe_collector_common::{json, Error as CollectorError};
 
 use crate::{component::Component, events::Events};
@@ -44,6 +45,21 @@ pub struct Export {
     pub graph_type: GraphType,
 }
 
+/// Inspect the event log from the perspective of a single probe.
+#[derive(Debug, PartialEq, StructOpt)]
+pub struct Log {
+    /// The probe to target.
+    #[structopt(short, long)]
+    pub probe: String,
+    /// The path to a component directory. To include multiple
+    /// components, provide this switch multiple times.
+    #[structopt(short, long, required = true)]
+    pub components: Vec<PathBuf>,
+    /// The path to the collected trace.
+    #[structopt(short, long, required = true)]
+    pub report: PathBuf,
+}
+
 #[derive(Debug, PartialEq, StructOpt)]
 pub enum GraphType {
     Cyclic,
@@ -75,6 +91,75 @@ impl From<CollectorError> for ExportError {
     fn from(e: CollectorError) -> Self {
         ExportError(format!("failed to read log file: {}", e))
     }
+}
+
+pub fn log(mut l: Log) -> Result<(), ExportError> {
+    let cfg = assemble_components(&mut l.components)?;
+    let mut log_file = File::open(&l.report).map_err(|e| {
+        ExportError(format!(
+            "failed to open the report file at {}: {}",
+            l.report.display(),
+            e
+        ))
+    })?;
+
+    let graph = graph::log_to_graph(
+        json::read_log_entries(&mut log_file)?
+            .into_iter()
+            .peekable(),
+    )?;
+
+    let probe = match cfg.probes.iter().find(|(_, v)| v.name == l.probe) {
+        Some((_, pm)) => pm,
+        None => {
+            let pid = l
+                .probe
+                .parse::<u32>()
+                .map_err(|_| ExportError(format!("probe {} could not be found", l.probe)))?;
+            cfg.probes
+                .get(&pid)
+                .ok_or_else(|| ExportError(format!("probe {} could not be found", l.probe)))?
+        }
+    };
+    let log = graph.graph.probe_log(ProbeId::new(probe.id).ok_or_else(|| {
+        ExportError(format!(
+            "encountered the invalid probe id {} when looking up probe {}",
+            probe.id, l.probe
+        ))
+    })?);
+    for l in log {
+        let emeta = graph::get_event_meta(&cfg, &l.probe_id, &l.id)?;
+        let probe_name = cfg
+            .probes
+            .get(&l.probe_id.get_raw())
+            .map(|p| p.name.clone())
+            .unwrap_or(format!("UNKNOWN_PROBE_{}", l.probe_id.get_raw()));
+        println!(
+            "{} probe={} description={}{}{}tags={}{}",
+            emeta.name,
+            probe_name,
+            emeta.description,
+            if !emeta.file.is_empty() {
+                format!(" file={} ", emeta.file)
+            } else {
+                "".to_string()
+            },
+            if !emeta.line.is_empty() {
+                format!(" line={} ", emeta.line)
+            } else {
+                "".to_string()
+            },
+            emeta.tags,
+            match l.payload {
+                Some(p) => format!(
+                    " payload={}",
+                    graph::parsed_payload(&emeta.type_hint.as_ref().unwrap(), p)?
+                ),
+                None => "".to_string(),
+            }
+        );
+    }
+    Ok(())
 }
 
 pub fn run(mut exp: Export) -> Result<(), ExportError> {
@@ -129,7 +214,7 @@ pub fn run(mut exp: Export) -> Result<(), ExportError> {
     Ok(())
 }
 
-struct Cfg {
+pub struct Cfg {
     pub probes: HashMap<u32, ProbeMeta>,
     pub events: HashMap<(Uuid, u32), EventMeta>,
     pub probes_to_components: HashMap<u32, Uuid>,
