@@ -1,4 +1,8 @@
-use std::{collections::HashSet, hash::Hash, iter::Peekable};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+    iter::Peekable,
+};
 
 use serde::{Deserialize, Serialize};
 use tinytemplate::TinyTemplate;
@@ -69,8 +73,23 @@ where
 }
 
 impl NodeAndEdgeLists<GraphEvent> {
-    pub fn as_complete<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
-        self.filter(|_| true, |_, _| true)
+    pub fn as_complete<'a>(&'a self, include_internals: bool) -> NodeAndEdgeLists<&'a GraphEvent> {
+        let nodes = self
+            .nodes
+            .iter()
+            .filter(|n| include_internals || !n.id.is_internal())
+            .collect();
+        let mut edges = HashSet::new();
+        for (s, t) in self.edges.iter() {
+            if !include_internals && t.id.is_internal() {
+                for (_, t2) in self.edges.iter().filter(|(s2, _)| s2 == t) {
+                    edges.insert((s, t2));
+                }
+            } else if include_internals || !s.id.is_internal() {
+                edges.insert((s, t));
+            }
+        }
+        NodeAndEdgeLists { nodes, edges }
     }
 
     /// Pare down a complete graph into only trace clocks, which is to
@@ -88,13 +107,29 @@ impl NodeAndEdgeLists<GraphEvent> {
     }
 
     /// Pare down a complete graph into the event transitions.
-    pub fn as_states<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
-        let mut node_set = HashSet::new();
-        let mut edge_set = HashSet::new();
-        self.filter(
-            |n| node_set.insert((n.probe_id, n.id)),
-            |s, t| edge_set.insert(((s.probe_id, s.id), (t.probe_id, t.id))),
-        )
+    pub fn as_states<'a>(&'a self, include_internals: bool) -> NodeAndEdgeLists<&'a GraphEvent> {
+        let mut nodes = HashMap::new();
+        for n in self
+            .nodes
+            .iter()
+            .filter(|n| include_internals || !n.id.is_internal())
+        {
+            nodes.insert((n.probe_id, n.id), n);
+        }
+        let mut edges = HashMap::new();
+        for (s, t) in self.edges.iter() {
+            if !include_internals && t.id.is_internal() {
+                for (_, t2) in self.edges.iter().filter(|(s2, _)| s2 == t) {
+                    edges.insert(((s.probe_id, s.id), (t2.probe_id, t2.id)), (s, t2));
+                }
+            } else if include_internals || !s.id.is_internal() {
+                edges.insert(((s.probe_id, s.id), (t.probe_id, t.id)), (s, t));
+            }
+        }
+        NodeAndEdgeLists {
+            nodes: nodes.into_iter().map(|(_, v)| v).collect(),
+            edges: edges.into_iter().map(|(_, v)| v).collect(),
+        }
     }
 
     /// Pare down a complete graph into just the probes and their
@@ -499,7 +534,7 @@ mod test {
 
         let dot = graph
             .graph
-            .as_complete()
+            .as_complete(false)
             .dot(&cfg, "complete", templates::COMPLETE)
             .unwrap();
         assert!(dot.contains("one_one_1_0 ->\n    two_two_1_2"), dot);
@@ -533,7 +568,7 @@ mod test {
 
         let dot = graph
             .graph
-            .as_states()
+            .as_states(false)
             .dot(&cfg, "states", templates::STATES)
             .unwrap();
         assert!(dot.contains("one_AT_one ->\n    two_AT_two"), dot);
