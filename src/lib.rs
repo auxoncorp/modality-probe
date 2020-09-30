@@ -15,7 +15,7 @@ use core::{
 
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
 #[cfg(feature = "std")]
-use proptest_derive::Arbitrary;
+use proptest::arbitrary::Arbitrary;
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 use static_assertions::{assert_cfg, const_assert};
@@ -70,7 +70,7 @@ impl PartialOrd for CausalSnapshot {
 /// The epoch part of a probe's logical clock
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize, Arbitrary))]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct ProbeEpoch(pub u16);
 
 impl ProbeEpoch {
@@ -109,7 +109,7 @@ impl From<ProbeEpoch> for u16 {
 /// The clock part of a probe's logical clock
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialOrd, Ord, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "std", derive(Serialize, Deserialize, Arbitrary))]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct ProbeTicks(pub u16);
 
 impl ProbeTicks {
@@ -510,6 +510,104 @@ impl<'a> Probe for ModalityProbe<'a> {
     #[inline]
     fn report(&mut self, destination: &mut [u8]) -> Result<Option<NonZeroUsize>, ReportError> {
         self.history.report(destination)
+    }
+}
+
+/// This module contains a proptest `Arbitrary` implementation for
+/// ProbeEpoch and ProbeTicks. It is only present if the `"std"` feature is set.
+#[cfg(feature = "std")]
+pub mod prop {
+    use super::*;
+    use proptest::prelude::RngCore;
+    use proptest::strategy::{NewTree, Strategy, ValueTree};
+    use proptest::test_runner::TestRunner;
+
+    impl Arbitrary for ProbeEpoch {
+        type Parameters = ();
+
+        fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+            AllProbeEpochs
+        }
+
+        type Strategy = AllProbeEpochs;
+    }
+
+    /// A proptest strategy for generating any ProbeEpoch
+    #[derive(Debug)]
+    pub struct AllProbeEpochs;
+
+    impl Strategy for AllProbeEpochs {
+        type Tree = ProbeEpochBinarySearch;
+        type Value = ProbeEpoch;
+
+        fn new_tree(&self, runner: &mut TestRunner) -> NewTree<Self> {
+            Ok(ProbeEpochBinarySearch(
+                proptest::num::u16::BinarySearch::new(runner.rng().next_u32() as u16),
+            ))
+        }
+    }
+
+    /// A proptest ValueTree for ProbeEpoch that uses u16's BinarySearch
+    pub struct ProbeEpochBinarySearch(proptest::num::u16::BinarySearch);
+
+    impl ValueTree for ProbeEpochBinarySearch {
+        type Value = ProbeEpoch;
+
+        fn current(&self) -> Self::Value {
+            ProbeEpoch(self.0.current())
+        }
+
+        fn simplify(&mut self) -> bool {
+            self.0.simplify()
+        }
+
+        fn complicate(&mut self) -> bool {
+            self.0.complicate()
+        }
+    }
+
+    impl Arbitrary for ProbeTicks {
+        type Parameters = ();
+
+        fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+            AllProbeTicks
+        }
+
+        type Strategy = AllProbeTicks;
+    }
+
+    /// A proptest strategy for generating any ProbeTicks
+    #[derive(Debug)]
+    pub struct AllProbeTicks;
+
+    impl Strategy for AllProbeTicks {
+        type Tree = ProbeTicksBinarySearch;
+        type Value = ProbeTicks;
+
+        fn new_tree(&self, runner: &mut TestRunner) -> NewTree<Self> {
+            Ok(ProbeTicksBinarySearch(
+                proptest::num::u16::BinarySearch::new(runner.rng().next_u32() as u16),
+            ))
+        }
+    }
+
+    /// A proptest ValueTree for ProbeTicks that uses u16's BinarySearch
+    pub struct ProbeTicksBinarySearch(proptest::num::u16::BinarySearch);
+
+    impl ValueTree for ProbeTicksBinarySearch {
+        type Value = ProbeTicks;
+
+        fn current(&self) -> Self::Value {
+            ProbeTicks(self.0.current())
+        }
+
+        fn simplify(&mut self) -> bool {
+            self.0.simplify()
+        }
+
+        fn complicate(&mut self) -> bool {
+            self.0.complicate()
+        }
     }
 }
 
