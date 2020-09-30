@@ -44,7 +44,7 @@ rust-lcm-codegen = "0.2.1"
 crossbeam = "0.7.3"
 lazy_static = "1.4.0"
 proc-graph = "0.1.0"
-proptest = "0.9"
+proptest = { version = "0.10.1", default-features = false, features = ["std"]}
 tempfile = "3"
 pretty_assertions = "0.6"
 modality-probe = { path = "../../" }

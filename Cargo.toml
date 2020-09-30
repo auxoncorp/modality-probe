@@ -40,7 +40,7 @@ fenced-ring-buffer = { path = "./fenced-ring-buffer" }
 
 # Used if the std feature is enabled.
 serde = { version = "1.0", features = ["derive"], optional = true }
-proptest = { version = "0.9.5", optional = true , default-features = false, features = ["std"]}
+proptest = { version = "0.10.1", optional = true , default-features = false, features = ["std"]}
 schemars = { version = "0.6.5", optional = true }
 
 # Used if the debug-collector-access feature is enabled

@@ -15,14 +15,14 @@ use core::{
 
 use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
 #[cfg(feature = "std")]
-use proptest::arbitrary::Arbitrary;
-#[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 use static_assertions::{assert_cfg, const_assert};
 
 pub use error::*;
 use history::DynamicHistory;
 pub use id::*;
+#[cfg(feature = "std")]
+pub use prop::*;
 pub use restart_counter::{
     next_sequence_id_fn, CRestartCounterProvider, RestartCounter, RestartCounterProvider,
     RestartSequenceIdUnavailable, RustRestartCounterProvider,
@@ -518,6 +518,7 @@ impl<'a> Probe for ModalityProbe<'a> {
 #[cfg(feature = "std")]
 pub mod prop {
     use super::*;
+    use proptest::arbitrary::Arbitrary;
     use proptest::prelude::RngCore;
     use proptest::strategy::{NewTree, Strategy, ValueTree};
     use proptest::test_runner::TestRunner;

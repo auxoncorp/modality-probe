@@ -15,5 +15,5 @@ modality-probe = { path = "../../", features = ["std"] }
 fenced-ring-buffer = { path = "../../fenced-ring-buffer" }
 
 [dev-dependencies]
-proptest = "0.9"
+proptest = { version = "0.10.1", default-features = false, features = ["std"]}
 pretty_assertions = "0.6"
