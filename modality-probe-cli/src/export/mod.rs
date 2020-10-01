@@ -8,7 +8,8 @@ use structopt::StructOpt;
 use uuid::Uuid;
 
 use modality_probe::ProbeId;
-use modality_probe_collector_common::{json, Error as CollectorError};
+use modality_probe_collector_common::{json, Error as CollectorError, LogEntryData};
+use modality_probe_graph::GraphEvent;
 
 use crate::{component::Component, events::Events};
 
@@ -48,9 +49,9 @@ pub struct Export {
 /// Inspect the event log from the perspective of a single probe.
 #[derive(Debug, PartialEq, StructOpt)]
 pub struct Log {
-    /// The probe to target.
-    #[structopt(short, long)]
-    pub probe: String,
+    // /// The probe to target.
+    // #[structopt(short, long)]
+    // pub probe: String,
     /// The path to a component directory. To include multiple
     /// components, provide this switch multiple times.
     #[structopt(short, long, required = true)]
@@ -93,7 +94,7 @@ impl From<CollectorError> for ExportError {
     }
 }
 
-pub fn log(mut l: Log) -> Result<(), ExportError> {
+pub fn log_all(mut l: Log) -> Result<(), ExportError> {
     let cfg = assemble_components(&mut l.components)?;
     let mut log_file = File::open(&l.report).map_err(|e| {
         ExportError(format!(
@@ -103,64 +104,163 @@ pub fn log(mut l: Log) -> Result<(), ExportError> {
         ))
     })?;
 
-    let graph = graph::log_to_graph(
-        json::read_log_entries(&mut log_file)?
-            .into_iter()
-            .peekable(),
-    )?;
+    let report = json::read_log_entries(&mut log_file)?;
+    let mut probes = HashMap::new();
+    for ev in report {
+        let p = probes.entry(ev.probe_id).or_insert_with(Vec::new);
+        p.push(ev);
+    }
 
-    let probe = match cfg.probes.iter().find(|(_, v)| v.name == l.probe) {
-        Some((_, pm)) => pm,
-        None => {
-            let pid = l
-                .probe
-                .parse::<u32>()
-                .map_err(|_| ExportError(format!("probe {} could not be found", l.probe)))?;
-            cfg.probes
-                .get(&pid)
-                .ok_or_else(|| ExportError(format!("probe {} could not be found", l.probe)))?
-        }
-    };
-    let log = graph.graph.probe_log(ProbeId::new(probe.id).ok_or_else(|| {
-        ExportError(format!(
-            "encountered the invalid probe id {} when looking up probe {}",
-            probe.id, l.probe
-        ))
-    })?);
-    for l in log {
-        let emeta = graph::get_event_meta(&cfg, &l.probe_id, &l.id)?;
-        let probe_name = cfg
-            .probes
-            .get(&l.probe_id.get_raw())
-            .map(|p| p.name.clone())
-            .unwrap_or(format!("UNKNOWN_PROBE_{}", l.probe_id.get_raw()));
-        println!(
-            "{} probe={} description={}{}{}tags={}{}",
-            emeta.name,
-            probe_name,
-            emeta.description,
-            if !emeta.file.is_empty() {
-                format!(" file={} ", emeta.file)
-            } else {
-                "".to_string()
-            },
-            if !emeta.line.is_empty() {
-                format!(" line={} ", emeta.line)
-            } else {
-                "".to_string()
-            },
-            emeta.tags,
-            match l.payload {
-                Some(p) => format!(
-                    " payload={}",
-                    graph::parsed_payload(&emeta.type_hint.as_ref().unwrap(), p)?
-                ),
-                None => "".to_string(),
+    // Sort the probe-sorted events by sequence.
+    for plog in probes.values_mut() {
+        plog.sort_by_key(|p| std::cmp::Reverse((p.sequence_number, p.sequence_index)));
+    }
+
+    let mut log = Vec::new();
+    // Round-robin through the probe-sorted list and add events to the
+    // log, interleaved probe by probe, but maintaining their total
+    // order.
+    loop {
+        let init_len = log.len();
+        for plog in probes.values_mut() {
+            if let Some(ev) = plog.pop() {
+                log.push(ev);
             }
-        );
+        }
+        if log.len() == init_len {
+            break;
+        }
+    }
+    // Print the log.
+    for l in log {
+        match l.data {
+            LogEntryData::Event(id) => {
+                let emeta = graph::get_event_meta(&cfg, &l.probe_id, &id)?;
+                let probe_name = cfg
+                    .probes
+                    .get(&l.probe_id.get_raw())
+                    .map(|p| p.name.clone())
+                    .unwrap_or(format!("UNKNOWN_PROBE_{}", l.probe_id.get_raw()));
+                print_log_line(emeta, &probe_name, None);
+            }
+            LogEntryData::EventWithPayload(id, pl) => {
+                let emeta = graph::get_event_meta(&cfg, &l.probe_id, &id)?;
+                let probe_name = cfg
+                    .probes
+                    .get(&l.probe_id.get_raw())
+                    .map(|p| p.name.clone())
+                    .unwrap_or(format!("UNKNOWN_PROBE_{}", l.probe_id.get_raw()));
+                print_log_line(
+                    emeta,
+                    &probe_name,
+                    Some(graph::parsed_payload(
+                        &emeta.type_hint.clone().unwrap_or_else(|| pl.to_string()),
+                        pl,
+                    )?),
+                );
+            }
+            _ => (),
+        }
     }
     Ok(())
 }
+
+fn print_log_line(emeta: &EventMeta, probe_name: &str, payload: Option<String>) {
+    println!(
+        "{} probe={} description={}{}{}tags={}{}",
+        emeta.name,
+        probe_name,
+        emeta.description,
+        if !emeta.file.is_empty() {
+            format!(" file={} ", emeta.file)
+        } else {
+            "".to_string()
+        },
+        if !emeta.line.is_empty() {
+            format!(" line={} ", emeta.line)
+        } else {
+            "".to_string()
+        },
+        emeta.tags,
+        match payload {
+            Some(p) => format!(" payload={}", p),
+            None => "".to_string(),
+        }
+    );
+}
+
+// pub fn log(mut l: Log) -> Result<(), ExportError> {
+//     let cfg = assemble_components(&mut l.components)?;
+//     let mut log_file = File::open(&l.report).map_err(|e| {
+//         ExportError(format!(
+//             "failed to open the report file at {}: {}",
+//             l.report.display(),
+//             e
+//         ))
+//     })?;
+
+//     let graph = graph::log_to_graph(
+//         json::read_log_entries(&mut log_file)?
+//             .into_iter()
+//             .peekable(),
+//     )?;
+
+//     let probe = match cfg.probes.iter().find(|(_, v)| v.name == l.probe) {
+//         Some((_, pm)) => pm,
+//         None => {
+//             let pid = l
+//                 .probe
+//                 .parse::<u32>()
+//                 .map_err(|_| ExportError(format!("probe {} could not be found", l.probe)))?;
+//             cfg.probes
+//                 .get(&pid)
+//                 .ok_or_else(|| ExportError(format!("probe {} could not be found", l.probe)))?
+//         }
+//     };
+//     let log = graph.graph.probe_log(ProbeId::new(probe.id).ok_or_else(|| {
+//         ExportError(format!(
+//             "encountered the invalid probe id {} when looking up probe {}",
+//             probe.id, l.probe
+//         ))
+//     })?);
+//     print_log(&log, &cfg)
+// }
+
+// fn print_log(log: &Vec<&GraphEvent>, cfg: &Cfg) -> Result<(), ExportError> {
+//     for l in log {
+//         let emeta = graph::get_event_meta(cfg, &l.probe_id, &l.id)?;
+//         let probe_name = cfg
+//             .probes
+//             .get(&l.probe_id.get_raw())
+//             .map(|p| p.name.clone())
+//             .unwrap_or(format!("UNKNOWN_PROBE_{}", l.probe_id.get_raw()));
+//         println!(
+//             "{} probe={} description={}{}{}tags={}{}",
+//             emeta.name,
+//             probe_name,
+//             emeta.description,
+//             if !emeta.file.is_empty() {
+//                 format!(" file={} ", emeta.file)
+//             } else {
+//                 "".to_string()
+//             },
+//             if !emeta.line.is_empty() {
+//                 format!(" line={} ", emeta.line)
+//             } else {
+//                 "".to_string()
+//             },
+//             emeta.tags,
+//             match l.payload {
+//                 Some(p) => format!(
+//                     " payload={}",
+//                     graph::parsed_payload(&emeta.type_hint.as_ref().unwrap(), p)?
+//                 ),
+//                 None => "".to_string(),
+//             }
+//         );
+//     }
+//     Ok(())
+// }
 
 pub fn run(mut exp: Export) -> Result<(), ExportError> {
     let cfg = assemble_components(&mut exp.components)?;
