@@ -14,9 +14,10 @@ use crate::{
 /// Inspect the event log from the perspective of a single probe.
 #[derive(Debug, PartialEq, StructOpt)]
 pub struct Log {
-    /// The probe to target.
+    /// The probe to target. If no probe is given, the log from all
+    /// probes is interleaved.
     #[structopt(short, long)]
-    pub probe: String,
+    pub probe: Option<String>,
     /// The path to a component directory. To include multiple
     /// components, provide this switch multiple times.
     #[structopt(short, long, required = true)]
@@ -26,7 +27,14 @@ pub struct Log {
     pub report: PathBuf,
 }
 
-pub fn log_all(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(l: Log) -> Result<(), Box<dyn std::error::Error>> {
+    match l.probe {
+        Some(_) => probe_log(l),
+        None => log_all(l),
+    }
+}
+
+fn log_all(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = meta::assemble_components(&mut l.components)?;
     let mut log_file = hopefully!(
         File::open(&l.report),
@@ -91,7 +99,7 @@ pub fn log_all(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn probe_log(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
+fn probe_log(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = meta::assemble_components(&mut l.components)?;
     let mut log_file = hopefully!(
         File::open(&l.report),
@@ -104,16 +112,15 @@ pub fn probe_log(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
             .peekable(),
     )?;
 
-    let probe = match cfg.probes.iter().find(|(_, v)| v.name == l.probe) {
+    let p = l.probe.expect("already checked that probe !None");
+
+    let probe = match cfg.probes.iter().find(|(_, v)| v.name == p) {
         Some((_, pm)) => pm,
         None => {
-            let pid = hopefully!(
-                l.probe.parse::<u32>(),
-                format!("probe {} could not be found", l.probe)
-            )?;
+            let pid = hopefully!(p.parse::<u32>(), format!("probe {} could not be found", p))?;
             hopefully_ok!(
                 cfg.probes.get(&pid),
-                format!("probe {} could not be found", l.probe)
+                format!("probe {} could not be found", p)
             )?
         }
     };
@@ -121,7 +128,7 @@ pub fn probe_log(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
         ProbeId::new(probe.id),
         format!(
             "encountered the invalid probe id {} when looking up probe {}",
-            probe.id, l.probe
+            probe.id, p
         )
     )?);
     for l in log {
