@@ -8,7 +8,9 @@ mod events;
 mod export;
 mod header_gen;
 mod lang;
+mod log;
 mod manifest_gen;
+mod meta;
 mod opts;
 mod probes;
 

@@ -4,46 +4,22 @@ use std::{
     iter::Peekable,
 };
 
-use serde::{Deserialize, Serialize};
 use tinytemplate::TinyTemplate;
-use uuid::Uuid;
 
-use modality_probe::{EventId, ProbeId};
+use modality_probe::ProbeId;
 use modality_probe_collector_common::{ReportIter, ReportLogEntry};
 use modality_probe_graph::{EventDigraph, Graph, GraphEvent};
 
-use super::{
-    templates::{self, Component, ComponentSet, Context, Edge, EdgeSet, Event, Probe, ProbeSet},
-    {Cfg, ExportError},
+use crate::{
+    hopefully,
+    meta::{self, Cfg},
 };
 
-/// A row in the events.csv for a component.
-#[derive(PartialEq, Eq, Debug, Clone, Deserialize, Hash, Serialize)]
-pub struct EventMeta {
-    pub component_id: Uuid,
-    pub id: u32,
-    pub name: String,
-    pub type_hint: Option<String>,
-    pub tags: String,
-    pub description: String,
-    pub file: String,
-    pub line: String,
-}
+use super::templates::{self, *};
 
-/// A row in probes.csv for a component.
-#[derive(PartialEq, Serialize, Debug, Clone, Deserialize)]
-pub struct ProbeMeta {
-    pub component_id: Uuid,
-    pub id: u32,
-    pub name: String,
-    pub description: String,
-    pub file: String,
-    pub line: String,
-}
-
-pub(super) fn log_to_graph<I>(
+pub fn log_to_graph<I>(
     log: Peekable<I>,
-) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent>>, ExportError>
+) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent>>, Box<dyn std::error::Error>>
 where
     I: Iterator<Item = ReportLogEntry>,
 {
@@ -53,18 +29,16 @@ where
     });
     let report_iter = ReportIter::new(log);
     for report in report_iter {
-        graph.add_report(&report).map_err(|e| {
-            ExportError(format!(
-                "encountered an error reconstructing the graph: {}",
-                e
-            ))
-        })?;
+        hopefully!(
+            graph.add_report(&report),
+            "encountered an error reconstructing the graph"
+        )?;
     }
     Ok(graph)
 }
 
 #[derive(Default)]
-pub(super) struct NodeAndEdgeLists<G>
+pub struct NodeAndEdgeLists<G>
 where
     G: Hash + Eq,
 {
@@ -198,7 +172,7 @@ impl<'a> NodeAndEdgeLists<&'a GraphEvent> {
         cfg: &Cfg,
         name: &'static str,
         temp: &'static str,
-    ) -> Result<String, ExportError> {
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let ctx = graph_to_tree(&self.nodes, &self.edges, cfg);
         let mut tt = TinyTemplate::new();
         tt.add_formatter(
@@ -209,8 +183,8 @@ impl<'a> NodeAndEdgeLists<&'a GraphEvent> {
             "gradient_color_formatter",
             templates::gradient_color_formatter,
         );
-        tt.add_template(name, temp).unwrap();
-        Ok(tt.render(name, &ctx).unwrap())
+        tt.add_template(name, temp)?;
+        Ok(tt.render(name, &ctx)?)
     }
 }
 
@@ -221,43 +195,6 @@ impl Graph for NodeAndEdgeLists<GraphEvent> {
 
     fn add_edge(&mut self, source: GraphEvent, target: GraphEvent) {
         self.edges.insert((source, target));
-    }
-}
-
-pub fn get_event_meta<'a>(
-    cfg: &'a Cfg,
-    pid: &ProbeId,
-    eid: &EventId,
-) -> Result<&'a EventMeta, ExportError> {
-    let comp_id = cfg
-        .probes_to_components
-        .get(&pid.get_raw())
-        .ok_or_else(|| {
-            ExportError(format!(
-                "unable to find a matching component for probe {}",
-                pid.get_raw()
-            ))
-        })?;
-    Ok(cfg.events.get(&(*comp_id, eid.get_raw())).ok_or_else(|| {
-        ExportError(format!(
-            "unable to find metadata for event {} in component {}",
-            eid.get_raw(),
-            comp_id
-        ))
-    })?)
-}
-
-pub fn parsed_payload(th: &str, pl: u32) -> Result<String, ExportError> {
-    match th {
-        "i8" => Ok(format!("{}", pl as i8)),
-        "i16" => Ok(format!("{}", pl as i16)),
-        "i32" => Ok(format!("{}", pl as i32)),
-        "u8" => Ok(format!("{}", pl as u8)),
-        "u16" => Ok(format!("{}", pl as u16)),
-        "u32" => Ok(format!("{}", pl as u32)),
-        "f32" => Ok(format!("{}", pl as f32)),
-        "bool" => Ok(format!("{}", pl != 0)),
-        _ => Err(ExportError(format!("{} is not a valid type hint", th))),
     }
 }
 
@@ -306,13 +243,10 @@ fn graph_to_tree<'a>(
             }
         });
 
-        if let Ok(emeta) = get_event_meta(cfg, &node.probe_id, &node.id) {
-            let payload = node.payload.and_then(|pl| {
-                emeta
-                    .type_hint
-                    .as_ref()
-                    .and_then(|th| parsed_payload(&th, pl).ok())
-            });
+        if let Ok(emeta) = meta::get_event_meta(cfg, &node.probe_id, &node.id) {
+            let payload =
+                meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), node.payload)
+                    .unwrap_or(None);
             probe.events.push(Event {
                 is_known: true,
                 probe_name: probe.name.clone(),
@@ -348,7 +282,7 @@ fn graph_to_tree<'a>(
             } else {
                 format!("UNKNOWN_PROBE_{}", s.probe_id.get_raw())
             };
-            if let Ok(emeta) = get_event_meta(cfg, &s.probe_id, &s.id) {
+            if let Ok(emeta) = meta::get_event_meta(cfg, &s.probe_id, &s.id) {
                 Event {
                     is_known: true,
                     probe_name: probe_name.clone(),
@@ -386,7 +320,7 @@ fn graph_to_tree<'a>(
             } else {
                 format!("UNKNOWN_PROBE_{}", s.probe_id.get_raw())
             };
-            if let Ok(emeta) = get_event_meta(cfg, &t.probe_id, &t.id) {
+            if let Ok(emeta) = meta::get_event_meta(cfg, &t.probe_id, &t.id) {
                 Event {
                     is_known: true,
                     probe_name: probe_name.clone(),
@@ -428,7 +362,11 @@ fn graph_to_tree<'a>(
 mod test {
     use std::convert::TryInto;
 
-    use super::{super::templates, *};
+    use uuid::Uuid;
+
+    use crate::meta::{Cfg, EventMeta, ProbeMeta};
+
+    use super::super::templates;
 
     fn cfg() -> Cfg {
         let a_uuid = Uuid::new_v4();

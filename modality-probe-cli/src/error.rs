@@ -1,5 +1,7 @@
 use std::{fmt::Display, process::exit};
 
+use err_derive::Error;
+
 #[macro_export]
 macro_rules! warn {
     ($tag:expr, $msg:expr) => {{
@@ -44,4 +46,71 @@ impl<T> GracefulExit<T> for Option<T> {
             exit(1);
         })
     }
+}
+
+// NOTE: This type exists only to fill the hole in `CmdError` when
+// `src == None`.
+#[derive(Debug)]
+pub struct _UnitErr;
+impl std::fmt::Display for _UnitErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "")
+    }
+}
+impl std::error::Error for _UnitErr {}
+
+/// A generic, message-driven error type.
+#[derive(Debug, Error)]
+#[error(display = "{}", msg)]
+pub(crate) struct CmdError<E = _UnitErr>
+where
+    E: std::error::Error,
+{
+    pub msg: String,
+    pub src: Option<Box<E>>,
+}
+
+impl From<String> for CmdError {
+    fn from(msg: String) -> Self {
+        CmdError { msg, src: None }
+    }
+}
+
+#[macro_export]
+macro_rules! give_up {
+    ($msg:expr) => {
+        return Err(Box::new(
+            $crate::error::CmdError::<$crate::error::_UnitErr> {
+                msg: format!("Error: {}", $msg),
+                src: None,
+            },
+        ));
+    };
+
+    ($msg:expr, $src:expr) => {
+        return Err(Box::new($crate::error::CmdError {
+            msg: format!("Error: {}", $msg),
+            src: $src,
+        }));
+    };
+}
+
+#[macro_export]
+macro_rules! hopefully {
+    ($e:expr, $msg:expr) => {
+        $e.map_err(|e| $crate::error::CmdError {
+            msg: format!("Error: {}: {}", $msg, e),
+            src: Some(Box::new(e)),
+        })
+    };
+}
+
+#[macro_export]
+macro_rules! hopefully_ok {
+    ($e:expr, $msg:expr) => {
+        $e.ok_or_else(|| $crate::error::CmdError::<$crate::error::_UnitErr> {
+            msg: format!("Error: {}", $msg),
+            src: None,
+        })
+    };
 }

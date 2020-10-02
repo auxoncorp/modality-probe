@@ -1,8 +1,4 @@
-use crate::{
-    export::{Export, Log},
-    header_gen::HeaderGen,
-    manifest_gen::ManifestGen,
-};
+use crate::{export::Export, header_gen::HeaderGen, log::Log, manifest_gen::ManifestGen};
 use structopt::StructOpt;
 
 #[derive(Debug, PartialEq, StructOpt)]
