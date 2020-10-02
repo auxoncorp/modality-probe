@@ -3,7 +3,7 @@ use dynfmt::{Argument, Format, SimpleCurlyFormat};
 pub trait DescriptionFormat {
     fn contains_formatting(&self) -> bool;
 
-    fn format(&self, payload: Argument) -> Result<String, dynfmt::Error>;
+    fn format_payload(&self, payload: Argument) -> Result<String, dynfmt::Error>;
 }
 
 impl<T: AsRef<str>> DescriptionFormat for T {
@@ -11,7 +11,7 @@ impl<T: AsRef<str>> DescriptionFormat for T {
         self.as_ref().contains("{}")
     }
 
-    fn format(&self, payload: Argument) -> Result<String, dynfmt::Error> {
+    fn format_payload(&self, payload: Argument) -> Result<String, dynfmt::Error> {
         let cow = SimpleCurlyFormat.format(self.as_ref(), &[payload])?;
         Ok(cow.to_string())
     }
@@ -46,8 +46,8 @@ mod tests {
 
         // Matches with format!()'s output
         let expected = format!("My event payload = {} other stuff", payload);
-        assert_eq!(expected, desc.format(&payload).unwrap());
-        assert_eq!(expected, DESC_STR.format(&payload).unwrap());
+        assert_eq!(expected, desc.format_payload(&payload).unwrap());
+        assert_eq!(expected, DESC_STR.format_payload(&payload).unwrap());
     }
 
     proptest! {
@@ -56,7 +56,7 @@ mod tests {
             let desc = desc_string();
             assert!(desc.contains_formatting());
             let expected = format!("My event payload = {} other stuff", payload);
-            assert_eq!(expected, desc.format(&payload).unwrap());
+            assert_eq!(expected, desc.format_payload(&payload).unwrap());
         }
     }
 
@@ -66,7 +66,7 @@ mod tests {
             let desc = desc_string();
             assert!(desc.contains_formatting());
             let expected = format!("My event payload = {} other stuff", payload);
-            assert_eq!(expected, desc.format(&payload).unwrap());
+            assert_eq!(expected, desc.format_payload(&payload).unwrap());
         }
     }
 
@@ -76,7 +76,7 @@ mod tests {
             let desc = desc_string();
             assert!(desc.contains_formatting());
             let expected = format!("My event payload = {} other stuff", payload);
-            assert_eq!(expected, desc.format(&payload).unwrap());
+            assert_eq!(expected, desc.format_payload(&payload).unwrap());
         }
     }
 
@@ -86,7 +86,7 @@ mod tests {
             let desc = desc_string();
             assert!(desc.contains_formatting());
             let expected = format!("My event payload = {} other stuff", payload);
-            assert_eq!(expected, desc.format(&payload).unwrap());
+            assert_eq!(expected, desc.format_payload(&payload).unwrap());
         }
     }
 
@@ -96,7 +96,7 @@ mod tests {
             let desc = desc_string();
             assert!(desc.contains_formatting());
             let expected = format!("My event payload = {} other stuff", payload);
-            assert_eq!(expected, desc.format(&payload).unwrap());
+            assert_eq!(expected, desc.format_payload(&payload).unwrap());
         }
     }
 
@@ -106,7 +106,7 @@ mod tests {
             let desc = desc_string();
             assert!(desc.contains_formatting());
             let expected = format!("My event payload = {} other stuff", payload);
-            assert_eq!(expected, desc.format(&payload).unwrap());
+            assert_eq!(expected, desc.format_payload(&payload).unwrap());
         }
     }
 
@@ -116,7 +116,7 @@ mod tests {
             let desc = desc_string();
             assert!(desc.contains_formatting());
             let expected = format!("My event payload = {} other stuff", payload);
-            assert_eq!(expected, desc.format(&payload).unwrap());
+            assert_eq!(expected, desc.format_payload(&payload).unwrap());
         }
     }
 
@@ -126,7 +126,7 @@ mod tests {
             let desc = desc_string();
             assert!(desc.contains_formatting());
             let expected = format!("My event payload = {} other stuff", payload);
-            assert_eq!(expected, desc.format(&payload).unwrap());
+            assert_eq!(expected, desc.format_payload(&payload).unwrap());
         }
     }
 
@@ -136,7 +136,7 @@ mod tests {
             let desc = desc_string();
             assert!(desc.contains_formatting());
             let expected = format!("My event payload = {} other stuff", payload);
-            assert_eq!(expected, desc.format(&payload).unwrap());
+            assert_eq!(expected, desc.format_payload(&payload).unwrap());
         }
     }
 }

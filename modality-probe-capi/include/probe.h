@@ -209,6 +209,10 @@ typedef enum {
  * - Tags: MODALITY_TAGS(<tag>[,<tag>])
  * - A string for the event description
  *
+ * Event with payload descriptions may additionally use a single
+ * format specifier token (`{}`) to have the payload value formatted
+ * in the description when displayed.
+ *
  */
 #define MODALITY_PROBE_RECORD_W_I8(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_i8(\
@@ -261,6 +265,10 @@ typedef enum {
  * The trailing variadic macro arguments accept (in any order):
  * - Tags: MODALITY_TAGS(<tag>[,<tag>])
  * - A string for the event description
+ *
+ * Event with payload descriptions may additionally use a single
+ * format specifier token (`{}`) to have the payload value formatted
+ * in the description when displayed.
  *
  */
 #define MODALITY_PROBE_EXPECT(probe, event, expr, ...) \
