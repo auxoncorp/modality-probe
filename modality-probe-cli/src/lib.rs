@@ -4,6 +4,8 @@ pub mod events;
 pub mod export;
 pub mod header_gen;
 pub mod lang;
+pub mod log;
 pub mod manifest_gen;
+pub mod meta;
 pub mod opts;
 pub mod probes;
