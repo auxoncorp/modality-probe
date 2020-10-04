@@ -12,7 +12,7 @@ reports into json lines and writes those lines to a file.
 
 ### Dependencies
 
-* [Rust Toolchain](https://rustup.sh)
+* [Rust Toolchain](https://rustup.rs)
 
 ### Building
 Once Rust is installed (don’t forget to follow directions about
