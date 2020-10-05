@@ -11,7 +11,7 @@ use crate::{
     meta::{self, EventMeta},
 };
 
-/// Inspect the event log from the perspective of a single probe.
+/// View the trace as a log.
 #[derive(Debug, PartialEq, StructOpt)]
 pub struct Log {
     /// The probe to target. If no probe is given, the log from all
