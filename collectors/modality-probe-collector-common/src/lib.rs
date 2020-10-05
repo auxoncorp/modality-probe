@@ -57,7 +57,7 @@ newtype! {
 }
 
 impl SequenceNumber {
-    /// Get the sequence number which preceeded this one.
+    /// Get the sequence number which preceded this one.
     pub fn prev(&self) -> Self {
         SequenceNumber(self.0.saturating_sub(1))
     }

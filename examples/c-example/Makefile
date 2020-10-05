@@ -1,4 +1,8 @@
-TARGET := c-example
+ifeq ($(OS),Windows_NT)
+	TARGET := c-example.exe
+else
+	TARGET := c-example
+endif
 
 SRCS := src/main.c
 
@@ -16,7 +20,13 @@ CCFLAGS = -ansi \
 	-Wwrite-strings -Wstrict-prototypes -Wold-style-definition \
 	-Wnested-externs -Wmissing-include-dirs
 LDFLAGS =
-LIBS = ../../modality-probe-capi/target/debug/libmodality_probe.a
+LIBS =
+
+ifeq ($(OS),Windows_NT)
+	LIBS = -L../../modality-probe-capi/target/debug -lmodality_probe -lWs2_32
+else
+	LIBS = ../../modality-probe-capi/target/debug/libmodality_probe.a
+endif
 
 .PHONY: all clean probe-utils gen-manifest gen-header run test
 

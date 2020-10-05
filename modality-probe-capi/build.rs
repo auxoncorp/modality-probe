@@ -38,4 +38,17 @@ fn main() {
     for line in lines {
         println!("{}{}", link, line);
     }
+
+    // Workaround for no_std libc windows linking
+    // https://github.com/rust-lang/libc/issues/1203
+    let target = env::var("TARGET").unwrap();
+    let linkage = env::var("CARGO_CFG_TARGET_FEATURE").unwrap();
+
+    if target.contains("msvc") {
+        if linkage.contains("crt-static") {
+            println!("cargo:rustc-link-lib=dylib=libcmt");
+        } else {
+            println!("cargo:rustc-link-lib=dylib=msvcrt");
+        }
+    }
 }

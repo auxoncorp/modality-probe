@@ -21,6 +21,9 @@ modality-probe = { path = "../../" }
 
 [build-dependencies]
 
+[dev-dependencies]
+proptest = { version = "0.10.1", default-features = false, features = ["std"]}
+
 [features]
 default = []
 # Turn on `no_mangle` attribute

@@ -1,5 +1,5 @@
-//! FencedRingBuffer, a single producer, single consumer, shared memory ring buffer which maintains
-//! consistency while operating under race conditions.
+//! FencedRingBuffer, a single producer, single consumer, shared memory ring
+//! buffer which maintains consistency while operating under race conditions.
 #![cfg_attr(not(feature = "std"), no_std)]
 #![deny(warnings)]
 #![deny(missing_docs)]
@@ -9,8 +9,9 @@ use core::ops::{Add, AddAssign, Sub};
 use core::sync::atomic::{fence, Ordering};
 
 /// The index of an entry in the sequence of all entries written to the buffer
-/// Note: This struct is 2 separate 32 bit words so they can be read in one cpu instruction on 32 bit machines,
-/// for asynchronous reading. It is public so it can be directly accessed from the asynchronous reader.
+/// Note: This struct is 2 separate 32 bit words so they can be read in one cpu
+/// instruction on 32 bit machines, for asynchronous reading. It is public so it
+/// can be directly accessed from the asynchronous reader.
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[repr(C)]
 pub struct SeqNum {
@@ -33,14 +34,15 @@ impl SeqNum {
         high & Self::UPDATING_HIGH_MASK != 0
     }
 
-    /// Set the high bit of the high word so the asynchronous reader does not try to use the sequence number
-    /// in an inconsistent state
+    /// Set the high bit of the high word so the asynchronous reader does not
+    /// try to use the sequence number in an inconsistent state
     fn set_updating_high_bit(&mut self) {
         self.high |= Self::UPDATING_HIGH_MASK;
     }
 
-    /// Increment the sequence number by the given amount, using an "updating" flag to ensure the asynchronous
-    /// reader does not use the sequence number in an inconsistent state
+    /// Increment the sequence number by the given amount, using an "updating"
+    /// flag to ensure the asynchronous reader does not use the sequence
+    /// number in an inconsistent state
     pub(crate) fn increment(&mut self, n: Self) {
         let (new_low, overflowed) = self.low.overflowing_add(n.low);
         let high_increment = n.high + if overflowed { 1 } else { 0 };
@@ -127,7 +129,8 @@ impl Sub<u64> for SeqNum {
 /// Returns the corresponding index in backing storage to given sequence number
 #[inline]
 fn get_seqn_index(storage_cap: usize, seqn: SeqNum, use_base_2_indexing: bool) -> usize {
-    // Cast to usize safe because index in storage slice cannot be greater than usize
+    // Cast to usize safe because index in storage slice cannot be greater than
+    // usize
     if use_base_2_indexing {
         // Index is lowest n bits of seqn where storage_cap is 2^n
         (u64::from(seqn) & (storage_cap as u64 - 1)) as usize
@@ -136,7 +139,8 @@ fn get_seqn_index(storage_cap: usize, seqn: SeqNum, use_base_2_indexing: bool) -
     }
 }
 
-/// Calculate the number of entries missed based on the read and overwrite sequence numbers
+/// Calculate the number of entries missed based on the read and overwrite
+/// sequence numbers
 #[inline]
 fn num_missed(read_seqn: SeqNum, overwrite_seqn: SeqNum) -> SeqNum {
     if overwrite_seqn < read_seqn {
@@ -190,13 +194,62 @@ mod test_support;
 pub mod tests {
     use super::*;
 
+    use crate::buffer::MIN_STORAGE_CAP;
     use core::mem::MaybeUninit;
     use crossbeam;
+    use proptest::prelude::*;
     use rand::Rng;
     use std::sync::{Arc, Barrier};
-    use std::thread;
     use std::time::Duration;
     use test_support::{ErrorPronePtrSnapper, OrderedEntry, OutputOrderedEntry, PtrSnapper};
+
+    prop_compose! {
+        fn gen_half_full_seq_num()(
+            // Half the max so we can add two full values together without
+            // overflowing into the reserved high bit
+            high in 0_u32..(SeqNum::UPDATING_HIGH_MASK / 2),
+            low in proptest::num::u32::ANY
+        ) -> SeqNum {
+            assert!(!SeqNum::has_updating_high_bit_set(high));
+            SeqNum::new(high, low)
+        }
+    }
+
+    prop_compose! {
+        fn gen_seq_num()(
+            high in 0_u32..SeqNum::UPDATING_HIGH_MASK,
+            low in proptest::num::u32::ANY
+        ) -> SeqNum {
+            assert!(!SeqNum::has_updating_high_bit_set(high));
+            SeqNum::new(high, low)
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn num_missed_entries(read_seqn in gen_seq_num(), overwrite_seqn in gen_seq_num()) {
+            let read_seqn_raw = u64::from(read_seqn);
+            let overwrite_seqn_raw = u64::from(overwrite_seqn);
+            let num_missed_seqn = num_missed(read_seqn, overwrite_seqn);
+            if overwrite_seqn_raw < read_seqn_raw {
+                prop_assert_eq!(u64::from(num_missed_seqn), 0);
+            } else {
+                prop_assert!(u64::from(num_missed_seqn) <= overwrite_seqn_raw);
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn seqn_indexing(storage_cap in MIN_STORAGE_CAP..=usize::MAX, seqn in gen_seq_num()) {
+            let use_base_2_indexing = false;
+            let index = get_seqn_index(storage_cap, seqn, use_base_2_indexing);
+            prop_assert!(index < storage_cap);
+            let use_base_2_indexing = true;
+            let index = get_seqn_index(storage_cap, seqn, use_base_2_indexing);
+            prop_assert!(index < storage_cap);
+        }
+    }
 
     #[test]
     fn seq_nums() {
@@ -222,123 +275,168 @@ pub mod tests {
             SeqNum::new(1, 2) + (u32::MAX as u64 * 3 + 2),
             SeqNum::new(4, 1)
         );
+        assert_eq!(SeqNum::new(0, 0) + SeqNum::new(0, 0), SeqNum::new(0, 0));
 
         assert!(SeqNum::new(1, 0) > SeqNum::new(0, 2));
-        assert!(SeqNum::new(1, 3) > SeqNum::new(1, 2))
+        assert!(SeqNum::new(1, 3) > SeqNum::new(1, 2));
+
+        proptest!(
+            ProptestConfig::default(),
+            |(high in 0_u32..SeqNum::UPDATING_HIGH_MASK, low in proptest::num::u32::ANY)| {
+                prop_assert!(!SeqNum::has_updating_high_bit_set(high));
+                let seqnum = SeqNum::new(high, low);
+                prop_assert_eq!(u64::from(seqnum), (high as u64) << 32 | (low as u64));
+            }
+        );
+
+        proptest!(
+            ProptestConfig::default(),
+            |(mut a in gen_half_full_seq_num(), b in gen_half_full_seq_num())| {
+                let a_raw = u64::from(a);
+                let b_raw = u64::from(b);
+                a.increment(b);
+                prop_assert_ne!(a, b);
+                prop_assert!(a > b);
+                prop_assert_eq!(u64::from(a), a_raw + b_raw);
+            }
+        );
+
+        proptest!(
+            ProptestConfig::default(),
+            |(low in 1..=u32::MAX)| {
+                let mut a = SeqNum::new(0, u32::MAX);
+                let b = SeqNum::new(0, low);
+                a.increment(b);
+                prop_assert!(a.high > b.high);
+                prop_assert_ne!(a.low, b.low);
+                prop_assert!(a > b);
+            }
+        );
+
+        proptest!(
+            ProptestConfig::default(),
+            |(seqnum in gen_seq_num())| {
+                let mut a = seqnum.clone();
+                a.set_updating_high_bit();
+                prop_assert_ne!(a, seqnum);
+                prop_assert!(SeqNum::has_updating_high_bit_set(a.high));
+            }
+        );
     }
 
     // Perform many writes and reads concurrently,
     // check if reader output is in order and consistent
-    #[test]
-    fn async_output() {
-        const NUM_WRITES: u32 = 160;
-        const STORAGE_CAP: usize = 8;
+    proptest! {
+        #[test]
+        fn async_output(
+            num_writes in 1_u32..=1024_u32,
+            storage_cap in 4_usize..=512_usize,
+        ) {
+            let (ptr_s, ptr_r) = crossbeam::crossbeam_channel::bounded(0);
+            let barr_r = Arc::new(Barrier::new(2));
+            let barr_w = barr_r.clone();
+            crossbeam::thread::scope(|s| {
+                s.spawn(move |_| {
+                    let mut storage = vec![MaybeUninit::uninit(); storage_cap];
 
-        let (ptr_s, ptr_r) = crossbeam::crossbeam_channel::bounded(0);
-        let barr_r = Arc::new(Barrier::new(2));
-        let barr_w = barr_r.clone();
-        crossbeam::thread::scope(|s| {
-            s.spawn(move |_| {
-                let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
+                    let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
+                    assert!(buf.capacity() == storage_cap);
+                    let buf_ptr = &buf as *const FencedRingBuffer<'_, OrderedEntry> as usize;
+                    ptr_s.send(buf_ptr).unwrap();
 
-                let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
-                assert!(buf.capacity() == STORAGE_CAP);
-                let buf_ptr = &buf as *const FencedRingBuffer<'_, OrderedEntry> as usize;
-                ptr_s.send(buf_ptr).unwrap();
-
-                for i in 0..NUM_WRITES {
-                    buf.push(OrderedEntry::from_index(i));
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                barr_r.wait();
-            });
-            s.spawn(move |_| {
-                let buf_ptr = ptr_r.recv().unwrap() as *const FencedRingBuffer<'_, OrderedEntry>;
-                let snapper = PtrSnapper::new(buf_ptr);
-                let mut output_buf = Vec::new();
-                let mut buf_reader = async_reader::FencedReader::new(snapper, STORAGE_CAP);
-
-                let mut total_items_read = 0;
-                while total_items_read < NUM_WRITES as usize {
-                    let mut temp_buf = Vec::new();
-                    let n_missed = buf_reader.read(&mut temp_buf).unwrap();
-                    total_items_read += n_missed as usize + temp_buf.len();
-
-                    output_buf.push(OutputOrderedEntry::Missed(n_missed));
-                    output_buf.extend(temp_buf.iter().map(|e| OutputOrderedEntry::Present(*e)));
-
-                    thread::sleep(Duration::from_millis(10));
-                }
-                OutputOrderedEntry::check_entries_correct_index(&output_buf[..]);
-                barr_w.wait();
-            });
-        })
-        .unwrap();
-    }
-
-    // Perform many reads and writes concurrently with random timeouts, and random snapshot errors
-    // check if read buffer is in order and consistent
-    #[test]
-    fn async_output_timeouts_and_errors() {
-        const NUM_WRITES: u32 = 10_000;
-        const STORAGE_CAP: usize = 8;
-
-        let (ptr_s, ptr_r) = crossbeam::crossbeam_channel::bounded(0);
-        let barr_r = Arc::new(Barrier::new(2));
-        let barr_w = barr_r.clone();
-        crossbeam::thread::scope(|s| {
-            s.spawn(move |_| {
-                let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
-                let mut buf = FencedRingBuffer::new(&mut storage[..], true).unwrap();
-                assert!(buf.capacity() == STORAGE_CAP);
-                let buf_ptr = &buf as *const FencedRingBuffer<'_, OrderedEntry> as usize;
-                ptr_s.send(buf_ptr).unwrap();
-                let mut rng = rand::thread_rng();
-                let mut last_prefix = false;
-
-                for i in 0..NUM_WRITES {
-                    if last_prefix {
-                        buf.push(OrderedEntry::from_index_suffix(i));
-                        last_prefix = false;
-                    } else {
-                        if rng.gen::<f64>() < 0.33 {
-                            buf.push(OrderedEntry::from_index_prefix(i));
-                            last_prefix = true;
-                        } else {
-                            buf.push(OrderedEntry::from_index(i));
-                        }
+                    for i in 0..num_writes {
+                        buf.push(OrderedEntry::from_index(i));
                     }
-                    let sleep_time: u64 = rng.gen::<u64>() % 1000;
-                    std::thread::sleep(Duration::from_nanos(sleep_time));
-                }
-                barr_r.wait();
-            });
-            s.spawn(move |_| {
-                let buf_ptr = ptr_r.recv().unwrap() as *const FencedRingBuffer<'_, OrderedEntry>;
-                let snapper = ErrorPronePtrSnapper::new(buf_ptr);
-                let mut output_buf = Vec::new();
-                let mut buf_reader = async_reader::FencedReader::new(snapper, STORAGE_CAP);
-                let mut rng = rand::thread_rng();
+                    barr_r.wait();
+                });
+                s.spawn(move |_| {
+                    let buf_ptr = ptr_r.recv().unwrap() as *const FencedRingBuffer<'_, OrderedEntry>;
+                    let snapper = PtrSnapper::new(buf_ptr);
+                    let mut output_buf = Vec::new();
+                    let mut buf_reader = async_reader::FencedReader::new(snapper, storage_cap);
 
-                let mut total_items_read = 0;
-                while total_items_read < (NUM_WRITES - 1) as u64 {
-                    let mut temp_buf = Vec::new();
-                    if let Ok(n_missed) = buf_reader.read(&mut temp_buf) {
-                        let n_read: u64 = temp_buf.iter().map(|whole| whole.size() as u64).sum();
-                        total_items_read += n_missed + n_read;
+                    let mut total_items_read = 0;
+                    while total_items_read < num_writes as usize {
+                        let mut temp_buf = Vec::new();
+                        let n_missed = buf_reader.read(&mut temp_buf).unwrap();
+                        total_items_read += n_missed as usize + temp_buf.len();
 
                         output_buf.push(OutputOrderedEntry::Missed(n_missed));
                         output_buf.extend(temp_buf.iter().map(|e| OutputOrderedEntry::Present(*e)));
                     }
+                    OutputOrderedEntry::check_entries_correct_index(&output_buf[..]);
+                    barr_w.wait();
+                });
+            })
+            .unwrap();
+        }
+    }
 
-                    let sleep_time: u64 = rng.gen::<u64>() % 3000;
-                    std::thread::sleep(Duration::from_nanos(sleep_time));
-                }
-                OutputOrderedEntry::check_entries_correct_index(&output_buf[..]);
-                OutputOrderedEntry::check_double_entries_consistent(&output_buf[..]);
-                barr_w.wait();
-            });
-        })
-        .unwrap();
+    // Perform many reads and writes concurrently with random timeouts, and random
+    // snapshot errors check if read buffer is in order and consistent
+    proptest! {
+        #[test]
+        fn async_output_timeouts_and_errors(
+            num_writes in 2_u32..=1024_u32,
+            writer_sleep_time_ns in 0_u64..=1000_u64,
+            reader_sleep_time_ns in 0_u64..=3000_u64,
+        ) {
+            const STORAGE_CAP: usize = 8;
+
+            let (ptr_s, ptr_r) = crossbeam::crossbeam_channel::bounded(0);
+            let barr_r = Arc::new(Barrier::new(2));
+            let barr_w = barr_r.clone();
+            crossbeam::thread::scope(|s| {
+                s.spawn(move |_| {
+                    let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
+                    let mut buf = FencedRingBuffer::new(&mut storage[..], true).unwrap();
+                    assert!(buf.capacity() == STORAGE_CAP);
+                    let buf_ptr = &buf as *const FencedRingBuffer<'_, OrderedEntry> as usize;
+                    ptr_s.send(buf_ptr).unwrap();
+                    let mut rng = rand::thread_rng();
+                    let mut last_prefix = false;
+
+                    for i in 0..num_writes {
+                        if last_prefix {
+                            buf.push(OrderedEntry::from_index_suffix(i));
+                            last_prefix = false;
+                        } else {
+                            if rng.gen::<f64>() < 0.33 {
+                                buf.push(OrderedEntry::from_index_prefix(i));
+                                last_prefix = true;
+                            } else {
+                                buf.push(OrderedEntry::from_index(i));
+                            }
+                        }
+                        std::thread::sleep(Duration::from_nanos(writer_sleep_time_ns));
+                    }
+                    barr_r.wait();
+                });
+                s.spawn(move |_| {
+                    let buf_ptr = ptr_r.recv().unwrap() as *const FencedRingBuffer<'_, OrderedEntry>;
+                    let snapper = ErrorPronePtrSnapper::new(buf_ptr);
+                    let mut output_buf = Vec::new();
+                    let mut buf_reader = async_reader::FencedReader::new(snapper, STORAGE_CAP);
+
+                    let mut total_items_read = 0;
+                    while total_items_read < (num_writes - 1) as u64 {
+                        let mut temp_buf = Vec::new();
+                        if let Ok(n_missed) = buf_reader.read(&mut temp_buf) {
+                            let n_read: u64 = temp_buf.iter().map(|whole| whole.size() as u64).sum();
+                            total_items_read += n_missed + n_read;
+
+                            output_buf.push(OutputOrderedEntry::Missed(n_missed));
+                            output_buf.extend(temp_buf.iter().map(|e| OutputOrderedEntry::Present(*e)));
+                        }
+
+                        std::thread::sleep(Duration::from_nanos(reader_sleep_time_ns));
+                    }
+                    OutputOrderedEntry::check_entries_correct_index(&output_buf[..]);
+                    OutputOrderedEntry::check_double_entries_consistent(&output_buf[..]);
+                    barr_w.wait();
+                });
+            })
+            .unwrap();
+        }
     }
 }

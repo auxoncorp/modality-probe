@@ -80,15 +80,24 @@ typedef struct modality_probe_causal_snapshot {
  * epoch portion of the clock, and each time the ticks portion of the
  * clock overflows during the probe's lifetime.
  *
- * The sequence number should never be zero, should start at one,
+ *
+ * The function should return MODALITY_PROBE_ERROR_OK when the next
+ * sequence value could be retrieved and was used to populate the
+ * value at out_sequence_id.
+ *
+ * The sequence number starts at zero,
  * and be monotonically increased by a step size of one after each retrieval.
  *
  * When the sequence number reaches its maximum value (0xFFFF), it
- * should wrap around to the value 1.
+ * should wrap around to the value 0.
+ *
+ * If no sequence number could be retrieved, the function should
+ * return MODALITY_PROBE_ERROR_RESTART_PERSISTENCE_SEQUENCE_ID_UNAVAILABLE
  */
-typedef uint16_t (*modality_probe_next_sequence_id_fn)(
+typedef size_t (*modality_probe_next_sequence_id_fn)(
         uint32_t probe_id,
-        void *user_state);
+        void *user_state,
+        uint16_t *out_sequence_id);
 
 typedef enum {
     /*
@@ -134,6 +143,11 @@ typedef enum {
      * Detected during merging.
      */
     MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS = 8,
+    /*
+     * The user-supplied restart persistence counter failed
+     * to produce the next sequence id.
+     */
+    MODALITY_PROBE_ERROR_RESTART_PERSISTENCE_SEQUENCE_ID_UNAVAILABLE = 9,
 } modality_probe_error;
 
 /*

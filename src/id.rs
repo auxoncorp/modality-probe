@@ -297,21 +297,13 @@ pub mod prop {
     /// binary search and clamps on valid _user_ values.
     pub struct EventIdBinarySearch(BinarySearch);
 
-    impl EventIdBinarySearch {
-        fn or_max(x: u32) -> EventId {
-            let x1 = x.checked_add(1).unwrap_or_else(|| EventId::MAX_USER_ID);
-            if x1 > EventId::MAX_USER_ID {
-                return EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_USER_ID) });
-            }
-            EventId(unsafe { NonZeroU32::new_unchecked(x1) })
-        }
-    }
-
     impl ValueTree for EventIdBinarySearch {
         type Value = EventId;
 
         fn current(&self) -> EventId {
-            EventIdBinarySearch::or_max(self.0.current())
+            let x = self.0.current();
+            let x1 = core::cmp::max(1, core::cmp::min(x, EventId::MAX_USER_ID));
+            EventId(unsafe { NonZeroU32::new_unchecked(x1) })
         }
 
         fn simplify(&mut self) -> bool {
@@ -351,18 +343,13 @@ pub mod prop {
     /// binary search.
     pub struct ProbeIdBinarySearch(BinarySearch);
 
-    impl ProbeIdBinarySearch {
-        fn or_max(x: u32) -> ProbeId {
-            let x1: u32 = x.checked_add(1).unwrap_or_else(|| core::u32::MAX);
-            ProbeId(unsafe { NonZeroU32::new_unchecked(x1) })
-        }
-    }
-
     impl ValueTree for ProbeIdBinarySearch {
         type Value = ProbeId;
 
         fn current(&self) -> ProbeId {
-            ProbeIdBinarySearch::or_max(self.0.current())
+            let x = self.0.current();
+            let x1 = core::cmp::max(1, core::cmp::min(x, ProbeId::MAX_ID));
+            ProbeId(unsafe { NonZeroU32::new_unchecked(x1) })
         }
 
         fn simplify(&mut self) -> bool {

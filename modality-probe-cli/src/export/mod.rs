@@ -11,6 +11,8 @@ use modality_probe_collector_common::{json, Error as CollectorError};
 
 use crate::{component::Component, events::Events};
 
+mod templates;
+
 mod graph;
 use graph::{EventMeta, ProbeMeta};
 
@@ -19,9 +21,12 @@ use graph::{EventMeta, ProbeMeta};
 #[derive(Debug, PartialEq, StructOpt)]
 pub struct Export {
     /// Generate the graph showing only the causal relationships,
-    /// eliding the events inbetween.
-    #[structopt(short, long)]
+    /// eliding the events in between.
+    #[structopt(long)]
     pub interactions_only: bool,
+    /// Include probe-generated events in the output.
+    #[structopt(long)]
+    pub include_internal_events: bool,
     /// The path to a component directory. To include multiple
     /// components, provide this switch multiple times.
     #[structopt(short, long, required = true)]
@@ -89,10 +94,36 @@ pub fn run(mut exp: Export) -> Result<(), ExportError> {
     )?;
 
     match (exp.graph_type, exp.interactions_only) {
-        (GraphType::Acyclic, false) => println!("{}", graph.graph.to_dot(&cfg)?),
-        (GraphType::Acyclic, true) => println!("{}", graph.graph.into_interactions().to_dot(&cfg)?),
-        (GraphType::Cyclic, false) => println!("{}", graph.graph.into_states().to_dot(&cfg)?),
-        (GraphType::Cyclic, true) => println!("{}", graph.graph.into_topology().to_dot(&cfg)?),
+        (GraphType::Acyclic, false) => println!(
+            "{}",
+            graph.graph.as_complete(exp.include_internal_events).dot(
+                &cfg,
+                "complete",
+                templates::COMPLETE
+            )?
+        ),
+        (GraphType::Acyclic, true) => println!(
+            "{}",
+            graph
+                .graph
+                .as_interactions()
+                .dot(&cfg, "interactions", templates::INTERACTIONS)?
+        ),
+        (GraphType::Cyclic, false) => println!(
+            "{}",
+            graph.graph.as_states(exp.include_internal_events).dot(
+                &cfg,
+                "states",
+                templates::STATES
+            )?
+        ),
+        (GraphType::Cyclic, true) => println!(
+            "{}",
+            graph
+                .graph
+                .as_topology()
+                .dot(&cfg, "topo", templates::TOPO)?
+        ),
     }
 
     Ok(())

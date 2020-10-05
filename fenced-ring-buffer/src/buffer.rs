@@ -1,5 +1,5 @@
-//! The writer of the FencedRingBuffer, which contains the actual buffer. Entries can be synchronously written and read/iterated
-//! from this struct.
+//! The writer of the FencedRingBuffer, which contains the actual buffer.
+//! Entries can be synchronously written and read/iterated from this struct.
 use crate::{get_seqn_index, num_missed, Entry, SeqNum, WholeEntry};
 use core::cmp::max;
 use core::fmt;
@@ -55,7 +55,8 @@ impl<'a, E> FencedRingBuffer<'a, E>
 where
     E: Entry,
 {
-    /// Create new FencedRingBuffer. Returns error if storage capacity is smaller than the minimum size
+    /// Create new FencedRingBuffer. Returns error if storage capacity is
+    /// smaller than the minimum size
     pub fn new(
         storage: &'a mut [MaybeUninit<E>],
         use_base_2_indexing: bool,
@@ -87,7 +88,8 @@ where
         buf
     }
 
-    /// Create new FencedRingBuffer with properly aligned backing storage, return unused bytes
+    /// Create new FencedRingBuffer with properly aligned backing storage,
+    /// return unused bytes
     #[inline]
     pub fn align_from_bytes(
         bytes: &'a mut [u8],
@@ -106,7 +108,8 @@ where
         )
     }
 
-    /// Get value of backing storage corresponding at index corresponding to given sequence number
+    /// Get value of backing storage corresponding at index corresponding to
+    /// given sequence number
     #[inline]
     pub(crate) unsafe fn read_storage(&self, seqn: SeqNum) -> E {
         self.storage[get_seqn_index(self.capacity(), seqn, self.use_base_2_indexing)].assume_init()
@@ -141,11 +144,13 @@ where
 
     /// Write single entry to buffer
     pub fn push(&mut self, entry: E) -> Option<WholeEntry<E>> {
-        // Overwrite when write sequence number is 1 buffer capacity ahead of overwrite sequence number.
+        // Overwrite when write sequence number is 1 buffer capacity ahead of overwrite
+        // sequence number.
         let possible_overwritten =
             if self.write_seqn == self.overwrite_seqn + self.capacity() as u64 {
-                // Reading storage directly in front of overwrite sequence number is safe because write cursor is ahead of
-                // that entry, and the overwrite sequence number is behind it
+                // Reading storage directly in front of overwrite sequence number is safe
+                // because write cursor is ahead of that entry, and the
+                // overwrite sequence number is behind it
                 let overwritten = self.read_at(self.overwrite_seqn).unwrap();
                 self.overwrite_seqn
                     .increment((overwritten.size() as u64).into());
@@ -173,13 +178,15 @@ where
         (first_overwritten, second_overwritten)
     }
 
-    /// Return number of items missed between tail and oldest entry present in the buffer, or 0 if tail is currently present
+    /// Return number of items missed between tail and oldest entry present in
+    /// the buffer, or 0 if tail is currently present
     pub fn num_missed(&self) -> u64 {
         num_missed(self.read_seqn, self.overwrite_seqn).into()
     }
 
-    /// Read the entry at tail, or the oldest entry present in the buffer if tail has already been overwritten.
-    /// Returns None if the tail is caught up to the head
+    /// Read the entry at tail, or the oldest entry present in the buffer if
+    /// tail has already been overwritten. Returns None if the tail is
+    /// caught up to the head
     pub fn peek(&self) -> Option<WholeEntry<E>> {
         if self.read_seqn == self.write_seqn {
             None
@@ -190,9 +197,10 @@ where
         }
     }
 
-    /// Read the entry at tail, or the oldest entry present in the buffer if tail has already been overwritten, move
-    /// the tail to point to the entry after the one that was popped.
-    /// Returns None if the tail is caught up to the head
+    /// Read the entry at tail, or the oldest entry present in the buffer if
+    /// tail has already been overwritten, move the tail to point to the
+    /// entry after the one that was popped. Returns None if the tail is
+    /// caught up to the head
     pub fn pop(&mut self) -> Option<WholeEntry<E>> {
         let tail = self.peek();
         let increment = if let Some(entry) = tail {
@@ -204,7 +212,8 @@ where
         tail
     }
 
-    /// Create iterator over the entries currently present in the buffer without changing the tail
+    /// Create iterator over the entries currently present in the buffer without
+    /// changing the tail
     #[inline]
     pub fn iter<'b>(&'b self) -> Iter<'a, 'b, E> {
         let start_seqn = max(self.read_seqn, self.overwrite_seqn);
@@ -217,8 +226,8 @@ where
         Drain::new(self)
     }
 
-    /// Get two slices which together represent the entries currently present in the buffer, where the second
-    /// slice comes directly after the first
+    /// Get two slices which together represent the entries currently present in
+    /// the buffer, where the second slice comes directly after the first
     pub fn get_linear_slices(&self) -> (&[E], &[E]) {
         let overwrite_seqn_index = get_seqn_index(
             self.capacity(),
@@ -227,7 +236,8 @@ where
         );
         let write_seqn_index =
             get_seqn_index(self.capacity(), self.write_seqn, self.use_base_2_indexing);
-        // Safe to assume entries in front of overwrite sequence number and behind write sequence number are initialized
+        // Safe to assume entries in front of overwrite sequence number and behind write
+        // sequence number are initialized
         if overwrite_seqn_index >= write_seqn_index
             && (u64::from(self.overwrite_seqn) != 0 || u64::from(self.write_seqn) != 0)
         {
@@ -252,7 +262,8 @@ where
         }
     }
 
-    /// Get the number of items currently in the buffer which have not been read yet
+    /// Get the number of items currently in the buffer which have not been read
+    /// yet
     pub fn len(&self) -> usize {
         let start_seqn = self.read_seqn.max(self.overwrite_seqn);
         let len: u64 = (self.write_seqn - start_seqn).into();
@@ -302,7 +313,8 @@ impl<'a, 'b, E> Drain<'a, 'b, E>
 where
     E: Entry,
 {
-    /// Create a new iterator over the FencedRingBuffer at the given starting sequence number
+    /// Create a new iterator over the FencedRingBuffer at the given starting
+    /// sequence number
     fn new(buffer: &'b mut FencedRingBuffer<'a, E>) -> Self {
         Self { buffer }
     }
@@ -333,7 +345,8 @@ impl<'a, 'b, E> Iter<'a, 'b, E>
 where
     E: Entry,
 {
-    /// Create a new iterator over the FencedRingBuffer at the given starting sequence number
+    /// Create a new iterator over the FencedRingBuffer at the given starting
+    /// sequence number
     fn new(buffer: &'b FencedRingBuffer<'a, E>, start_seqn: SeqNum) -> Self {
         Self {
             buffer,
@@ -356,12 +369,26 @@ where
     }
 }
 
-#[cfg(feature = "std")]
-#[cfg(test)]
+#[cfg(all(feature = "std", test))]
 mod tests {
     use super::*;
     use crate::test_support::OrderedEntry;
     use core::mem::MaybeUninit;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn round_to_power_of_two(num in 1..=usize::MAX) {
+            let rounded_num = round_to_power_2(num);
+            prop_assert!(rounded_num > 0);
+            let mut n = rounded_num;
+            while n != 1 {
+                prop_assert_eq!(n % 2, 0);
+                prop_assert_eq!(n & 1, 0);
+                n = n / 2;
+            }
+        }
+    }
 
     /// Test backing storage size rounding and minimum size enforcement
     #[test]
@@ -398,44 +425,70 @@ mod tests {
             })
             .collect();
         assert_eq!(&[4, 4, 4, 4, 8, 8, 8, 16][..], &rounded_output_sizes[..]);
+
+        proptest!(
+            ProptestConfig::default(),
+            |(size in MIN_STORAGE_CAP..=3333)| {
+                let use_power_of_2 = false;
+                let mut storage = vec![MaybeUninit::<OrderedEntry>::uninit(); size];
+                let len = FencedRingBuffer::new(&mut storage[..], use_power_of_2)
+                    .unwrap()
+                    .get_slice()
+                    .len();
+                prop_assert_eq!(size, len);
+
+                let use_power_of_2 = true;
+                let mut storage = vec![MaybeUninit::<OrderedEntry>::uninit(); size];
+                let len = FencedRingBuffer::new(&mut storage[..], use_power_of_2)
+                    .unwrap()
+                    .get_slice()
+                    .len();
+                prop_assert_eq!(round_to_power_2(size), len);
+            }
+        );
     }
 
-    #[test]
-    fn test_from_bytes() {
-        const STORAGE_CAP: usize = 16;
-        let mut storage = [0u8; STORAGE_CAP * size_of::<OrderedEntry>()];
-        let buf =
-            FencedRingBuffer::<OrderedEntry>::new_from_bytes(&mut storage[..], false).unwrap();
-        // Should not lose more than one entry
-        assert!(buf.capacity() == 16 || buf.capacity() == 15)
+    proptest! {
+        #[test]
+        fn test_from_bytes(storage_cap in MIN_STORAGE_CAP..=7777) {
+            let mut storage = vec![0u8; storage_cap * size_of::<OrderedEntry>()];
+            let buf =
+                FencedRingBuffer::<OrderedEntry>::new_from_bytes(&mut storage[..], false).unwrap();
+            // Should not lose more than one entry
+            prop_assert!(buf.capacity() == storage_cap || (buf.capacity() == storage_cap - 1))
+        }
     }
 
-    #[test]
-    fn test_read_at() {
-        const STORAGE_CAP: usize = 8;
-        let mut storage = [MaybeUninit::uninit(); STORAGE_CAP];
-        let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
+    proptest! {
+        #[test]
+        fn test_read_at(base_storage_cap in MIN_STORAGE_CAP..=8192) {
+            let cap = round_to_power_2(base_storage_cap) as u64;
+            let cap_2x = cap * 2;
+            let cap_4x = cap * 4;
+            let mut storage = vec![MaybeUninit::uninit(); cap as usize];
+            let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
 
-        for i in 0..16 {
-            // None written yet
-            assert_eq!(buf.read_at(i.into()), None);
-        }
-        for i in 0..16 {
-            buf.push(OrderedEntry::from_index(i));
-        }
-        for i in 0..8 {
-            // First 8 overwritten
-            assert_eq!(buf.read_at(i.into()), None);
-        }
-        for i in 8..16 {
-            assert_eq!(
-                buf.read_at(i.into()),
-                Some(WholeEntry::Single(OrderedEntry::from_index(i as u32)))
-            );
-        }
-        for i in 16..32 {
-            // Not written yet
-            assert_eq!(buf.read_at(i.into()), None);
+            for i in 0..cap_2x {
+                // None written yet
+                assert_eq!(buf.read_at(i.into()), None);
+            }
+            for i in 0..cap_2x {
+                buf.push(OrderedEntry::from_index(i as u32));
+            }
+            for i in 0..cap {
+                // First N overwritten
+                assert_eq!(buf.read_at(i.into()), None);
+            }
+            for i in cap..cap_2x {
+                assert_eq!(
+                    buf.read_at(i.into()),
+                    Some(WholeEntry::Single(OrderedEntry::from_index(i as u32)))
+                );
+            }
+            for i in cap_2x..cap_4x {
+                // Not written yet
+                assert_eq!(buf.read_at(i.into()), None);
+            }
         }
     }
 
@@ -528,7 +581,8 @@ mod tests {
             OrderedEntry::from_index_prefix(2),
             OrderedEntry::from_index_suffix(3),
         );
-        // Push 3 entries, meaning only first entry of above double has new entry written over it
+        // Push 3 entries, meaning only first entry of above double has new entry
+        // written over it
         buf.push_double(
             OrderedEntry::from_index_prefix(4),
             OrderedEntry::from_index_suffix(5),
@@ -655,5 +709,49 @@ mod tests {
                 &[][..]
             )
         );
+    }
+
+    proptest! {
+        #[test]
+        fn missed_entries_are_accounted_for(
+            single_entry_overflows in 1_usize..=64_usize,
+            double_entry_overflows in 1_usize..=64_usize,
+        ) {
+            let storage_cap = 1 + single_entry_overflows + (2 * double_entry_overflows);
+
+            let mut storage = vec![MaybeUninit::uninit(); storage_cap];
+            let mut buf = FencedRingBuffer::new(&mut storage[..], false).unwrap();
+            prop_assert_eq!(buf.capacity(), storage_cap);
+            prop_assert_eq!(buf.is_empty(), true);
+
+            // Fills to capacity
+            for i in 0..storage_cap {
+                buf.push(OrderedEntry::from_index(i as _));
+            }
+            prop_assert_eq!(buf.num_missed(), 0);
+            prop_assert_eq!(buf.is_empty(), false);
+            prop_assert_eq!(buf.len(), storage_cap);
+
+            // Overflowing single entries accounted for
+            for i in 0..single_entry_overflows {
+                buf.push(OrderedEntry::from_index(i as _));
+            }
+            prop_assert_eq!(buf.num_missed(), single_entry_overflows as u64);
+            prop_assert_eq!(buf.is_empty(), false);
+            prop_assert_eq!(buf.len(), storage_cap);
+
+            for i in 0..double_entry_overflows {
+                buf.push_double(
+                    OrderedEntry::from_index_prefix(i as _),
+                    OrderedEntry::from_index_prefix((i + 1) as _),
+                );
+            }
+            prop_assert_eq!(
+                buf.num_missed(),
+                (single_entry_overflows + (2 * double_entry_overflows)) as u64
+            );
+            prop_assert_eq!(buf.is_empty(), false);
+            prop_assert_eq!(buf.len(), storage_cap);
+        }
     }
 }

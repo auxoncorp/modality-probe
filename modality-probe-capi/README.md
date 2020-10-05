@@ -13,7 +13,7 @@ also targeted by the code and manifest generation that the CLI does.
 
 ### Dependencies
 
-* [Rust Toolchain](https://rustup.sh)
+* [Rust Toolchain](https://rustup.rs)
 
 ### Building
 Once Rust is installed, build the C API using Cargo:

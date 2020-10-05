@@ -1,4 +1,4 @@
-//! A wire protocol for representing Modality probe causal snaphots
+//! A wire protocol for representing Modality probe causal snapshots
 
 use crate::{
     wire::le_bytes, CausalSnapshot, InvalidProbeId, LogicalClock, ProbeEpoch, ProbeId, ProbeTicks,
@@ -7,7 +7,7 @@ use core::convert::TryFrom;
 use core::mem::size_of;
 use static_assertions::const_assert_eq;
 
-/// Everything that can go wrong when attempting to interpret a causal snaphot
+/// Everything that can go wrong when attempting to interpret a causal snapshot
 /// to/from the wire representation
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum CausalSnapshotWireError {
@@ -39,7 +39,7 @@ impl From<InvalidWireProbeId> for CausalSnapshotWireError {
     }
 }
 
-/// A read/write wrapper around a causal snaphot buffer
+/// A read/write wrapper around a causal snapshot buffer
 #[derive(Debug, Clone)]
 pub struct WireCausalSnapshot<T: AsRef<[u8]>> {
     buffer: T,
@@ -71,13 +71,13 @@ mod field {
 }
 
 impl<T: AsRef<[u8]>> WireCausalSnapshot<T> {
-    /// Construct a causal snaphot from a byte buffer
+    /// Construct a causal snapshot from a byte buffer
     #[inline]
     pub fn new_unchecked(buffer: T) -> WireCausalSnapshot<T> {
         WireCausalSnapshot { buffer }
     }
 
-    /// Construct a causal snaphot from a byte buffer, with checks.
+    /// Construct a causal snapshot from a byte buffer, with checks.
     ///
     /// A combination of:
     /// * [new_unchecked](struct.CausalSnapshot.html#method.new_unchecked)
@@ -102,12 +102,12 @@ impl<T: AsRef<[u8]>> WireCausalSnapshot<T> {
         }
     }
 
-    /// Consumes the causal snaphot, returning the underlying buffer
+    /// Consumes the causal snapshot, returning the underlying buffer
     pub fn into_inner(self) -> T {
         self.buffer
     }
 
-    /// Return the length of a buffer required to hold a causal snaphot
+    /// Return the length of a buffer required to hold a causal snapshot
     pub fn min_buffer_len() -> usize {
         field::REST.start
     }

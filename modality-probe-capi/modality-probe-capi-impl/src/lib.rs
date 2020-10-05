@@ -31,6 +31,9 @@ pub const MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES: ModalityProbeError = 7
 /// such as by having a probe_id out of the allowed value range.
 /// Detected during merging.
 pub const MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS: ModalityProbeError = 8;
+/// The user-supplied restart persistence counter failed
+/// to produce the next sequence id.
+pub const MODALITY_PROBE_ERROR_RESTART_PERSISTENCE_SEQUENCE_ID_UNAVAILABLE: ModalityProbeError = 9;
 
 /// # Safety
 ///
@@ -55,6 +58,9 @@ pub unsafe fn modality_probe_initialize(
     out: *mut *mut ModalityProbe<'static>,
 ) -> ModalityProbeError {
     if destination.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
+    if out.is_null() {
         return MODALITY_PROBE_ERROR_NULL_POINTER;
     }
     if destination_size_bytes < core::mem::size_of::<ModalityProbe<'static>>() {
@@ -152,6 +158,9 @@ pub unsafe fn modality_probe_report(
     if log_report_destination.is_null() {
         return MODALITY_PROBE_ERROR_NULL_POINTER;
     }
+    if out_written_bytes.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
     match probe.report(core::slice::from_raw_parts_mut(
         log_report_destination,
         log_report_destination_size_bytes,
@@ -194,6 +203,9 @@ pub unsafe fn modality_probe_produce_snapshot(
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
+    if destination_snapshot.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
     *destination_snapshot = probe.produce_snapshot();
     MODALITY_PROBE_ERROR_OK
 }
@@ -215,6 +227,9 @@ pub unsafe fn modality_probe_produce_snapshot_bytes(
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
     if history_destination.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
+    if out_written_bytes.is_null() {
         return MODALITY_PROBE_ERROR_NULL_POINTER;
     }
     match probe.produce_snapshot_bytes(core::slice::from_raw_parts_mut(
@@ -253,6 +268,9 @@ pub unsafe fn modality_probe_merge_snapshot(
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
+    if snapshot.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
     let snapshot = &*snapshot;
     if ProbeId::new(snapshot.clock.id.get_raw()).is_none() {
         MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS
@@ -279,6 +297,9 @@ pub unsafe fn modality_probe_merge_snapshot_bytes(
         Some(t) => t,
         None => return MODALITY_PROBE_ERROR_NULL_POINTER,
     };
+    if history_source.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
     match probe.merge_snapshot_bytes(core::slice::from_raw_parts(
         history_source,
         history_source_bytes,

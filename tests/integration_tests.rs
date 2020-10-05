@@ -1,7 +1,6 @@
 #![deny(warnings)]
 
 use core::mem;
-use core::num::NonZeroU16;
 use modality_probe::*;
 use proptest::prelude::*;
 use std::convert::{TryFrom, TryInto};
@@ -508,7 +507,7 @@ proptest! {
 #[test]
 fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
     let mut next_id_provider = PersistentRestartProvider {
-        next_seq_id: NonZeroU16::new(100).unwrap(),
+        next_seq_id: 100,
         count: 0,
     };
 
@@ -532,7 +531,7 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.persistent_epoch_counting(), true);
     }
-    assert_eq!(next_id_provider.next_seq_id.get(), 101);
+    assert_eq!(next_id_provider.next_seq_id, 101);
     assert_eq!(next_id_provider.count, 1);
 
     {
@@ -553,22 +552,25 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.persistent_epoch_counting(), true);
     }
-    assert_eq!(next_id_provider.next_seq_id.get(), 102);
+    assert_eq!(next_id_provider.next_seq_id, 102);
     assert_eq!(next_id_provider.count, 2);
 
     Ok(())
 }
 
 struct PersistentRestartProvider {
-    next_seq_id: NonZeroU16,
+    next_seq_id: u16,
     count: usize,
 }
 
 impl RestartCounter for PersistentRestartProvider {
-    fn next_sequence_id(&mut self, _probe_id: ProbeId) -> Option<NonZeroU16> {
+    fn next_sequence_id(
+        &mut self,
+        _probe_id: ProbeId,
+    ) -> Result<u16, RestartSequenceIdUnavailable> {
         let next = self.next_seq_id;
-        self.next_seq_id = NonZeroU16::new(next.get() + 1).unwrap();
+        self.next_seq_id = next.wrapping_add(1);
         self.count += 1;
-        Some(next)
+        Ok(next)
     }
 }

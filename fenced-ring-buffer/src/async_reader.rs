@@ -1,12 +1,14 @@
-//! Reader of the FencedRingBuffer. Can asynchronously read from a writer::FencedRingBuffer into its own buffer.
-//! To construct a reader::FencedReader, a Snapper must be implemented, which specifies how to access
-//! the fields of the target FencedRingBuffer.
+//! Reader of the FencedRingBuffer. Can asynchronously read from a
+//! writer::FencedRingBuffer into its own buffer. To construct a
+//! reader::FencedReader, a Snapper must be implemented, which specifies how to
+//! access the fields of the target FencedRingBuffer.
 use crate::{get_seqn_index, num_missed, Entry, SeqNum, WholeEntry};
 use std::cmp::min;
 
 /// Used to "snap" observations of the FencedRingBuffer's write sequence number
 /// or entries in the FencedRingBuffer's backing storage. Each Snapper access
-/// should have sequential consistency with the memory access of the FencedRingBuffer writer
+/// should have sequential consistency with the memory access of the
+/// FencedRingBuffer writer
 pub trait Snapper<E>
 where
     E: Entry,
@@ -14,17 +16,22 @@ where
     /// Error during snapping
     type Error: std::error::Error;
 
-    /// Take a snapshot of the high 32 bits of the write sequence number of the FencedRingBuffer
+    /// Take a snapshot of the high 32 bits of the write sequence number of the
+    /// FencedRingBuffer
     fn snap_write_seqn_high(&self) -> Result<u32, Self::Error>;
-    /// Take a snapshot of the low 32 bits of the write sequence number of the FencedRingBuffer
+    /// Take a snapshot of the low 32 bits of the write sequence number of the
+    /// FencedRingBuffer
     fn snap_write_seqn_low(&self) -> Result<u32, Self::Error>;
 
-    /// Take a snapshot of the high 32 bits of the overwrite sequence number of the FencedRingBuffer
+    /// Take a snapshot of the high 32 bits of the overwrite sequence number of
+    /// the FencedRingBuffer
     fn snap_overwrite_seqn_high(&self) -> Result<u32, Self::Error>;
-    /// Take a snapshot of the low 32 bits of the overwrite sequence number of the FencedRingBuffer
+    /// Take a snapshot of the low 32 bits of the overwrite sequence number of
+    /// the FencedRingBuffer
     fn snap_overwrite_seqn_low(&self) -> Result<u32, Self::Error>;
 
-    /// Take a snapshot of the FencedRingBuffer's backing storage at the given index
+    /// Take a snapshot of the FencedRingBuffer's backing storage at the given
+    /// index
     fn snap_storage(&self, index: usize) -> Result<E, Self::Error>;
 }
 
@@ -70,7 +77,8 @@ where
         let pre_overwrite_seqn = self.snap_overwrite_seqn()?;
         let pre_write_seqn = self.snap_write_seqn()?;
 
-        // If writer has overwritten unread entries between reads, store missed and correct read_seqn
+        // If writer has overwritten unread entries between reads, store missed and
+        // correct read_seqn
         let mut n_missed_before_read = num_missed(self.read_seqn, pre_overwrite_seqn);
         self.read_seqn += n_missed_before_read;
 
@@ -96,8 +104,9 @@ where
             num_missed(first_read_seqn, post_overwrite_seqn),
             (self.buf_snapshot.len() as u64).into(),
         );
-        // If any entries were missed and there is a stored prefix, then the entry after the prefix was missed.
-        // The prefix is dropped and added to the missed count
+        // If any entries were missed and there is a stored prefix, then the entry after
+        // the prefix was missed. The prefix is dropped and added to the missed
+        // count
         if (u64::from(n_missed_before_read) > 0 || u64::from(n_overwritten_in_snap) > 0)
             && self.drop_prefix()
         {
@@ -147,7 +156,8 @@ where
         )
     }
 
-    /// Get a consistent snapshot of a sequence number, retrying if inconsistency is detected
+    /// Get a consistent snapshot of a sequence number, retrying if
+    /// inconsistency is detected
     fn snap_seqn<F, G>(snap_high: F, snap_low: G) -> Result<SeqNum, S::Error>
     where
         F: Fn() -> Result<u32, S::Error>,
@@ -156,25 +166,29 @@ where
         let mut initial_high;
         let mut final_high;
         let mut low;
-        // Note: This will loop until a consistent snapshot is acquired. If the high word is incremented during
-        // the snapshot, then the snapshot will not be consistent. However, the high word is only incremented every
-        // 2^32 entries written to the buffer. We assume that the amount of time it takes to take a snapshot is
-        // negligible compared to the time it takes to increment the high word. Therefore, there should only be one
-        // retry at most, in the case where the first snapshot attempt and an increment to the high word happen to overlap.
+        // Note: This will loop until a consistent snapshot is acquired. If the high
+        // word is incremented during the snapshot, then the snapshot will not
+        // be consistent. However, the high word is only incremented every
+        // 2^32 entries written to the buffer. We assume that the amount of time it
+        // takes to take a snapshot is negligible compared to the time it takes
+        // to increment the high word. Therefore, there should only be one retry
+        // at most, in the case where the first snapshot attempt and an increment to the
+        // high word happen to overlap.
         while {
             // Wait until the sequence number high word is not getting updated
             initial_high = Self::snap_consistent_high(&snap_high)?;
             low = snap_low()?;
             final_high = snap_high()?;
             // Check that the high word did not change between the two snapshots. If it did,
-            // The low word is unusable because we are not sure which high word it corresponds to.
-            // In that case, retry the whole sequence
+            // The low word is unusable because we are not sure which high word it
+            // corresponds to. In that case, retry the whole sequence
             initial_high != final_high
         } {}
         Ok(SeqNum::new(final_high, low))
     }
 
-    /// Get a snapshot of the high word of a sequence number, retrying if the "updating" bit is set
+    /// Get a snapshot of the high word of a sequence number, retrying if the
+    /// "updating" bit is set
     fn snap_consistent_high<F>(snap_high: F) -> Result<u32, S::Error>
     where
         F: Fn() -> Result<u32, S::Error>,
@@ -188,8 +202,7 @@ where
     }
 }
 
-#[cfg(test)]
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", test))]
 mod tests {
     use super::*;
     use crate::test_support::{OrderedEntry, PtrSnapper};
@@ -238,7 +251,8 @@ mod tests {
         );
 
         out.clear();
-        // Read in the middle of a double entry should wait until suffix is read to output whole double
+        // Read in the middle of a double entry should wait until suffix is read to
+        // output whole double
         buf.push(OrderedEntry::from_index_prefix(8));
         assert_eq!(0, buf_reader.read(&mut out).unwrap());
         assert_eq!(Vec::<WholeEntry<OrderedEntry>>::new(), out);
