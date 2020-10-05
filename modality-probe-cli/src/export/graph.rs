@@ -140,24 +140,44 @@ impl NodeAndEdgeLists<GraphEvent> {
     pub fn probe_log<'a>(&'a self, probe_id: ProbeId) -> Vec<&'a GraphEvent> {
         let mut log = Vec::new();
         for (s, t) in self.edges.iter().filter(|(_, t)| t.probe_id == probe_id) {
+            log.push((t, (t.clock.pack().1 as f32, t.seq, t.seq_idx)));
+            // If the source of the edge was from a different probe,
+            // collect the events from the corresponding segment and
+            // add them to our log.
             if s.probe_id != probe_id {
                 for nn in self
                     .nodes
                     .iter()
                     .filter(|n| n.clock == s.clock && n.probe_id == s.probe_id)
                 {
+                    // Neighbor segments are annotated with
+                    // half-clocks so they end up inbetween local
+                    // events in the log when it gets sorted. If a
+                    // target has > 1 incoming edge from a neighbor,
+                    // those are arbitrarily ordered by those
+                    // neighbors' sequence numbers.
+                    //
+                    // NOTE: this is natural due to the nature of a
+                    // poset, nodes from distinct timelines are not
+                    // comparable.
                     log.push((nn, (t.clock.pack().1 as f32 - 0.5, nn.seq, nn.seq_idx)));
                 }
             } else {
+                // Otherwise, just insert the local source event.
                 log.push((s, (s.clock.pack().1 as f32, s.seq, s.seq_idx)));
-                log.push((t, (t.clock.pack().1 as f32, t.seq, t.seq_idx)));
             }
         }
         log.sort_by(|a, b| {
             a.1.partial_cmp(&b.1)
                 .expect("error: should be able to compare two floats")
         });
-        log.into_iter().map(|(g, _)| g).collect()
+        // If a node has more than one incoming edge, it will appear
+        // twice in the log, this unique-ifies the log.
+        let mut log_set = HashSet::new();
+        log.into_iter()
+            .map(|(g, _)| g)
+            .filter(|g| log_set.insert(*g))
+            .collect()
     }
 }
 
@@ -359,6 +379,10 @@ mod test {
 
     use uuid::Uuid;
 
+    use modality_probe::{EventId, LogicalClock, ProbeEpoch, ProbeId, ProbeTicks};
+    use modality_probe_collector_common::SequenceNumber;
+    use modality_probe_graph::GraphEvent;
+
     use crate::meta::{Cfg, EventMeta, ProbeMeta};
 
     use super::super::templates;
@@ -545,5 +569,96 @@ mod test {
             .dot(&cfg, "topo", templates::TOPO)
             .unwrap();
         assert!(dot.contains("one -> two"), dot);
+    }
+
+    #[test]
+    fn probe_log() {
+        let diamond_log = modality_probe_graph::test_support::diamond()
+            .into_iter()
+            .map(|e| (&e).try_into().unwrap())
+            .peekable();
+        let graph = super::log_to_graph(diamond_log).unwrap();
+        let expected_perm1 = vec![
+            GraphEvent {
+                id: EventId::new(2).unwrap(),
+                payload: None,
+                probe_id: ProbeId::new(2).unwrap(),
+                clock: LogicalClock {
+                    id: ProbeId::new(2).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                seq: SequenceNumber(1),
+                seq_idx: 2,
+            },
+            GraphEvent {
+                id: EventId::new(3).unwrap(),
+                payload: None,
+                probe_id: ProbeId::new(3).unwrap(),
+                clock: LogicalClock {
+                    id: ProbeId::new(3).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                seq: SequenceNumber(1),
+                seq_idx: 2,
+            },
+            GraphEvent {
+                id: EventId::new(4).unwrap(),
+                payload: None,
+                probe_id: ProbeId::new(4).unwrap(),
+                clock: LogicalClock {
+                    id: ProbeId::new(4).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
+                seq: SequenceNumber(1),
+                seq_idx: 4,
+            },
+        ];
+        let expected_perm2 = vec![
+            GraphEvent {
+                id: EventId::new(3).unwrap(),
+                payload: None,
+                probe_id: ProbeId::new(3).unwrap(),
+                clock: LogicalClock {
+                    id: ProbeId::new(3).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                seq: SequenceNumber(1),
+                seq_idx: 2,
+            },
+            GraphEvent {
+                id: EventId::new(2).unwrap(),
+                payload: None,
+                probe_id: ProbeId::new(2).unwrap(),
+                clock: LogicalClock {
+                    id: ProbeId::new(2).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                seq: SequenceNumber(1),
+                seq_idx: 2,
+            },
+            GraphEvent {
+                id: EventId::new(4).unwrap(),
+                payload: None,
+                probe_id: ProbeId::new(4).unwrap(),
+                clock: LogicalClock {
+                    id: ProbeId::new(4).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
+                seq: SequenceNumber(1),
+                seq_idx: 4,
+            },
+        ];
+        assert!(
+            graph.graph.probe_log(ProbeId::new(4).unwrap())
+                == expected_perm1.iter().map(|g| g).collect::<Vec<_>>()
+                || graph.graph.probe_log(ProbeId::new(4).unwrap())
+                    == expected_perm2.iter().map(|g| g).collect::<Vec<_>>()
+        );
     }
 }
