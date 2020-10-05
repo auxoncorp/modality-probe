@@ -355,10 +355,10 @@ syslog(
 ```
 
 This will place a Modality causal-coordinate into your log message, so
-that later in offline processing any given log message can be correlated
-with a specific location in the Modality probe's logical timeline. With
-just a little bit of effort you can now stitch together the causal history
-of your typical device logging along side Modality's events & expectations.
+that later in offline processing any given log message can be
+correlated with a specific location in the Modality probe's logical
+timeline. You can now stitch together the causal history of your
+typical device logging along side Modality's events & expectations.
 
 ## Running the Tests
 

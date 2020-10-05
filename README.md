@@ -201,7 +201,7 @@ $ modality-probe header-gen \
 ```
 
 NOTE: It can be helpful to have the manifest & header generation tools run as
-part of your regular build process to automatatically pick up changes to
+part of your regular build process to automatically pick up changes to
 your instrumentation or alert you to potential issues in your instrumentation.
 To do this you can include this process in your crate's `build.rs` file.
 
@@ -371,14 +371,14 @@ log::info!("Producer now {:?}", instant);
 ```
 
 This will place a Modality causal-coordinate into your log message, so
-that later in offline processing any given log message can be correlated
-with a specific location in the Modality probe's logical timeline. With
-just a little bit of effort you can now stitch together the causal history
-of your typical device logging along side Modality's events & expectations.
+that later in offline processing any given log message can be
+correlated with a specific location in the Modality probe's logical
+timeline. You can now stitch together the causal history of your
+typical device logging along side Modality's events & expectations.
 
 ## Running the tests
 
-To run the the Rust unit & property-based test suites you need to run:
+To run the Rust unit & property-based test suites you need to run:
 
 ```shell
 $ cargo test --features std
