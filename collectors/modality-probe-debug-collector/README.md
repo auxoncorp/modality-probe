@@ -9,7 +9,7 @@ to the target program.
 
 ### Dependencies
 
-* [Rust Toolchain](https://rustup.sh)
+* [Rust Toolchain](https://rustup.rs)
 * [libusb](https://libusb.info/)
 * [libftd](https://www.intra2net.com/en/developer/libftdi/)
 
