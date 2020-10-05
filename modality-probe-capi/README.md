@@ -80,7 +80,7 @@ be covering each of these individually below.
 
 Step one is to initialize your probe. Modality probes are _not_
 thread-safe on their own, so it is recommended that you use a new
-probe for each thread.
+probe for each thread or execution context.
 
 ```c
 err = MODALITY_PROBE_INIT(
@@ -140,6 +140,7 @@ err = MODALITY_PROBE_EXPECT(
 ```
 
 ### Tracking Interactions
+
 To connect two probe's causal history, they must exchange
 _snapshots_. A snapshot contains the sender's current logical clock
 and it can be merged into the receiver's log, creating a causal
@@ -204,10 +205,14 @@ their definitions. To do that, we'll use `header-gen`:
 ```shell
 $ mkdir -p ../examples/c-example/include
 $ modality-probe header-gen \
-    --lang rust
-    --output-path ../examples/c-example/include/component_definitions.h
+    --lang c \
+    --output-path ../examples/c-example/include/component_definitions.h \
     example-component
 ```
+
+NOTE: It can be helpful to have the manifest & header generation tools run as
+part of your regular build process to automatatically pick up changes to
+your instrumentation or alert you to potential issues in your instrumentation.
 
 ### Setting up a Collector
 
@@ -228,11 +233,18 @@ Using the configuration:
 ```
 
 When the service starts it prints the configuration it's using. In the
-example above it's using all defaults. You can also pass args to
-direct it to a certain port, or a specific output file.
+example above it's using all defaults. You can also pass CLI arguments to
+direct the collector to listen on a certain port and write to a specific
+output file. Check `modality-probe-udp-collector --help` for details.
 
-To get data out to a collector, use the Probe's `report` API, and then
-send the report that that API creates along to your collector.
+### Getting Trace Data Out of the System
+
+`modality-probe` is intended to be flexible in the kind of environments
+that it can be deployed in. There are generally two ways to get trace data
+out of the system.
+
+The first is to use an I/O interface on your device and use the `report` API to
+send data to a waiting collector, like in this UDP oriented example below:
 
 ```c
 static void send_report(modality_probe * const probe)
@@ -258,6 +270,10 @@ static void send_report(modality_probe * const probe)
     }
 }
 ```
+
+The second is to connect to your device over its JTAG/SWD debug interface using the
+`modality-probe-debug-collector` and pull data down over the debug interface to
+the host machine ([see here for details](./collectors/modality-probe-debug-collector/README.md)).
 
 ### Running the Instrumented Example
 
@@ -304,7 +320,10 @@ $ head session_0_log_entries.jsonl
 ```
 
 ### Visualizing the Trace
-Now we can use this collected trace and visualize it as a graph with `modality-probe export`:
+
+Now we can use this collected trace and visualize it as a graph with `modality-probe export`
+which will export the trace as a Graphviz DOT format file. The example below uses the `dot`
+command, and thus assumes you've already installed Graphviz which includes `dot`:
 
 ```shell
 $ modality-probe export acyclic --component ./example-component --report session_0_log_entries.jsonl > trace.dot
@@ -335,9 +354,15 @@ syslog(
         now.event_count);
 ```
 
+This will place a Modality causal-coordinate into your log message, so
+that later in offline processing any given log message can be
+correlated with a specific location in the Modality probe's logical
+timeline. You can now stitch together the causal history of your
+typical device logging along side Modality's events & expectations.
+
 ## Running the Tests
 
-Use Cargo:
+To run the C API tests use:
 
 ```shell
 $ cargo test
@@ -345,7 +370,7 @@ $ cargo test
 
 ## API
 
-See [probe.h](./include/probe.h).
+See [probe.h](./include/probe.h) for details.
 
 ## License
 
