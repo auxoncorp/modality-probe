@@ -1,0 +1,32 @@
+[package]
+name = "modality-probe-offline-batch-collector"
+version = "0.1.0"
+authors = ["Jon Lamb"]
+edition = "2018"
+
+[[bin]]
+name = "modality-probe-offline-batch-collector"
+path = "src/main.rs"
+test = false
+
+[[bin]]
+name = "modality-probe-offline-batch-collector-completions"
+path = "src/completions.rs"
+test = false
+
+[lib]
+name = "modality_probe_offline_batch_collector"
+path = "src/lib.rs"
+
+[dependencies]
+structopt = "0.3"
+env_logger = "0.7.1"
+log = "0.4"
+buf_redux = { version = "0.8", features = ["slice-deque"] }
+chrono = { version = "0.4", features = ["serde"] }
+modality-probe = { path = "../../", features = ["std"] }
+modality-probe-collector-common = { path = "../modality-probe-collector-common" }
+
+[dev-dependencies]
+tempfile = "3.1"
+proptest = { version = "0.10.1", default-features = false, features = ["std"] }
