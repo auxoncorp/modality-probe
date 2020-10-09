@@ -195,6 +195,7 @@ impl<'a, I: Read, O: Write> OfflineBatchCollector<'a, I, O> {
                         bytes_consumed += report_size;
                         debug!("Found report, size {} bytes", report_size);
                         let report_bytes = &r.into_inner()[..report_size];
+                        self.log_entries_buffer.clear();
                         match Report::try_from(report_bytes) {
                             Ok(log_report) => {
                                 let metrics = self
@@ -203,7 +204,6 @@ impl<'a, I: Read, O: Write> OfflineBatchCollector<'a, I, O> {
                                     .entry(log_report.probe_id)
                                     .or_default();
                                 metrics.update(&log_report);
-                                self.log_entries_buffer.clear();
                                 common::add_log_report_to_entries(
                                     &log_report,
                                     self.session_id,
