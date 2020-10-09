@@ -135,6 +135,15 @@ pub struct ReportLogEntry {
     pub receive_time: DateTime<Utc>,
 }
 
+impl ReportLogEntry {
+    pub fn is_frontier_clock(&self) -> bool {
+        match self.data {
+            LogEntryData::FrontierClock(_) => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum LogEntryData {
     FrontierClock(LogicalClock),
