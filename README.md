@@ -28,6 +28,10 @@ environments.
   UDP-based service that collects probes' outgoing reports.
 * [Debug Collector](./collectors/modality-probe-debug-collector): A
   collector that uses JTAG to retrieve data from the probes' logs.
+* [Batch
+  Collector](./collectors/modality-probe-offline-batch-collector): A
+  utility for converting batches of binary report blobs into log
+  files.
 
 ## Getting Started
 
@@ -337,7 +341,7 @@ $ dot -Tpng trace.dot > trace.png
 
 You can then open `trace.png` and see something like this:
 
-![trace](https://user-images.githubusercontent.com/1671674/94278188-61d9ca00-feff-11ea-8f97-ce552ee8a25a.png)
+![trace](https://user-images.githubusercontent.com/1194436/95799022-4402b800-0ca8-11eb-9ad3-a8c0fab31fe5.png)
 
 ### Associating Causality with your Existing Logging
 
