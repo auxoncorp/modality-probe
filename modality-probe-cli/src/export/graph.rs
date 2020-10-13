@@ -152,12 +152,7 @@ impl NodeAndEdgeLists<GraphEvent> {
         NF: FnMut(&'a GraphEvent) -> bool,
         EF: FnMut(&'a GraphEvent, &'a GraphEvent) -> bool,
     {
-        let nodes = self
-            .nodes
-            .iter()
-            .filter(|n| node_filter(n))
-            .map(|n| n)
-            .collect();
+        let nodes = self.nodes.iter().filter(|n| node_filter(n)).collect();
 
         let edges = self
             .edges

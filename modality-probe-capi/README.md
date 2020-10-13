@@ -332,7 +332,7 @@ $ dot -Tpng trace.dot > trace.png
 
 You can then open `trace.png` and see something like this:
 
-![trace](https://user-images.githubusercontent.com/1194436/92818571-b6683b80-f37c-11ea-9f50-aa1fd2fbf430.png)
+![trace](https://user-images.githubusercontent.com/1194436/95799022-4402b800-0ca8-11eb-9ad3-a8c0fab31fe5.png)
 
 ### Associating Causality with your Existing Logging
 
