@@ -290,10 +290,19 @@ fn graph_to_tree<'a>(
                     .as_ref()
                     .and_then(|th| parsed_payload(&th, pl).ok())
             });
+            let has_log_str = emeta.description.contains("{}");
+            let log_str = if has_log_str && payload.is_some() {
+                Some(emeta.description.replace("{}", payload.as_ref().unwrap()))
+            } else {
+                None
+            };
+
             probe.events.push(Event {
                 is_known: true,
                 probe_name: probe.name.clone(),
                 has_payload: payload.is_some(),
+                has_log_str,
+                log_str,
                 payload,
                 meta: Some(emeta),
                 raw_id: node.id.get_raw(),
@@ -305,6 +314,8 @@ fn graph_to_tree<'a>(
         } else {
             probe.events.push(Event {
                 is_known: false,
+                has_log_str: false,
+                log_str: None,
                 probe_name: probe.name.clone(),
                 meta: None,
                 has_payload: false,
@@ -315,7 +326,7 @@ fn graph_to_tree<'a>(
                 seq: node.seq.0,
                 seq_idx: node.seq_idx,
             });
-        }
+        };
     }
 
     for (s, t) in edges {
@@ -339,6 +350,8 @@ fn graph_to_tree<'a>(
                     // enumeration.
                     payload: None,
                     has_payload: false,
+                    log_str: None,
+                    has_log_str: false,
                 }
             } else {
                 Event {
@@ -354,6 +367,8 @@ fn graph_to_tree<'a>(
                     // enumeration.
                     payload: None,
                     has_payload: false,
+                    log_str: None,
+                    has_log_str: false,
                 }
             }
         };
@@ -377,6 +392,8 @@ fn graph_to_tree<'a>(
                     // enumeration.
                     payload: None,
                     has_payload: false,
+                    log_str: None,
+                    has_log_str: false,
                 }
             } else {
                 Event {
@@ -392,6 +409,8 @@ fn graph_to_tree<'a>(
                     // enumeration.
                     payload: None,
                     has_payload: false,
+                    log_str: None,
+                    has_log_str: false,
                 }
             }
         };
