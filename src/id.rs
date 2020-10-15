@@ -26,11 +26,21 @@ impl ProbeId {
 
     /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
     #[inline]
-    pub fn new(raw_id: u32) -> Option<Self> {
+    pub const fn new(raw_id: u32) -> Option<Self> {
         if raw_id > Self::MAX_ID {
             return None;
         }
-        NonZeroU32::new(raw_id).map(Self)
+        match NonZeroU32::new(raw_id) {
+            Some(id) => Some(Self(id)),
+            None => None,
+        }
+    }
+
+    /// # Safety
+    ///
+    /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
+    pub const unsafe fn new_unchecked(raw_id: u32) -> Self {
+        Self(NonZeroU32::new_unchecked(raw_id))
     }
 
     /// Get the underlying value with Rust's assurances
@@ -226,11 +236,21 @@ impl EventId {
 
     /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
     #[inline]
-    pub fn new(raw_id: u32) -> Option<Self> {
+    pub const fn new(raw_id: u32) -> Option<Self> {
         if raw_id > Self::MAX_USER_ID {
             return None;
         }
-        NonZeroU32::new(raw_id).map(Self)
+        match NonZeroU32::new(raw_id) {
+            Some(id) => Some(Self(id)),
+            None => None,
+        }
+    }
+
+    /// # Safety
+    ///
+    /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
+    pub const unsafe fn new_unchecked(raw_id: u32) -> Self {
+        Self(NonZeroU32::new_unchecked(raw_id))
     }
 
     /// A means of generating ids for internal protocol use.

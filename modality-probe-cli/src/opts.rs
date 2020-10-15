@@ -85,9 +85,20 @@ mod test {
     #[test]
     fn parse_opts_header_gen() {
         assert_eq!(
-            Opts::from_iter(["modality-probe", "header-gen", "--lang", "Rust", "comp",].iter()),
+            Opts::from_iter(
+                [
+                    "modality-probe",
+                    "header-gen",
+                    "--lang",
+                    "Rust",
+                    "--rust-u32-types",
+                    "comp",
+                ]
+                .iter()
+            ),
             Opts::HeaderGen(HeaderGen {
                 lang: Lang::Rust,
+                rust_u32_types: true,
                 include_guard_prefix: "MODALITY_PROBE".to_string(),
                 output_path: None,
                 component_path: PathBuf::from("comp"),
@@ -108,6 +119,7 @@ mod test {
             ),
             Opts::HeaderGen(HeaderGen {
                 lang: Lang::C,
+                rust_u32_types: false,
                 include_guard_prefix: "MODALITY_PROBE".to_string(),
                 output_path: Some(PathBuf::from("my_dir")),
                 component_path: PathBuf::from("comp1"),

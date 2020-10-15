@@ -231,8 +231,12 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (args, full_name) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let arg = Span::new_extra(&full_name, input.extra);
-    let (_, name) = alt((reduced_event_id_exp_alt_a, reduced_event_id_exp_alt_b))(arg)
-        .map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    let (_, name) = alt((
+        reduced_event_id_exp_alt_a,
+        reduced_event_id_exp_alt_b,
+        reduced_event_id_exp_alt_c,
+    ))(arg)
+    .map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     let name =
         reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     if !event_name_valid(&name) {
@@ -380,8 +384,12 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         rest_string(name_token).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
     };
     let arg = Span::new_extra(&full_name, input.extra);
-    let (_, name) = alt((reduced_event_id_exp_alt_a, reduced_event_id_exp_alt_b))(arg)
-        .map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    let (_, name) = alt((
+        reduced_event_id_exp_alt_a,
+        reduced_event_id_exp_alt_b,
+        reduced_event_id_exp_alt_c,
+    ))(arg)
+    .map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     let name =
         reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     if !event_name_valid(&name) {
@@ -506,8 +514,12 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     let (args, full_name) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let arg = Span::new_extra(&full_name, input.extra);
-    let (_, name) = alt((reduced_event_id_exp_alt_a, reduced_event_id_exp_alt_b))(arg)
-        .map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    let (_, name) = alt((
+        reduced_event_id_exp_alt_a,
+        reduced_event_id_exp_alt_b,
+        reduced_event_id_exp_alt_c,
+    ))(arg)
+    .map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     let name =
         reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     if !event_name_valid(&name) {
@@ -579,6 +591,20 @@ fn reduced_event_id_exp_alt_b(input: Span) -> ParserResult<Span, String> {
     let (input, _) = take_until("(")(input)?;
     let (input, _) = tag("(")(input)?;
     let (input, id) = take_until(")")(input)?;
+    if !id
+        .fragment()
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == ':')
+    {
+        return Err(make_error(input, Error::Syntax(pos.into())));
+    }
+    Ok((input, trimmed_string(id.fragment())))
+}
+
+fn reduced_event_id_exp_alt_c(input: Span) -> ParserResult<Span, String> {
+    let (input, _) = comments_and_spacing(input)?;
+    let (input, pos) = position(input)?;
+    let (input, id) = rest(input)?;
     if !id
         .fragment()
         .chars()
@@ -1039,6 +1065,13 @@ mod tests {
         tags!("example")
     )
     .expect("Could not record event");
+
+    record!(
+        probe,
+        PRODUCER_STARTED,
+        "Measurement producer thread started",
+        tags!("producer")
+    );
 "#;
 
     #[test]
@@ -1230,6 +1263,14 @@ mod tests {
                     description: Some("Loop counter % 10 event".to_string()),
                     tags: Some("EXPECTATION;example".to_string()),
                     location: (1840, 67, 5).into(),
+                },
+                EventMetadata {
+                    name: "PRODUCER_STARTED".to_string(),
+                    probe_instance: "probe".to_string(),
+                    payload: None,
+                    description: Some("Measurement producer thread started".to_string()),
+                    tags: Some("producer".to_string()),
+                    location: (2041, 76, 5).into(),
                 },
             ])
         );

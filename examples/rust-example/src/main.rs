@@ -1,8 +1,8 @@
 use crossbeam::{crossbeam_channel, thread};
 use log::{info, trace};
 use modality_probe::{
-    try_expect, try_initialize_at, try_record, try_record_w_i8, CausalSnapshot, ModalityProbe,
-    Probe, RestartCounterProvider,
+    expect, initialize_at, record, record_w_i8, CausalSnapshot, ModalityProbe, Probe,
+    RestartCounterProvider,
 };
 use rand::{thread_rng, Rng};
 use std::{env, fmt, net::UdpSocket};
@@ -62,7 +62,7 @@ fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
     info!("Sensor measurement producer thread starting");
 
     let mut storage = [0u8; PROBE_SIZE];
-    let probe = try_initialize_at!(
+    let probe = initialize_at!(
         &mut storage,
         PRODUCER_PROBE,
         RestartCounterProvider::NoRestartTracking,
@@ -74,13 +74,12 @@ fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
     let mut report_buffer = vec![0u8; REPORT_SIZE];
     let socket = UdpSocket::bind("0.0.0.0:0").expect("Could not bind");
 
-    try_record!(
+    record!(
         probe,
         PRODUCER_STARTED,
         "Measurement producer thread started",
         tags!("producer")
-    )
-    .expect("Could not record event");
+    );
 
     let instant = probe.now();
     trace!("Producer now {:?}", instant);
@@ -88,36 +87,33 @@ fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
     let mut rng = thread_rng();
     let m: i8 = 1 + rng.gen_range(-1, 2);
 
-    try_record_w_i8!(
+    record_w_i8!(
         probe,
         PRODUCER_MEASUREMENT_SAMPLED,
         m,
         tags!("producer", "measurement sample"),
         "Measurement producer sampled a value for transmission"
-    )
-    .expect("could not record event with payload");
+    );
 
     // Construct a measurement for transmission with a Modality probe snapshot in-band
     let snapshot = probe.produce_snapshot();
     let measurement = Measurement { m, snapshot };
 
     let tx_status = tx.send(measurement);
-    try_expect!(
+    expect!(
         probe,
         PRODUCER_MEASUREMENT_SENT,
         tx_status.is_ok(),
         "Measurement producer sent a measurement",
         tags!("producer", "transmit", "SEVERITY_10")
-    )
-    .expect("Could not record event");
+    );
 
-    try_record!(
+    record!(
         probe,
         PRODUCER_SHUTDOWN,
         "Measurement producer thread shutting down",
         tags!("producer")
-    )
-    .expect("Could not record event");
+    );
 
     send_report(&socket, probe, &mut report_buffer);
 }
@@ -126,7 +122,7 @@ fn measurement_consumer_thread(rx: crossbeam_channel::Receiver<Measurement>) {
     info!("Sensor measurement consumer thread starting");
 
     let mut storage = [0u8; PROBE_SIZE];
-    let probe = try_initialize_at!(
+    let probe = initialize_at!(
         &mut storage,
         CONSUMER_PROBE,
         RestartCounterProvider::NoRestartTracking,
@@ -138,13 +134,12 @@ fn measurement_consumer_thread(rx: crossbeam_channel::Receiver<Measurement>) {
     let mut report_buffer = vec![0u8; REPORT_SIZE];
     let socket = UdpSocket::bind("0.0.0.0:0").expect("Could not bind");
 
-    try_record!(
+    record!(
         probe,
         CONSUMER_STARTED,
         "Measurement consumer thread started",
         tags!("consumer")
-    )
-    .expect("Could not record event");
+    );
 
     // Wait for a new measurement from the producer or a disconnect
     if let Ok(measurement) = rx.recv() {
@@ -156,25 +151,23 @@ fn measurement_consumer_thread(rx: crossbeam_channel::Receiver<Measurement>) {
             .merge_snapshot(&measurement.snapshot)
             .expect("Could not merge snapshot");
 
-        try_record_w_i8!(
+        record_w_i8!(
             probe,
             CONSUMER_MEASUREMENT_RECVD,
             measurement.m,
             tags!("consumer", "measurement"),
             "Measurement consumer recvd a new value"
-        )
-        .expect("could not record event with payload");
+        );
 
         info!("Consumer recvd {}", measurement);
     }
 
-    try_record!(
+    record!(
         probe,
         CONSUMER_SHUTDOWN,
         "Measurement consumer thread shutting down",
         tags!("producer")
-    )
-    .expect("Could not record event");
+    );
 
     send_report(&socket, probe, &mut report_buffer);
 }

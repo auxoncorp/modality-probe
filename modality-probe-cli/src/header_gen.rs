@@ -5,6 +5,7 @@ use crate::{
     lang::Lang,
     probes::{Probe, Probes},
 };
+use modality_probe::{EventId, ProbeId};
 use sha3::{Digest, Sha3_256};
 use std::fs::File;
 use std::io;
@@ -17,6 +18,10 @@ pub struct HeaderGen {
     /// The language to output the source in. Either `c' or `rust'.
     #[structopt(short, long, parse(try_from_str), default_value = "C")]
     pub lang: Lang,
+
+    /// When generating Rust definitions, use bare u32 types instead of ProbeId/EventId types
+    #[structopt(long)]
+    pub rust_u32_types: bool,
 
     /// C header include guard prefix
     #[structopt(long, default_value = "MODALITY_PROBE")]
@@ -34,10 +39,11 @@ pub struct HeaderGen {
 impl Default for HeaderGen {
     fn default() -> Self {
         HeaderGen {
-            component_path: PathBuf::new(),
             lang: Lang::Rust,
+            rust_u32_types: false,
             include_guard_prefix: String::from("MODALITY_PROBE"),
             output_path: None,
+            component_path: PathBuf::new(),
         }
     }
 }
@@ -46,15 +52,7 @@ trait ConstGenerator {
     fn primitive_value(&self) -> u32;
     fn definition_name(&self) -> String;
     fn doc_comment(&self, lang: Lang) -> String;
-
-    fn generate_const_definition(&self, lang: Lang) -> String {
-        let definition_name = self.definition_name();
-        let primitive_value = self.primitive_value();
-        match lang {
-            Lang::C => format!("#define {} ({}UL)", definition_name, primitive_value),
-            Lang::Rust => format!("pub const {}: u32 = {};", definition_name, primitive_value),
-        }
-    }
+    fn generate_const_definition(&self, lang: Lang, rust_u32_types: bool) -> String;
 }
 
 impl ConstGenerator for Probe {
@@ -86,6 +84,31 @@ impl ConstGenerator for Probe {
                 self.file,
                 self.line
             ),
+        }
+    }
+
+    fn generate_const_definition(&self, lang: Lang, rust_u32_types: bool) -> String {
+        let definition_name = self.definition_name();
+        let primitive_value = self.primitive_value();
+        match lang {
+            Lang::C => format!("#define {} ({}UL)", definition_name, primitive_value),
+            Lang::Rust => {
+                if rust_u32_types {
+                    format!("pub const {}: u32 = {};", definition_name, primitive_value)
+                } else {
+                    if ProbeId::new(primitive_value).is_none() {
+                        exit_error!(
+                            "header-gen",
+                            "Encountered an invalid ProbeId {} in the component",
+                            primitive_value
+                        );
+                    }
+                    format!(
+                        "pub const {}: ProbeId = unsafe {{ ProbeId::new_unchecked({}) }};",
+                        definition_name, primitive_value
+                    )
+                }
+            }
         }
     }
 }
@@ -121,6 +144,31 @@ impl ConstGenerator for Event {
                 self.file,
                 self.line
             ),
+        }
+    }
+
+    fn generate_const_definition(&self, lang: Lang, rust_u32_types: bool) -> String {
+        let definition_name = self.definition_name();
+        let primitive_value = self.primitive_value();
+        match lang {
+            Lang::C => format!("#define {} ({}UL)", definition_name, primitive_value),
+            Lang::Rust => {
+                if rust_u32_types {
+                    format!("pub const {}: u32 = {};", definition_name, primitive_value)
+                } else {
+                    if EventId::new(primitive_value).is_none() {
+                        exit_error!(
+                            "header-gen",
+                            "Encountered an invalid EventId {} in the component",
+                            primitive_value
+                        );
+                    }
+                    format!(
+                        "pub const {}: EventId = unsafe {{ EventId::new_unchecked({}) }};",
+                        definition_name, primitive_value
+                    )
+                }
+            }
         }
     }
 }
@@ -159,7 +207,7 @@ impl HeaderGen {
     pub fn validate(&self) {
         if !self.component_path.exists() {
             exit_error!(
-                "manifest-gen",
+                "header-gen",
                 "The component path '{}' does not exist",
                 self.component_path.display()
             );
@@ -168,7 +216,7 @@ impl HeaderGen {
         let component_manifest_path = Component::component_manifest_path(&self.component_path);
         if !component_manifest_path.exists() {
             exit_error!(
-                "manifest-gen",
+                "header-gen",
                 "The component manifest path '{}' does not exist",
                 component_manifest_path.display()
             );
@@ -177,7 +225,7 @@ impl HeaderGen {
         let probes_manifest_path = Component::probes_manifest_path(&self.component_path);
         if !probes_manifest_path.exists() {
             exit_error!(
-                "manifest-gen",
+                "header-gen",
                 "The probes manifest path '{}' does not exist",
                 probes_manifest_path.display()
             );
@@ -186,7 +234,7 @@ impl HeaderGen {
         let events_manifest_path = Component::events_manifest_path(&self.component_path);
         if !events_manifest_path.exists() {
             exit_error!(
-                "manifest-gen",
+                "header-gen",
                 "The events manifest path '{}' does not exist",
                 events_manifest_path.display()
             );
@@ -197,7 +245,7 @@ impl HeaderGen {
 fn file_sha256<P: AsRef<Path>>(path: P) -> String {
     let mut file = File::open(path.as_ref()).unwrap_or_else(|e| {
         exit_error!(
-            "manifest-gen",
+            "header-gen",
             "Can't open file {} for hashing: {}",
             path.as_ref().display(),
             e
@@ -206,7 +254,7 @@ fn file_sha256<P: AsRef<Path>>(path: P) -> String {
     let mut sha256 = Sha3_256::new();
     io::copy(&mut file, &mut sha256).unwrap_or_else(|e| {
         exit_error!(
-            "manifest-gen",
+            "header-gen",
             "Error hashing file {}: {}",
             path.as_ref().display(),
             e
@@ -265,6 +313,8 @@ pub fn generate_output<W: io::Write>(
         writeln!(w, "#ifdef __cplusplus")?;
         writeln!(w, "extern \"C\" {{")?;
         writeln!(w, "#endif")?;
+    } else if !opt.rust_u32_types {
+        writeln!(w, "use modality_probe::{{EventId, ProbeId}};")?;
     }
 
     writeln!(w)?;
@@ -275,7 +325,11 @@ pub fn generate_output<W: io::Write>(
     for probe in probes.iter() {
         writeln!(w)?;
         writeln!(w, "{}", probe.doc_comment(opt.lang))?;
-        writeln!(w, "{}", probe.generate_const_definition(opt.lang))?;
+        writeln!(
+            w,
+            "{}",
+            probe.generate_const_definition(opt.lang, opt.rust_u32_types)
+        )?;
     }
 
     writeln!(w)?;
@@ -290,7 +344,11 @@ pub fn generate_output<W: io::Write>(
 
         writeln!(w)?;
         writeln!(w, "{}", event.doc_comment(opt.lang))?;
-        writeln!(w, "{}", event.generate_const_definition(opt.lang))?;
+        writeln!(
+            w,
+            "{}",
+            event.generate_const_definition(opt.lang, opt.rust_u32_types)
+        )?;
     }
 
     if opt.lang == Lang::C {
