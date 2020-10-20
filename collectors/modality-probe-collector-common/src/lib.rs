@@ -142,6 +142,17 @@ impl ReportLogEntry {
             _ => false,
         }
     }
+
+    pub fn coordinate(&self) -> String {
+        // TODO(clocks not available here).
+        format!(
+            "o:{}:{}:{}:{}",
+            self.session_id.0,
+            self.probe_id.get_raw(),
+            self.sequence_number.0,
+            self.sequence_index
+        )
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -150,6 +161,16 @@ pub enum LogEntryData {
     Event(EventId),
     EventWithPayload(EventId, u32),
     TraceClock(LogicalClock),
+}
+
+impl LogEntryData {
+    pub fn trace_clock(&self) -> Option<LogicalClock> {
+        if let LogEntryData::TraceClock(lc) = *self {
+            Some(lc)
+        } else {
+            None
+        }
+    }
 }
 
 impl From<EventLogEntry> for LogEntryData {

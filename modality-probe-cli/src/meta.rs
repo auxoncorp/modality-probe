@@ -24,6 +24,7 @@ pub struct EventMeta {
 #[derive(PartialEq, Serialize, Debug, Clone, Deserialize)]
 pub struct ProbeMeta {
     pub component_id: Uuid,
+    pub tags: String,
     pub id: u32,
     pub name: String,
     pub description: String,
