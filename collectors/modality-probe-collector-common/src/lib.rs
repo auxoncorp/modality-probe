@@ -142,6 +142,13 @@ impl ReportLogEntry {
             _ => false,
         }
     }
+    pub fn is_internal_event(&self) -> bool {
+        match self.data {
+            LogEntryData::Event(id) => id.is_internal(),
+            LogEntryData::EventWithPayload(id, _) => id.is_internal(),
+            _ => false,
+        }
+    }
 
     pub fn coordinate(&self) -> String {
         // TODO(clocks not available here).

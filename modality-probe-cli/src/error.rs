@@ -66,14 +66,14 @@ impl From<String> for CmdError {
 macro_rules! give_up {
     ($msg:expr) => {
         return Err(Box::new($crate::error::CmdError {
-            msg: format!("Error: {}", $msg),
+            msg: format!("{}", $msg),
             src: None,
         }));
     };
 
     ($msg:expr, $src:expr) => {
         return Err(Box::new($crate::error::CmdError {
-            msg: format!("Error: {}", $msg),
+            msg: format!("{}", $msg),
             src: $src,
         }));
     };
@@ -83,7 +83,7 @@ macro_rules! give_up {
 macro_rules! hopefully {
     ($e:expr, $msg:expr) => {
         $e.map_err(|e| $crate::error::CmdError {
-            msg: format!("Error: {}: {}", $msg, e),
+            msg: format!("{}: {}", $msg, e),
             src: Some(Box::new(e)),
         })
     };
@@ -93,7 +93,7 @@ macro_rules! hopefully {
 macro_rules! hopefully_ok {
     ($e:expr, $msg:expr) => {
         $e.ok_or_else(|| $crate::error::CmdError {
-            msg: format!("Error: {}", $msg),
+            msg: format!("{}", $msg),
             src: None,
         })
     };

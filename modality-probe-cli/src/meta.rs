@@ -32,6 +32,7 @@ pub struct ProbeMeta {
     pub line: String,
 }
 
+#[derive(Debug)]
 pub struct Cfg {
     pub probes: HashMap<u32, ProbeMeta>,
     pub events: HashMap<(Uuid, u32), EventMeta>,

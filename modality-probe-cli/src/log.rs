@@ -7,7 +7,7 @@ use std::{
 
 use structopt::StructOpt;
 
-use modality_probe::{EventId, ProbeId};
+use modality_probe::{LogicalClock, ProbeId};
 use modality_probe_collector_common::{json, LogEntryData, ReportLogEntry};
 
 use crate::{
@@ -16,8 +16,8 @@ use crate::{
 };
 
 // 3 empty columns between each timeline.
-const COL_SPACE: &'static str = "   ";
-const COL_EDGE: &'static str = "---";
+const COL_SPACE: &str = "   ";
+const COL_EDGE: &str = "---";
 
 /// View the trace as a log.
 #[derive(Debug, PartialEq, StructOpt)]
@@ -50,15 +50,6 @@ pub fn run(l: Log) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-enum RowState {
-    Ready,
-    Description(EventId, Option<u32>),
-    Payload(EventId, Option<u32>),
-    Tags(EventId),
-    Source(EventId),
-    Whitespace,
-}
-
 fn log_all(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = meta::assemble_components(&mut l.components)?;
     let mut log_file = hopefully!(
@@ -70,7 +61,9 @@ fn log_all(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     let mut probes = HashMap::new();
     for ev in report {
         let p = probes.entry(ev.probe_id).or_insert_with(Vec::new);
-        p.push(ev);
+        if !ev.is_internal_event() {
+            p.push(ev);
+        }
     }
 
     // Sort the probe-sorted events by sequence.
@@ -96,8 +89,7 @@ fn print_as_graph(
     clock_rows: Vec<ReportLogEntry>,
     cfg: &Cfg,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut row_state = RowState::Ready;
-    let mut pending_targets = HashMap::new();
+    let mut pending_targets: HashMap<_, (usize, ProbeId)> = HashMap::new();
     let mut pending_sources = HashMap::new();
     let mut count = 0;
     let mut blocked_tls: HashSet<ProbeId> = HashSet::new();
@@ -106,206 +98,219 @@ fn print_as_graph(
     loop {
         let init_count = count;
         for (idx, (probe_id, log)) in probes.iter_mut().enumerate() {
-            match row_state {
-                RowState::Ready => {
-                    if let Some(row) = log.pop() {
-                        match row.data {
-                            LogEntryData::Event(id) => {
-                                if !blocked_tls.contains(probe_id) {
-                                    let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
-                                    let pmeta = hopefully_ok!(
-                                        cfg.probes.get(&probe_id.get_raw()),
-                                        "couldn't find probe"
-                                    )?;
-                                    print_event_row(
-                                        &format!(
-                                            "{} @ {} ({})",
-                                            emeta.name,
-                                            pmeta.name,
-                                            row.coordinate(),
-                                        ),
-                                        idx,
-                                        n_probes,
-                                    )?;
-                                    row_state = RowState::Description(id, None);
-                                } else {
-                                    log.push(row);
-                                }
+            if let Some(row) = log.pop() {
+                match row.data {
+                    LogEntryData::Event(id) => {
+                        if blocked_tls.get(probe_id).is_none() {
+                            let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
+                            let pmeta = hopefully_ok!(
+                                cfg.probes.get(&probe_id.get_raw()),
+                                "Couldn't find probe"
+                            )?;
+                            print_event_row(
+                                &format!("{} @ {} ({})", emeta.name, pmeta.name, row.coordinate(),),
+                                idx,
+                                n_probes,
+                            )?;
+                            print_info_row(
+                                n_probes,
+                                &format!("description: \"{}\"", emeta.description),
+                            )?;
+                            print_info_row(
+                                n_probes,
+                                &format!("tags: {}", emeta.tags.replace(";", ", ")),
+                            )?;
+                            if !emeta.file.is_empty() && !emeta.line.is_empty() {
+                                print_info_row(
+                                    n_probes,
+                                    &format!("source: \"{}#L{}\"", emeta.file, emeta.line),
+                                )?;
                             }
-                            LogEntryData::EventWithPayload(id, pl) => {
-                                if !blocked_tls.contains(probe_id) {
-                                    let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
-                                    let pmeta = hopefully_ok!(
-                                        cfg.probes.get(&probe_id.get_raw()),
-                                        "couldn't find probe"
-                                    )?;
-                                    print_event_row(
-                                        &format!(
-                                            "{} @ {} ({})",
-                                            emeta.name,
-                                            pmeta.name,
-                                            row.coordinate(),
-                                        ),
-                                        idx,
-                                        n_probes,
-                                    )?;
-                                    row_state = RowState::Description(id, Some(pl));
-                                } else {
-                                    log.push(row);
-                                }
+                            print_info_row(n_probes, "")?;
+                        } else {
+                            log.push(row);
+                        }
+                    }
+                    LogEntryData::EventWithPayload(id, pl) => {
+                        if blocked_tls.get(probe_id).is_none() {
+                            let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
+                            let pmeta = hopefully_ok!(
+                                cfg.probes.get(&probe_id.get_raw()),
+                                "couldn't find probe"
+                            )?;
+                            print_event_row(
+                                &format!("{} @ {} ({})", emeta.name, pmeta.name, row.coordinate(),),
+                                idx,
+                                n_probes,
+                            )?;
+                            if let Some(pp) = meta::parsed_payload(
+                                emeta.type_hint.as_ref().map(|s| s.as_ref()),
+                                Some(pl),
+                            )? {
+                                print_info_row(n_probes, &format!("payload: {}", pp))?;
                             }
-                            LogEntryData::TraceClock(lc) => {
-                                if lc.id == *probe_id {
-                                    let (lc_id, clock) = lc.pack();
-                                    if let Some(target_idx) =
-                                        pending_targets.remove(&(lc_id, clock.saturating_sub(1)))
-                                    {
-                                        let from_pm = hopefully_ok!(
-                                            cfg.probes.get(&probe_id.get_raw()),
-                                            format!(
-                                                "probe {} could not be found",
-                                                probe_id.get_raw()
-                                            )
-                                        )?;
-                                        let to_pm = hopefully_ok!(
-                                            cfg.probes.get(&lc_id.get_raw()),
-                                            format!("probe {} could not be found", lc_id.get_raw())
-                                        )?;
-                                        print_edge_line(
-                                            idx,
-                                            target_idx,
-                                            &from_pm.name,
-                                            &to_pm.name,
-                                            n_probes,
-                                        )?;
-                                        blocked_tls.remove(probe_id);
-                                        blocked_tls.remove(&lc.id);
-                                        row_state = RowState::Whitespace;
-                                    } else {
-                                        if let Some(next) = log.pop() {
-                                            match next.data.trace_clock() {
-                                                Some(next_lc) => {
-                                                    if next_lc.id == *probe_id {
-                                                        if clock_rows.iter().any(|r| {
-                                                            r.probe_id != *probe_id
-                                                                && r.data.trace_clock().unwrap()
-                                                                    == lc
-                                                        }) {
-                                                            let (lc_id, clock) = lc.pack();
-                                                            pending_sources.insert(
-                                                                (lc_id, clock.saturating_sub(1)),
-                                                                idx,
-                                                            );
-                                                            blocked_tls.insert(*probe_id);
-                                                        }
-                                                    }
-                                                }
-                                                None => {
-                                                    if clock_rows.iter().any(|r| {
-                                                        r.probe_id != *probe_id
-                                                            && r.data.trace_clock().unwrap() == lc
-                                                    }) {
-                                                        let (lc_id, clock) = lc.pack();
-                                                        pending_sources.insert(
-                                                            (lc_id, clock.saturating_sub(1)),
-                                                            idx,
-                                                        );
-                                                        blocked_tls.insert(*probe_id);
-                                                    }
-                                                }
+                            print_info_row(
+                                n_probes,
+                                &format!("tags: {}", emeta.tags.replace(";", ", ")),
+                            )?;
+                            if !emeta.file.is_empty() && !emeta.line.is_empty() {
+                                print_info_row(
+                                    n_probes,
+                                    &format!("source: \"{}#L{}\"", emeta.file, emeta.line),
+                                )?;
+                            }
+                            print_info_row(n_probes, "")?;
+                        } else {
+                            log.push(row);
+                        }
+                    }
+                    LogEntryData::TraceClock(lc) => {
+                        // This is a local clock.
+                        let (lc_id, clock) = lc.pack();
+                        if lc.id == *probe_id {
+                            // The self clock 0 is useful from a
+                            // causal standpoint, but from a
+                            // coordinating-timelines standpoint, it's
+                            // ambiguous because it appears whether or
+                            // not a snapshot was produced or merged.
+                            if clock != 0 {
+                                if let Some(next) = log.pop() {
+                                    match next.data.trace_clock() {
+                                        Some(next_lc) => {
+                                            if next_lc.id == *probe_id {
+                                                handle_source_edge(
+                                                    &pending_targets,
+                                                    &mut pending_sources,
+                                                    cfg,
+                                                    lc_id,
+                                                    clock,
+                                                    probe_id,
+                                                    n_probes,
+                                                    &clock_rows,
+                                                    &mut blocked_tls,
+                                                    idx,
+                                                    lc,
+                                                )?;
                                             }
-                                            log.push(next);
+                                        }
+                                        None => {
+                                            handle_source_edge(
+                                                &pending_targets,
+                                                &mut pending_sources,
+                                                cfg,
+                                                lc_id,
+                                                clock,
+                                                probe_id,
+                                                n_probes,
+                                                &clock_rows,
+                                                &mut blocked_tls,
+                                                idx,
+                                                lc,
+                                            )?;
                                         }
                                     }
+                                    log.push(next);
                                 } else {
-                                    let (lc_id, clock) = lc.pack();
-                                    if let Some(source_idx) =
-                                        pending_sources.remove(&(lc_id, clock))
-                                    {
-                                        let from_pm = hopefully_ok!(
-                                            cfg.probes.get(&lc_id.get_raw()),
-                                            format!("probe {} could not be found", lc_id.get_raw())
-                                        )?;
-                                        let to_pm = hopefully_ok!(
-                                            cfg.probes.get(&probe_id.get_raw()),
-                                            format!(
-                                                "probe {} could not be found",
-                                                probe_id.get_raw()
-                                            )
-                                        )?;
-                                        print_edge_line(
-                                            source_idx,
-                                            idx,
-                                            &from_pm.name,
-                                            &to_pm.name,
-                                            n_probes,
-                                        )?;
-                                        blocked_tls.remove(probe_id);
-                                        blocked_tls.remove(&lc.id);
-                                        row_state = RowState::Whitespace;
-                                    } else {
-                                        if clock_rows.iter().any(|r| {
-                                            let inner_lc = r.data.trace_clock().unwrap();
-                                            r.probe_id == inner_lc.id && lc == inner_lc
-                                        }) {
-                                            pending_targets.insert((lc_id, clock), idx);
-                                            blocked_tls.insert(*probe_id);
-                                        }
-                                    }
+                                    handle_source_edge(
+                                        &pending_targets,
+                                        &mut pending_sources,
+                                        cfg,
+                                        lc_id,
+                                        clock,
+                                        probe_id,
+                                        n_probes,
+                                        &clock_rows,
+                                        &mut blocked_tls,
+                                        idx,
+                                        lc,
+                                    )?;
                                 }
                             }
-                            _ => (),
+                        // This is a foreign clock: `lc.id != probe_id`.
+                        } else {
+                            let (lc_id, clock) = lc.pack();
+                            if let Some(source_idx) = pending_sources.get(&(lc_id, clock + 1)) {
+                                let from_pm = hopefully_ok!(
+                                    cfg.probes.get(&lc_id.get_raw()),
+                                    format!("probe {} could not be found", lc_id.get_raw())
+                                )?;
+                                let to_pm = hopefully_ok!(
+                                    cfg.probes.get(&probe_id.get_raw()),
+                                    format!("probe {} could not be found", probe_id.get_raw())
+                                )?;
+                                print_edge_line(
+                                    *source_idx,
+                                    idx,
+                                    &from_pm.name,
+                                    &to_pm.name,
+                                    n_probes,
+                                )?;
+                                print_info_row(n_probes, "")?;
+                                blocked_tls.remove(probe_id);
+                                blocked_tls.remove(&lc.id);
+                            // There is not a source waiting to be
+                            // matched with this target.
+                            } else {
+                                let is_present = clock_rows.iter().any(|r| {
+                                    let (inner_lc_id, inner_clock) =
+                                        r.data.trace_clock().unwrap().pack();
+                                    r.probe_id == inner_lc_id
+                                        && (lc_id, clock + 1) == (inner_lc_id, inner_clock)
+                                });
+                                if is_present {
+                                    pending_targets.insert((lc_id, clock), (idx, *probe_id));
+                                    blocked_tls.insert(*probe_id);
+                                }
+                            }
                         }
-                        count += 1;
                     }
+                    _ => (),
                 }
-                RowState::Description(id, pl) => {
-                    let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
-                    print_info_row(n_probes, &format!("description: \"{}\"", emeta.description))?;
-                    row_state = RowState::Payload(id, pl);
-                    count += 1;
-                }
-                RowState::Payload(id, pl) => {
-                    let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
-                    if pl.is_some() {
-                        if let Some(pp) =
-                            meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), pl)?
-                        {
-                            print_info_row(n_probes, &format!("payload: {}", pp))?;
-                        }
-                    }
-                    row_state = RowState::Tags(id);
-                    count += 1;
-                }
-                RowState::Tags(id) => {
-                    let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
-                    print_info_row(
-                        n_probes,
-                        &format!("tags: {}", emeta.tags.replace(";", ", ")),
-                    )?;
-                    row_state = RowState::Source(id);
-                    count += 1;
-                }
-                RowState::Source(id) => {
-                    let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
-                    if !emeta.file.is_empty() && !emeta.line.is_empty() {
-                        print_info_row(
-                            n_probes,
-                            &format!("source: \"{}#L{}\"", emeta.file, emeta.line),
-                        )?;
-                    }
-                    row_state = RowState::Whitespace;
-                    count += 1;
-                }
-                RowState::Whitespace => {
-                    print_info_row(n_probes, "")?;
-                    row_state = RowState::Ready;
-                    count += 1;
-                }
+                count += 1;
             }
         }
         if init_count == count {
             break;
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_source_edge(
+    pending_targets: &HashMap<(ProbeId, u32), (usize, ProbeId)>,
+    pending_sources: &mut HashMap<(ProbeId, u32), usize>,
+    cfg: &Cfg,
+    lc_id: ProbeId,
+    clock: u32,
+    probe_id: &ProbeId,
+    n_probes: usize,
+    clock_rows: &[ReportLogEntry],
+    blocked_tls: &mut HashSet<ProbeId>,
+    idx: usize,
+    lc: LogicalClock,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some((target_idx, target_id)) = pending_targets.get(&(lc_id, clock - 1)) {
+        let from_pm = hopefully_ok!(
+            cfg.probes.get(&probe_id.get_raw()),
+            format!("probe {} could not be found", probe_id.get_raw())
+        )?;
+        let to_pm = hopefully_ok!(
+            cfg.probes.get(&target_id.get_raw()),
+            format!("probe {} could not be found", lc_id.get_raw())
+        )?;
+        print_edge_line(idx, *target_idx, &from_pm.name, &to_pm.name, n_probes)?;
+        print_info_row(n_probes, "")?;
+        blocked_tls.remove(probe_id);
+        blocked_tls.remove(&target_id);
+    } else {
+        let is_present = clock_rows.iter().any(|r| {
+            r.probe_id != *probe_id && r.data.trace_clock().unwrap().pack() == (lc_id, clock - 1)
+        });
+        if is_present {
+            let (lc_id, clock) = lc.pack();
+            pending_sources.insert((lc_id, clock), idx);
+            blocked_tls.insert(*probe_id);
         }
     }
     Ok(())
@@ -346,39 +351,90 @@ fn print_edge_line(
     to_pname: &str,
     n_probes: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // comments about what's happening here.
     let mut s = String::new();
     let l_to_r = from < to;
     for i in 0..n_probes {
         if l_to_r {
-            if to - from == 1 && i == to - 1 {
+            // We haven't made it to the source probe yet.
+            if i < from {
+                hopefully!(
+                    write!(s, "|{}", COL_SPACE),
+                    "internal error formatting graph"
+                )?;
+            // This is the case where the two probes are adjacent
+            // columns.
+            } else if i == from && i == to - 1 {
                 hopefully!(
                     write!(s, "+{}>", &COL_EDGE[1..]),
-                    "graph formatting failure"
+                    "internal error formatting graph"
                 )?;
-            } else if i == to - 1 {
-                hopefully!(write!(s, "{}>", &COL_EDGE[1..]), "graph formatting failure")?;
-            } else if from < i && to > i {
-                hopefully!(write!(s, "-{}", COL_EDGE), "graph formatting failure")?;
+            // This probe is the source probe.
             } else if i == from {
-                hopefully!(write!(s, "+{}", COL_EDGE), "graph formatting failure")?;
+                hopefully!(
+                    write!(s, "+{}", COL_EDGE),
+                    "internal error formatting graph"
+                )?;
+            // If this is the probe /before/ the target, write the
+            // head of the edge.
+            } else if i == to - 1 {
+                hopefully!(
+                    write!(s, "{}>", COL_EDGE),
+                    "internal error formatting graph"
+                )?;
+            // We're on a timeline that lay between the source and
+            // target and the edge should “jump” it.
+            } else if i > from && i < to {
+                hopefully!(
+                    write!(s, "-{}", COL_EDGE),
+                    "internal error formatting graph"
+                )?;
+            // This is the target probe.
             } else if i == to {
-                hopefully!(write!(s, "+{}", COL_SPACE), "graph formatting failure")?;
+                hopefully!(
+                    write!(s, "+{}", COL_SPACE),
+                    "internal error formatting graph"
+                )?;
+            } else {
+                hopefully!(
+                    write!(s, "|{}", COL_SPACE),
+                    "internal error formatting graph"
+                )?;
             }
         } else {
-            if i == from - 1 {
+            if i < to {
+                hopefully!(
+                    write!(s, "|{}", COL_SPACE),
+                    "internal error formatting graph"
+                )?;
+            // This probe is the target probe.
+            } else if i == to {
                 hopefully!(
                     write!(s, "+<{}", &COL_EDGE[1..]),
-                    "graph formatting failure"
+                    "internal error formatting graph"
                 )?;
-            } else if to < i && from > i {
-                hopefully!(write!(s, "-{}", COL_EDGE), "graph formatting failure")?;
+            // We're on a timeline that lies between the source and
+            // target and the edge should “jump” it.
+            } else if i > to && i < from {
+                hopefully!(
+                    write!(s, "-{}", COL_EDGE),
+                    "internal error formatting graph"
+                )?;
+            // This is the source probe.
             } else if i == from {
-                hopefully!(write!(s, "+{}", COL_SPACE), "graph formatting failure")?;
-            } else if i == to {
-                hopefully!(write!(s, "+{}", COL_EDGE), "graph formatting failure")?;
+                hopefully!(
+                    write!(s, "+{}", COL_SPACE),
+                    "internal error formatting graph"
+                )?;
+            } else {
+                hopefully!(
+                    write!(s, "|{}", COL_SPACE),
+                    "internal error formatting graph"
+                )?;
             }
         }
     }
+
     hopefully!(
         write!(s, "{} merged a snapshot from {}", to_pname, from_pname),
         "graph formatting error"
