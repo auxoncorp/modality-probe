@@ -64,6 +64,12 @@ features = ["serde"]
 version = "0.8"
 features = ["serde", "v4"]
 
+# Used to prevent panics on broken pipes.
+# See:
+#   https://github.com/rust-lang/rust/issues/46016#issuecomment-605624865
+[target.'cfg(target_family = "unix")'.dependencies]
+nix = "0.17.0"
+
 [dev-dependencies]
 pretty_assertions = "0.6"
 tempfile = "3.1"

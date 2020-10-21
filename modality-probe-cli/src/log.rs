@@ -42,15 +42,7 @@ pub struct Log {
     pub verbose: u8,
 }
 
-pub fn run(l: Log) -> Result<(), Box<dyn std::error::Error>> {
-    if l.probe.is_some() {
-        probe_log(l)
-    } else {
-        log_all(l)
-    }
-}
-
-fn log_all(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = meta::assemble_components(&mut l.components)?;
     let mut log_file = hopefully!(
         File::open(&l.report),
@@ -66,7 +58,33 @@ fn log_all(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Sort the probe-sorted events by sequence.
+    // If `--probe` was given, pare the trace down to just events from
+    // a single probe.
+    // `clock_set` must be built off of the pared-down set, it's what
+    // allows for the targets probe's timeline to not get blocked.
+    if let Some(ref p) = l.probe {
+        let probe = match cfg.probes.iter().find(|(_, v)| v.name == *p) {
+            Some((_, pm)) => pm,
+            None => {
+                let pid = hopefully!(p.parse::<u32>(), format!("probe {} could not be found", p))?;
+                hopefully_ok!(
+                    cfg.probes.get(&pid),
+                    format!("probe {} could not be found", p)
+                )?
+            }
+        };
+        let pid = hopefully_ok!(
+            ProbeId::new(probe.id),
+            format!("encountered an invalid probe id {}", probe.id)
+        )?;
+        probes.retain(|k, _| *k == pid);
+    }
+
+    // Sort the probe-sorted events by sequence and peel off the
+    // clocks.
+    // The side clock set is used to determine that both ends of an
+    // edge are present in a dataset to prevent a given timeline to be
+    // blocked and waiting indefinitely.
     let mut clock_rows = Vec::new();
     for plog in probes.values_mut() {
         plog.sort_by_key(|p| std::cmp::Reverse((p.sequence_number, p.sequence_index)));
@@ -89,10 +107,19 @@ fn print_as_graph(
     clock_rows: Vec<ReportLogEntry>,
     cfg: &Cfg,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Edges waiting to be drawn.
     let mut pending_targets: HashMap<_, (usize, ProbeId)> = HashMap::new();
     let mut pending_sources = HashMap::new();
+
+    // Our “watch dog”. This ticks while the outer loop is
+    // productive. If it stops ticking, we're done.
     let mut count = 0;
+
+    // The timelines that are currently blocked and waiting the other
+    // end of an egde to show up.
     let mut blocked_tls: HashSet<ProbeId> = HashSet::new();
+
+    // How many timelines are there?
     let n_probes = probes.len();
 
     loop {
@@ -108,7 +135,7 @@ fn print_as_graph(
                                 "Couldn't find probe"
                             )?;
                             print_event_row(
-                                &format!("{} @ {} ({})", emeta.name, pmeta.name, row.coordinate(),),
+                                &format!("{} @ {} ({})", emeta.name, pmeta.name, row.coordinate()),
                                 idx,
                                 n_probes,
                             )?;
@@ -229,15 +256,15 @@ fn print_as_graph(
                         // This is a foreign clock: `lc.id != probe_id`.
                         } else {
                             let (lc_id, clock) = lc.pack();
+                            let from_pm = hopefully_ok!(
+                                cfg.probes.get(&lc_id.get_raw()),
+                                format!("probe {} could not be found", lc_id.get_raw())
+                            )?;
+                            let to_pm = hopefully_ok!(
+                                cfg.probes.get(&probe_id.get_raw()),
+                                format!("probe {} could not be found", probe_id.get_raw())
+                            )?;
                             if let Some(source_idx) = pending_sources.get(&(lc_id, clock + 1)) {
-                                let from_pm = hopefully_ok!(
-                                    cfg.probes.get(&lc_id.get_raw()),
-                                    format!("probe {} could not be found", lc_id.get_raw())
-                                )?;
-                                let to_pm = hopefully_ok!(
-                                    cfg.probes.get(&probe_id.get_raw()),
-                                    format!("probe {} could not be found", probe_id.get_raw())
-                                )?;
                                 print_edge_line(
                                     *source_idx,
                                     idx,
@@ -260,6 +287,14 @@ fn print_as_graph(
                                 if is_present {
                                     pending_targets.insert((lc_id, clock), (idx, *probe_id));
                                     blocked_tls.insert(*probe_id);
+                                } else {
+                                    print_missing_edge_line(
+                                        idx,
+                                        &from_pm.name,
+                                        &to_pm.name,
+                                        n_probes,
+                                    )?;
+                                    print_info_row(n_probes, "")?;
                                 }
                             }
                         }
@@ -408,10 +443,35 @@ fn print_edge_line(
             )?;
         }
     }
-
     hopefully!(
         write!(s, "{} merged a snapshot from {}", to_pname, from_pname),
         "graph formatting error"
+    )?;
+    println!("{}", s);
+    Ok(())
+}
+
+fn print_missing_edge_line(
+    idx: usize,
+    from_name: &str,
+    to_name: &str,
+    n_probe: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut s = String::new();
+    for i in 0..n_probe {
+        if i == idx {
+            hopefully!(write!(s, "?{}", COL_SPACE), "graph formatting failure")?;
+        } else {
+            hopefully!(write!(s, "|{}", COL_SPACE), "graph formatting failure")?;
+        }
+    }
+    hopefully!(
+        write!(
+            s,
+            "{} expected a snapshot from {} but it is missing",
+            to_name, from_name
+        ),
+        "graph formatting failure"
     )?;
     println!("{}", s);
     Ok(())
@@ -506,94 +566,6 @@ fn print_as_log(
         }
         if count == init_count {
             break 'outer;
-        }
-    }
-    Ok(())
-}
-
-fn probe_log(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
-    let p = l.probe.as_ref().unwrap();
-    let cfg = meta::assemble_components(&mut l.components)?;
-    let mut log_file = hopefully!(
-        File::open(&l.report),
-        format!("failed to open the report file at {}", l.report.display())
-    )?;
-
-    let probe = match cfg.probes.iter().find(|(_, v)| v.name == *p) {
-        Some((_, pm)) => pm,
-        None => {
-            let pid = hopefully!(p.parse::<u32>(), format!("probe {} could not be found", p))?;
-            hopefully_ok!(
-                cfg.probes.get(&pid),
-                format!("probe {} could not be found", p)
-            )?
-        }
-    };
-    let pid = hopefully_ok!(
-        ProbeId::new(probe.id),
-        format!("encountered an invalid probe id {}", probe.id)
-    )?;
-
-    let mut log: Vec<_> = json::read_log_entries(&mut log_file)?
-        .into_iter()
-        .filter(|r| r.probe_id == pid && !r.is_frontier_clock())
-        .collect();
-    log.sort_by_key(|r| (r.sequence_number, r.sequence_index));
-
-    for row in log {
-        match row.data {
-            LogEntryData::Event(id) => {
-                let emeta = meta::get_event_meta(&cfg, &row.probe_id, &id)?;
-                let probe_name = cfg
-                    .probes
-                    .get(&row.probe_id.get_raw())
-                    .map(|p| p.name.clone())
-                    .unwrap_or(format!("UNKNOWN_PROBE_{}", row.probe_id.get_raw()));
-                print_event_info(row, emeta, None, &probe_name, &l, &cfg)?;
-            }
-            LogEntryData::EventWithPayload(id, pl) => {
-                let emeta = meta::get_event_meta(&cfg, &row.probe_id, &id)?;
-                let probe_name = cfg
-                    .probes
-                    .get(&row.probe_id.get_raw())
-                    .map(|p| p.name.clone())
-                    .unwrap_or(format!("UNKNOWN_PROBE_{}", row.probe_id.get_raw()));
-                print_event_info(row, emeta, Some(pl), &probe_name, &l, &cfg)?;
-            }
-            LogEntryData::TraceClock(lc) => {
-                let probe_name = cfg
-                    .probes
-                    .get(&row.probe_id.get_raw())
-                    .map(|p| p.name.clone())
-                    .unwrap_or(format!("UNKNOWN_PROBE_{}", row.probe_id.get_raw()));
-                if lc.id == row.probe_id {
-                    if l.verbose == 0 {
-                        println!();
-                    }
-                    println!(
-                        "Clock Tick @ {} ({}) clock=({}, {})",
-                        probe_name,
-                        row.coordinate(),
-                        lc.epoch.0,
-                        lc.ticks.0
-                    );
-                } else {
-                    let remote_probe_name = cfg
-                        .probes
-                        .get(&row.probe_id.get_raw())
-                        .map(|p| p.name.clone())
-                        .unwrap_or(format!("UNKNOWN_PROBE_{}", row.probe_id.get_raw()));
-                    println!(
-                        "Snapshot Merge @ {} ({}), from={} clock=({}, {})",
-                        probe_name,
-                        row.coordinate(),
-                        remote_probe_name,
-                        lc.epoch.0,
-                        lc.ticks.0
-                    );
-                }
-            }
-            _ => (),
         }
     }
     Ok(())
