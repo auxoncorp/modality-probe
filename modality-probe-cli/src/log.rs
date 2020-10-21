@@ -355,83 +355,57 @@ fn print_edge_line(
     let mut s = String::new();
     let l_to_r = from < to;
     for i in 0..n_probes {
-        if l_to_r {
-            // We haven't made it to the source probe yet.
-            if i < from {
-                hopefully!(
-                    write!(s, "|{}", COL_SPACE),
-                    "internal error formatting graph"
-                )?;
-            // This is the case where the two probes are adjacent
-            // columns.
-            } else if i == from && i == to - 1 {
-                hopefully!(
-                    write!(s, "+{}>", &COL_EDGE[1..]),
-                    "internal error formatting graph"
-                )?;
-            // This probe is the source probe.
-            } else if i == from {
-                hopefully!(
-                    write!(s, "+{}", COL_EDGE),
-                    "internal error formatting graph"
-                )?;
-            // If this is the probe /before/ the target, write the
-            // head of the edge.
-            } else if i == to - 1 {
-                hopefully!(
-                    write!(s, "{}>", COL_EDGE),
-                    "internal error formatting graph"
-                )?;
-            // We're on a timeline that lay between the source and
-            // target and the edge should “jump” it.
-            } else if i > from && i < to {
-                hopefully!(
-                    write!(s, "-{}", COL_EDGE),
-                    "internal error formatting graph"
-                )?;
-            // This is the target probe.
-            } else if i == to {
-                hopefully!(
-                    write!(s, "+{}", COL_SPACE),
-                    "internal error formatting graph"
-                )?;
-            } else {
-                hopefully!(
-                    write!(s, "|{}", COL_SPACE),
-                    "internal error formatting graph"
-                )?;
-            }
+        // in an left-to-right edge, this is the source timeline and
+        // the adjacent timeline is the target.
+        // It's a special case because we must adjust for the arrow's
+        // head.
+        if l_to_r && i == from && i == to - 1 {
+            hopefully!(
+                write!(s, "+{}>", &COL_EDGE[1..]),
+                "internal error formatting graph"
+            )?;
+        // This timeline is the source (left-to-right).
+        } else if l_to_r && i == from {
+            hopefully!(
+                write!(s, "+{}", COL_EDGE),
+                "internal error formatting graph"
+            )?;
+        // This timeline is the source (right-to-left).
+        } else if i == from {
+            hopefully!(
+                write!(s, "+{}", COL_SPACE),
+                "internal error formatting graph"
+            )?;
+        // This timeline is the target (in left-to-right).
+        } else if l_to_r && i == to {
+            hopefully!(
+                write!(s, "+{}", COL_SPACE),
+                "internal error formatting graph"
+            )?;
+        // This timeline is the target (in right-to-left).
+        } else if i == to {
+            hopefully!(
+                write!(s, "+<{}", &COL_EDGE[1..]),
+                "internal error formatting graph"
+            )?;
+        // In a left-to-right edge, write the head of the arrow.
+        } else if l_to_r && i == to - 1 {
+            hopefully!(
+                write!(s, "{}>", COL_EDGE),
+                "internal error formatting graph"
+            )?;
+        // We're on a timeline that lay between the source and
+        // target and the edge should “jump” it.
+        } else if (l_to_r && i > from && i < to) || (i > to && i < from) {
+            hopefully!(
+                write!(s, "-{}", COL_EDGE),
+                "internal error formatting graph"
+            )?;
         } else {
-            if i < to {
-                hopefully!(
-                    write!(s, "|{}", COL_SPACE),
-                    "internal error formatting graph"
-                )?;
-            // This probe is the target probe.
-            } else if i == to {
-                hopefully!(
-                    write!(s, "+<{}", &COL_EDGE[1..]),
-                    "internal error formatting graph"
-                )?;
-            // We're on a timeline that lies between the source and
-            // target and the edge should “jump” it.
-            } else if i > to && i < from {
-                hopefully!(
-                    write!(s, "-{}", COL_EDGE),
-                    "internal error formatting graph"
-                )?;
-            // This is the source probe.
-            } else if i == from {
-                hopefully!(
-                    write!(s, "+{}", COL_SPACE),
-                    "internal error formatting graph"
-                )?;
-            } else {
-                hopefully!(
-                    write!(s, "|{}", COL_SPACE),
-                    "internal error formatting graph"
-                )?;
-            }
+            hopefully!(
+                write!(s, "|{}", COL_SPACE),
+                "internal error formatting graph"
+            )?;
         }
     }
 

@@ -137,10 +137,7 @@ pub struct ReportLogEntry {
 
 impl ReportLogEntry {
     pub fn is_frontier_clock(&self) -> bool {
-        match self.data {
-            LogEntryData::FrontierClock(_) => true,
-            _ => false,
-        }
+        matches!(self.data, LogEntryData::FrontierClock(_))
     }
     pub fn is_internal_event(&self) -> bool {
         match self.data {
