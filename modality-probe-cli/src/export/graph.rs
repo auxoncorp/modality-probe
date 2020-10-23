@@ -335,10 +335,6 @@ mod test {
 
     use uuid::Uuid;
 
-    use modality_probe::{EventId, LogicalClock, ProbeEpoch, ProbeId, ProbeTicks};
-    use modality_probe_collector_common::SequenceNumber;
-    use modality_probe_graph::GraphEvent;
-
     use crate::meta::{Cfg, EventMeta, ProbeMeta};
 
     use super::super::templates;
@@ -356,6 +352,7 @@ mod test {
                         description: "one".to_string(),
                         file: "one.c".to_string(),
                         line: "1".to_string(),
+                        tags: "".to_string(),
                     },
                 ),
                 (
@@ -367,6 +364,7 @@ mod test {
                         description: "two".to_string(),
                         file: "two.c".to_string(),
                         line: "2".to_string(),
+                        tags: "".to_string(),
                     },
                 ),
                 (
@@ -378,6 +376,7 @@ mod test {
                         description: "three".to_string(),
                         file: "three.c".to_string(),
                         line: "3".to_string(),
+                        tags: "".to_string(),
                     },
                 ),
                 (
@@ -389,6 +388,7 @@ mod test {
                         description: "four".to_string(),
                         file: "four.c".to_string(),
                         line: "4".to_string(),
+                        tags: "".to_string(),
                     },
                 ),
             ]

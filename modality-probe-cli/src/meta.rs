@@ -233,6 +233,7 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,36
                         description: "probe one".to_string(),
                         file: "examples/event-recording.rs".to_string(),
                         line: "26".to_string(),
+                        tags: "example".to_string(),
                     },
                 ),
                 (
@@ -245,6 +246,7 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,36
                         description: "probe two".to_string(),
                         file: "examples/event-recording.rs".to_string(),
                         line: "26".to_string(),
+                        tags: "example".to_string(),
                     },
                 ),
             ]

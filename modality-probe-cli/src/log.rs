@@ -1,7 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Write,
     fs::File,
+    io::Write as WriteIo,
     path::PathBuf,
 };
 
@@ -50,19 +51,29 @@ pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let report = json::read_log_entries(&mut log_file)?;
-    let mut probes = HashMap::new();
-    for ev in report {
-        let p = probes.entry(ev.probe_id).or_insert_with(Vec::new);
-        if !ev.is_internal_event() {
-            p.push(ev);
-        }
+    let (probes, clock_rows) = sort_probes(&cfg, &l, report)?;
+
+    if l.graph {
+        print_as_graph(probes, clock_rows, &cfg, &l, std::io::stdout())
+    } else {
+        print_as_log(probes, &l, &cfg)
     }
+}
+
+type SortedProbes = (BTreeMap<ProbeId, Vec<ReportLogEntry>>, Vec<ReportLogEntry>);
+
+fn sort_probes(
+    cfg: &Cfg,
+    l: &Log,
+    report: Vec<ReportLogEntry>,
+) -> Result<SortedProbes, Box<dyn std::error::Error>> {
+    let mut probes = BTreeMap::new();
 
     // If `--probe` was given, pare the trace down to just events from
-    // a single probe.
-    // `clock_set` must be built off of the pared-down set, it's what
-    // allows for the targets probe's timeline to not get blocked.
-    if let Some(ref p) = l.probe {
+    // a single probe. `clock_set` must be built off of the pared-down
+    // set; it's what allows for the target probe's timeline to not
+    // get blocked.
+    let pid = if let Some(ref p) = l.probe {
         let probe = match cfg.probes.iter().find(|(_, v)| v.name == *p) {
             Some((_, pm)) => pm,
             None => {
@@ -77,14 +88,36 @@ pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
             ProbeId::new(probe.id),
             format!("encountered an invalid probe id {}", probe.id)
         )?;
-        probes.retain(|k, _| *k == pid);
+        Some(pid)
+    } else {
+        None
+    };
+
+    match pid {
+        Some(p) => {
+            for ev in report {
+                if ev.probe_id == p {
+                    let p = probes.entry(ev.probe_id).or_insert_with(Vec::new);
+                    if !ev.is_internal_event() {
+                        p.push(ev);
+                    }
+                }
+            }
+        }
+        None => {
+            for ev in report {
+                let p = probes.entry(ev.probe_id).or_insert_with(Vec::new);
+                if !ev.is_internal_event() {
+                    p.push(ev);
+                }
+            }
+        }
     }
 
     // Sort the probe-sorted events by sequence and peel off the
-    // clocks.
-    // The side clock set is used to determine that both ends of an
-    // edge are present in a dataset to prevent a given timeline to be
-    // blocked and waiting indefinitely.
+    // clocks. The clock set is used to determine that both ends of an
+    // edge are present in the dataset. This prevents a given timeline
+    // from being blocked and waiting indefinitely.
     let mut clock_rows = Vec::new();
     for plog in probes.values_mut() {
         plog.sort_by_key(|p| std::cmp::Reverse((p.sequence_number, p.sequence_index)));
@@ -94,18 +127,15 @@ pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-
-    if l.graph {
-        print_as_graph(probes, clock_rows, &cfg)
-    } else {
-        print_as_log(probes, &l, &cfg)
-    }
+    Ok((probes, clock_rows))
 }
 
-fn print_as_graph(
-    mut probes: HashMap<ProbeId, Vec<ReportLogEntry>>,
+fn print_as_graph<W: WriteIo>(
+    mut probes: BTreeMap<ProbeId, Vec<ReportLogEntry>>,
     clock_rows: Vec<ReportLogEntry>,
     cfg: &Cfg,
+    l: &Log,
+    mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Edges waiting to be drawn.
     let mut pending_targets: HashMap<_, (usize, ProbeId)> = HashMap::new();
@@ -138,22 +168,28 @@ fn print_as_graph(
                                 &format!("{} @ {} ({})", emeta.name, pmeta.name, row.coordinate()),
                                 idx,
                                 n_probes,
+                                &mut stream,
                             )?;
-                            print_info_row(
-                                n_probes,
-                                &format!("description: \"{}\"", emeta.description),
-                            )?;
-                            print_info_row(
-                                n_probes,
-                                &format!("tags: {}", emeta.tags.replace(";", ", ")),
-                            )?;
-                            if !emeta.file.is_empty() && !emeta.line.is_empty() {
+                            if l.verbose != 0 {
                                 print_info_row(
                                     n_probes,
-                                    &format!("source: \"{}#L{}\"", emeta.file, emeta.line),
+                                    &format!("description: \"{}\"", emeta.description),
+                                    &mut stream,
                                 )?;
+                                print_info_row(
+                                    n_probes,
+                                    &format!("tags: {}", emeta.tags.replace(";", ", ")),
+                                    &mut stream,
+                                )?;
+                                if !emeta.file.is_empty() && !emeta.line.is_empty() {
+                                    print_info_row(
+                                        n_probes,
+                                        &format!("source: \"{}#L{}\"", emeta.file, emeta.line),
+                                        &mut stream,
+                                    )?;
+                                }
                             }
-                            print_info_row(n_probes, "")?;
+                            print_info_row(n_probes, "", &mut stream)?;
                         } else {
                             log.push(row);
                         }
@@ -169,24 +205,33 @@ fn print_as_graph(
                                 &format!("{} @ {} ({})", emeta.name, pmeta.name, row.coordinate(),),
                                 idx,
                                 n_probes,
+                                &mut stream,
                             )?;
-                            if let Some(pp) = meta::parsed_payload(
-                                emeta.type_hint.as_ref().map(|s| s.as_ref()),
-                                Some(pl),
-                            )? {
-                                print_info_row(n_probes, &format!("payload: {}", pp))?;
-                            }
-                            print_info_row(
-                                n_probes,
-                                &format!("tags: {}", emeta.tags.replace(";", ", ")),
-                            )?;
-                            if !emeta.file.is_empty() && !emeta.line.is_empty() {
+                            if l.verbose != 0 {
+                                if let Some(pp) = meta::parsed_payload(
+                                    emeta.type_hint.as_ref().map(|s| s.as_ref()),
+                                    Some(pl),
+                                )? {
+                                    print_info_row(
+                                        n_probes,
+                                        &format!("payload: {}", pp),
+                                        &mut stream,
+                                    )?;
+                                }
                                 print_info_row(
                                     n_probes,
-                                    &format!("source: \"{}#L{}\"", emeta.file, emeta.line),
+                                    &format!("tags: {}", emeta.tags.replace(";", ", ")),
+                                    &mut stream,
                                 )?;
+                                if !emeta.file.is_empty() && !emeta.line.is_empty() {
+                                    print_info_row(
+                                        n_probes,
+                                        &format!("source: \"{}#L{}\"", emeta.file, emeta.line),
+                                        &mut stream,
+                                    )?;
+                                }
                             }
-                            print_info_row(n_probes, "")?;
+                            print_info_row(n_probes, "", &mut stream)?;
                         } else {
                             log.push(row);
                         }
@@ -195,11 +240,11 @@ fn print_as_graph(
                         // This is a local clock.
                         let (lc_id, clock) = lc.pack();
                         if lc.id == *probe_id {
-                            // The self clock 0 is useful from a
+                            // The self-clock `0` is useful from a
                             // causal standpoint, but from a
                             // coordinating-timelines standpoint, it's
-                            // ambiguous because it appears whether or
-                            // not a snapshot was produced or merged.
+                            // ambiguous because it appears whether a
+                            // snapshot was produced or not.
                             if clock != 0 {
                                 if let Some(next) = log.pop() {
                                     match next.data.trace_clock() {
@@ -217,6 +262,7 @@ fn print_as_graph(
                                                     &mut blocked_tls,
                                                     idx,
                                                     lc,
+                                                    &mut stream,
                                                 )?;
                                             }
                                         }
@@ -233,6 +279,7 @@ fn print_as_graph(
                                                 &mut blocked_tls,
                                                 idx,
                                                 lc,
+                                                &mut stream,
                                             )?;
                                         }
                                     }
@@ -250,6 +297,7 @@ fn print_as_graph(
                                         &mut blocked_tls,
                                         idx,
                                         lc,
+                                        &mut stream,
                                     )?;
                                 }
                             }
@@ -271,8 +319,9 @@ fn print_as_graph(
                                     &from_pm.name,
                                     &to_pm.name,
                                     n_probes,
+                                    &mut stream,
                                 )?;
-                                print_info_row(n_probes, "")?;
+                                print_info_row(n_probes, "", &mut stream)?;
                                 blocked_tls.remove(probe_id);
                                 blocked_tls.remove(&lc.id);
                             // There is not a source waiting to be
@@ -293,8 +342,10 @@ fn print_as_graph(
                                         &from_pm.name,
                                         &to_pm.name,
                                         n_probes,
+                                        l.probe.is_some(),
+                                        &mut stream,
                                     )?;
-                                    print_info_row(n_probes, "")?;
+                                    print_info_row(n_probes, "", &mut stream)?;
                                 }
                             }
                         }
@@ -312,7 +363,7 @@ fn print_as_graph(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_source_edge(
+fn handle_source_edge<W: WriteIo>(
     pending_targets: &HashMap<(ProbeId, u32), (usize, ProbeId)>,
     pending_sources: &mut HashMap<(ProbeId, u32), usize>,
     cfg: &Cfg,
@@ -324,6 +375,7 @@ fn handle_source_edge(
     blocked_tls: &mut HashSet<ProbeId>,
     idx: usize,
     lc: LogicalClock,
+    mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some((target_idx, target_id)) = pending_targets.get(&(lc_id, clock - 1)) {
         let from_pm = hopefully_ok!(
@@ -334,8 +386,15 @@ fn handle_source_edge(
             cfg.probes.get(&target_id.get_raw()),
             format!("probe {} could not be found", lc_id.get_raw())
         )?;
-        print_edge_line(idx, *target_idx, &from_pm.name, &to_pm.name, n_probes)?;
-        print_info_row(n_probes, "")?;
+        print_edge_line(
+            idx,
+            *target_idx,
+            &from_pm.name,
+            &to_pm.name,
+            n_probes,
+            &mut stream,
+        )?;
+        print_info_row(n_probes, "", &mut stream)?;
         blocked_tls.remove(probe_id);
         blocked_tls.remove(&target_id);
     } else {
@@ -351,49 +410,70 @@ fn handle_source_edge(
     Ok(())
 }
 
-fn print_event_row(
+fn print_event_row<W: WriteIo>(
     name: &str,
     idx: usize,
     n_probe: usize,
+    mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut s = String::new();
     for i in 0..n_probe {
         if i == idx {
-            hopefully!(write!(s, "*{}", COL_SPACE), "graph formatting failure")?;
+            hopefully!(
+                write!(s, "*{}", COL_SPACE),
+                "internal error formatting graph"
+            )?;
         } else {
-            hopefully!(write!(s, "|{}", COL_SPACE), "graph formatting failure")?;
+            hopefully!(
+                write!(s, "|{}", COL_SPACE),
+                "internal error formatting graph"
+            )?;
         }
     }
-    hopefully!(write!(s, "{}", name), "graph formatting failure")?;
-    println!("{}", s);
+    hopefully!(write!(s, "{}", name), "internal error formatting graph")?;
+    hopefully!(writeln!(stream, "{}", s), "graph formatting error")?;
     Ok(())
 }
 
-fn print_info_row(n_probe: usize, info: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn print_info_row<W: WriteIo>(
+    n_probe: usize,
+    info: &str,
+    mut stream: W,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut s = String::new();
-    for _ in 0..n_probe {
-        hopefully!(write!(s, "|{}", COL_SPACE), "graph formatting failure")?;
+    for i in 0..n_probe {
+        // If the info string is empty and we're on the lat timeline,
+        // don't include the column spacing.
+        if i == n_probe.saturating_sub(1) && info.is_empty() {
+            hopefully!(write!(s, "|"), "internal error formatting graph")?;
+        } else {
+            hopefully!(
+                write!(s, "|{}", COL_SPACE),
+                "internal error formatting graph"
+            )?;
+        }
     }
-    hopefully!(write!(s, "    {}", info), "graph formatting failure")?;
-    println!("{}", s);
+    if !info.is_empty() {
+        hopefully!(write!(s, "    {}", info), "internal error formatting graph")?;
+    }
+    hopefully!(writeln!(stream, "{}", s), "internal error formatting graph")?;
     Ok(())
 }
 
-fn print_edge_line(
+fn print_edge_line<W: WriteIo>(
     from: usize,
     to: usize,
     from_pname: &str,
     to_pname: &str,
     n_probes: usize,
+    mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // comments about what's happening here.
     let mut s = String::new();
     let l_to_r = from < to;
     for i in 0..n_probes {
-        // in an left-to-right edge, this is the source timeline and
-        // the adjacent timeline is the target.
-        // It's a special case because we must adjust for the arrow's
-        // head.
+        // In a left-to-right edge, this is the source timeline and
+        // the right-adjacent timeline is the target. It's a special
+        // case because we must adjust for the arrow's head.
         if l_to_r && i == from && i == to - 1 {
             hopefully!(
                 write!(s, "+{}>", &COL_EDGE[1..]),
@@ -445,40 +525,57 @@ fn print_edge_line(
     }
     hopefully!(
         write!(s, "{} merged a snapshot from {}", to_pname, from_pname),
-        "graph formatting error"
+        "internal error formatting graph"
     )?;
-    println!("{}", s);
+    hopefully!(writeln!(stream, "{}", s), "internal error formatting graph")?;
     Ok(())
 }
 
-fn print_missing_edge_line(
+fn print_missing_edge_line<W: WriteIo>(
     idx: usize,
     from_name: &str,
     to_name: &str,
     n_probe: usize,
+    single_probe_mode: bool,
+    mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut s = String::new();
     for i in 0..n_probe {
-        if i == idx {
-            hopefully!(write!(s, "?{}", COL_SPACE), "graph formatting failure")?;
+        if i == idx && !single_probe_mode {
+            hopefully!(
+                write!(s, "?{}", COL_SPACE),
+                "internal error formatting graph"
+            )?;
+        } else if i == idx && single_probe_mode {
+            hopefully!(
+                write!(s, "+<-{}", &COL_SPACE[2..]),
+                "internal error formatting graph"
+            )?;
         } else {
-            hopefully!(write!(s, "|{}", COL_SPACE), "graph formatting failure")?;
+            hopefully!(
+                write!(s, "|{}", COL_SPACE),
+                "internal error formatting graph"
+            )?;
         }
     }
     hopefully!(
-        write!(
-            s,
-            "{} expected a snapshot from {} but it is missing",
-            to_name, from_name
-        ),
-        "graph formatting failure"
+        if single_probe_mode {
+            write!(s, "{} merged a snapshot from {}", to_name, from_name)
+        } else {
+            write!(
+                s,
+                "{} expected a snapshot from {} but it is missing",
+                to_name, from_name
+            )
+        },
+        "internal error formatting graph"
     )?;
-    println!("{}", s);
+    hopefully!(writeln!(stream, "{}", s), "internal error formatting graph")?;
     Ok(())
 }
 
 fn print_as_log(
-    mut probes: HashMap<ProbeId, Vec<ReportLogEntry>>,
+    mut probes: BTreeMap<ProbeId, Vec<ReportLogEntry>>,
     l: &Log,
     cfg: &Cfg,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -641,4 +738,490 @@ fn print_event_info(
         println!();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    use modality_probe::{EventId, ProbeEpoch, ProbeTicks};
+    use modality_probe_collector_common::{SequenceNumber, SessionId};
+
+    use crate::meta::{Cfg, EventMeta, ProbeMeta};
+
+    use super::*;
+
+    fn cfg() -> Cfg {
+        let a_uuid = Uuid::new_v4();
+        Cfg {
+            probes: vec![
+                (
+                    1,
+                    ProbeMeta {
+                        component_id: a_uuid,
+                        id: 1,
+                        name: "one".to_string(),
+                        description: "one".to_string(),
+                        file: "one.c".to_string(),
+                        line: "1".to_string(),
+                        tags: "".to_string(),
+                    },
+                ),
+                (
+                    2,
+                    ProbeMeta {
+                        component_id: a_uuid,
+                        id: 2,
+                        name: "two".to_string(),
+                        description: "two".to_string(),
+                        file: "two.c".to_string(),
+                        line: "2".to_string(),
+                        tags: "".to_string(),
+                    },
+                ),
+                (
+                    3,
+                    ProbeMeta {
+                        component_id: a_uuid,
+                        id: 3,
+                        name: "three".to_string(),
+                        description: "three".to_string(),
+                        file: "three.c".to_string(),
+                        line: "3".to_string(),
+                        tags: "".to_string(),
+                    },
+                ),
+                (
+                    4,
+                    ProbeMeta {
+                        component_id: a_uuid,
+                        id: 4,
+                        name: "four".to_string(),
+                        description: "four".to_string(),
+                        file: "four.c".to_string(),
+                        line: "4".to_string(),
+                        tags: "".to_string(),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            events: vec![
+                (
+                    (a_uuid, 1),
+                    EventMeta {
+                        component_id: a_uuid,
+                        id: 1,
+                        name: "one".to_string(),
+                        type_hint: None,
+                        tags: String::new(),
+                        description: "one".to_string(),
+                        file: "one.c".to_string(),
+                        line: "1".to_string(),
+                    },
+                ),
+                (
+                    (a_uuid, 2),
+                    EventMeta {
+                        component_id: a_uuid,
+                        id: 2,
+                        name: "two".to_string(),
+                        type_hint: None,
+                        tags: String::new(),
+                        description: "two".to_string(),
+                        file: "two.c".to_string(),
+                        line: "2".to_string(),
+                    },
+                ),
+                (
+                    (a_uuid, 3),
+                    EventMeta {
+                        component_id: a_uuid,
+                        id: 3,
+                        name: "three".to_string(),
+                        type_hint: None,
+                        tags: String::new(),
+                        description: "three".to_string(),
+                        file: "three.c".to_string(),
+                        line: "3".to_string(),
+                    },
+                ),
+                (
+                    (a_uuid, 4),
+                    EventMeta {
+                        component_id: a_uuid,
+                        id: 4,
+                        name: "four".to_string(),
+                        type_hint: None,
+                        tags: String::new(),
+                        description: "four".to_string(),
+                        file: "four.c".to_string(),
+                        line: "4".to_string(),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            probes_to_components: vec![(1, a_uuid), (2, a_uuid), (3, a_uuid), (4, a_uuid)]
+                .into_iter()
+                .collect(),
+            component_names: vec![(a_uuid.to_string(), "component".to_string())]
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    const EXPECTED_GRAPH: &str = "\
+|   |   |   *   four @ four (o:1:4:1:1)
+|   |   |   |
+|   +<--+   |   two merged a snapshot from three
+|   |   |   |
+|   |   |   *   four @ four (o:1:4:1:2)
+|   |   |   |
+|   *   |   |   two @ two (o:1:2:1:3)
+|   |   |   |
+|   |   |   *   four @ four (o:1:4:1:3)
+|   |   |   |
++-->+   |   |   two merged a snapshot from one
+|   |   |   |
+*   |   |   |   one @ one (o:1:1:1:2)
+|   |   |   |
+|   *   |   |   two @ two (o:1:2:1:6)
+|   |   |   |
+*   |   |   |   one @ one (o:1:1:1:3)
+|   |   |   |
+|   +-->+   |   three merged a snapshot from two
+|   |   |   |
++<--+   |   |   one merged a snapshot from two
+|   |   |   |
+|   *   |   |   two @ two (o:1:2:1:9)
+|   |   |   |
+|   *   |   |   two @ two (o:1:2:1:10)
+|   |   |   |
+";
+
+    #[test]
+    fn test_graph() {
+        let now = Utc::now();
+        let probe1 = ProbeId::new(1).unwrap();
+        let event1 = EventId::new(1).unwrap();
+
+        let probe2 = ProbeId::new(2).unwrap();
+        let event2 = EventId::new(2).unwrap();
+
+        let probe3 = ProbeId::new(3).unwrap();
+
+        let probe4 = ProbeId::new(4).unwrap();
+        let event4 = EventId::new(4).unwrap();
+
+        let trace = vec![
+            // Probe 1
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 0,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 1,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 2,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                data: LogEntryData::Event(event1),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 3,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                data: LogEntryData::Event(event1),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 4,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 5,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(3),
+                }),
+                receive_time: now,
+            },
+            // Probe 2
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 0,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 1,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 2,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 3,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::Event(event2),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 4,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 5,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 6,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::Event(event2),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 7,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(3),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 8,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(4),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 9,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::Event(event2),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 10,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                data: LogEntryData::Event(event2),
+                receive_time: now,
+            },
+            // Probe 3
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 0,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 1,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 2,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 4,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                }),
+                receive_time: now,
+            },
+            // Probe 4
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 0,
+                probe_id: probe4,
+                persistent_epoch_counting: false,
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe4,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 1,
+                probe_id: probe4,
+                persistent_epoch_counting: false,
+                data: LogEntryData::Event(event4),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 2,
+                probe_id: probe4,
+                persistent_epoch_counting: false,
+                data: LogEntryData::Event(event4),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 3,
+                probe_id: probe4,
+                persistent_epoch_counting: false,
+                data: LogEntryData::Event(event4),
+                receive_time: now,
+            },
+        ];
+
+        let cfg = cfg();
+        let l = Log {
+            probe: None,
+            components: vec![],
+            report: PathBuf::default(),
+            graph: true,
+            verbose: 0,
+        };
+        let (probes, clock_rows) = sort_probes(&cfg, &l, trace).unwrap();
+        let mut out = Vec::new();
+        print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();
+        assert_eq!(EXPECTED_GRAPH, std::str::from_utf8(&out).unwrap());
+    }
 }
