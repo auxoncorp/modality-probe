@@ -75,8 +75,8 @@ fn sort_probes(
 
     // If `--probe` was given, pare the trace down to just events from
     // a single probe. `clock_set` must be built off of the pared-down
-    // set; it's what allows for the target probe's timeline to not
-    // get blocked.
+    // set; it's what prevents the target probe's from getting
+    // blocked.
     let pid = if let Some(ref p) = l.probe {
         let probe = match cfg.probes.iter().find(|(_, v)| v.name == *p) {
             Some((_, pm)) => pm,
@@ -97,6 +97,10 @@ fn sort_probes(
         None
     };
 
+    // If `--component` was given, pare the trace down to just events
+    // from a single component. `clock_set` must be built off of the
+    // pared-down set; it's what prevents the target component's
+    // timelines from getting blocked.
     let cid = if let Some(ref c) = l.component {
         match cfg.component_names.get(c) {
             Some(_) => Some(c),
