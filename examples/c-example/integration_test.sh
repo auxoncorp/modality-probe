@@ -35,8 +35,8 @@ kill -SIGINT $COLLECTOR_PID
 wait $COLLECTOR_PID
 
 # Use the cli to export a graph
-"$CLI" export cyclic --components example-component --report "$REPORT_LOG" > "$CYCLIC_GRAPH_DOT"
-"$CLI" export acyclic --components example-component --report "$REPORT_LOG" > "$ACYCLIC_GRAPH_DOT"
+"$CLI" export cyclic --component-path example-component --report "$REPORT_LOG" > "$CYCLIC_GRAPH_DOT"
+"$CLI" export acyclic --component-path example-component --report "$REPORT_LOG" > "$ACYCLIC_GRAPH_DOT"
 
 if [ ! -s "$CYCLIC_GRAPH_DOT" ]; then
     echo "$CYCLIC_GRAPH_DOT is empty"

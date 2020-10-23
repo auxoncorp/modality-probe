@@ -11,7 +11,7 @@ use serde::{
 };
 use serde_json::Value;
 
-use super::graph::{EventMeta, ProbeMeta};
+use crate::meta::{EventMeta, ProbeMeta};
 
 #[derive(Serialize)]
 pub struct Component<'a> {

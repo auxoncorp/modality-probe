@@ -1,4 +1,4 @@
-use crate::{export::Export, header_gen::HeaderGen, manifest_gen::ManifestGen};
+use crate::{export::Export, header_gen::HeaderGen, log::Log, manifest_gen::ManifestGen};
 use structopt::StructOpt;
 
 #[derive(Debug, PartialEq, StructOpt)]
@@ -14,6 +14,9 @@ pub enum Opts {
     HeaderGen(HeaderGen),
     /// Export a collected trace as a Graphviz dot file.
     Export(Export),
+    /// Inspect a trace in the terminal as a log or an ASCII-based
+    /// graph.
+    Log(Log),
 }
 
 #[cfg(test)]
@@ -135,7 +138,7 @@ mod test {
                     "modality-probe",
                     "export",
                     "acyclic",
-                    "--components",
+                    "--component-path",
                     "component",
                     "--report",
                     "report.csv",
@@ -145,7 +148,7 @@ mod test {
             Opts::Export(Export {
                 interactions_only: false,
                 include_internal_events: false,
-                components: vec![PathBuf::from("component")],
+                component_path: vec![PathBuf::from("component")],
                 report: PathBuf::from("report.csv"),
                 graph_type: GraphType::Acyclic,
             })
@@ -157,7 +160,7 @@ mod test {
                     "export",
                     "cyclic",
                     "--interactions-only",
-                    "--components",
+                    "--component-path",
                     "component",
                     "--report",
                     "report.csv",
@@ -167,7 +170,7 @@ mod test {
             Opts::Export(Export {
                 interactions_only: true,
                 include_internal_events: false,
-                components: vec![PathBuf::from("component")],
+                component_path: vec![PathBuf::from("component")],
                 report: PathBuf::from("report.csv"),
                 graph_type: GraphType::Cyclic,
             })

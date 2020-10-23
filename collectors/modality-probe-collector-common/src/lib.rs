@@ -135,12 +135,47 @@ pub struct ReportLogEntry {
     pub receive_time: DateTime<Utc>,
 }
 
+impl ReportLogEntry {
+    pub fn is_frontier_clock(&self) -> bool {
+        matches!(self.data, LogEntryData::FrontierClock(_))
+    }
+    pub fn is_internal_event(&self) -> bool {
+        match self.data {
+            LogEntryData::Event(id) => id.is_internal(),
+            LogEntryData::EventWithPayload(id, _) => id.is_internal(),
+            _ => false,
+        }
+    }
+
+    pub fn coordinate(&self) -> String {
+        // TODO(dan@auxon.io): Clocks not available here.
+        // https://github.com/auxoncorp/modality-probe/issues/278
+        format!(
+            "{}:{}:{}:{}",
+            self.session_id.0,
+            self.probe_id.get_raw(),
+            self.sequence_number.0,
+            self.sequence_index
+        )
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum LogEntryData {
     FrontierClock(LogicalClock),
     Event(EventId),
     EventWithPayload(EventId, u32),
     TraceClock(LogicalClock),
+}
+
+impl LogEntryData {
+    pub fn trace_clock(&self) -> Option<LogicalClock> {
+        if let LogEntryData::TraceClock(lc) = *self {
+            Some(lc)
+        } else {
+            None
+        }
+    }
 }
 
 impl From<EventLogEntry> for LogEntryData {
