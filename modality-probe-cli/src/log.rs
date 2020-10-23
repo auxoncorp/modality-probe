@@ -13,7 +13,7 @@ use modality_probe_collector_common::{json, LogEntryData, ReportLogEntry};
 
 use crate::{
     hopefully, hopefully_ok,
-    meta::{self, Cfg, EventMeta},
+    meta::{self, Cfg, EventMeta, ProbeMeta},
 };
 
 // 3 empty columns between each timeline.
@@ -215,25 +215,17 @@ fn print_as_graph<W: WriteIo>(
                                 n_probes,
                                 &mut stream,
                             )?;
-                            if l.verbose != 0 {
-                                print_info_row(
-                                    n_probes,
-                                    &format!("description: \"{}\"", emeta.description),
-                                    &mut stream,
-                                )?;
-                                print_info_row(
-                                    n_probes,
-                                    &format!("tags: {}", emeta.tags.replace(";", ", ")),
-                                    &mut stream,
-                                )?;
-                                if !emeta.file.is_empty() && !emeta.line.is_empty() {
-                                    print_info_row(
-                                        n_probes,
-                                        &format!("source: \"{}#L{}\"", emeta.file, emeta.line),
-                                        &mut stream,
-                                    )?;
-                                }
-                            }
+
+                            handle_graph_verbosity(
+                                l,
+                                n_probes,
+                                emeta,
+                                pmeta,
+                                None,
+                                cfg,
+                                &mut stream,
+                            )?;
+
                             print_info_row(n_probes, "", &mut stream)?;
                         } else {
                             log.push(row);
@@ -252,30 +244,17 @@ fn print_as_graph<W: WriteIo>(
                                 n_probes,
                                 &mut stream,
                             )?;
-                            if l.verbose != 0 {
-                                if let Some(pp) = meta::parsed_payload(
-                                    emeta.type_hint.as_ref().map(|s| s.as_ref()),
-                                    Some(pl),
-                                )? {
-                                    print_info_row(
-                                        n_probes,
-                                        &format!("payload: {}", pp),
-                                        &mut stream,
-                                    )?;
-                                }
-                                print_info_row(
-                                    n_probes,
-                                    &format!("tags: {}", emeta.tags.replace(";", ", ")),
-                                    &mut stream,
-                                )?;
-                                if !emeta.file.is_empty() && !emeta.line.is_empty() {
-                                    print_info_row(
-                                        n_probes,
-                                        &format!("source: \"{}#L{}\"", emeta.file, emeta.line),
-                                        &mut stream,
-                                    )?;
-                                }
-                            }
+
+                            handle_graph_verbosity(
+                                l,
+                                n_probes,
+                                emeta,
+                                pmeta,
+                                Some(pl),
+                                cfg,
+                                &mut stream,
+                            )?;
+
                             print_info_row(n_probes, "", &mut stream)?;
                         } else {
                             log.push(row);
@@ -403,6 +382,62 @@ fn print_as_graph<W: WriteIo>(
         if init_count == count {
             break;
         }
+    }
+    Ok(())
+}
+
+fn handle_graph_verbosity<W: WriteIo>(
+    l: &Log,
+    n_probes: usize,
+    emeta: &EventMeta,
+    pmeta: &ProbeMeta,
+    pl: Option<u32>,
+    cfg: &Cfg,
+    mut stream: W,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if l.verbose != 0 {
+        if let Some(pp) = meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), pl)? {
+            print_info_row(n_probes, &format!("payload: {}", pp), &mut stream)?;
+        }
+        print_info_row(
+            n_probes,
+            &format!("tags: {}", emeta.tags.replace(";", ", ")),
+            &mut stream,
+        )?;
+        if !emeta.file.is_empty() && !emeta.line.is_empty() {
+            print_info_row(
+                n_probes,
+                &format!("source: \"{}#L{}\"", emeta.file, emeta.line),
+                &mut stream,
+            )?;
+        }
+    }
+    if l.verbose > 1 {
+        print_info_row(
+            n_probes,
+            &format!("probe_tags: {}", pmeta.tags.replace(";", ", ")),
+            &mut stream,
+        )?;
+        print_info_row(
+            n_probes,
+            &match (pmeta.file.is_empty(), pmeta.line.is_empty()) {
+                (false, false) => format!("probe source: \"{}#L{}\"", pmeta.file, pmeta.line),
+                (false, true) => format!("probe source: \"{}\"", pmeta.file),
+                _ => "probe source: None".to_string(),
+            },
+            &mut stream,
+        )?;
+        let comp_name_or_id =
+            if let Some(n) = cfg.component_names.get(&pmeta.component_id.to_string()) {
+                n.to_string()
+            } else {
+                pmeta.component_id.to_string()
+            };
+        print_info_row(
+            n_probes,
+            &format!("component: {}", comp_name_or_id),
+            &mut stream,
+        )?;
     }
     Ok(())
 }

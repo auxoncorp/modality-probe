@@ -148,9 +148,10 @@ impl ReportLogEntry {
     }
 
     pub fn coordinate(&self) -> String {
-        // TODO(clocks not available here).
+        // TODO(dan@auxon.io): Clocks not available here.
+        // https://github.com/auxoncorp/modality-probe/issues/278
         format!(
-            "o:{}:{}:{}:{}",
+            "{}:{}:{}:{}",
             self.session_id.0,
             self.probe_id.get_raw(),
             self.sequence_number.0,
