@@ -15,33 +15,24 @@ modality-probe-graph = { git = git@github.com:auxoncorp/modality-probe }
 Example usage:
 
 ```rust
-fn log_to_graph<I, E>(
+pub(super) fn log_to_graph<I>(
     log: Peekable<I>,
-) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent, ()>>, ExportError>
+) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent>>, VisualizeError>
 where
-    I: Iterator<Item = Result<LogFileRow, E>>,
-    E: std::error::Error,
-    for<'a> &'a E: Into<ReadError>,
+    I: Iterator<Item = ReportLogEntry>,
 {
     let mut graph = EventDigraph::new(NodeAndEdgeLists {
-        nodes: HashMap::new(),
-        edges: HashMap::new(),
+        nodes: HashSet::new(),
+        edges: HashSet::new(),
     });
     let report_iter = ReportIter::new(log);
     for report in report_iter {
-        graph
-            .add_report(&report.map_err(|e| {
-                ExportError(format!(
-                    "encountered an error deserializing the report: {}",
-                    e
-                ))
-            })?)
-            .map_err(|e| {
-                ExportError(format!(
-                    "encountered an error reconstructing the graph: {}",
-                    e
-                ))
-            })?;
+        graph.add_report(&report).map_err(|e| {
+            VisualizeError(format!(
+                "encountered an error reconstructing the graph: {}",
+                e
+            ))
+        })?;
     }
     Ok(graph)
 }

@@ -330,12 +330,13 @@ $ head session_0_log_entries.jsonl
 
 ### Visualizing the Trace
 
-Now we can use this collected trace and visualize it as a graph with `modality-probe export`
-which will export the trace as a Graphviz DOT format file. The example below uses the `dot`
-command, and thus assumes you've already installed Graphviz which includes `dot`:
+Now we can use this collected trace and visualize it as a graph with
+`modality-probe visualize` which will export the trace as a Graphviz
+DOT format file. The example below uses the `dot` command, and thus
+assumes you've already installed Graphviz which includes `dot`:
 
 ```shell
-$ modality-probe export acyclic --component-path ./example-component --report session_0_log_entries.jsonl > trace.dot
+$ modality-probe visualize acyclic --component-path ./example-component --report session_0_log_entries.jsonl > trace.dot
 $ dot -Tpng trace.dot > trace.png
 ```
 

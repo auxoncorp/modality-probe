@@ -1,4 +1,4 @@
-use crate::{export::Export, header_gen::HeaderGen, log::Log, manifest_gen::ManifestGen};
+use crate::{header_gen::HeaderGen, log::Log, manifest_gen::ManifestGen, visualize::Visualize};
 use structopt::StructOpt;
 
 #[derive(Debug, PartialEq, StructOpt)]
@@ -12,11 +12,11 @@ pub enum Opts {
 
     /// Generate Rust/C header files with event/probe id constants
     HeaderGen(HeaderGen),
-    /// Export a collected trace as a Graphviz dot file.
-    Export(Export),
     /// Inspect a trace in the terminal as a log or an ASCII-based
     /// graph.
     Log(Log),
+    /// Visualize a collected trace as a Graphviz dot file.
+    Visualize(Visualize),
 }
 
 #[cfg(test)]
@@ -25,7 +25,7 @@ mod test {
 
     use pretty_assertions::assert_eq;
 
-    use crate::{export::GraphType, lang::Lang, manifest_gen::id_gen::NonZeroIdRange};
+    use crate::{lang::Lang, manifest_gen::id_gen::NonZeroIdRange, visualize::GraphType};
 
     use super::*;
 
@@ -131,12 +131,12 @@ mod test {
     }
 
     #[test]
-    fn parse_opts_export() {
+    fn parse_opts_visualize() {
         assert_eq!(
             Opts::from_iter(
                 [
                     "modality-probe",
-                    "export",
+                    "visualize",
                     "acyclic",
                     "--component-path",
                     "component",
@@ -145,7 +145,7 @@ mod test {
                 ]
                 .iter()
             ),
-            Opts::Export(Export {
+            Opts::Visualize(Visualize {
                 interactions_only: false,
                 include_internal_events: false,
                 component_path: vec![PathBuf::from("component")],
@@ -157,7 +157,7 @@ mod test {
             Opts::from_iter(
                 [
                     "modality-probe",
-                    "export",
+                    "visualize",
                     "cyclic",
                     "--interactions-only",
                     "--component-path",
@@ -167,7 +167,7 @@ mod test {
                 ]
                 .iter()
             ),
-            Opts::Export(Export {
+            Opts::Visualize(Visualize {
                 interactions_only: true,
                 include_internal_events: false,
                 component_path: vec![PathBuf::from("component")],

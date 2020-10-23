@@ -14,7 +14,9 @@ use crate::{
     meta::{self, Cfg},
 };
 
-use super::templates::{self, *};
+use super::templates::{
+    self, Component, ComponentSet, Context, Edge, EdgeSet, Event, Probe, ProbeSet,
+};
 
 pub fn log_to_graph<I>(
     log: Peekable<I>,
