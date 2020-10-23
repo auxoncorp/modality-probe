@@ -14,7 +14,8 @@ pub enum Opts {
     HeaderGen(HeaderGen),
     /// Export a collected trace as a Graphviz dot file.
     Export(Export),
-    /// Inspect the event log from the perspective of a single probe.
+    /// Inspect a trace in the terminal as a log or an ASCII-based
+    /// graph.
     Log(Log),
 }
 
