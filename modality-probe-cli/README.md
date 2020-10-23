@@ -45,6 +45,7 @@ SUBCOMMANDS:
 	export      	Export a collected trace as a Graphviz dot file
 	header-gen  	Generate Rust/C header files with event/probe id constants
 	help        	Prints this message or the help of the given subcommand(s)
+	log         	Inspect a trace in the terminal as a log or an ASCII-based graph
 	manifest-gen	Generate component, event and probe manifest files from probe macro invocations
 
 ```
@@ -181,6 +182,38 @@ $ modality-probe header-gen -o include/probes.h my-component
 
 **Note:** you’ll need to run `header-gen` _before_ compilation to give
 definitions for those otherwise undefined symbols.
+
+### Log
+
+```
+Inspect a trace in the terminal as a log or an ASCII-based graph
+
+USAGE:
+    modality-probe log [FLAGS] [OPTIONS] --component-path <component-path>... --report <report>
+
+FLAGS:
+        --graph      Print the log as an ASCII-art graph
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+    -v               Provide (more) verbose output. (-v, -vv, -vvv, &c.)
+
+OPTIONS:
+        --component <component>                 The component to target. If no component is given, the log from all
+                                                components is interleaved
+    -c, --component-path <component-path>...    The path to a component directory. To include multiple components,
+                                                provide this switch multiple times
+        --probe <probe>                         The probe to target. If no probe is given, the log from all probes is
+                                                interleaved
+    -r, --report <report>                       The path to the collected trace
+```
+
+Inspect a trace in the terminal. Filter by probe and component and
+optionally output as a graph.
+
+```shell
+
+$ modality-probe log -vv --component-path ./example-component --report session_0_log_entries.jsonl
+```
 
 ## Running the tests
 

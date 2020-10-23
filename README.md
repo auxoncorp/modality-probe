@@ -298,7 +298,7 @@ Using the configuration:
 Then, in another terminal, navigate to the Rust example and run it.
 
 ```shell
-$ cd examples/rust-examples
+$ cd examples/rust-example
 $ cargo run
     Finished dev [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/rust-example`
@@ -335,13 +335,85 @@ which will export the trace as a Graphviz DOT format file. The example below use
 command, and thus assumes you've already installed Graphviz which includes `dot`:
 
 ```shell
-$ modality-probe export acyclic --component ./example-component --report session_0_log_entries.jsonl > trace.dot
+$ modality-probe export acyclic --component-path ./example-component --report session_0_log_entries.jsonl > trace.dot
 $ dot -Tpng trace.dot > trace.png
 ```
 
 You can then open `trace.png` and see something like this:
 
 ![trace](https://user-images.githubusercontent.com/1194436/95799022-4402b800-0ca8-11eb-9ad3-a8c0fab31fe5.png)
+
+### Inspecting a Trace from Your Terminal
+
+The Modality Probe CLI also provides a way to inspect a trace from
+your terminal with the `log` subcommand. Given the trace we generated
+in the “Running the Instrumented Example” section above, we can
+inspect that trace with the following command:
+
+```shell
+$ modality-probe log -vv --component-path ./example-component --report session_0_log_entries.jsonl
+```
+
+This command takes a path to the component's metadata and a path to
+the trace; it also asks `log` to provide its most verbose output
+(`-vv`). That output should look something like this:
+
+```
+Clock Tick @ CONSUMER_PROBE (1:30020207:0:1) clock=(0, 0)
+
+CONSUMER_STARTED @ CONSUMER_PROBE (1:30020207:0:3)
+    description: "Measurement consumer thread started"
+    payload: None
+    tags: consumer
+    source: "rust-example/src/main.rs#L141"
+    probe tags: rust-example, measurement, consumer
+    probe source: "rust-example/src/main.rs#L129"
+    component: example-component
+
+Clock Tick @ PRODUCER_PROBE (1:837318897:0:1) clock=(0, 0)
+
+PRODUCER_STARTED @ PRODUCER_PROBE (1:837318897:0:3)
+    description: "Measurement producer thread started"
+    payload: None
+    tags: producer
+    source: "rust-example/src/main.rs#L77"
+    probe tags: rust-example, measurement, producer
+    probe source: "rust-example/src/main.rs#L65"
+    component: example-component
+```
+
+Alternatively, you can pass `--graph` to `log` and it will _graph_ the
+interactions and events across all of the probes. It should look
+something like this:
+
+```
+*   |   CONSUMER_STARTED @ CONSUMER_PROBE (1:30020207:0:3)
+|   |       description: "Measurement consumer thread started"
+|   |       tags: consumer
+|   |       source: "rust-example/src/main.rs#L141"
+|   |       probe_tags: rust-example, measurement, consumer
+|   |       probe source: "rust-example/src/main.rs#L129"
+|   |       component: example-component
+|   |
+|   *   PRODUCER_STARTED @ PRODUCER_PROBE (1:837318897:0:3)
+|   |       description: "Measurement producer thread started"
+|   |       tags: producer
+|   |       source: "rust-example/src/main.rs#L77"
+|   |       probe_tags: rust-example, measurement, producer
+|   |       probe source: "rust-example/src/main.rs#L65"
+|   |       component: example-component
+|   |
+|   *   PRODUCER_MEASUREMENT_SAMPLED @ PRODUCER_PROBE (1:837318897:0:4)
+|   |       description: "Measurement producer sampled a value for transmission"
+|   |       payload: 1
+|   |       tags: producer, measurement sample
+|   |       source: "rust-example/src/main.rs#L91"
+|   |       probe_tags: rust-example, measurement, producer
+|   |       probe source: "rust-example/src/main.rs#L65"
+|   |       component: example-component
+|   |
++<--+   CONSUMER_PROBE merged a snapshot from PRODUCER_PROBE
+```
 
 ### Associating Causality with your Existing Logging
 

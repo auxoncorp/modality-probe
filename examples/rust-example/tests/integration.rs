@@ -113,7 +113,7 @@ fn end_to_end_workflow() -> io::Result<()> {
         .args(&[
             "export",
             "cyclic",
-            "--components",
+            "--component-path",
             "example-component",
             "--report",
             report_log_path.to_str().unwrap(),
@@ -129,7 +129,7 @@ fn end_to_end_workflow() -> io::Result<()> {
         .args(&[
             "export",
             "acyclic",
-            "--components",
+            "--component-path",
             "example-component",
             "--report",
             report_log_path.to_str().unwrap(),

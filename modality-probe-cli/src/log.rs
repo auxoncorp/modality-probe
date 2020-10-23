@@ -42,7 +42,7 @@ pub struct Log {
     #[structopt(long)]
     pub graph: bool,
     /// Provide (more) verbose output.
-    /// (-v, -vv, -vvv, &c.)
+    /// (-v, -vv, &c.)
     #[structopt(short, parse(from_occurrences))]
     pub verbose: u8,
 }

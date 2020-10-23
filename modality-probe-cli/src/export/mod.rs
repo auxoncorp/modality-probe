@@ -26,7 +26,7 @@ pub struct Export {
     /// The path to a component directory. To include multiple
     /// components, provide this switch multiple times.
     #[structopt(short, long, required = true)]
-    pub components: Vec<PathBuf>,
+    pub component_path: Vec<PathBuf>,
     /// The path to the collected trace.
     #[structopt(short, long, required = true)]
     pub report: PathBuf,
@@ -58,7 +58,7 @@ impl FromStr for GraphType {
 }
 
 pub fn run(mut exp: Export) -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = meta::assemble_components(&mut exp.components)?;
+    let cfg = meta::assemble_components(&mut exp.component_path)?;
     let mut log_file = hopefully!(
         File::open(&exp.report),
         format!("Failed to open the report file at {}", exp.report.display(),)
