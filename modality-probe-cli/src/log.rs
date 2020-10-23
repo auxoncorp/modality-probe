@@ -25,12 +25,16 @@ const COL_EDGE: &str = "---";
 pub struct Log {
     /// The probe to target. If no probe is given, the log from all
     /// probes is interleaved.
-    #[structopt(short, long)]
+    #[structopt(long)]
     pub probe: Option<String>,
+    /// The component to target. If no component is given, the log
+    /// from all components is interleaved.
+    #[structopt(long)]
+    pub component: Option<String>,
     /// The path to a component directory. To include multiple
     /// components, provide this switch multiple times.
     #[structopt(short, long, required = true)]
-    pub components: Vec<PathBuf>,
+    pub component_path: Vec<PathBuf>,
     /// The path to the collected trace.
     #[structopt(short, long, required = true)]
     pub report: PathBuf,
@@ -44,7 +48,7 @@ pub struct Log {
 }
 
 pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = meta::assemble_components(&mut l.components)?;
+    let cfg = meta::assemble_components(&mut l.component_path)?;
     let mut log_file = hopefully!(
         File::open(&l.report),
         format!("failed to open the report file at {}", l.report.display())
@@ -93,8 +97,45 @@ fn sort_probes(
         None
     };
 
-    match pid {
-        Some(p) => {
+    let cid = if let Some(ref c) = l.component {
+        match cfg.component_names.get(c) {
+            Some(_) => Some(c),
+            None => cfg
+                .component_names
+                .iter()
+                .find(|(_, name)| name == &c)
+                .map(|(id, _)| id),
+        }
+    } else {
+        None
+    };
+
+    match (cid, pid) {
+        (Some(c), Some(p)) => {
+            for ev in report {
+                if let Some(id) = cfg.probes_to_components.get(&ev.probe_id.get_raw()) {
+                    if ev.probe_id == p && &id.to_string() == c {
+                        let p = probes.entry(ev.probe_id).or_insert_with(Vec::new);
+                        if !ev.is_internal_event() {
+                            p.push(ev);
+                        }
+                    }
+                }
+            }
+        }
+        (Some(c), None) => {
+            for ev in report {
+                if let Some(id) = cfg.probes_to_components.get(&ev.probe_id.get_raw()) {
+                    if &id.to_string() == c {
+                        let p = probes.entry(ev.probe_id).or_insert_with(Vec::new);
+                        if !ev.is_internal_event() {
+                            p.push(ev);
+                        }
+                    }
+                }
+            }
+        }
+        (None, Some(p)) => {
             for ev in report {
                 if ev.probe_id == p {
                     let p = probes.entry(ev.probe_id).or_insert_with(Vec::new);
@@ -104,7 +145,7 @@ fn sort_probes(
                 }
             }
         }
-        None => {
+        (None, None) => {
             for ev in report {
                 let p = probes.entry(ev.probe_id).or_insert_with(Vec::new);
                 if !ev.is_internal_event() {
@@ -873,31 +914,31 @@ mod test {
     }
 
     const EXPECTED_GRAPH: &str = "\
-|   |   |   *   four @ four (o:1:4:1:1)
+|   |   |   *   four @ four (1:4:1:1)
 |   |   |   |
 |   +<--+   |   two merged a snapshot from three
 |   |   |   |
-|   |   |   *   four @ four (o:1:4:1:2)
+|   |   |   *   four @ four (1:4:1:2)
 |   |   |   |
-|   *   |   |   two @ two (o:1:2:1:3)
+|   *   |   |   two @ two (1:2:1:3)
 |   |   |   |
-|   |   |   *   four @ four (o:1:4:1:3)
+|   |   |   *   four @ four (1:4:1:3)
 |   |   |   |
 +-->+   |   |   two merged a snapshot from one
 |   |   |   |
-*   |   |   |   one @ one (o:1:1:1:2)
+*   |   |   |   one @ one (1:1:1:2)
 |   |   |   |
-|   *   |   |   two @ two (o:1:2:1:6)
+|   *   |   |   two @ two (1:2:1:6)
 |   |   |   |
-*   |   |   |   one @ one (o:1:1:1:3)
+*   |   |   |   one @ one (1:1:1:3)
 |   |   |   |
 |   +-->+   |   three merged a snapshot from two
 |   |   |   |
 +<--+   |   |   one merged a snapshot from two
 |   |   |   |
-|   *   |   |   two @ two (o:1:2:1:9)
+|   *   |   |   two @ two (1:2:1:9)
 |   |   |   |
-|   *   |   |   two @ two (o:1:2:1:10)
+|   *   |   |   two @ two (1:2:1:10)
 |   |   |   |
 ";
 
@@ -1214,7 +1255,8 @@ mod test {
         let cfg = cfg();
         let l = Log {
             probe: None,
-            components: vec![],
+            component: None,
+            component_path: vec![],
             report: PathBuf::default(),
             graph: true,
             verbose: 0,
