@@ -396,6 +396,9 @@ fn handle_graph_verbosity<W: WriteIo>(
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if l.verbose != 0 {
+        // TODO(dan@auxon.io): Interpolate log-style payload / string
+        // combos here if they're present.
+        // https://github.com/auxoncorp/modality-probe/issues/281
         if let Some(pp) = meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), pl)? {
             print_info_row(n_probes, &format!("payload: {}", pp), &mut stream)?;
         }
