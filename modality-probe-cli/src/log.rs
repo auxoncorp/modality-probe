@@ -51,7 +51,7 @@ pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = meta::assemble_components(&mut l.component_path)?;
     let mut log_file = hopefully!(
         File::open(&l.report),
-        format!("failed to open the report file at {}", l.report.display())
+        format!("Failed to open the report file at {}", l.report.display())
     )?;
 
     let report = json::read_log_entries(&mut log_file)?;
@@ -81,16 +81,16 @@ fn sort_probes(
         let probe = match cfg.probes.iter().find(|(_, v)| v.name == *p) {
             Some((_, pm)) => pm,
             None => {
-                let pid = hopefully!(p.parse::<u32>(), format!("probe {} could not be found", p))?;
+                let pid = hopefully!(p.parse::<u32>(), format!("Probe {} could not be found", p))?;
                 hopefully_ok!(
                     cfg.probes.get(&pid),
-                    format!("probe {} could not be found", p)
+                    format!("Probe {} could not be found", p)
                 )?
             }
         };
         let pid = hopefully_ok!(
             ProbeId::new(probe.id),
-            format!("encountered an invalid probe id {}", probe.id)
+            format!("Encountered an invalid probe id {}", probe.id)
         )?;
         Some(pid)
     } else {
@@ -236,7 +236,7 @@ fn print_as_graph<W: WriteIo>(
                             let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
                             let pmeta = hopefully_ok!(
                                 cfg.probes.get(&probe_id.get_raw()),
-                                "couldn't find probe"
+                                "Couldn't find probe"
                             )?;
                             print_event_row(
                                 &format!("{} @ {} ({})", emeta.name, pmeta.name, row.coordinate(),),
@@ -330,11 +330,11 @@ fn print_as_graph<W: WriteIo>(
                             let (lc_id, clock) = lc.pack();
                             let from_pm = hopefully_ok!(
                                 cfg.probes.get(&lc_id.get_raw()),
-                                format!("probe {} could not be found", lc_id.get_raw())
+                                format!("Probe {} could not be found", lc_id.get_raw())
                             )?;
                             let to_pm = hopefully_ok!(
                                 cfg.probes.get(&probe_id.get_raw()),
-                                format!("probe {} could not be found", probe_id.get_raw())
+                                format!("Probe {} could not be found", probe_id.get_raw())
                             )?;
                             if let Some(source_idx) = pending_sources.get(&(lc_id, clock + 1)) {
                                 print_edge_line(
@@ -463,11 +463,11 @@ fn handle_source_edge<W: WriteIo>(
     if let Some((target_idx, target_id)) = pending_targets.get(&(lc_id, clock - 1)) {
         let from_pm = hopefully_ok!(
             cfg.probes.get(&probe_id.get_raw()),
-            format!("probe {} could not be found", probe_id.get_raw())
+            format!("Probe {} could not be found", probe_id.get_raw())
         )?;
         let to_pm = hopefully_ok!(
             cfg.probes.get(&target_id.get_raw()),
-            format!("probe {} could not be found", lc_id.get_raw())
+            format!("Probe {} could not be found", lc_id.get_raw())
         )?;
         print_edge_line(
             idx,
@@ -504,17 +504,17 @@ fn print_event_row<W: WriteIo>(
         if i == idx {
             hopefully!(
                 write!(s, "*{}", COL_SPACE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         } else {
             hopefully!(
                 write!(s, "|{}", COL_SPACE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         }
     }
-    hopefully!(write!(s, "{}", name), "internal error formatting graph")?;
-    hopefully!(writeln!(stream, "{}", s), "graph formatting error")?;
+    hopefully!(write!(s, "{}", name), "Internal error formatting graph")?;
+    hopefully!(writeln!(stream, "{}", s), "Internal error formatting graph")?;
     Ok(())
 }
 
@@ -528,18 +528,18 @@ fn print_info_row<W: WriteIo>(
         // If the info string is empty and we're on the lat timeline,
         // don't include the column spacing.
         if i == n_probe.saturating_sub(1) && info.is_empty() {
-            hopefully!(write!(s, "|"), "internal error formatting graph")?;
+            hopefully!(write!(s, "|"), "Internal error formatting graph")?;
         } else {
             hopefully!(
                 write!(s, "|{}", COL_SPACE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         }
     }
     if !info.is_empty() {
-        hopefully!(write!(s, "    {}", info), "internal error formatting graph")?;
+        hopefully!(write!(s, "    {}", info), "Internal error formatting graph")?;
     }
-    hopefully!(writeln!(stream, "{}", s), "internal error formatting graph")?;
+    hopefully!(writeln!(stream, "{}", s), "Internal error formatting graph")?;
     Ok(())
 }
 
@@ -560,57 +560,57 @@ fn print_edge_line<W: WriteIo>(
         if l_to_r && i == from && i == to - 1 {
             hopefully!(
                 write!(s, "+{}>", &COL_EDGE[1..]),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         // This timeline is the source (left-to-right).
         } else if l_to_r && i == from {
             hopefully!(
                 write!(s, "+{}", COL_EDGE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         // This timeline is the source (right-to-left).
         } else if i == from {
             hopefully!(
                 write!(s, "+{}", COL_SPACE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         // This timeline is the target (in left-to-right).
         } else if l_to_r && i == to {
             hopefully!(
                 write!(s, "+{}", COL_SPACE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         // This timeline is the target (in right-to-left).
         } else if i == to {
             hopefully!(
                 write!(s, "+<{}", &COL_EDGE[1..]),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         // In a left-to-right edge, write the head of the arrow.
         } else if l_to_r && i == to - 1 {
             hopefully!(
                 write!(s, "{}>", COL_EDGE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         // We're on a timeline that lay between the source and
         // target and the edge should “jump” it.
         } else if (l_to_r && i > from && i < to) || (i > to && i < from) {
             hopefully!(
                 write!(s, "-{}", COL_EDGE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         } else {
             hopefully!(
                 write!(s, "|{}", COL_SPACE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         }
     }
     hopefully!(
         write!(s, "{} merged a snapshot from {}", to_pname, from_pname),
-        "internal error formatting graph"
+        "Internal error formatting graph"
     )?;
-    hopefully!(writeln!(stream, "{}", s), "internal error formatting graph")?;
+    hopefully!(writeln!(stream, "{}", s), "Internal error formatting graph")?;
     Ok(())
 }
 
@@ -627,17 +627,17 @@ fn print_missing_edge_line<W: WriteIo>(
         if i == idx && !single_probe_mode {
             hopefully!(
                 write!(s, "?{}", COL_SPACE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         } else if i == idx && single_probe_mode {
             hopefully!(
                 write!(s, "+<-{}", &COL_SPACE[2..]),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         } else {
             hopefully!(
                 write!(s, "|{}", COL_SPACE),
-                "internal error formatting graph"
+                "Internal error formatting graph"
             )?;
         }
     }
@@ -651,9 +651,9 @@ fn print_missing_edge_line<W: WriteIo>(
                 to_name, from_name
             )
         },
-        "internal error formatting graph"
+        "Internal error formatting graph"
     )?;
-    hopefully!(writeln!(stream, "{}", s), "internal error formatting graph")?;
+    hopefully!(writeln!(stream, "{}", s), "Internal error formatting graph")?;
     Ok(())
 }
 

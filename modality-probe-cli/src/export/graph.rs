@@ -30,7 +30,7 @@ where
     for report in report_iter {
         hopefully!(
             graph.add_report(&report),
-            "encountered an error reconstructing the graph"
+            "Encountered an error reconstructing the graph"
         )?;
     }
     Ok(graph)

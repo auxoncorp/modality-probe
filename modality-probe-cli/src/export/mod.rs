@@ -61,7 +61,7 @@ pub fn run(mut exp: Export) -> Result<(), Box<dyn std::error::Error>> {
     let cfg = meta::assemble_components(&mut exp.components)?;
     let mut log_file = hopefully!(
         File::open(&exp.report),
-        format!("failed to open the report file at {}", exp.report.display(),)
+        format!("Failed to open the report file at {}", exp.report.display(),)
     )?;
 
     let graph = graph::log_to_graph(
