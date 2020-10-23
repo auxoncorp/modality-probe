@@ -129,7 +129,7 @@ pub fn parsed_payload(
         (Some("u8"), Some(pl)) => Ok(Some(format!("{}", pl as u8))),
         (Some("u16"), Some(pl)) => Ok(Some(format!("{}", pl as u16))),
         (Some("u32"), Some(pl)) => Ok(Some(format!("{}", pl as u32))),
-        (Some("f32"), Some(pl)) => Ok(Some(format!("{}", pl as f32))),
+        (Some("f32"), Some(pl)) => Ok(Some(format!("{}", f32::from_bits(pl)))),
         (Some("bool"), Some(pl)) => Ok(Some(format!("{}", pl != 0))),
         (Some(th), Some(_)) => give_up!(format!("{} is not a valid type hint", th)),
         (None, Some(pl)) => Ok(Some(pl.to_string())),
