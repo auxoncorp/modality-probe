@@ -81,9 +81,11 @@ probe for each thread.
 
 ```rust
 let mut storage = [0u8; PROBE_SIZE];
-let probe = try_initialize_at!(
+let probe = initialize_at!(
     &mut storage,
     PRODUCER_PROBE,
+    NanosecondResolution::UNSPECIFIED,
+    WallClockId::local_only(),
     RestartCounterProvider::NoRestartTracking,
     tags!("rust-example", "measurement", "producer"),
     "Measurement producer probe"
@@ -92,17 +94,17 @@ let probe = try_initialize_at!(
 
 ### Recording Events
 
-Step two is to start recording events. The `try_record!` callsite
+Step two is to start recording events. The `record!` callsite
 takes a probe, an event _name_, a description of the event, and any
 tags you want to associate with this event.
 
 ```rust
-try_record!(
+record!(
     probe,
     PRODUCER_STARTED,
     "Measurement producer thread started",
     tags!("producer")
-)?;
+);
 ```
 
 Events can also be recorded with payloads up to 4 bytes in size.
@@ -112,13 +114,13 @@ let mut m: i8 = 1;
 let delta: i8 = rng.gen_range(-1, 2);
 m = m.wrapping_add(delta);
 
-try_record_w_i8!(
+record_w_i8!(
     probe,
     PRODUCER_MEASUREMENT_SAMPLED,
     m,
     tags!("producer", "measurement sample"),
     "Measurement producer sampled a value for transmission"
-)?;
+);
 ```
 
 ### Recording Expectations
@@ -128,13 +130,39 @@ also include a binary payload denoting whether or not the expectation
 passed or failed.
 
 ```rust
-try_expect!(
+expect!(
     probe,
     PRODUCER_TX_STATUS_OK,
     tx_status.is_ok(),
     "Measurement producer send result status",
     tags!("producer", "SEVERITY_10")
-)?;
+);
+```
+
+### Recording Wall Clock Time
+
+Wall clock time can be recorded as a standalone timestamp or
+alongside other events.
+
+```rust
+probe.record_time(Nanoseconds::new(1)?);
+
+record_w_time!(
+    probe,
+    PRODUCER_STARTED,
+    Nanoseconds::new(2)?,
+    "Measurement producer thread started",
+    tags!("producer")
+);
+
+record_w_i8_w_time!(
+    probe,
+    PRODUCER_MEASUREMENT_SAMPLED,
+    m,
+    Nanoseconds::new(3)?,
+    tags!("producer", "measurement sample"),
+    "Measurement producer sampled a value for transmission"
+);
 ```
 
 ### Tracking Interactions

@@ -87,6 +87,8 @@ err = MODALITY_PROBE_INIT(
         &g_producer_probe_buffer[0],
         sizeof(g_producer_probe_buffer),
         PRODUCER_PROBE,
+        MODALITY_PROBE_TIME_RESOLUTION_UNSPECIFIED,
+        MODALITY_PROBE_WALL_CLOCK_ID_LOCAL_ONLY,
         NULL,
         NULL,
         &g_producer_probe,
@@ -137,6 +139,35 @@ err = MODALITY_PROBE_EXPECT(
         (sample - g_producer_measurement.m) <= 2,
         MODALITY_TAGS("producer", "SEVERITY_10"),
         "Measurement delta within ok range");
+```
+
+### Recording Wall Clock Time
+
+Wall clock time can be recorded as a standalone timestamp or
+alongside other events.
+
+```rust
+uint64_t time_ns = 1;
+
+err = modality_probe_record_time(probe, time_ns);
+assert(err == MODALITY_PROBE_ERROR_OK);
+
+err = MODALITY_PROBE_RECORD_W_TIME(
+        g_producer_probe,
+        PRODUCER_STARTED,
+        time_ns,
+        MODALITY_TAGS("producer"),
+        "Measurement producer started");
+assert(err == MODALITY_PROBE_ERROR_OK);
+
+err = MODALITY_PROBE_RECORD_W_I8_W_TIME(
+        g_producer_probe,
+        PRODUCER_MEASUREMENT_SAMPLED,
+        sample,
+        time_ns,
+        MODALITY_TAGS("producer", "measurement sample"),
+        "Measurement producer sampled a value for transmission");
+assert(err == MODALITY_PROBE_ERROR_OK);
 ```
 
 ### Tracking Interactions
