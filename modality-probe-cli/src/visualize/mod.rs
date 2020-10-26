@@ -1,5 +1,4 @@
-//! Export a textual representation of a causal graph using the
-//! collected columnar form as input.
+//! Visualize a causal graph using the Graphiz / Dot
 
 use std::{fs::File, path::PathBuf, str::FromStr};
 
@@ -12,10 +11,10 @@ use crate::{give_up, hopefully, meta};
 pub mod graph;
 mod templates;
 
-/// Export a textual representation of a causal graph using the
+/// Visualize a textual representation of a causal graph using the
 /// collected trace file as input.
 #[derive(Debug, PartialEq, StructOpt)]
-pub struct Export {
+pub struct Visualize {
     /// Generate the graph showing only the causal relationships,
     /// eliding the events in between.
     #[structopt(long)]
@@ -57,11 +56,11 @@ impl FromStr for GraphType {
     }
 }
 
-pub fn run(mut exp: Export) -> Result<(), Box<dyn std::error::Error>> {
-    let cfg = meta::assemble_components(&mut exp.component_path)?;
+pub fn run(mut viz: Visualize) -> Result<(), Box<dyn std::error::Error>> {
+    let cfg = meta::assemble_components(&mut viz.component_path)?;
     let mut log_file = hopefully!(
-        File::open(&exp.report),
-        format!("Failed to open the report file at {}", exp.report.display(),)
+        File::open(&viz.report),
+        format!("Failed to open the report file at {}", viz.report.display(),)
     )?;
 
     let graph = graph::log_to_graph(
@@ -70,10 +69,10 @@ pub fn run(mut exp: Export) -> Result<(), Box<dyn std::error::Error>> {
             .peekable(),
     )?;
 
-    match (exp.graph_type, exp.interactions_only) {
+    match (viz.graph_type, viz.interactions_only) {
         (GraphType::Acyclic, false) => println!(
             "{}",
-            graph.graph.as_complete(exp.include_internal_events).dot(
+            graph.graph.as_complete(viz.include_internal_events).dot(
                 &cfg,
                 "complete",
                 templates::COMPLETE
@@ -88,7 +87,7 @@ pub fn run(mut exp: Export) -> Result<(), Box<dyn std::error::Error>> {
         ),
         (GraphType::Cyclic, false) => println!(
             "{}",
-            graph.graph.as_states(exp.include_internal_events).dot(
+            graph.graph.as_states(viz.include_internal_events).dot(
                 &cfg,
                 "states",
                 templates::STATES

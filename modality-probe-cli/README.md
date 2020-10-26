@@ -6,8 +6,9 @@ visualize a trace.
 
 The Modality Probe CLI can be used to generate manifests containing
 metadata for your events and probes, and then can generate code for
-their definitions from those manifests. It can also be used to export
-a collected trace as Graphviz dot code.
+their definitions from those manifests. It can also be used to
+visualize a collected trace as Graphviz dot code or to inspect it in
+the terminal as a log.
 
 ## Getting Started
 
@@ -42,21 +43,20 @@ FLAGS:
 	-V, --version	Prints version information
 
 SUBCOMMANDS:
-	export      	Export a collected trace as a Graphviz dot file
 	header-gen  	Generate Rust/C header files with event/probe id constants
 	help        	Prints this message or the help of the given subcommand(s)
 	log         	Inspect a trace in the terminal as a log or an ASCII-based graph
 	manifest-gen	Generate component, event and probe manifest files from probe macro invocations
+	visualize      	Visualize a collected trace as a Graphviz digraph
 
 ```
 
-### Export
+### Visualize
 ```
-modality-probe-export 0.3.0
-Export a collected as a Graphviz dot file
+Visualize a collected as a Graphviz digraph
 
 USAGE:
-    modality-probe export [FLAGS] <graph-type> --components <components>... --report <report>
+    modality-probe visualize [FLAGS] <graph-type> --components <components>... --report <report>
 
 FLAGS:
     -h, --help
@@ -83,12 +83,12 @@ ARGS:
             history of either all events or the interactions between probes in the system.
 ```
 
-Export provides a way to convert your collected trace into a Graphviz
-dot graph.
+Visualize provides a way to convert your collected trace into a
+Graphviz dot graph.
 
 
 ```
-$ modality-probe export acyclic \
+$ modality-probe visualize acyclic \
     --components my-component \
     --report session_8_log_entries.csv > complete.dot
 ```
@@ -138,7 +138,7 @@ other metadata about the event. This CSV file then serves two
 purposes: generating headers files that contain event and probe
 definitions which you can read about in the following section, and
 secondly, when interacting with a trace after it’s been collected,
-such as with the `export` command, to convert the raw ids back to
+such as with the `visualize` command, to convert the raw ids back to
 human-readable formats.
 
 ```

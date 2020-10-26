@@ -2,7 +2,7 @@
 
 #[test]
 #[cfg(all(target_os = "linux", target_endian = "little"))]
-fn export_cli_produces_a_reasonable_dot_file() {
+fn visualize_cli_produces_a_reasonable_dot_file() {
     use std::{
         path::PathBuf,
         process::{Command, Stdio},
@@ -35,7 +35,7 @@ fn export_cli_produces_a_reasonable_dot_file() {
     log_path.push("test-log.jsonl");
 
     run(&[
-        "export",
+        "visualize",
         "acyclic",
         "-c",
         &comp_path.display().to_string(),
@@ -43,7 +43,7 @@ fn export_cli_produces_a_reasonable_dot_file() {
         &log_path.display().to_string(),
     ]);
     run(&[
-        "export",
+        "visualize",
         "cyclic",
         "-c",
         &comp_path.display().to_string(),
@@ -51,7 +51,7 @@ fn export_cli_produces_a_reasonable_dot_file() {
         &log_path.display().to_string(),
     ]);
     run(&[
-        "export",
+        "visualize",
         "acyclic",
         "--interactions-only",
         "-c",
@@ -60,7 +60,7 @@ fn export_cli_produces_a_reasonable_dot_file() {
         &log_path.display().to_string(),
     ]);
     run(&[
-        "export",
+        "visualize",
         "cyclic",
         "--interactions-only",
         "-c",
@@ -73,7 +73,7 @@ fn export_cli_produces_a_reasonable_dot_file() {
     comp_path.push("test-component-empty");
 
     run(&[
-        "export",
+        "visualize",
         "acyclic",
         "-c",
         &comp_path.display().to_string(),
@@ -81,7 +81,7 @@ fn export_cli_produces_a_reasonable_dot_file() {
         &log_path.display().to_string(),
     ]);
     run(&[
-        "export",
+        "visualize",
         "cyclic",
         "-c",
         &comp_path.display().to_string(),
@@ -89,7 +89,7 @@ fn export_cli_produces_a_reasonable_dot_file() {
         &log_path.display().to_string(),
     ]);
     run(&[
-        "export",
+        "visualize",
         "acyclic",
         "--interactions-only",
         "-c",
@@ -98,7 +98,7 @@ fn export_cli_produces_a_reasonable_dot_file() {
         &log_path.display().to_string(),
     ]);
     run(&[
-        "export",
+        "visualize",
         "cyclic",
         "--interactions-only",
         "-c",

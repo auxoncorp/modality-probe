@@ -15,7 +15,7 @@ use std::{
 
 #[test]
 fn end_to_end_workflow() -> io::Result<()> {
-    // This test will store artifacts (report logs, export graph, etc) in target/artifacts
+    // This test will store artifacts (report logs, visualize graph, etc) in target/artifacts
     let src_dir = env!("CARGO_MANIFEST_DIR");
     let artifact_path = Path::new(src_dir).join("target").join("artifacts");
     if artifact_path.exists() {
@@ -26,7 +26,7 @@ fn end_to_end_workflow() -> io::Result<()> {
     // The report log file storing the output of modality-probe-udp-collector
     let report_log_path = artifact_path.join("report_log.jsonl");
 
-    // The exported graph of the log file
+    // The visualizeed graph of the log file
     let cyclic_graph_path = artifact_path.join("cyclic_graph.dot");
     let acyclic_graph_path = artifact_path.join("acyclic_graph.dot");
 
@@ -108,10 +108,10 @@ fn end_to_end_workflow() -> io::Result<()> {
         .wait()
         .expect("Could not wait on modality-probe-udp-collector child");
 
-    // Use the cli to export a graph
+    // Use the cli to visualize a graph
     let output = Command::new(&cli)
         .args(&[
-            "export",
+            "visualize",
             "cyclic",
             "--component-path",
             "example-component",
@@ -120,14 +120,14 @@ fn end_to_end_workflow() -> io::Result<()> {
         ])
         .output()
         .unwrap();
-    assert!(output.status.success(), "Could not export cyclic graph");
+    assert!(output.status.success(), "Could not visualize cyclic graph");
     fs::write(&cyclic_graph_path, output.stdout).expect("Could not write cyclic graph output");
     let metadata = fs::metadata(&cyclic_graph_path).expect("Could not read cyclic graph output");
     assert_ne!(metadata.len(), 0);
 
     let output = Command::new(&cli)
         .args(&[
-            "export",
+            "visualize",
             "acyclic",
             "--component-path",
             "example-component",
@@ -136,7 +136,7 @@ fn end_to_end_workflow() -> io::Result<()> {
         ])
         .output()
         .unwrap();
-    assert!(output.status.success(), "Could not export acyclic graph");
+    assert!(output.status.success(), "Could not visualize acyclic graph");
     fs::write(&acyclic_graph_path, output.stdout).expect("Could not write acyclic graph output");
     let metadata = fs::metadata(&acyclic_graph_path).expect("Could not read acyclic graph output");
     assert_ne!(metadata.len(), 0);
