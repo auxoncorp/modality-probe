@@ -332,7 +332,7 @@ fn graph_to_tree<'a>(
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use std::convert::TryInto;
 
     use uuid::Uuid;
@@ -341,7 +341,7 @@ mod test {
 
     use super::super::templates;
 
-    fn cfg() -> Cfg {
+    pub fn cfg() -> Cfg {
         let a_uuid = Uuid::new_v4();
         Cfg {
             probes: vec![

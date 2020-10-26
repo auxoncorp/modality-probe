@@ -176,4 +176,34 @@ mod test {
             })
         );
     }
+
+    #[test]
+    fn parse_opts_log() {
+        assert_eq!(
+            Opts::from_iter(
+                [
+                    "modality-probe",
+                    "log",
+                    "-vv",
+                    "--component-path",
+                    "component",
+                    "--report",
+                    "r.jsonl",
+                    "--graph",
+                    "--format",
+                    "event %en occurred at probe %pn",
+                ]
+                .iter()
+            ),
+            Opts::Log(Log {
+                probe: None,
+                component: None,
+                component_path: vec![PathBuf::from("component")],
+                report: PathBuf::from("r.jsonl"),
+                graph: true,
+                verbose: 2,
+                format: Some("event %en occurred at probe %pn".to_string()),
+            })
+        );
+    }
 }
