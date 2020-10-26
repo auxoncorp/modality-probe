@@ -41,6 +41,58 @@ impl Display for InvalidProbeId {
     }
 }
 
+/// Error that indicates an invalid wall clock time was detected.
+///
+/// Wall clock time must not be greater than Nanoseconds::MAX
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InvalidWallClockTime;
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidWallClockTime {}
+
+#[cfg(feature = "std")]
+impl Display for InvalidWallClockTime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Invalid Nanoseconds wall clock time")
+    }
+}
+
+/// An error relating to the '_with_time' APIs
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WithTimeError {
+    /// A provided primitive, unvalidated wall clock time
+    /// turned out to be invalid.
+    InvalidWallClockTime,
+    /// A provided primitive, unvalidated event id
+    /// turned out to be invalid.
+    InvalidEventId,
+}
+
+#[cfg(feature = "std")]
+impl std::error::Error for WithTimeError {}
+
+#[cfg(feature = "std")]
+impl Display for WithTimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WithTimeError::InvalidWallClockTime => InvalidWallClockTime.fmt(f),
+            WithTimeError::InvalidEventId => InvalidWallClockTime.fmt(f),
+        }
+    }
+}
+
+impl From<InvalidWallClockTime> for WithTimeError {
+    fn from(_e: InvalidWallClockTime) -> Self {
+        WithTimeError::InvalidWallClockTime
+    }
+}
+
+impl From<InvalidEventId> for WithTimeError {
+    fn from(_e: InvalidEventId) -> Self {
+        WithTimeError::InvalidEventId
+    }
+}
+
 /// An error relating to the initialization
 /// of an ModalityProbe instance from parts.
 #[derive(Debug, Clone, Copy, PartialEq)]

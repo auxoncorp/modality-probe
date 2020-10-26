@@ -391,6 +391,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn entry_helpers() {
+        let e = WholeEntry::Single(OrderedEntry::from_index(1));
+        assert_eq!(e.size(), 1);
+        assert_eq!(e.first_entry(), &OrderedEntry::from_index(1));
+        assert_eq!(e.is_double(), false);
+        let e = WholeEntry::Double(OrderedEntry::from_index(2), OrderedEntry::from_index(3));
+        assert_eq!(e.size(), 2);
+        assert_eq!(e.first_entry(), &OrderedEntry::from_index(2));
+        assert_eq!(e.is_double(), true);
+    }
+
     /// Test backing storage size rounding and minimum size enforcement
     #[test]
     fn test_init_sizes() {

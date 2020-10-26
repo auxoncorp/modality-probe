@@ -1,11 +1,11 @@
 use crossbeam::{crossbeam_channel, thread};
 use log::{info, trace};
 use modality_probe::{
-    expect, initialize_at, record, record_w_i8, CausalSnapshot, ModalityProbe, Probe,
-    RestartCounterProvider,
+    expect, initialize_at, record, record_w_i8, CausalSnapshot, ModalityProbe,
+    NanosecondResolution, Probe, RestartCounterProvider, WallClockId,
 };
 use rand::{thread_rng, Rng};
-use std::{env, fmt, net::UdpSocket};
+use std::{fmt, net::UdpSocket};
 
 // Import the generated component manifest definitions
 mod component_definitions;
@@ -14,13 +14,12 @@ use component_definitions::*;
 const PROBE_SIZE: usize = 1024;
 const REPORT_SIZE: usize = 1024;
 const COLLECTOR_ADDR: &str = "127.0.0.1:2718";
+const WALL_CLOCK_ID: WallClockId = WallClockId(1);
+const TIME_RESOLUTION: NanosecondResolution = NanosecondResolution::UNSPECIFIED;
 
 fn main() {
     // Default to info level if not set
-    if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG", "info");
-    }
-    env_logger::init();
+    env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     info!("Modality probe reports will be sent to {}", COLLECTOR_ADDR);
 
@@ -65,6 +64,8 @@ fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
     let probe = initialize_at!(
         &mut storage,
         PRODUCER_PROBE,
+        TIME_RESOLUTION,
+        WALL_CLOCK_ID,
         RestartCounterProvider::NoRestartTracking,
         tags!("rust-example", "measurement", "producer"),
         "Measurement producer probe"
@@ -125,6 +126,8 @@ fn measurement_consumer_thread(rx: crossbeam_channel::Receiver<Measurement>) {
     let probe = initialize_at!(
         &mut storage,
         CONSUMER_PROBE,
+        TIME_RESOLUTION,
+        WALL_CLOCK_ID,
         RestartCounterProvider::NoRestartTracking,
         tags!("rust-example", "measurement", "consumer"),
         "Measurement consumer probe"

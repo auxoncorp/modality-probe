@@ -1,2 +1,3 @@
 component_id,id,name,description,tags,file,line
-19894182-6b45-4e2e-8bc7-415f01096287,568020363,PROBE_ID_FOO,Example probe,example,examples/event-recording.rs,26
+bfca8f6c-66f0-424e-822c-b51b4a83db92,109322440,PRODUCER_PROBE,Measurement producer probe,c-example;measurement;producer,c-example/src/main.c,89
+bfca8f6c-66f0-424e-822c-b51b4a83db92,728801177,CONSUMER_PROBE,Measurement consumer probe,c-example;measurement;consumer,c-example/src/main.c,180

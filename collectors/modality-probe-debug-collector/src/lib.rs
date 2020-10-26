@@ -273,6 +273,8 @@ pub struct Collector {
     seq_num: u64,
     /// Reader used to read the probe's FencedRingBuffer
     reader: FencedReader<LogEntry, MemorySnapper>,
+    /// Temporary storage for trailing paired wall clock time entry
+    prev_paired_wall_clock_time: Option<WholeEntry<LogEntry>>,
     /// Allocated buffer for reading the log into
     rbuf: Vec<WholeEntry<LogEntry>>,
     /// Processed clocks backing storage
@@ -331,6 +333,7 @@ impl Collector {
                 },
                 buf_cap,
             ),
+            prev_paired_wall_clock_time: None,
             rbuf: Vec::new(),
             clocks,
             priority_writer: PriorityWriter {
@@ -399,6 +402,12 @@ impl Collector {
     /// Collect all new logs, return a report
     pub fn collect_report(&mut self) -> Result<Option<Report>, Error> {
         self.rbuf.clear();
+
+        // Insert paired wall clock time entry from previous report if needed
+        if let Some(e) = self.prev_paired_wall_clock_time.take() {
+            self.rbuf.push(e);
+        }
+
         let num_missed = self.reader.read(&mut self.rbuf)?;
         // Possibly add entries missed event
         if num_missed > 0 {
@@ -411,6 +420,16 @@ impl Collector {
         if self.rbuf.is_empty() {
             // No entries to report
             return Ok(None);
+        }
+
+        // If the last entry is a paired wall clock time entry, then
+        // save it for the next report so its not fragmented away from
+        // its associated entry
+        if let Some(e) = self.rbuf.last() {
+            if e.is_double() && e.first_entry().has_wall_clock_time_paired_bit_set() {
+                self.prev_paired_wall_clock_time =
+                    Some(self.rbuf.pop().expect("Just checked last entry"));
+            }
         }
 
         // Add report produced event
@@ -544,10 +563,14 @@ pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<(), Error> {
 pub mod tests {
     use super::*;
     use maplit::hashmap;
+    use pretty_assertions::assert_eq;
     use std::collections::HashMap;
     use std::convert::TryInto;
 
-    use modality_probe::{EventId, ModalityProbe, Probe, RestartCounterProvider};
+    use modality_probe::{
+        time::{NanosecondResolution, Nanoseconds, WallClockId},
+        EventId, ModalityProbe, Probe, RestartCounterProvider,
+    };
     use modality_probe_collector_common::{EventLogEntry, SequenceNumber};
     use std::mem::MaybeUninit;
 
@@ -638,6 +661,8 @@ pub mod tests {
         let mut probe = ModalityProbe::new_with_storage(
             &mut storage[..],
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -663,12 +688,14 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(lc(probe_id.get_raw(), 0, 0)),
-                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(ev(1)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(None, lc(probe_id.get_raw(), 0, 0)),
+                    EventLogEntry::Event(None, EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(None, ev(1)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         )
     }
@@ -685,6 +712,8 @@ pub mod tests {
         let probe = ModalityProbe::initialize_at(
             storage_unaligned,
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -722,12 +751,14 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(lc(probe_id.get_raw(), 0, 0)),
-                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(ev(1)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(None, lc(probe_id.get_raw(), 0, 0)),
+                    EventLogEntry::Event(None, EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(None, ev(1)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         )
     }
@@ -740,6 +771,8 @@ pub mod tests {
         let probe = ModalityProbe::new_with_storage(
             &mut storage[..],
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -770,6 +803,8 @@ pub mod tests {
         let probe = ModalityProbe::new_with_storage(
             &mut storage[..],
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -801,6 +836,8 @@ pub mod tests {
         let mut probe = ModalityProbe::new_with_storage(
             &mut storage[..],
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -812,6 +849,8 @@ pub mod tests {
         let mut probe_2 = ModalityProbe::new_with_storage(
             &mut storage_2[..],
             probe_id_2,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -848,14 +887,16 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw_2, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 0)),
-                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(ev(1)),
-                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 1)),
-                    EventLogEntry::TraceClock(lc(pid_raw, 0, 0)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(None, lc(pid_raw_2, 0, 0)),
+                    EventLogEntry::Event(None, EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(None, ev(1)),
+                    EventLogEntry::TraceClock(None, lc(pid_raw_2, 0, 1)),
+                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 0)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -872,11 +913,13 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw_2, 0, 1), lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::Event(ev(2)),
-                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 2)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(None, ev(2)),
+                    EventLogEntry::TraceClock(None, lc(pid_raw_2, 0, 2)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -889,15 +932,17 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(lc(pid_raw, 0, 0)),
-                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(ev(1)),
-                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
-                    EventLogEntry::TraceClock(lc(pid_raw, 0, 2)),
-                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 1)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 0)),
+                    EventLogEntry::Event(None, EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(None, ev(1)),
+                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 1)),
+                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 2)),
+                    EventLogEntry::TraceClock(None, lc(pid_raw_2, 0, 1)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -912,9 +957,11 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 2), lc(pid_raw_2, 0, 1)],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
                 event_log: vec![
-                    EventLogEntry::Event(ev(2)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(None, ev(2)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
             }
         );
@@ -928,6 +975,8 @@ pub mod tests {
         let probe = ModalityProbe::new_with_storage(
             &mut storage[..],
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -1053,12 +1102,14 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
-                    EventLogEntry::Event(ev(3)),
-                    EventLogEntry::Event(ev(4)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 1)),
+                    EventLogEntry::Event(None, ev(3)),
+                    EventLogEntry::Event(None, ev(4)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         )
     }
@@ -1094,13 +1145,15 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::Event(ev(1)),
-                    EventLogEntry::Event(ev(2)),
-                    EventLogEntry::Event(ev(3)),
-                    EventLogEntry::Event(ev(4)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(None, ev(1)),
+                    EventLogEntry::Event(None, ev(2)),
+                    EventLogEntry::Event(None, ev(3)),
+                    EventLogEntry::Event(None, ev(4)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         )
     }
@@ -1137,14 +1190,16 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::EventWithPayload(EventId::EVENT_LOG_ITEMS_MISSED, 2),
-                    EventLogEntry::Event(ev(3)),
-                    EventLogEntry::Event(ev(4)),
-                    EventLogEntry::Event(ev(5)),
-                    EventLogEntry::Event(ev(6)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::EventWithPayload(None, EventId::EVENT_LOG_ITEMS_MISSED, 2),
+                    EventLogEntry::Event(None, ev(3)),
+                    EventLogEntry::Event(None, ev(4)),
+                    EventLogEntry::Event(None, ev(5)),
+                    EventLogEntry::Event(None, ev(6)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         )
     }
@@ -1185,15 +1240,17 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
-                    EventLogEntry::TraceClock(lc(other_id_raw, 0, 1)),
-                    EventLogEntry::Event(ev(1)),
-                    EventLogEntry::Event(ev(2)),
-                    EventLogEntry::Event(ev(3)),
-                    EventLogEntry::Event(ev(4)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 1)),
+                    EventLogEntry::TraceClock(None, lc(other_id_raw, 0, 1)),
+                    EventLogEntry::Event(None, ev(1)),
+                    EventLogEntry::Event(None, ev(2)),
+                    EventLogEntry::Event(None, ev(3)),
+                    EventLogEntry::Event(None, ev(4)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -1219,17 +1276,19 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 1), lc(other_id_raw, 0, 1)],
                 event_log: vec![
-                    EventLogEntry::Event(ev(5)),
-                    EventLogEntry::Event(ev(6)),
-                    EventLogEntry::Event(ev(7)),
-                    EventLogEntry::Event(ev(8)),
-                    EventLogEntry::Event(ev(9)),
-                    EventLogEntry::Event(ev(10)),
-                    EventLogEntry::Event(ev(11)),
-                    EventLogEntry::Event(ev(12)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(None, ev(5)),
+                    EventLogEntry::Event(None, ev(6)),
+                    EventLogEntry::Event(None, ev(7)),
+                    EventLogEntry::Event(None, ev(8)),
+                    EventLogEntry::Event(None, ev(9)),
+                    EventLogEntry::Event(None, ev(10)),
+                    EventLogEntry::Event(None, ev(11)),
+                    EventLogEntry::Event(None, ev(12)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
     }
@@ -1291,12 +1350,14 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::Event(ev(1)),
-                    EventLogEntry::Event(ev(2)),
-                    EventLogEntry::Event(ev(3)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(None, ev(1)),
+                    EventLogEntry::Event(None, ev(2)),
+                    EventLogEntry::Event(None, ev(3)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -1318,13 +1379,15 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
-                    EventLogEntry::Event(ev(4)),
-                    EventLogEntry::Event(ev(5)),
-                    EventLogEntry::Event(ev(6)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 1)),
+                    EventLogEntry::Event(None, ev(4)),
+                    EventLogEntry::Event(None, ev(5)),
+                    EventLogEntry::Event(None, ev(6)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
     }
@@ -1360,12 +1423,14 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::Event(ev(1)),
-                    EventLogEntry::Event(ev(2)),
-                    EventLogEntry::Event(ev(3)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(None, ev(1)),
+                    EventLogEntry::Event(None, ev(2)),
+                    EventLogEntry::Event(None, ev(3)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -1387,13 +1452,77 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::EventWithPayload(ev(4), 5),
-                    EventLogEntry::Event(ev(6)),
-                    EventLogEntry::Event(ev(7)),
-                    EventLogEntry::Event(ev(8)),
-                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::EventWithPayload(None, ev(4), 5),
+                    EventLogEntry::Event(None, ev(6)),
+                    EventLogEntry::Event(None, ev(7)),
+                    EventLogEntry::Event(None, ev(8)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+    }
+
+    #[test]
+    fn fragmented_paired_wall_clock_time_entries_are_carried_over() {
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let (a, b) = LogEntry::paired_wall_clock_time(Nanoseconds::new(1).unwrap());
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
+            probe_id,
+            3,
+            0,
+            &mut vec![LogEntry::event(ev(10)), a, b],
+        )));
+
+        let mut collector = Collector::initialize(
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
+        )
+        .unwrap();
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(0),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(None, ev(10)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+
+        mem_accessor
+            .borrow_mut()
+            .overwrite_buffer(&vec![LogEntry::event(ev(11)), LogEntry::event(ev(12))]);
+        mem_accessor.borrow_mut().set_write_seqn(5);
+        mem_accessor.borrow_mut().set_overwrite_seqn(2);
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(1),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(Nanoseconds::new(1), ev(11)),
+                    EventLogEntry::Event(None, ev(12)),
+                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
     }

@@ -1,4 +1,4 @@
-name = "component"
-id = "19894182-6b45-4e2e-8bc7-415f01096287"
-code_hash = "29b74cdb0b14d911f7d71163f10ef448bdeef1520d7f65a9f56f7efed565e798"
-instrumentation_hash = "1ad4bbba73def2118fa21e9a69031946f357a0b8ed468bb2f1183d7b3c2a4e42"
+name = "example-component"
+id = "bfca8f6c-66f0-424e-822c-b51b4a83db92"
+code_hash = "892bf2fbaa2a49c02dd17ed4a88782911873d7c79fca70a25fc890e183a5f657"
+instrumentation_hash = "e41603e4d80cba708699d88bea4fb71183d1c09db328bd30b54be19ee113f38b"

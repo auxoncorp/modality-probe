@@ -125,8 +125,12 @@ fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     ))))(input)?;
     if found_try.is_some() {
         let (input, found_expect) = peek(opt(tag("try_expect")))(input)?;
+        let (input, found_with_time) = peek(opt(tag("try_record_w_time")))(input)?;
         if found_expect.is_some() {
             let (input, metadata) = expect_try_call_exp(input)?;
+            Ok((input, metadata))
+        } else if found_with_time.is_some() {
+            let (input, metadata) = event_try_with_time_call_exp(input)?;
             Ok((input, metadata))
         } else {
             let (input, found_with_payload) = peek(opt(tag("try_record_w_")))(input)?;
@@ -138,8 +142,12 @@ fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         }
     } else {
         let (input, found_expect) = peek(opt(tag("expect")))(input)?;
+        let (input, found_with_time) = peek(opt(tag("record_w_time")))(input)?;
         if found_expect.is_some() {
             let (input, metadata) = expect_call_exp(input)?;
+            Ok((input, metadata))
+        } else if found_with_time.is_some() {
+            let (input, metadata) = event_with_time_call_exp(input)?;
             Ok((input, metadata))
         } else {
             let (input, found_with_payload) = peek(opt(tag("record_w_")))(input)?;
@@ -434,13 +442,9 @@ fn event_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     ))
 }
 
-fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+fn event_try_with_time_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, pos) = position(input)?;
-    let (input, _) = tag("try_record_w_")(input)?;
-    let (input, type_hint) = take_until("!")(input)?;
-    let (input, _) = tag("!")(input)?;
-    let type_hint = TypeHint::from_str(type_hint.fragment())
-        .map_err(|_| make_failure(input, Error::UnrecognizedTypeHint(pos.into())))?;
+    let (input, _) = tag("try_record_w_time!")(input)?;
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
     let (input, _) = tag("(")(input)?;
@@ -467,19 +471,105 @@ fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetad
         1..=3 => (), // At least a payload, maybe tags and description
         _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
     }
-    let payload = arg_vec.remove(0).trim().to_string();
+    let _time = arg_vec.remove(0).trim().to_string();
     let mut tags_and_desc = arg_vec;
     for s in tags_and_desc.iter_mut() {
         *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     }
     let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
-    let tags = tags_pos
+    let mut tags = tags_pos
         .map(|index| tags_and_desc.remove(index))
         .map(|s| s.replace("tags=", ""));
-    if let Some(t) = &tags {
+    if let Some(t) = &mut tags {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
+        if !t.contains("TIME") {
+            t.insert_str(0, "TIME;");
+        }
+    } else {
+        tags = Some(String::from("TIME"));
+    }
+    let description = tags_and_desc.pop();
+    Ok((
+        input,
+        EventMetadata {
+            name,
+            probe_instance,
+            payload: None,
+            description,
+            tags,
+            location: pos.into(),
+        },
+    ))
+}
+
+fn event_try_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let (input, pos) = position(input)?;
+    let (input, _) = tag("try_record_w_")(input)?;
+    let (input, type_hint) = take_until("!")(input)?;
+    let (input, _) = tag("!")(input)?;
+    let mut type_hint = type_hint.to_string();
+    let has_time = type_hint.contains("_w_time");
+    if has_time {
+        type_hint = type_hint.replace("_w_time", "");
+    }
+    let type_hint = TypeHint::from_str(type_hint.as_str())
+        .map_err(|_| make_failure(input, Error::UnrecognizedTypeHint(pos.into())))?;
+    let (input, _) = opt(line_ending)(input)?;
+    let (input, _) = multispace0(input)?;
+    let (input, _) = tag("(")(input)?;
+    let (input, args) = take_until(";")(input)
+        .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (input, _) =
+        tag(";")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (args, probe_instance) = variable_call_exp_arg(args)?;
+    let (args, name) = variable_call_exp_arg(args)?;
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    if !event_name_valid(&name) {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut arg_vec: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| {
+        if !s.is_empty() {
+            arg_vec.push(s)
+        }
+    });
+    let (_args, _) = iter.finish()?;
+    if has_time {
+        match arg_vec.len() {
+            2..=4 => (), // At least payload and time, maybe tags and description
+            _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
+        }
+    } else {
+        match arg_vec.len() {
+            1..=3 => (), // At least a payload, maybe tags and description
+            _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
+        }
+    }
+    let payload = arg_vec.remove(0).trim().to_string();
+    if has_time {
+        let _time = arg_vec.remove(0);
+    }
+    let mut tags_and_desc = arg_vec;
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let mut tags = tags_pos
+        .map(|index| tags_and_desc.remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &mut tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+        if has_time && !t.contains("TIME") {
+            t.insert_str(0, "TIME;");
+        }
+    } else if has_time {
+        tags = Some(String::from("TIME"));
     }
     let description = tags_and_desc.pop();
     Ok((
@@ -500,7 +590,12 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     let (input, _) = tag("record_w_")(input)?;
     let (input, type_hint) = take_until("!")(input)?;
     let (input, _) = tag("!")(input)?;
-    let type_hint = TypeHint::from_str(type_hint.fragment())
+    let mut type_hint = type_hint.to_string();
+    let has_time = type_hint.contains("_w_time");
+    if has_time {
+        type_hint = type_hint.replace("_w_time", "");
+    }
+    let type_hint = TypeHint::from_str(type_hint.as_str())
         .map_err(|_| make_failure(input, Error::UnrecognizedTypeHint(pos.into())))?;
     let (input, _) = tag("(")(input).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let (input, _) = opt(line_ending)(input)?;
@@ -549,13 +644,18 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     }
     let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
-    let tags = tags_pos
+    let mut tags = tags_pos
         .map(|index| tags_and_desc.swap_remove(index))
         .map(|s| s.replace("tags=", ""));
-    if let Some(t) = &tags {
+    if let Some(t) = &mut tags {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
+        if has_time && !t.contains("TIME") {
+            t.insert_str(0, "TIME;");
+        }
+    } else if has_time {
+        tags = Some(String::from("TIME"));
     }
     let description = tags_and_desc.pop();
     Ok((
@@ -564,6 +664,83 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
             name,
             probe_instance,
             payload: Some((type_hint, payload).into()),
+            description,
+            tags,
+            location: pos.into(),
+        },
+    ))
+}
+
+fn event_with_time_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let (input, pos) = position(input)?;
+    let (input, _) = tag("record_w_time!")(input)?;
+    let (input, _) = tag("(")(input).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (input, _) = opt(line_ending)(input)?;
+    let (input, _) = multispace0(input)?;
+    let (input, args) = take_until(");")(input)
+        .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (input, _) =
+        tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (args, probe_instance) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (args, full_name) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let arg = Span::new_extra(&full_name, input.extra);
+    let (_, name) = alt((
+        reduced_event_id_exp_alt_a,
+        reduced_event_id_exp_alt_b,
+        reduced_event_id_exp_alt_c,
+    ))(arg)
+    .map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    if !event_name_valid(&name) {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut arg_vec: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| arg_vec.push(s));
+    let (_args, _) = iter.finish()?;
+    let arg = arg_vec.remove(0);
+    let arg = Span::new_extra(&arg, input.extra);
+    let (_, payload) =
+        rest_literal(arg).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    if payload.is_empty() {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut tags_and_desc: Vec<String> = arg_vec
+        .iter()
+        .filter(|s| !s.is_empty())
+        .map(|s| (*s).to_string())
+        .collect();
+    match tags_and_desc.len() {
+        0..=2 => (), // Maybe tags and description
+        _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
+    }
+    for s in tags_and_desc.iter_mut() {
+        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let mut tags = tags_pos
+        .map(|index| tags_and_desc.swap_remove(index))
+        .map(|s| s.replace("tags=", ""));
+    if let Some(t) = &mut tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+        if !t.contains("TIME") {
+            t.insert_str(0, "TIME;");
+        }
+    } else {
+        tags = Some(String::from("TIME"));
+    }
+    let description = tags_and_desc.pop();
+    Ok((
+        input,
+        EventMetadata {
+            name,
+            probe_instance,
+            payload: None,
             description,
             tags,
             location: pos.into(),
@@ -696,6 +873,12 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let (args, full_name) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+
+    let (args, _time_res) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (args, _wall_clock_id) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+
     let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
     let (args, _next_seq_id_provider) = if expect_tags_or_desc {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
@@ -964,28 +1147,37 @@ mod tests {
 
     const MIXED_PROBE_ID_INPUT: &'static str = r#"
     /// Docs ModalityProbe::try_initialize_at(a, b, c)
-    let probe = try_initialize_at!(&mut storage, PROBE_ID_A, RestartCounterProvider::NoRestartTracking)
+    let probe = try_initialize_at!(&mut storage, PROBE_ID_A, NanosecondResolution::UNSPECIFIED, WallClockId::local_only(), RestartCounterProvider::NoRestartTracking)
         .expect("Could not initialize ModalityProbe");
 
-    let probe_foo = try_initialize_at!(&mut storage_bytes, PROBE_ID_B, &mut my_tracker, "desc")?;
+    let probe_foo = try_initialize_at!(&mut storage_bytes, PROBE_ID_B,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
+        &mut my_tracker, "desc")?;
 
     // A comment
     let bar = modality_probe::initialize_at!(
         &mut storage_bytes, // docs
         my_ids::PROBE_ID_C, // docs
+        NanosecondResolution::UNSPECIFIED, // docs
+        WallClockId::local_only(), // docs
         RestartCounterProvider::NoRestartTracking)?; // docs
 
     let probe_foo = try_initialize_at!(&mut storage_bytes,
-    my::nested::mod::PROBE_ID_D, &mut next_id, tags!("my tag", "more-tags"))?; // docs
+    my::nested::mod::PROBE_ID_D,
+    NanosecondResolution::UNSPECIFIED,
+    WallClockId::local_only(),
+    &mut next_id, tags!("my tag", "more-tags"))?; // docs
 
     /* More comments
      * on more lines modality_probe::new_with_storage!(a, b, c)
      */
-    let probe = modality_probe::new_with_storage!(storage, PROBE_ID_E, my_next_seq_id).unwrap();
+    let probe = modality_probe::new_with_storage!(storage, PROBE_ID_E, RES, WCID, my_next_seq_id).unwrap();
 
     let bar = modality_probe::initialize_at!(
         &mut storage_bytes, /* comments */
         my_ids::PROBE_ID_F, // comments
+        RES, WCID,
         RestartCounterProvider::NoRestartTracking, // comments
         " desc ", /* Order of tags and docs doesn't matter */
         tags!("thing1", "thing2", "my::namespace", "tag with spaces"))?; //docs
@@ -1072,6 +1264,32 @@ mod tests {
         "Measurement producer thread started",
         tags!("producer")
     );
+
+    try_record_w_time!(
+        probe,
+        EVENT_L,
+        1,
+        "desc",
+        tags!("tag1")
+    );
+
+    record_w_time!(
+        probe,
+        EVENT_M,
+        1,
+        tags!("tag1")
+    );
+
+    try_record_w_u32_w_time!(probe, EVENT_N, p, 2)
+        .expect("Could not record event");
+
+    record_w_i8_w_time!(
+        probe,
+        EventId::try_from(EVENT_O).unwrap(),
+        -2_i8,
+        tags!("thing1", "thing2"),
+        "desc" //docs
+    );
 "#;
 
     #[test]
@@ -1089,31 +1307,31 @@ mod tests {
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_B".to_string(),
-                    location: (236, 6, 21).into(),
+                    location: (298, 6, 21).into(),
                     tags: None,
                     description: Some("desc".to_string()),
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_C".to_string(),
-                    location: (362, 9, 31).into(),
+                    location: (510, 12, 31).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_D".to_string(),
-                    location: (532, 14, 21).into(),
+                    location: (774, 19, 21).into(),
                     tags: Some("my tag;more-tags".to_string()),
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_E".to_string(),
-                    location: (784, 20, 33).into(),
+                    location: (1100, 28, 33).into(),
                     tags: None,
                     description: None,
                 },
                 ProbeMetadata {
                     name: "PROBE_ID_F".to_string(),
-                    location: (880, 22, 31).into(),
+                    location: (1207, 30, 31).into(),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
                     description: Some("desc".to_string()),
                 },
@@ -1271,6 +1489,38 @@ mod tests {
                     description: Some("Measurement producer thread started".to_string()),
                     tags: Some("producer".to_string()),
                     location: (2041, 76, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_L".to_string(),
+                    probe_instance: "probe".to_string(),
+                    payload: None,
+                    description: Some("desc".to_string()),
+                    tags: Some("TIME;tag1".to_string()),
+                    location: (2176, 83, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_M".to_string(),
+                    probe_instance: "probe".to_string(),
+                    payload: None,
+                    description: None,
+                    tags: Some("TIME;tag1".to_string()),
+                    location: (2289, 91, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_N".to_string(),
+                    probe_instance: "probe".to_string(),
+                    payload: Some((TypeHint::U32, "p").into()),
+                    description: None,
+                    tags: Some("TIME".to_string()),
+                    location: (2382, 98, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_O".to_string(),
+                    probe_instance: "probe".to_string(),
+                    payload: Some((TypeHint::I8, "-2_i8").into()),
+                    description: Some("desc".to_string()),
+                    tags: Some("TIME;thing1;thing2".to_string()),
+                    location: (2477, 101, 5).into(),
                 },
             ])
         );

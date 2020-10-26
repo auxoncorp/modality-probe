@@ -21,6 +21,16 @@ extern "C" {
 #define MODALITY_PROBE_NULL_INITIALIZER (NULL)
 
 /*
+ * This time domain is local to the probe only.
+ */
+#define MODALITY_PROBE_WALL_CLOCK_ID_LOCAL_ONLY (0)
+
+/*
+ * Unspecified wall clock time resolution.
+ */
+#define MODALITY_PROBE_TIME_RESOLUTION_UNSPECIFIED (0)
+
+/*
  * Modality probe is the type of a probe instance. Expected to be single-threaded.
  */
 typedef struct modality_probe modality_probe;
@@ -148,6 +158,10 @@ typedef enum {
      * to produce the next sequence id.
      */
     MODALITY_PROBE_ERROR_RESTART_PERSISTENCE_SEQUENCE_ID_UNAVAILABLE = 9,
+    /*
+     * A wall clock time outside of the allowed range was provided.
+     */
+    MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME = 10,
 } modality_probe_error;
 
 /*
@@ -173,15 +187,15 @@ typedef enum {
  * Used to expose probe information to the CLI tooling.
  *
  * Expands to call:
- * `modality_probe_initialize(dest, dest_size, probe_id, next_sid_fn, next_sid_state, probe)`.
+ * `modality_probe_initialize(dest, dest_size, probe_id, time_resolution, wall_clock_id, next_sid_fn, next_sid_state, probe)`.
  *
  * The trailing variadic macro arguments accept (in any order):
  * - Tags: MODALITY_TAGS(<tag>[,<tag>])
  * - A string for the probe description
  *
  */
-#define MODALITY_PROBE_INIT(dest, dest_size, probe_id, next_sid_fn, next_sid_state, probe, ...) \
-    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_initialize(dest, dest_size, probe_id, next_sid_fn, next_sid_state, probe) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_INIT(dest, dest_size, probe_id, time_res, wc_id, next_sid_fn, next_sid_state, probe, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_initialize(dest, dest_size, probe_id, time_res, wc_id, next_sid_fn, next_sid_state, probe) : MODALITY_PROBE_ERROR_OK)
 
 /*
  * Modality probe event recording macro.
@@ -197,6 +211,24 @@ typedef enum {
  */
 #define MODALITY_PROBE_RECORD(probe, event, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event(probe, event) : MODALITY_PROBE_ERROR_OK)
+
+/*
+ * Modality probe event recording with time macro.
+ *
+ * Used to expose event recording information to the CLI tooling.
+ *
+ * Expands to call `modality_probe_record_event_with_time(probe, event, time_ns)`.
+ *
+ * The trailing variadic macro arguments accept (in any order):
+ * - Tags: MODALITY_TAGS(<tag>[,<tag>])
+ * - A string for the event description
+ *
+ */
+#define MODALITY_PROBE_RECORD_W_TIME(probe, event, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_time(\
+            probe, \
+            event, \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
 
 /*
  * Modality probe event recording with payload macro.
@@ -215,41 +247,96 @@ typedef enum {
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_RECORD_W_I8_W_TIME(probe, event, payload, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_i8_with_time(\
+            probe, \
+            event, \
+            payload, \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
+
 #define MODALITY_PROBE_RECORD_W_U8(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u8(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_RECORD_W_U8_W_TIME(probe, event, payload, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u8_with_time(\
+            probe, \
+            event, \
+            payload, \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
+
 #define MODALITY_PROBE_RECORD_W_I16(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_i16(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_RECORD_W_I16_W_TIME(probe, event, payload, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_i16_with_time(\
+            probe, \
+            event, \
+            payload, \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
+
 #define MODALITY_PROBE_RECORD_W_U16(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u16(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_RECORD_W_U16_W_TIME(probe, event, payload, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u16_with_time(\
+            probe, \
+            event, \
+            payload, \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
+
 #define MODALITY_PROBE_RECORD_W_I32(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_i32(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_RECORD_W_I32_W_TIME(probe, event, payload, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_i32_with_time(\
+            probe, \
+            event, \
+            payload, \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
+
 #define MODALITY_PROBE_RECORD_W_U32(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u32(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_RECORD_W_U32_W_TIME(probe, event, payload, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u32_with_time(\
+            probe, \
+            event, \
+            payload, \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
+
 #define MODALITY_PROBE_RECORD_W_BOOL(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_bool(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_RECORD_W_BOOL_W_TIME(probe, event, payload, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_bool_with_time(\
+            probe, \
+            event, \
+            payload, \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
+
 #define MODALITY_PROBE_RECORD_W_F32(probe, event, payload, ...) \
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_f32(\
             probe, \
             event, \
             payload) : MODALITY_PROBE_ERROR_OK)
+#define MODALITY_PROBE_RECORD_W_F32_W_TIME(probe, event, payload, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_f32_with_time(\
+            probe, \
+            event, \
+            payload, \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
 
 /*
  * Modality probe expectation expression event recording macro.
@@ -284,9 +371,18 @@ size_t modality_probe_initialize(
         uint8_t *destination,
         size_t destination_size_bytes,
         uint32_t probe_id,
+        uint32_t time_resolution_ns,
+        uint16_t wall_clock_id,
         modality_probe_next_sequence_id_fn next_sequence_id_fn,
         void *next_sequence_id_user_state,
         modality_probe **out);
+
+/*
+ * Record time.
+ */
+size_t modality_probe_record_time(
+        modality_probe *probe,
+        uint64_t time_ns);
 
 /*
  * Record an event.
@@ -295,6 +391,15 @@ size_t modality_probe_initialize(
 size_t modality_probe_record_event(
         modality_probe *probe,
         uint32_t event_id);
+
+/*
+ * Record an event.
+ * event_id must be non-zero.
+ */
+size_t modality_probe_record_event_with_time(
+        modality_probe *probe,
+        uint32_t event_id,
+        uint64_t time_ns);
 
 /*
  * Record an event along with a 4-byte payload.
@@ -307,6 +412,17 @@ size_t modality_probe_record_event_with_payload(
         uint32_t payload);
 
 /*
+ * Record an event along with a 4-byte payload and time.
+ *
+ * event_id must be non-zero.
+ */
+size_t modality_probe_record_event_with_payload_with_time(
+        modality_probe *probe,
+        uint32_t event_id,
+        uint32_t payload,
+        uint64_t time_ns);
+
+/*
  * Record an event along with a i8 payload.
  *
  * event_id must be non-zero.
@@ -315,6 +431,17 @@ size_t modality_probe_record_event_with_payload_i8(
         modality_probe *probe,
         uint32_t event_id,
         int8_t payload);
+
+/*
+ * Record an event along with a i8 payload and time.
+ *
+ * event_id must be non-zero.
+ */
+size_t modality_probe_record_event_with_payload_i8_with_time(
+        modality_probe *probe,
+        uint32_t event_id,
+        int8_t payload,
+        uint64_t time_ns);
 
 /*
  * Record an event along with a u8 payload.
@@ -327,6 +454,17 @@ size_t modality_probe_record_event_with_payload_u8(
         uint8_t payload);
 
 /*
+ * Record an event along with a u8 payload and time.
+ *
+ * event_id must be non-zero.
+ */
+size_t modality_probe_record_event_with_payload_u8_with_time(
+        modality_probe *probe,
+        uint32_t event_id,
+        uint8_t payload,
+        uint64_t time_ns);
+
+/*
  * Record an event along with a i16 payload.
  *
  * event_id must be non-zero.
@@ -335,6 +473,17 @@ size_t modality_probe_record_event_with_payload_i16(
         modality_probe *probe,
         uint32_t event_id,
         int16_t payload);
+
+/*
+ * Record an event along with a i16 payload and time.
+ *
+ * event_id must be non-zero.
+ */
+size_t modality_probe_record_event_with_payload_i16_with_time(
+        modality_probe *probe,
+        uint32_t event_id,
+        int16_t payload,
+        uint64_t time_ns);
 
 /*
  * Record an event along with a u16 payload.
@@ -347,6 +496,17 @@ size_t modality_probe_record_event_with_payload_u16(
         uint16_t payload);
 
 /*
+ * Record an event along with a u16 payload and time.
+ *
+ * event_id must be non-zero.
+ */
+size_t modality_probe_record_event_with_payload_u16_with_time(
+        modality_probe *probe,
+        uint32_t event_id,
+        uint16_t payload,
+        uint64_t time_ns);
+
+/*
  * Record an event along with a i32 payload.
  *
  * event_id must be non-zero.
@@ -355,6 +515,17 @@ size_t modality_probe_record_event_with_payload_i32(
         modality_probe *probe,
         uint32_t event_id,
         int32_t payload);
+
+/*
+ * Record an event along with a i32 payload and time.
+ *
+ * event_id must be non-zero.
+ */
+size_t modality_probe_record_event_with_payload_i32_with_time(
+        modality_probe *probe,
+        uint32_t event_id,
+        int32_t payload,
+        uint64_t time_ns);
 
 /*
  * Record an event along with a u32 payload.
@@ -367,6 +538,17 @@ size_t modality_probe_record_event_with_payload_u32(
         uint32_t payload);
 
 /*
+ * Record an event along with a u32 payload and time.
+ *
+ * event_id must be non-zero.
+ */
+size_t modality_probe_record_event_with_payload_u32_with_time(
+        modality_probe *probe,
+        uint32_t event_id,
+        uint32_t payload,
+        uint64_t time_ns);
+
+/*
  * Record an event along with a bool payload.
  *
  * event_id must be non-zero.
@@ -377,6 +559,17 @@ size_t modality_probe_record_event_with_payload_bool(
         bool payload);
 
 /*
+ * Record an event along with a bool payload and time.
+ *
+ * event_id must be non-zero.
+ */
+size_t modality_probe_record_event_with_payload_bool_with_time(
+        modality_probe *probe,
+        uint32_t event_id,
+        bool payload,
+        uint64_t time_ns);
+
+/*
  * Record an event along with a f32 payload.
  *
  * event_id must be non-zero.
@@ -385,6 +578,17 @@ size_t modality_probe_record_event_with_payload_f32(
         modality_probe *probe,
         uint32_t event_id,
         float payload);
+
+/*
+ * Record an event along with a f32 payload and time.
+ *
+ * event_id must be non-zero.
+ */
+size_t modality_probe_record_event_with_payload_f32_with_time(
+        modality_probe *probe,
+        uint32_t event_id,
+        float payload,
+        uint64_t time_ns);
 
 /*
  * Conduct necessary background activities, then
@@ -409,6 +613,16 @@ size_t modality_probe_produce_snapshot(
         modality_probe_causal_snapshot *snapshot);
 
 /*
+ * Produce a transmittable summary of this Modality probe's
+ * causal history and time for use by another Modality probe elsewhere
+ * in the system.
+ */
+size_t modality_probe_produce_snapshot_with_time(
+        modality_probe *probe,
+        uint64_t time_ns,
+        modality_probe_causal_snapshot *snapshot);
+
+/*
  * Produce a transmittable opaque blob of this Modality probe's
  * causal history for use by another Modality probe elsewhere
  * in the system.
@@ -422,12 +636,35 @@ size_t modality_probe_produce_snapshot_bytes(
         size_t *out_written_bytes);
 
 /*
+ * Produce a transmittable opaque blob of this Modality probe's
+ * causal history and time for use by another Modality probe elsewhere
+ * in the system.
+ *
+ * Populates the number of bytes written in out_written_bytes.
+ */
+size_t modality_probe_produce_snapshot_bytes_with_time(
+        modality_probe *probe,
+        uint64_t time_ns,
+        uint8_t *history_destination,
+        size_t history_destination_bytes,
+        size_t *out_written_bytes);
+
+/*
  * Consume a causal history summary structure provided
  * by some other Modality probe.
  */
 size_t modality_probe_merge_snapshot(
         modality_probe *probe,
         const modality_probe_causal_snapshot *snapshot);
+
+/*
+ * Consume a causal history summary structure with time provided
+ * by some other Modality probe.
+ */
+size_t modality_probe_merge_snapshot_with_time(
+        modality_probe *probe,
+        const modality_probe_causal_snapshot *snapshot,
+        uint64_t time_ns);
 
 /*
  * Consume a opaque causal history blob provided
@@ -437,6 +674,16 @@ size_t modality_probe_merge_snapshot_bytes(
         modality_probe *probe,
         const uint8_t *history_source,
         size_t history_source_bytes);
+
+/*
+ * Consume a opaque causal history blob with time provided
+ * by some other Modality probe.
+ */
+size_t modality_probe_merge_snapshot_bytes_with_time(
+        modality_probe *probe,
+        const uint8_t *history_source,
+        size_t history_source_bytes,
+        uint64_t time_ns);
 
 /*
  * Capture the Modality probe instance's moment in causal time

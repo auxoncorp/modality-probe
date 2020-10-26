@@ -48,7 +48,7 @@ fn write_corrupted_report<W: Write>(probe: &mut ModalityProbe<'_>, out: &mut W) 
             let payload = r.payload_mut();
             assert!(payload.len() > 24);
             for b in &mut payload[..24] {
-                *b = 0xFF;
+                *b = 0x00;
             }
         }
         out.write_all(&buffer[..nonzero_report_size.get()])
@@ -87,6 +87,8 @@ proptest! {
         let probe_a = ModalityProbe::initialize_at(
             &mut storage_a,
             probe_id_a,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -96,6 +98,8 @@ proptest! {
         let probe_b = ModalityProbe::initialize_at(
             &mut storage_b,
             probe_id_b,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -105,6 +109,8 @@ proptest! {
         let probe_c = ModalityProbe::initialize_at(
             &mut storage_c,
             probe_id_c,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -206,6 +212,8 @@ fn missed_reports_are_detected() {
     let probe = ModalityProbe::initialize_at(
         &mut storage,
         probe_id,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking,
     )
     .unwrap();
@@ -276,6 +284,8 @@ fn discarded_reports_are_detected() {
     let probe = ModalityProbe::initialize_at(
         &mut storage,
         probe_id,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking,
     )
     .unwrap();

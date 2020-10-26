@@ -99,7 +99,7 @@ fn stable_uuid() {
 
 const COMPONENT_TOML: &'static str = r#"name = "my-component"
 id = "fa46ca95-c6fd-4020-b6a7-4323cfa084be"
-code_hash = "f4d29eefe0ec8137637fdc5e586539371d9784274aa3874b9c1b06ed3f2697cc"
+code_hash = "af30400eeda5e1f52684e3cfb4c3be1db2c31ba4e46dc8a0156c0fba9a2fcf7a"
 "#;
 
 const COMPONENT_TOML_WO_HASHES: &'static str = r#"name = "my-component"
@@ -111,6 +111,8 @@ size_t err = MODALITY_PROBE_INIT(
         &probe_storage[0],
         PROBE_STORAGE_SIZE,
         PROBE_ID_A,
+        0,
+        0,
         &probe,
         MODALITY_TAGS("my-tags", "more tags"),
         "Description");
@@ -130,6 +132,8 @@ const RUST_SRC: &'static str = r#"
 let probe = try_initialize_at!(
     &mut storage,
     PROBE_ID_B,
+    NanosecondResolution::UNSPECIFIED,
+    WallClockId::local_only(),
     tags!("some tag"),
     "Description"
 )

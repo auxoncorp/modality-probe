@@ -35,6 +35,8 @@ pub const MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS: ModalityProbe
 /// The user-supplied restart persistence counter failed
 /// to produce the next sequence id.
 pub const MODALITY_PROBE_ERROR_RESTART_PERSISTENCE_SEQUENCE_ID_UNAVAILABLE: ModalityProbeError = 9;
+/// A wall clock time outside of the allowed range was provided.
+pub const MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME: ModalityProbeError = 10;
 
 /// # Safety
 ///
@@ -49,11 +51,14 @@ pub const MODALITY_PROBE_ERROR_RESTART_PERSISTENCE_SEQUENCE_ID_UNAVAILABLE: Moda
 ///
 /// The contents of the `destination` region are not guaranteed
 /// in the case of an error.
+#[allow(clippy::too_many_arguments)]
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_initialize(
     destination: *mut MaybeUninit<u8>,
     destination_size_bytes: usize,
     probe_id: u32,
+    time_resolution_ns: u32,
+    wall_clock_id: u16,
     next_sequence_id: Option<next_sequence_id_fn>,
     next_sequence_id_user_state: *mut core::ffi::c_void,
     out: *mut *mut ModalityProbe<'static>,
@@ -78,6 +83,8 @@ pub unsafe fn modality_probe_initialize(
     match ModalityProbe::try_initialize_at(
         core::slice::from_raw_parts_mut(destination, destination_size_bytes),
         probe_id,
+        time_resolution_ns.into(),
+        wall_clock_id.into(),
         restart_counter_provider,
     ) {
         Ok(t) => {
@@ -94,6 +101,26 @@ pub unsafe fn modality_probe_initialize(
         Err(InitializationError::StorageSetupError(
             StorageSetupError::ExceededMaximumAddressableSize,
         )) => MODALITY_PROBE_ERROR_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE,
+    }
+}
+
+/// # Safety
+///
+/// The ModalityProbe instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_record_time(
+    probe: *mut ModalityProbe<'static>,
+    time_ns: u64,
+) -> ModalityProbeError {
+    let probe = match probe.as_mut() {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
+    };
+    match probe.try_record_time(time_ns) {
+        Ok(_) => MODALITY_PROBE_ERROR_OK,
+        Err(modality_probe::InvalidWallClockTime) => MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME,
     }
 }
 
@@ -123,6 +150,27 @@ pub unsafe fn modality_probe_record_event(
 /// to an initialized instance operating in a single-threaded
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_record_event_with_time(
+    probe: *mut ModalityProbe<'static>,
+    event_id: u32,
+    time_ns: u64,
+) -> ModalityProbeError {
+    let probe = match probe.as_mut() {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
+    };
+    match probe.try_record_event_with_time(event_id, time_ns) {
+        Ok(_) => MODALITY_PROBE_ERROR_OK,
+        Err(e) => with_time_error_to_modality_probe_error(e),
+    }
+}
+
+/// # Safety
+///
+/// The ModalityProbe instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_record_event_with_payload(
     probe: *mut ModalityProbe<'static>,
     event_id: u32,
@@ -135,6 +183,35 @@ pub unsafe fn modality_probe_record_event_with_payload(
     match probe.try_record_event_with_payload(event_id, payload) {
         Ok(_) => MODALITY_PROBE_ERROR_OK,
         Err(modality_probe::InvalidEventId) => MODALITY_PROBE_ERROR_INVALID_EVENT_ID,
+    }
+}
+
+/// # Safety
+///
+/// The ModalityProbe instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_record_event_with_payload_with_time(
+    probe: *mut ModalityProbe<'static>,
+    event_id: u32,
+    payload: u32,
+    time_ns: u64,
+) -> ModalityProbeError {
+    let probe = match probe.as_mut() {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
+    };
+    match probe.try_record_event_with_payload_with_time(event_id, payload, time_ns) {
+        Ok(_) => MODALITY_PROBE_ERROR_OK,
+        Err(e) => with_time_error_to_modality_probe_error(e),
+    }
+}
+
+fn with_time_error_to_modality_probe_error(with_time_error: WithTimeError) -> ModalityProbeError {
+    match with_time_error {
+        WithTimeError::InvalidWallClockTime => MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME,
+        WithTimeError::InvalidEventId => MODALITY_PROBE_ERROR_INVALID_EVENT_ID,
     }
 }
 
@@ -217,6 +294,32 @@ pub unsafe fn modality_probe_produce_snapshot(
 /// to an initialized instance operating in a single-threaded
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_produce_snapshot_with_time(
+    probe: *mut ModalityProbe<'static>,
+    time_ns: u64,
+    destination_snapshot: *mut CausalSnapshot,
+) -> ModalityProbeError {
+    let probe = match probe.as_mut() {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
+    };
+    if destination_snapshot.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
+    let time = match Nanoseconds::new(time_ns) {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME,
+    };
+    *destination_snapshot = probe.produce_snapshot_with_time(time);
+    MODALITY_PROBE_ERROR_OK
+}
+
+/// # Safety
+///
+/// The ModalityProbe instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_produce_snapshot_bytes(
     probe: *mut ModalityProbe<'static>,
     history_destination: *mut u8,
@@ -237,6 +340,45 @@ pub unsafe fn modality_probe_produce_snapshot_bytes(
         history_destination,
         history_destination_bytes,
     )) {
+        Ok(written_bytes) => {
+            *out_written_bytes = written_bytes;
+            MODALITY_PROBE_ERROR_OK
+        }
+        Err(e) => produce_error_to_modality_probe_error(e),
+    }
+}
+
+/// # Safety
+///
+/// The ModalityProbe instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_produce_snapshot_bytes_with_time(
+    probe: *mut ModalityProbe<'static>,
+    time_ns: u64,
+    history_destination: *mut u8,
+    history_destination_bytes: usize,
+    out_written_bytes: *mut usize,
+) -> ModalityProbeError {
+    let probe = match probe.as_mut() {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
+    };
+    if history_destination.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
+    if out_written_bytes.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
+    let time = match Nanoseconds::new(time_ns) {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME,
+    };
+    match probe.produce_snapshot_bytes_with_time(
+        time,
+        core::slice::from_raw_parts_mut(history_destination, history_destination_bytes),
+    ) {
         Ok(written_bytes) => {
             *out_written_bytes = written_bytes;
             MODALITY_PROBE_ERROR_OK
@@ -289,6 +431,39 @@ pub unsafe fn modality_probe_merge_snapshot(
 /// to an initialized instance operating in a single-threaded
 /// fashion.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_merge_snapshot_with_time(
+    probe: *mut ModalityProbe<'static>,
+    snapshot: *const CausalSnapshot,
+    time_ns: u64,
+) -> ModalityProbeError {
+    let probe = match probe.as_mut() {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
+    };
+    if snapshot.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
+    let time = match Nanoseconds::new(time_ns) {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME,
+    };
+    let snapshot = &*snapshot;
+    if ProbeId::new(snapshot.clock.id.get_raw()).is_none() {
+        MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS
+    } else {
+        match probe.merge_snapshot_with_time(snapshot, time) {
+            Ok(_) => MODALITY_PROBE_ERROR_OK,
+            Err(e) => merge_error_to_modality_probe_error(e),
+        }
+    }
+}
+
+/// # Safety
+///
+/// The ModalityProbe instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_merge_snapshot_bytes(
     probe: *mut ModalityProbe<'static>,
     history_source: *const u8,
@@ -305,6 +480,38 @@ pub unsafe fn modality_probe_merge_snapshot_bytes(
         history_source,
         history_source_bytes,
     )) {
+        Ok(_) => MODALITY_PROBE_ERROR_OK,
+        Err(e) => merge_error_to_modality_probe_error(e),
+    }
+}
+
+/// # Safety
+///
+/// The ModalityProbe instance pointer must be non-null and point
+/// to an initialized instance operating in a single-threaded
+/// fashion.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_merge_snapshot_bytes_with_time(
+    probe: *mut ModalityProbe<'static>,
+    history_source: *const u8,
+    history_source_bytes: usize,
+    time_ns: u64,
+) -> ModalityProbeError {
+    let probe = match probe.as_mut() {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
+    };
+    if history_source.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
+    let time = match Nanoseconds::new(time_ns) {
+        Some(t) => t,
+        None => return MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME,
+    };
+    match probe.merge_snapshot_bytes_with_time(
+        core::slice::from_raw_parts(history_source, history_source_bytes),
+        time,
+    ) {
         Ok(_) => MODALITY_PROBE_ERROR_OK,
         Err(e) => merge_error_to_modality_probe_error(e),
     }
@@ -369,6 +576,8 @@ mod tests {
                 storage_slice.as_mut_ptr(),
                 storage_slice.len(),
                 probe_id,
+                0,
+                0,
                 None,
                 core::ptr::null_mut(),
                 probe.as_mut_ptr(),
@@ -378,9 +587,8 @@ mod tests {
         let probe = unsafe { probe.assume_init() };
         let snap_empty = stack_snapshot(probe);
         assert_eq!(snap_empty.clock.id.get_raw(), probe_id);
-        unsafe {
-            modality_probe_record_event(probe, 100);
-        }
+        let result = unsafe { modality_probe_record_event(probe, 100) };
+        assert_eq!(MODALITY_PROBE_ERROR_OK, result);
         let snap_a = stack_snapshot(probe);
         assert!(snap_empty < snap_a);
         assert!(!(snap_a < snap_empty));
@@ -399,9 +607,10 @@ mod tests {
         assert!(bytes_written > 0);
         assert!(!&backend.iter().all(|b| *b == 0));
 
-        unsafe {
-            modality_probe_record_event(probe, 100);
-        }
+        let result = unsafe { modality_probe_record_event(probe, 100) };
+        assert_eq!(MODALITY_PROBE_ERROR_OK, result);
+        let result = unsafe { modality_probe_record_event_with_time(probe, 100, 1) };
+        assert_eq!(MODALITY_PROBE_ERROR_OK, result);
         let mut bytes_written: usize = 0;
         let result = unsafe {
             modality_probe_report(
@@ -434,6 +643,8 @@ mod tests {
                 remote_storage_slice.as_mut_ptr(),
                 remote_storage_slice.len(),
                 remote_probe_id,
+                0,
+                0,
                 None,
                 core::ptr::null_mut(),
                 remote_probe.as_mut_ptr(),
@@ -451,12 +662,13 @@ mod tests {
         assert!(!(snap_b_neighborhood < remote_snap_pre_merge));
         assert_eq!(remote_snap_pre_merge.clock.id.get_raw(), remote_probe_id);
 
-        unsafe {
+        let result = unsafe {
             modality_probe_merge_snapshot(
                 remote_probe,
                 &snap_b_neighborhood as *const CausalSnapshot,
             )
         };
+        assert_eq!(MODALITY_PROBE_ERROR_OK, result);
 
         let remote_snap_post_merge = stack_snapshot(remote_probe);
         assert!(!(remote_snap_post_merge < snap_b_neighborhood));
