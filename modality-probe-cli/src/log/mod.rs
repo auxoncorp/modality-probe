@@ -878,7 +878,7 @@ pub(crate) mod test {
 
     use super::*;
 
-    pub fn graph() -> Vec<ReportLogEntry> {
+    pub fn trace() -> Vec<ReportLogEntry> {
         let now = Utc::now();
         let probe1 = ProbeId::new(1).unwrap();
         let event1 = EventId::new(1).unwrap();
@@ -1268,8 +1268,8 @@ pub(crate) mod test {
 ";
 
     #[test]
-    fn test_graph() {
-        let trace = graph();
+    fn graph() {
+        let trace = trace();
         let cfg = graph::test::cfg();
         let l = Log {
             probe: None,

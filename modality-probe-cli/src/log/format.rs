@@ -29,18 +29,39 @@ const IDENTS: [Ident; 21] = [
 ];
 
 pub(crate) fn format(cfg: &Cfg, row: &ReportLogEntry, fmt: &str) -> String {
-    let mut fmt = fmt.to_string();
-    for (ident, interpolator) in IDENTS.iter() {
-        fmt = fmt.replace(ident, &interpolator(cfg, row));
+    if &fmt.to_lowercase() == "syslog" {
+        let pname = cfg
+            .probes
+            .get(&row.probe_id.get_raw())
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| row.probe_id.get_raw().to_string());
+        let descrip = match row.data {
+            LogEntryData::Event(id) => meta::get_event_meta(cfg, &row.probe_id, &id)
+                .map(|e| e.description.clone())
+                .unwrap_or_else(|_| String::new()),
+            LogEntryData::EventWithPayload(id, _) => meta::get_event_meta(cfg, &row.probe_id, &id)
+                .map(|e| e.description.clone())
+                .unwrap_or_else(|_| String::new()),
+            _ => String::new(),
+        };
+        format!(
+            "PRIORITY=6 TIMESTAMP={} HOSTNAME={} MSG={}",
+            row.receive_time, pname, descrip
+        )
+    } else {
+        let mut fmt = fmt.to_string();
+        for (ident, interpolator) in IDENTS.iter() {
+            fmt = fmt.replace(ident, &interpolator(cfg, row));
+        }
+        fmt
     }
-    fmt
 }
 
 fn event_id(_: &Cfg, row: &ReportLogEntry) -> String {
     match row.data {
         LogEntryData::Event(id) => format!("{}", id.get_raw()),
         LogEntryData::EventWithPayload(id, _) => format!("{}", id.get_raw()),
-        _ => "".to_string(),
+        _ => String::new(),
     }
 }
 
@@ -48,7 +69,7 @@ fn event_name(cfg: &Cfg, row: &ReportLogEntry) -> String {
     let eid = match row.data {
         LogEntryData::Event(id) => id,
         LogEntryData::EventWithPayload(id, _) => id,
-        _ => return "".to_string(),
+        _ => return String::new(),
     };
     meta::get_event_meta(cfg, &row.probe_id, &eid)
         .map(|e| e.name.clone())
@@ -59,7 +80,7 @@ fn event_file(cfg: &Cfg, row: &ReportLogEntry) -> String {
     let eid = match row.data {
         LogEntryData::Event(id) => id,
         LogEntryData::EventWithPayload(id, _) => id,
-        _ => return "".to_string(),
+        _ => return String::new(),
     };
     meta::get_event_meta(cfg, &row.probe_id, &eid)
         .map(|e| e.file.clone())
@@ -70,7 +91,7 @@ fn event_line(cfg: &Cfg, row: &ReportLogEntry) -> String {
     let eid = match row.data {
         LogEntryData::Event(id) => id,
         LogEntryData::EventWithPayload(id, _) => id,
-        _ => return "".to_string(),
+        _ => return String::new(),
     };
     meta::get_event_meta(cfg, &row.probe_id, &eid)
         .map(|e| e.line.to_string())
@@ -81,7 +102,7 @@ fn event_tags(cfg: &Cfg, row: &ReportLogEntry) -> String {
     let eid = match row.data {
         LogEntryData::Event(id) => id,
         LogEntryData::EventWithPayload(id, _) => id,
-        _ => return "".to_string(),
+        _ => return String::new(),
     };
     meta::get_event_meta(cfg, &row.probe_id, &eid)
         .map(|e| e.tags.replace(';', ", "))
@@ -92,7 +113,7 @@ fn event_description(cfg: &Cfg, row: &ReportLogEntry) -> String {
     let eid = match row.data {
         LogEntryData::Event(id) => id,
         LogEntryData::EventWithPayload(id, _) => id,
-        _ => return "".to_string(),
+        _ => return String::new(),
     };
     meta::get_event_meta(cfg, &row.probe_id, &eid)
         .map(|e| e.description.clone())
@@ -103,7 +124,7 @@ fn event_type_hint(cfg: &Cfg, row: &ReportLogEntry) -> String {
     let eid = match row.data {
         LogEntryData::Event(id) => id,
         LogEntryData::EventWithPayload(id, _) => id,
-        _ => return "".to_string(),
+        _ => return String::new(),
     };
     meta::get_event_meta(cfg, &row.probe_id, &eid)
         .ok()
@@ -116,7 +137,7 @@ fn event_payload(cfg: &Cfg, row: &ReportLogEntry) -> String {
     let (eid, pl) = match row.data {
         LogEntryData::Event(id) => (id, None),
         LogEntryData::EventWithPayload(id, pl) => (id, Some(pl)),
-        _ => return "".to_string(),
+        _ => return String::new(),
     };
     meta::get_event_meta(cfg, &row.probe_id, &eid)
         .ok()
@@ -133,7 +154,7 @@ fn raw_event_payload(_: &Cfg, row: &ReportLogEntry) -> String {
     if let LogEntryData::EventWithPayload(_, pl) = row.data {
         format!("{}", pl)
     } else {
-        "".to_string()
+        String::new()
     }
 }
 
@@ -163,35 +184,35 @@ fn probe_clock(_: &Cfg, _: &ReportLogEntry) -> String {
 fn probe_description(cfg: &Cfg, row: &ReportLogEntry) -> String {
     match cfg.probes.get(&row.probe_id.get_raw()) {
         Some(pmeta) => pmeta.description.clone(),
-        None => "".to_string(),
+        None => String::new(),
     }
 }
 
 fn probe_file(cfg: &Cfg, row: &ReportLogEntry) -> String {
     match cfg.probes.get(&row.probe_id.get_raw()) {
         Some(pmeta) => pmeta.file.clone(),
-        None => "".to_string(),
+        None => String::new(),
     }
 }
 
 fn probe_line(cfg: &Cfg, row: &ReportLogEntry) -> String {
     match cfg.probes.get(&row.probe_id.get_raw()) {
         Some(pmeta) => pmeta.line.to_string(),
-        None => "".to_string(),
+        None => String::new(),
     }
 }
 
 fn probe_tags(cfg: &Cfg, row: &ReportLogEntry) -> String {
     match cfg.probes.get(&row.probe_id.get_raw()) {
         Some(pmeta) => pmeta.tags.replace(';', ", "),
-        None => "".to_string(),
+        None => String::new(),
     }
 }
 
 fn component_id(cfg: &Cfg, row: &ReportLogEntry) -> String {
     match cfg.probes_to_components.get(&row.probe_id.get_raw()) {
         Some(cid) => cid.to_string(),
-        None => "".to_string(),
+        None => String::new(),
     }
 }
 
@@ -201,7 +222,7 @@ fn component_name(cfg: &Cfg, row: &ReportLogEntry) -> String {
             return cn.clone();
         }
     }
-    "".to_string()
+    String::new()
 }
 
 fn receive_time(_: &Cfg, row: &ReportLogEntry) -> String {
@@ -253,7 +274,7 @@ mod test {
 ";
 
     #[test]
-    fn test_interpers() {
+    fn interpers() {
         let now = Utc::now();
         let cfg = graph::test::cfg();
         let row = ReportLogEntry {
@@ -294,8 +315,8 @@ mod test {
     }
 
     #[test]
-    fn test_graph_interp() {
-        let trace = log::test::graph();
+    fn graph_interp() {
+        let trace = log::test::trace();
         let cfg = graph::test::cfg();
         let l = Log {
             probe: None,
@@ -310,5 +331,24 @@ mod test {
         let mut out = Vec::new();
         log::print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();
         assert_eq!(EXPECTED_GRAPH, std::str::from_utf8(&out).unwrap());
+    }
+
+    #[test]
+    fn syslog_interp() {
+        let now = Utc::now();
+        let cfg = graph::test::cfg();
+        let row = ReportLogEntry {
+            session_id: SessionId(1),
+            sequence_number: SequenceNumber(1),
+            sequence_index: 3,
+            probe_id: ProbeId::new(4).unwrap(),
+            persistent_epoch_counting: false,
+            data: LogEntryData::Event(EventId::new(4).unwrap()),
+            receive_time: now,
+        };
+        assert_eq!(
+            format!("PRIORITY=6 TIMESTAMP={} HOSTNAME=four MSG=four", now),
+            format(&cfg, &row, "SySlOg")
+        );
     }
 }
