@@ -771,12 +771,16 @@ impl TryFrom<&[u8]> for Report {
                         if raw_entry.has_wall_clock_time_paired_bit_set() {
                             interpret_next_as =
                                 Next::PairedWallClockTimeLowBits(NanosecondsHighBits(
-                                    raw_entry.interpret_as_wall_clock_time_high_bits(),
+                                    raw_entry
+                                        .interpret_as_wall_clock_time_high_bits()
+                                        .to_le_bytes(),
                                 ));
                         } else {
                             interpret_next_as =
                                 Next::UnpairedWallClockTimeLowBits(NanosecondsHighBits(
-                                    raw_entry.interpret_as_wall_clock_time_high_bits(),
+                                    raw_entry
+                                        .interpret_as_wall_clock_time_high_bits()
+                                        .to_le_bytes(),
                                 ));
                         }
                     } else if let Some(pwct) = paired_wall_clock_time.take() {
@@ -830,14 +834,14 @@ impl TryFrom<&[u8]> for Report {
                     interpret_next_as = Next::DontKnow;
                 }
                 Next::PairedWallClockTimeLowBits(high_bits) => {
-                    let low_bits = NanosecondsLowBits(raw);
+                    let low_bits = NanosecondsLowBits(raw.to_le_bytes());
                     let t = Nanoseconds::from_parts(low_bits, high_bits)
                         .ok_or_else(|| SerializationError::InvalidTime((low_bits, high_bits)))?;
                     paired_wall_clock_time = Some(t);
                     interpret_next_as = Next::DontKnow;
                 }
                 Next::UnpairedWallClockTimeLowBits(high_bits) => {
-                    let low_bits = NanosecondsLowBits(raw);
+                    let low_bits = NanosecondsLowBits(raw.to_le_bytes());
                     let t = Nanoseconds::from_parts(low_bits, high_bits)
                         .ok_or_else(|| SerializationError::InvalidTime((low_bits, high_bits)))?;
                     owned_report.event_log.push(EventLogEntry::WallClockTime(t));
@@ -912,8 +916,11 @@ impl Report {
                                 .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
                         }
                     } else if first.has_wall_clock_time_bits_set() {
-                        let high_bits = first.interpret_as_wall_clock_time_high_bits().into();
-                        let low_bits = second.raw().into();
+                        let high_bits = first
+                            .interpret_as_wall_clock_time_high_bits()
+                            .to_le_bytes()
+                            .into();
+                        let low_bits = second.raw().to_le_bytes().into();
                         let t = Nanoseconds::from_parts(low_bits, high_bits).ok_or_else(|| {
                             SerializationError::InvalidTime((low_bits, high_bits))
                         })?;

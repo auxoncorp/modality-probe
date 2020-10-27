@@ -85,8 +85,12 @@ impl LogEntry {
     pub fn paired_wall_clock_time(time: Nanoseconds) -> (Self, Self) {
         let (low_bits, high_bits) = time.split();
         (
-            LogEntry(high_bits.0 | WALL_CLOCK_TIME_MASK | PAIRED_WALL_CLOCK_TIME_MASK),
-            LogEntry(low_bits.0),
+            LogEntry(
+                u32::from_le_bytes(high_bits.0)
+                    | WALL_CLOCK_TIME_MASK
+                    | PAIRED_WALL_CLOCK_TIME_MASK,
+            ),
+            LogEntry(u32::from_le_bytes(low_bits.0)),
         )
     }
 
@@ -101,8 +105,11 @@ impl LogEntry {
     pub fn unpaired_wall_clock_time(time: Nanoseconds) -> (Self, Self) {
         let (low_bits, high_bits) = time.split();
         (
-            LogEntry((high_bits.0 | WALL_CLOCK_TIME_MASK) & !PAIRED_WALL_CLOCK_TIME_MASK),
-            LogEntry(low_bits.0),
+            LogEntry(
+                (u32::from_le_bytes(high_bits.0) | WALL_CLOCK_TIME_MASK)
+                    & !PAIRED_WALL_CLOCK_TIME_MASK,
+            ),
+            LogEntry(u32::from_le_bytes(low_bits.0)),
         )
     }
 

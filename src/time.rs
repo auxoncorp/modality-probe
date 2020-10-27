@@ -19,12 +19,12 @@ pub struct NanosecondResolution(pub u32);
 /// Nanosecond high bits
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 #[repr(transparent)]
-pub struct NanosecondsHighBits(pub u32);
+pub struct NanosecondsHighBits(pub [u8; 4]);
 
 /// Nanosecond low bits
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 #[repr(transparent)]
-pub struct NanosecondsLowBits(pub u32);
+pub struct NanosecondsLowBits(pub [u8; 4]);
 
 /// Wall clock identifier, indicates the time domain
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -36,6 +36,9 @@ impl Nanoseconds {
     pub const MAX: Self = Nanoseconds(
         0b0001_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111_1111,
     );
+
+    /// Zero value time
+    pub const ZERO: Self = Nanoseconds(0);
 
     /// One seconds worth of nanoseconds
     pub const SECOND: Self = Nanoseconds(1_000_000_000);
@@ -84,8 +87,8 @@ impl Nanoseconds {
     }
 
     const fn combine_parts(low_bits: NanosecondsLowBits, high_bits: NanosecondsHighBits) -> u64 {
-        let low = low_bits.0.to_le_bytes();
-        let high = high_bits.0.to_le_bytes();
+        let low = low_bits.0;
+        let high = high_bits.0;
         u64::from_le_bytes([
             low[0], low[1], low[2], low[3], high[0], high[1], high[2], high[3],
         ])
@@ -99,21 +102,8 @@ impl Nanoseconds {
     /// Split time into little endian parts.
     pub fn split(self) -> (NanosecondsLowBits, NanosecondsHighBits) {
         let le_bytes = self.0.to_le_bytes();
-
-        let low_bits = NanosecondsLowBits(u32::from_le_bytes([
-            le_bytes[0],
-            le_bytes[1],
-            le_bytes[2],
-            le_bytes[3],
-        ]));
-
-        let high_bits = NanosecondsHighBits(u32::from_le_bytes([
-            le_bytes[4],
-            le_bytes[5],
-            le_bytes[6],
-            le_bytes[7],
-        ]));
-
+        let low_bits = NanosecondsLowBits([le_bytes[0], le_bytes[1], le_bytes[2], le_bytes[3]]);
+        let high_bits = NanosecondsHighBits([le_bytes[4], le_bytes[5], le_bytes[6], le_bytes[7]]);
         (low_bits, high_bits)
     }
 
@@ -167,25 +157,25 @@ impl From<NanosecondResolution> for u32 {
     }
 }
 
-impl From<u32> for NanosecondsHighBits {
-    fn from(bits: u32) -> Self {
+impl From<[u8; 4]> for NanosecondsHighBits {
+    fn from(bits: [u8; 4]) -> Self {
         NanosecondsHighBits(bits)
     }
 }
 
-impl From<NanosecondsHighBits> for u32 {
+impl From<NanosecondsHighBits> for [u8; 4] {
     fn from(bits: NanosecondsHighBits) -> Self {
         bits.0
     }
 }
 
-impl From<u32> for NanosecondsLowBits {
-    fn from(bits: u32) -> Self {
+impl From<[u8; 4]> for NanosecondsLowBits {
+    fn from(bits: [u8; 4]) -> Self {
         NanosecondsLowBits(bits)
     }
 }
 
-impl From<NanosecondsLowBits> for u32 {
+impl From<NanosecondsLowBits> for [u8; 4] {
     fn from(bits: NanosecondsLowBits) -> Self {
         bits.0
     }
@@ -193,8 +183,16 @@ impl From<NanosecondsLowBits> for u32 {
 
 impl WallClockId {
     /// This time domain is local to the probe only
+    pub const LOCAL_ONLY: Self = WallClockId(0);
+
+    /// This time domain is local to the probe only
     pub const fn local_only() -> Self {
         WallClockId(0)
+    }
+
+    /// Returns true if this wall clock id is local to the probe only
+    pub fn is_local_only(&self) -> bool {
+        *self == Self::LOCAL_ONLY
     }
 }
 
@@ -242,8 +240,8 @@ mod tests {
         assert_eq!(Nanoseconds::new(core::u64::MAX >> 1), None);
         assert_eq!(Nanoseconds::new(core::u64::MAX >> 2), None);
 
-        let low_bits = NanosecondsLowBits(core::u32::MAX);
-        let high_bits = NanosecondsHighBits(core::u32::MAX);
+        let low_bits = NanosecondsLowBits(core::u32::MAX.to_le_bytes());
+        let high_bits = NanosecondsHighBits(core::u32::MAX.to_le_bytes());
         assert_eq!(None, Nanoseconds::from_parts(low_bits, high_bits));
     }
 
@@ -251,8 +249,8 @@ mod tests {
     fn truncation() {
         assert_eq!(Nanoseconds::MAX, Nanoseconds::new_truncate(core::u64::MAX));
 
-        let low_bits = NanosecondsLowBits(core::u32::MAX);
-        let high_bits = NanosecondsHighBits(core::u32::MAX);
+        let low_bits = NanosecondsLowBits(core::u32::MAX.to_le_bytes());
+        let high_bits = NanosecondsHighBits(core::u32::MAX.to_le_bytes());
         assert_eq!(
             Nanoseconds::MAX,
             Nanoseconds::from_parts_truncate(low_bits, high_bits)
@@ -265,9 +263,9 @@ mod tests {
             let t = Nanoseconds::new(raw_time_in).unwrap();
             prop_assert_eq!(t.get(), raw_time_in);
             let (low_bits, high_bits) = t.split();
-            prop_assert_eq!(low_bits.0, (raw_time_in & core::u32::MAX as u64) as u32);
+            prop_assert_eq!(u32::from_le_bytes(low_bits.0), (raw_time_in & core::u32::MAX as u64) as u32);
             prop_assert_eq!(
-                high_bits.0,
+                u32::from_le_bytes(high_bits.0),
                 (raw_time_in >> 32 & core::u32::MAX as u64) as u32
             );
             let t_out = Nanoseconds::from_parts(low_bits, high_bits).unwrap();
