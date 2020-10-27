@@ -269,7 +269,8 @@ impl<'a> DynamicHistory<'a> {
         self.merge_overwritten_clock(first_overwritten);
         self.merge_overwritten_clock(second_overwritten);
 
-        // Fenced-ring-buffer loosed its missed count once we start pop'ing entries out
+        // Fenced-ring-buffer loses its ability to track the number of missed
+        // entries once we start pop'ing entries out
         let n_entries_missed = u64::min(self.log.num_missed(), u32::MAX as u64) as u32;
         self.missed_log_entry_count = cmp::max(self.missed_log_entry_count, n_entries_missed);
 
@@ -712,13 +713,15 @@ impl<'a> DynamicHistory<'a> {
         )
     }
 
+    // NOTE: if paired_wall_clock_time is provided (via a snapshot merge/produce_with_time),
+    // then it will be inserted into the log before the local logical clock
     #[inline]
     fn merge_internal(
         &mut self,
         external_id: ProbeId,
         external_epoch: ProbeEpoch,
         external_clock: ProbeTicks,
-        time: Option<Nanoseconds>,
+        paired_wall_clock_time: Option<Nanoseconds>,
     ) -> Result<(), MergeError> {
         if external_id == self.probe_id {
             // Quietly ignore self-snapshots in order to reduce complexity
@@ -728,7 +731,7 @@ impl<'a> DynamicHistory<'a> {
             return Ok(());
         }
         self.increment_local_clock();
-        if let Some(t) = time {
+        if let Some(t) = paired_wall_clock_time {
             self.record_paired_wall_clock_time(t);
         }
         self.write_clocks_to_log(&[
@@ -743,7 +746,7 @@ impl<'a> DynamicHistory<'a> {
     }
 
     // NOTE: if there was an associated paired wall clock time entry
-    // (via snapshot merge/produce_with_time), it'll precede the logical clocks
+    // (via snapshot merge/produce_with_time), it will precede the local logical clocks
     #[inline]
     fn write_clocks_to_log(&mut self, clocks: &[LogicalClock]) {
         for c in clocks.iter() {
