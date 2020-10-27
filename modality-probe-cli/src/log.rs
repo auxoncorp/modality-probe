@@ -167,8 +167,10 @@ fn sort_probes(
     for plog in probes.values_mut() {
         plog.sort_by_key(|p| std::cmp::Reverse((p.sequence_number, p.sequence_index)));
         for r in plog.iter() {
-            if let LogEntryData::TraceClock(_, _) = r.data {
-                clock_rows.push(r.clone());
+            match r.data {
+                LogEntryData::TraceClock(_) => clock_rows.push(r.clone()),
+                LogEntryData::TraceClockWithTime(_, _) => clock_rows.push(r.clone()),
+                _ => (),
             }
         }
     }
@@ -202,7 +204,7 @@ fn print_as_graph<W: WriteIo>(
         for (idx, (probe_id, log)) in probes.iter_mut().enumerate() {
             if let Some(row) = log.pop() {
                 match row.data {
-                    LogEntryData::Event(_t, id) => {
+                    LogEntryData::Event(id) | LogEntryData::EventWithTime(.., id) => {
                         if blocked_tls.get(probe_id).is_none() {
                             let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
                             let pmeta = hopefully_ok!(
@@ -231,7 +233,8 @@ fn print_as_graph<W: WriteIo>(
                             log.push(row);
                         }
                     }
-                    LogEntryData::EventWithPayload(_t, id, pl) => {
+                    LogEntryData::EventWithPayload(id, pl)
+                    | LogEntryData::EventWithPayloadWithTime(.., id, pl) => {
                         if blocked_tls.get(probe_id).is_none() {
                             let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
                             let pmeta = hopefully_ok!(
@@ -260,7 +263,7 @@ fn print_as_graph<W: WriteIo>(
                             log.push(row);
                         }
                     }
-                    LogEntryData::TraceClock(_t, lc) => {
+                    LogEntryData::TraceClock(lc) | LogEntryData::TraceClockWithTime(.., lc) => {
                         // This is a local clock.
                         let (lc_id, clock) = lc.pack();
                         if lc.id == *probe_id {
@@ -675,7 +678,7 @@ fn print_as_log(
             'inner: loop {
                 if let Some(row) = log.pop() {
                     match row.data {
-                        LogEntryData::Event(_t, id) => {
+                        LogEntryData::Event(id) | LogEntryData::EventWithTime(.., id) => {
                             let emeta = meta::get_event_meta(&cfg, &row.probe_id, &id)?;
                             let probe_name = cfg
                                 .probes
@@ -685,7 +688,8 @@ fn print_as_log(
                             print_event_info(row, emeta, None, &probe_name, l, &cfg)?;
                             count += 1;
                         }
-                        LogEntryData::EventWithPayload(_t, id, pl) => {
+                        LogEntryData::EventWithPayload(id, pl)
+                        | LogEntryData::EventWithPayloadWithTime(.., id, pl) => {
                             let emeta = meta::get_event_meta(&cfg, &row.probe_id, &id)?;
                             let probe_name = cfg
                                 .probes
@@ -695,7 +699,7 @@ fn print_as_log(
                             print_event_info(row, emeta, Some(pl), &probe_name, l, &cfg)?;
                             count += 1;
                         }
-                        LogEntryData::TraceClock(_t, lc) => {
+                        LogEntryData::TraceClock(lc) | LogEntryData::TraceClockWithTime(.., lc) => {
                             let probe_name = cfg
                                 .probes
                                 .get(&row.probe_id.get_raw())
@@ -1013,14 +1017,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe1,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1031,14 +1032,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe1,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(1),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1049,7 +1047,7 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::Event(None, event1),
+                data: LogEntryData::Event(event1),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1060,7 +1058,7 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::Event(None, event1),
+                data: LogEntryData::Event(event1),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1071,14 +1069,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe1,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(2),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1089,14 +1084,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe2,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(3),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(3),
+                }),
                 receive_time: now,
             },
             // Probe 2
@@ -1108,14 +1100,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe2,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1126,14 +1115,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe2,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(1),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1144,14 +1130,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe3,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1162,7 +1145,7 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::Event(None, event2),
+                data: LogEntryData::Event(event2),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1173,14 +1156,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe2,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(2),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1191,14 +1171,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe1,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1209,7 +1186,7 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::Event(None, event2),
+                data: LogEntryData::Event(event2),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1220,14 +1197,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe2,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(3),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(3),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1238,14 +1212,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe2,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(4),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(4),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1256,7 +1227,7 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::Event(None, event2),
+                data: LogEntryData::Event(event2),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1267,7 +1238,7 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::Event(None, event2),
+                data: LogEntryData::Event(event2),
                 receive_time: now,
             },
             // Probe 3
@@ -1279,14 +1250,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe3,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1297,14 +1265,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe3,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(1),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1315,14 +1280,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe3,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(2),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1333,14 +1295,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe2,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(2),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                }),
                 receive_time: now,
             },
             // Probe 4
@@ -1352,14 +1311,11 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: probe4,
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe4,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1370,7 +1326,7 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::Event(None, event4),
+                data: LogEntryData::Event(event4),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1381,7 +1337,7 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::Event(None, event4),
+                data: LogEntryData::Event(event4),
                 receive_time: now,
             },
             ReportLogEntry {
@@ -1392,7 +1348,7 @@ mod test {
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
-                data: LogEntryData::Event(None, event4),
+                data: LogEntryData::Event(event4),
                 receive_time: now,
             },
         ];

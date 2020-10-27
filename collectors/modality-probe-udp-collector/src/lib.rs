@@ -197,23 +197,17 @@ mod tests {
                 ticks: ProbeTicks(0),
             }],
             event_log: vec![
-                EventLogEntry::Event(None, EventId::new(2).unwrap()),
-                EventLogEntry::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: ProbeId::new(2).unwrap(),
-                        epoch: ProbeEpoch(1),
-                        ticks: ProbeTicks(1),
-                    },
-                ),
-                EventLogEntry::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: ProbeId::new(1).unwrap(),
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    },
-                ),
+                EventLogEntry::Event(EventId::new(2).unwrap()),
+                EventLogEntry::TraceClock(LogicalClock {
+                    id: ProbeId::new(2).unwrap(),
+                    epoch: ProbeEpoch(1),
+                    ticks: ProbeTicks(1),
+                }),
+                EventLogEntry::TraceClock(LogicalClock {
+                    id: ProbeId::new(1).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
             ],
         }
     }
@@ -249,7 +243,7 @@ mod tests {
                 persistent_epoch_counting: rep.persistent_epoch_counting,
                 time_resolution: rep.time_resolution,
                 wall_clock_id: rep.wall_clock_id,
-                data: LogEntryData::Event(None, EventId::new(2).unwrap()),
+                data: LogEntryData::Event(EventId::new(2).unwrap()),
                 receive_time,
             },
             ReportLogEntry {
@@ -260,14 +254,11 @@ mod tests {
                 persistent_epoch_counting: rep.persistent_epoch_counting,
                 time_resolution: rep.time_resolution,
                 wall_clock_id: rep.wall_clock_id,
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: ProbeId::new(2).unwrap(),
-                        epoch: ProbeEpoch(1),
-                        ticks: ProbeTicks(1),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: ProbeId::new(2).unwrap(),
+                    epoch: ProbeEpoch(1),
+                    ticks: ProbeTicks(1),
+                }),
                 receive_time,
             },
             ReportLogEntry {
@@ -278,14 +269,11 @@ mod tests {
                 persistent_epoch_counting: rep.persistent_epoch_counting,
                 time_resolution: rep.time_resolution,
                 wall_clock_id: rep.wall_clock_id,
-                data: LogEntryData::TraceClock(
-                    None,
-                    LogicalClock {
-                        id: ProbeId::new(1).unwrap(),
-                        epoch: ProbeEpoch(0),
-                        ticks: ProbeTicks(0),
-                    },
-                ),
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: ProbeId::new(1).unwrap(),
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
                 receive_time,
             },
         ];
@@ -466,9 +454,9 @@ mod tests {
         let probe_a_id = modality_probe::ProbeId::new(131).unwrap();
         let probe_b_id = modality_probe::ProbeId::new(141).unwrap();
         let probe_c_id = modality_probe::ProbeId::new(159).unwrap();
-        let event_foo = EventLogEntry::Event(None, modality_probe::EventId::new(7).unwrap());
-        let event_bar = EventLogEntry::Event(None, modality_probe::EventId::new(23).unwrap());
-        let event_baz = EventLogEntry::Event(None, modality_probe::EventId::new(29).unwrap());
+        let event_foo = EventLogEntry::Event(modality_probe::EventId::new(7).unwrap());
+        let event_bar = EventLogEntry::Event(modality_probe::EventId::new(23).unwrap());
+        let event_baz = EventLogEntry::Event(modality_probe::EventId::new(29).unwrap());
         const NUM_MESSAGES_FROM_A: usize = 11;
 
         let (network_done_sender, network_done_receiver) = crossbeam::bounded(0);
@@ -527,28 +515,28 @@ mod tests {
             assert_eq!(session_id, e.session_id);
             assert!(expected_direct_probe_ids.contains(&e.probe_id));
             match e.data {
-                LogEntryData::Event(_t, event) => {
+                LogEntryData::Event(event) => {
                     // Event bar is logged only on b, and thus lost
-                    if EventLogEntry::Event(None, event) == event_bar {
+                    if EventLogEntry::Event(event) == event_bar {
                         panic!("How the heck did bar get over there?");
                     }
                     if e.probe_id.get_raw() == probe_a_id.get_raw() {
                         // Process A should only be writing about event foo or the probe internal events
                         assert!(
-                            EventLogEntry::Event(None, event) == event_foo
+                            EventLogEntry::Event(event) == event_foo
                                 || built_in_event_ids.contains(&event)
                         );
                     } else if e.probe_id.get_raw() == probe_c_id.get_raw() {
                         // Process C should only be writing about event baz or the probe internals events
                         assert!(
-                            EventLogEntry::Event(None, event) == event_baz
+                            EventLogEntry::Event(event) == event_baz
                                 || built_in_event_ids.contains(&event),
                             "unexpected event for entry: {:?}",
                             e
                         );
                     }
                 }
-                LogEntryData::EventWithPayload(_t, _, _) => (),
+                LogEntryData::EventWithPayload(_, _) => (),
                 LogEntryData::FrontierClock(lc) => {
                     if e.probe_id == probe_a_id {
                         // Process A should only know about itself, since it doesn't receive history from anyone else
@@ -558,14 +546,17 @@ mod tests {
                         assert!(lc.id == probe_c_id || lc.id == probe_b_id);
                     }
                 }
-                LogEntryData::TraceClock(_t, lc) => {
+                LogEntryData::TraceClock(lc) => {
                     if e.probe_id == probe_a_id {
                         assert_eq!(lc.id, probe_a_id);
                     } else if e.probe_id == probe_c_id {
                         assert!(lc.id == probe_c_id || lc.id == probe_b_id);
                     }
                 }
-                LogEntryData::WallClockTime(_t) => (),
+                LogEntryData::WallClockTime(_) => (),
+                LogEntryData::EventWithTime(_, _) => (),
+                LogEntryData::EventWithPayloadWithTime(_, _, _) => (),
+                LogEntryData::TraceClockWithTime(_, _) => (),
             }
         }
     }
@@ -602,8 +593,8 @@ mod tests {
         let mut net = proc_graph::Network::new();
         let probe_a_id = modality_probe::ProbeId::new(31).unwrap();
         let probe_b_id = modality_probe::ProbeId::new(41).unwrap();
-        let event_foo = EventLogEntry::Event(None, modality_probe::EventId::new(7).unwrap());
-        let event_bar = EventLogEntry::Event(None, modality_probe::EventId::new(23).unwrap());
+        let event_foo = EventLogEntry::Event(modality_probe::EventId::new(7).unwrap());
+        let event_bar = EventLogEntry::Event(modality_probe::EventId::new(23).unwrap());
         const NUM_MESSAGES_FROM_A: usize = 11;
 
         let (network_done_sender, network_done_receiver) = crossbeam::bounded(0);
@@ -658,24 +649,24 @@ mod tests {
             assert_eq!(session_id, e.session_id);
             assert!(expected_probe_ids.contains(&e.probe_id));
             match e.data {
-                LogEntryData::Event(_t, event) => {
+                LogEntryData::Event(event) => {
                     if e.probe_id == probe_a_id {
                         // Process A should only be writing about event foo or the probe internal events
                         assert!(
-                            EventLogEntry::Event(_t, event) == event_foo
+                            EventLogEntry::Event(event) == event_foo
                                 || built_in_event_ids.contains(&event.get_raw())
                         );
                     } else if e.probe_id == probe_b_id {
                         // Process B should only be writing about event bar or the probe internals events
                         assert!(
-                            EventLogEntry::Event(_t, event) == event_bar
+                            EventLogEntry::Event(event) == event_bar
                                 || built_in_event_ids.contains(&event.get_raw()),
                             "unexpected event for entry: {:?}",
                             e
                         );
                     }
                 }
-                LogEntryData::EventWithPayload(_t, _, _) => (),
+                LogEntryData::EventWithPayload(_, _) => (),
                 LogEntryData::FrontierClock(lc) => {
                     if e.probe_id == probe_a_id {
                         // Process A should only know about itself, since it doesn't receive history from anyone else
@@ -685,14 +676,17 @@ mod tests {
                         assert!(expected_probe_ids.contains(&lc.id));
                     }
                 }
-                LogEntryData::TraceClock(_t, lc) => {
+                LogEntryData::TraceClock(lc) => {
                     if e.probe_id == probe_a_id {
                         assert_eq!(lc.id, probe_a_id);
                     } else {
                         assert!(expected_probe_ids.contains(&lc.id));
                     }
                 }
-                LogEntryData::WallClockTime(_t) => (),
+                LogEntryData::WallClockTime(_) => (),
+                LogEntryData::EventWithTime(_, _) => (),
+                LogEntryData::EventWithPayloadWithTime(_, _, _) => (),
+                LogEntryData::TraceClockWithTime(_, _) => (),
             }
         }
     }
@@ -731,10 +725,10 @@ mod tests {
         let probe_b_id = modality_probe::ProbeId::new(41).unwrap();
         let foo_payload = 777;
         let foo_id = modality_probe::EventId::new(7).unwrap();
-        let event_foo = EventLogEntry::EventWithPayload(None, foo_id, foo_payload);
+        let event_foo = EventLogEntry::EventWithPayload(foo_id, foo_payload);
         let bar_payload = 490;
         let bar_id = modality_probe::EventId::new(23).unwrap();
-        let event_bar = EventLogEntry::EventWithPayload(None, bar_id, bar_payload);
+        let event_bar = EventLogEntry::EventWithPayload(bar_id, bar_payload);
 
         const NUM_MESSAGES_FROM_A: usize = 11;
 
@@ -786,18 +780,12 @@ mod tests {
             assert_eq!(session_id, e.session_id);
             assert!(expected_probe_ids.contains(&e.probe_id));
             match e.data {
-                LogEntryData::Event(_t, _) => (),
-                LogEntryData::EventWithPayload(_t, event, payload) => {
+                LogEntryData::Event(_) => (),
+                LogEntryData::EventWithPayload(event, payload) => {
                     if event == foo_id {
-                        assert_eq!(
-                            EventLogEntry::EventWithPayload(None, event, payload),
-                            event_foo
-                        );
+                        assert_eq!(EventLogEntry::EventWithPayload(event, payload), event_foo);
                     } else if event == bar_id {
-                        assert_eq!(
-                            EventLogEntry::EventWithPayload(None, event, payload),
-                            event_bar
-                        );
+                        assert_eq!(EventLogEntry::EventWithPayload(event, payload), event_bar);
                     } else if event != modality_probe::EventId::EVENT_PROBE_INITIALIZED {
                         // it's that the model implementation of
                         // EventId doesn't or out the marker bits on
@@ -814,14 +802,17 @@ mod tests {
                         assert!(expected_probe_ids.contains(&lc.id));
                     }
                 }
-                LogEntryData::TraceClock(_t, lc) => {
+                LogEntryData::TraceClock(lc) => {
                     if e.probe_id == probe_a_id {
                         assert_eq!(lc.id, probe_a_id);
                     } else {
                         assert!(expected_probe_ids.contains(&lc.id));
                     }
                 }
-                LogEntryData::WallClockTime(_t) => (),
+                LogEntryData::WallClockTime(_) => (),
+                LogEntryData::EventWithTime(_, _) => (),
+                LogEntryData::EventWithPayloadWithTime(_, _, _) => (),
+                LogEntryData::TraceClockWithTime(_, _) => (),
             }
         }
     }
@@ -850,8 +841,8 @@ mod tests {
             let mut causal_history_blob = vec![0u8; SNAPSHOT_BYTES_SIZE];
             for _ in 0..n_messages {
                 match per_iteration_event {
-                    Some(EventLogEntry::Event(_t, e)) => probe.record_event(e),
-                    Some(EventLogEntry::EventWithPayload(_t, e, payload)) => {
+                    Some(EventLogEntry::Event(e)) => probe.record_event(e),
+                    Some(EventLogEntry::EventWithPayload(e, payload)) => {
                         probe.record_event_with_payload(e, payload)
                     }
                     _ => (),
@@ -927,8 +918,8 @@ mod tests {
                     }
                 };
                 match per_iteration_event {
-                    Some(EventLogEntry::Event(_t, e)) => probe.record_event(e),
-                    Some(EventLogEntry::EventWithPayload(_t, e, payload)) => {
+                    Some(EventLogEntry::Event(e)) => probe.record_event(e),
+                    Some(EventLogEntry::EventWithPayload(e, payload)) => {
                         probe.record_event_with_payload(e, payload)
                     }
                     _ => (),
@@ -1012,8 +1003,8 @@ mod tests {
                     .merge_snapshot_bytes(&message)
                     .expect("Could not merge in history");
                 match per_iteration_event {
-                    Some(EventLogEntry::Event(_t, e)) => probe.record_event(e),
-                    Some(EventLogEntry::EventWithPayload(_t, e, payload)) => {
+                    Some(EventLogEntry::Event(e)) => probe.record_event(e),
+                    Some(EventLogEntry::EventWithPayload(e, payload)) => {
                         probe.record_event_with_payload(e, payload)
                     }
                     _ => (),

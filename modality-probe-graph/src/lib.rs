@@ -99,7 +99,7 @@ impl<G: Graph> EventDigraph<G> {
 
         for (idx, ev) in report.event_log.iter().enumerate() {
             match ev {
-                EventLogEntry::Event(_t, id) => {
+                EventLogEntry::Event(id) | EventLogEntry::EventWithTime(.., id) => {
                     let node = GraphEvent {
                         probe_id,
                         id: *id,
@@ -118,7 +118,8 @@ impl<G: Graph> EventDigraph<G> {
                         seq_num,
                     );
                 }
-                EventLogEntry::EventWithPayload(_t, id, payload) => {
+                EventLogEntry::EventWithPayload(id, payload)
+                | EventLogEntry::EventWithPayloadWithTime(.., id, payload) => {
                     let node = GraphEvent {
                         probe_id,
                         id: *id,
@@ -137,7 +138,7 @@ impl<G: Graph> EventDigraph<G> {
                         seq_num,
                     );
                 }
-                EventLogEntry::TraceClock(_t, lc) => {
+                EventLogEntry::TraceClock(lc) | EventLogEntry::TraceClockWithTime(.., lc) => {
                     if lc.id == probe_id {
                         // when we see a clock, the previous event we
                         // saw is the last event from the previous

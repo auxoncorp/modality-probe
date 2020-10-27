@@ -688,10 +688,10 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(None, lc(probe_id.get_raw(), 0, 0)),
-                    EventLogEntry::Event(None, EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(None, ev(1)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(lc(probe_id.get_raw(), 0, 0)),
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -751,10 +751,10 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(None, lc(probe_id.get_raw(), 0, 0)),
-                    EventLogEntry::Event(None, EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(None, ev(1)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(lc(probe_id.get_raw(), 0, 0)),
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -887,12 +887,12 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw_2, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(None, lc(pid_raw_2, 0, 0)),
-                    EventLogEntry::Event(None, EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(None, ev(1)),
-                    EventLogEntry::TraceClock(None, lc(pid_raw_2, 0, 1)),
-                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 0)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 0)),
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 1)),
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 0)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -913,9 +913,9 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw_2, 0, 1), lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::Event(None, ev(2)),
-                    EventLogEntry::TraceClock(None, lc(pid_raw_2, 0, 2)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 2)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -932,13 +932,13 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 0)),
-                    EventLogEntry::Event(None, EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(None, ev(1)),
-                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 1)),
-                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 2)),
-                    EventLogEntry::TraceClock(None, lc(pid_raw_2, 0, 1)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 0)),
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 2)),
+                    EventLogEntry::TraceClock(lc(pid_raw_2, 0, 1)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -960,8 +960,8 @@ pub mod tests {
                 time_resolution: NanosecondResolution::UNSPECIFIED,
                 wall_clock_id: WallClockId::default(),
                 event_log: vec![
-                    EventLogEntry::Event(None, ev(2)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
             }
         );
@@ -1102,10 +1102,10 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 1)),
-                    EventLogEntry::Event(None, ev(3)),
-                    EventLogEntry::Event(None, ev(4)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(ev(4)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -1145,11 +1145,11 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::Event(None, ev(1)),
-                    EventLogEntry::Event(None, ev(2)),
-                    EventLogEntry::Event(None, ev(3)),
-                    EventLogEntry::Event(None, ev(4)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(ev(4)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -1190,12 +1190,12 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::EventWithPayload(None, EventId::EVENT_LOG_ITEMS_MISSED, 2),
-                    EventLogEntry::Event(None, ev(3)),
-                    EventLogEntry::Event(None, ev(4)),
-                    EventLogEntry::Event(None, ev(5)),
-                    EventLogEntry::Event(None, ev(6)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::EventWithPayload(EventId::EVENT_LOG_ITEMS_MISSED, 2),
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(ev(4)),
+                    EventLogEntry::Event(ev(5)),
+                    EventLogEntry::Event(ev(6)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -1240,13 +1240,13 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 1)),
-                    EventLogEntry::TraceClock(None, lc(other_id_raw, 0, 1)),
-                    EventLogEntry::Event(None, ev(1)),
-                    EventLogEntry::Event(None, ev(2)),
-                    EventLogEntry::Event(None, ev(3)),
-                    EventLogEntry::Event(None, ev(4)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
+                    EventLogEntry::TraceClock(lc(other_id_raw, 0, 1)),
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(ev(4)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -1276,15 +1276,15 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 1), lc(other_id_raw, 0, 1)],
                 event_log: vec![
-                    EventLogEntry::Event(None, ev(5)),
-                    EventLogEntry::Event(None, ev(6)),
-                    EventLogEntry::Event(None, ev(7)),
-                    EventLogEntry::Event(None, ev(8)),
-                    EventLogEntry::Event(None, ev(9)),
-                    EventLogEntry::Event(None, ev(10)),
-                    EventLogEntry::Event(None, ev(11)),
-                    EventLogEntry::Event(None, ev(12)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(ev(5)),
+                    EventLogEntry::Event(ev(6)),
+                    EventLogEntry::Event(ev(7)),
+                    EventLogEntry::Event(ev(8)),
+                    EventLogEntry::Event(ev(9)),
+                    EventLogEntry::Event(ev(10)),
+                    EventLogEntry::Event(ev(11)),
+                    EventLogEntry::Event(ev(12)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -1350,10 +1350,10 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::Event(None, ev(1)),
-                    EventLogEntry::Event(None, ev(2)),
-                    EventLogEntry::Event(None, ev(3)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -1379,11 +1379,11 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::TraceClock(None, lc(pid_raw, 0, 1)),
-                    EventLogEntry::Event(None, ev(4)),
-                    EventLogEntry::Event(None, ev(5)),
-                    EventLogEntry::Event(None, ev(6)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::TraceClock(lc(pid_raw, 0, 1)),
+                    EventLogEntry::Event(ev(4)),
+                    EventLogEntry::Event(ev(5)),
+                    EventLogEntry::Event(ev(6)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -1423,10 +1423,10 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::Event(None, ev(1)),
-                    EventLogEntry::Event(None, ev(2)),
-                    EventLogEntry::Event(None, ev(3)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(ev(1)),
+                    EventLogEntry::Event(ev(2)),
+                    EventLogEntry::Event(ev(3)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -1452,11 +1452,11 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::EventWithPayload(None, ev(4), 5),
-                    EventLogEntry::Event(None, ev(6)),
-                    EventLogEntry::Event(None, ev(7)),
-                    EventLogEntry::Event(None, ev(8)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::EventWithPayload(ev(4), 5),
+                    EventLogEntry::Event(ev(6)),
+                    EventLogEntry::Event(ev(7)),
+                    EventLogEntry::Event(ev(8)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -1492,8 +1492,8 @@ pub mod tests {
                 seq_num: SequenceNumber(0),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::Event(None, ev(10)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::Event(ev(10)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
@@ -1516,9 +1516,9 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
-                    EventLogEntry::Event(Nanoseconds::new(1), ev(11)),
-                    EventLogEntry::Event(None, ev(12)),
-                    EventLogEntry::Event(None, EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                    EventLogEntry::EventWithTime(Nanoseconds::new(1).unwrap(), ev(11)),
+                    EventLogEntry::Event(ev(12)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
                 time_resolution: NanosecondResolution::UNSPECIFIED,
