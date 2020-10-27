@@ -882,40 +882,23 @@ fn print_event_info(
             println!("    probe tags: {}", pmeta.tags.replace(";", ", "));
             println!(
                 "{}",
-                match (def.file.is_empty(), def.line.is_empty()) {
+                match (pmeta.file.is_empty(), pmeta.line.is_empty()) {
                     (false, false) => {
-                        format!("    source: \"{}#L{}\"", def.file, def.line)
+                        format!("    probe source: \"{}#L{}\"", pmeta.file, pmeta.line)
                     }
-                    (true, false) => {
-                        format!("    source: \"{}\"", def.file)
+                    (false, true) => {
+                        format!("    probe source: \"{}\"", pmeta.file)
                     }
-                    _ => "    source: None".to_string(),
+                    _ => "    probe source: None".to_string(),
                 }
             );
-        }
-        if l.verbose > 1 {
-            if let Some(pmeta) = cfg.probes.get(&ev.probe_id.get_raw()) {
-                println!("    probe tags: {}", pmeta.tags.replace(";", ", "));
-                println!(
-                    "{}",
-                    match (pmeta.file.is_empty(), pmeta.line.is_empty()) {
-                        (false, false) => {
-                            format!("    probe source: \"{}#L{}\"", pmeta.file, pmeta.line)
-                        }
-                        (false, true) => {
-                            format!("    probe source: \"{}\"", pmeta.file)
-                        }
-                        _ => "    probe source: None".to_string(),
-                    }
-                );
-                let comp_name_or_id =
-                    if let Some(n) = cfg.component_names.get(&pmeta.component_id.to_string()) {
-                        n.to_string()
-                    } else {
-                        pmeta.component_id.to_string()
-                    };
-                println!("    component: {}", comp_name_or_id);
-            }
+            let comp_name_or_id =
+                if let Some(n) = cfg.component_names.get(&pmeta.component_id.to_string()) {
+                    n.to_string()
+                } else {
+                    pmeta.component_id.to_string()
+                };
+            println!("    component: {}", comp_name_or_id);
         }
         if l.verbose != 0 {
             println!();
