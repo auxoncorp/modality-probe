@@ -190,7 +190,7 @@ where
 
     /// Returns true if this is a double entry
     pub fn is_double(&self) -> bool {
-        self.size() != 1
+        matches!(self, Self::Double(_, _))
     }
 }
 

@@ -144,6 +144,13 @@ expect!(
 Wall clock time can be recorded as a standalone timestamp or
 alongside other events.
 
+A probe that uses wall clock time can identify the time domain it's operating
+in via a `WallClockId`. All probes in the same time domain should
+use the same wall clock identifier.
+
+Probes should use a consistent monotonic clock-source for all the time-related measurements
+at a given probe (don't mix and match clock-sources for a probe).
+
 ```rust
 probe.record_time(Nanoseconds::new(1)?);
 

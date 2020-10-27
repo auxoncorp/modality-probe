@@ -85,13 +85,16 @@ const_assert_eq!(
 
 /// Manages the core of a probe in-memory implementation
 /// backed by runtime-sized arrays of current logical clocks
-/// and probe log items
+/// and probe log items.
 ///
-/// Note: overwrite_priority, probe_id, and log must be accessible
-/// by the debug collector using a debug interface.
-/// No non-repr(C) fields or usizes (including refs or slices) should be
-/// placed *after* those fields.
-/// Otherwise the offsets of those fields could change depending on the architecture of the target.
+/// NOTE: the debug-collector relies on the layout and ordering
+/// of the fields in the ModalityProbe and DynamicHistory.
+/// This keeps the offsets from changing across target architectures.
+/// The following fields *must* be repr(c) and be kept before
+/// any non-repr(c) fields:
+/// * overwrite_priority
+/// * probe_id
+/// * log
 #[derive(Debug)]
 #[repr(C)]
 pub struct DynamicHistory<'a> {
