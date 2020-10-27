@@ -403,11 +403,6 @@ impl Collector {
     pub fn collect_report(&mut self) -> Result<Option<Report>, Error> {
         self.rbuf.clear();
 
-        // Insert paired wall clock time entry from previous report if needed
-        if let Some(e) = self.prev_paired_wall_clock_time.take() {
-            self.rbuf.push(e);
-        }
-
         let num_missed = self.reader.read(&mut self.rbuf)?;
         // Possibly add entries missed event
         if num_missed > 0 {
@@ -415,6 +410,15 @@ impl Collector {
             let (ev, payload) =
                 LogEntry::event_with_payload(EventId::EVENT_LOG_ITEMS_MISSED, num_missed_rounded);
             self.rbuf.insert(0, WholeEntry::Double(ev, payload));
+
+            if let Some(e) = self.prev_paired_wall_clock_time.take() {
+                eprintln!("Warning: dropping paired wall clock time entry {:?} from previous report because items were missed and the associated entry was lost", e);
+            }
+        } else {
+            // Insert paired wall clock time entry from previous report if needed
+            if let Some(e) = self.prev_paired_wall_clock_time.take() {
+                self.rbuf.insert(0, e);
+            }
         }
 
         if self.rbuf.is_empty() {
@@ -1517,6 +1521,68 @@ pub mod tests {
                 frontier_clocks: vec![lc(pid_raw, 0, 0)],
                 event_log: vec![
                     EventLogEntry::EventWithTime(Nanoseconds::new(1).unwrap(), ev(11)),
+                    EventLogEntry::Event(ev(12)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+    }
+
+    #[test]
+    fn fragmented_paired_wall_clock_time_entries_are_dropped_when_items_are_missed() {
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let (a, b) = LogEntry::paired_wall_clock_time(Nanoseconds::new(1).unwrap());
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
+            probe_id,
+            3,
+            0,
+            &mut vec![LogEntry::event(ev(10)), a, b],
+        )));
+
+        let mut collector = Collector::initialize(
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
+        )
+        .unwrap();
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(0),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(ev(10)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+
+        mem_accessor
+            .borrow_mut()
+            .overwrite_buffer(&vec![LogEntry::event(ev(11)), LogEntry::event(ev(12))]);
+        mem_accessor.borrow_mut().set_write_seqn(5);
+        mem_accessor.borrow_mut().set_overwrite_seqn(4);
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(1),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::EventWithPayload(EventId::EVENT_LOG_ITEMS_MISSED, 1),
                     EventLogEntry::Event(ev(12)),
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
