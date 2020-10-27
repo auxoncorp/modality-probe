@@ -180,18 +180,13 @@ fn event_with_time(input: Span) -> ParserResult<Span, EventMetadata> {
         *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     }
     let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
-    let mut tags = tags_pos
+    let tags = tags_pos
         .map(|index| tags_and_desc.swap_remove(index))
         .map(|s| s.replace("tags=", ""));
-    if let Some(t) = &mut tags {
+    if let Some(t) = &tags {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
-        if !t.contains("TIME") {
-            t.insert_str(0, "TIME;");
-        }
-    } else {
-        tags = Some(String::from("TIME"));
     }
     let description = tags_and_desc.pop();
     Ok((
@@ -392,19 +387,14 @@ fn event_with_payload_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
         *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     }
     let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
-    let mut tags = tags_pos
+    let tags = tags_pos
         .map(|index| tags_and_desc.swap_remove(index))
         .map(|s| s.replace("tags=", ""));
 
-    if let Some(t) = &mut tags {
+    if let Some(t) = &tags {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
-        if has_time && !t.contains("TIME") {
-            t.insert_str(0, "TIME;");
-        }
-    } else if has_time {
-        tags = Some(String::from("TIME"));
     }
     let description = tags_and_desc.pop();
     Ok((
@@ -1037,7 +1027,7 @@ mod tests {
                     probe_instance: "g_probe".to_string(),
                     payload: None,
                     description: Some("Description".to_string()),
-                    tags: Some("TIME;network;file-system;other-tags".to_string()),
+                    tags: Some("network;file-system;other-tags".to_string()),
                     location: (2125, 67, 11).into(),
                 },
                 EventMetadata {
@@ -1045,7 +1035,7 @@ mod tests {
                     probe_instance: "g_probe".to_string(),
                     payload: Some((TypeHint::I8, "status").into()),
                     description: Some("Description".to_string()),
-                    tags: Some("TIME;network;file-system;other-tags".to_string()),
+                    tags: Some("network;file-system;other-tags".to_string()),
                     location: (2308, 74, 5).into(),
                 },
                 EventMetadata {
@@ -1053,7 +1043,7 @@ mod tests {
                     probe_instance: "g_probe".to_string(),
                     payload: Some((TypeHint::Bool, "true").into()),
                     description: None,
-                    tags: Some("TIME".to_string()),
+                    tags: None,
                     location: (2516, 82, 5).into(),
                 },
             ])
