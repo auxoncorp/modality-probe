@@ -8,12 +8,12 @@ use std::{
 
 use structopt::StructOpt;
 
-use modality_probe::{LogicalClock, ProbeId};
+use modality_probe::{EventId, LogicalClock, ProbeId};
 use modality_probe_collector_common::{json, LogEntryData, ReportLogEntry};
 
 use crate::{
     hopefully, hopefully_ok,
-    meta::{self, Cfg, EventMeta, ProbeMeta},
+    meta::{self, Cfg},
 };
 
 mod format;
@@ -212,11 +212,14 @@ fn print_as_graph<W: WriteIo>(
                 match row.data {
                     LogEntryData::Event(id) | LogEntryData::EventWithTime(.., id) => {
                         if blocked_tls.get(probe_id).is_none() {
-                            let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
-                            let pmeta = hopefully_ok!(
-                                cfg.probes.get(&probe_id.get_raw()),
-                                "Couldn't find probe"
-                            )?;
+                            let event_name = meta::get_event_meta(&cfg, &probe_id, &id)
+                                .map(|em| em.name.clone())
+                                .unwrap_or_else(|_| probe_id.get_raw().to_string());
+                            let probe_name = cfg
+                                .probes
+                                .get(&probe_id.get_raw())
+                                .map(|pm| pm.name.clone())
+                                .unwrap_or_else(|| probe_id.get_raw().to_string());
                             if let Some(ref fmt) = l.format {
                                 print_event_row(
                                     &format::format(cfg, &row, fmt),
@@ -228,8 +231,8 @@ fn print_as_graph<W: WriteIo>(
                                 print_event_row(
                                     &format!(
                                         "{} @ {} ({})",
-                                        emeta.name,
-                                        pmeta.name,
+                                        event_name,
+                                        probe_name,
                                         row.coordinate()
                                     ),
                                     idx,
@@ -239,9 +242,9 @@ fn print_as_graph<W: WriteIo>(
 
                                 handle_graph_verbosity(
                                     l,
+                                    probe_id,
+                                    &id,
                                     n_probes,
-                                    emeta,
-                                    pmeta,
                                     None,
                                     cfg,
                                     &mut stream,
@@ -256,11 +259,14 @@ fn print_as_graph<W: WriteIo>(
                     LogEntryData::EventWithPayload(id, pl)
                     | LogEntryData::EventWithPayloadWithTime(.., id, pl) => {
                         if blocked_tls.get(probe_id).is_none() {
-                            let emeta = meta::get_event_meta(&cfg, &probe_id, &id)?;
-                            let pmeta = hopefully_ok!(
-                                cfg.probes.get(&probe_id.get_raw()),
-                                "Couldn't find probe"
-                            )?;
+                            let event_name = meta::get_event_meta(&cfg, &probe_id, &id)
+                                .map(|em| em.name.clone())
+                                .unwrap_or_else(|_| probe_id.get_raw().to_string());
+                            let probe_name = cfg
+                                .probes
+                                .get(&probe_id.get_raw())
+                                .map(|pm| pm.name.clone())
+                                .unwrap_or_else(|| probe_id.get_raw().to_string());
                             if let Some(ref fmt) = l.format {
                                 print_event_row(
                                     &format::format(cfg, &row, fmt),
@@ -272,8 +278,8 @@ fn print_as_graph<W: WriteIo>(
                                 print_event_row(
                                     &format!(
                                         "{} @ {} ({})",
-                                        emeta.name,
-                                        pmeta.name,
+                                        event_name,
+                                        probe_name,
                                         row.coordinate(),
                                     ),
                                     idx,
@@ -283,9 +289,9 @@ fn print_as_graph<W: WriteIo>(
 
                                 handle_graph_verbosity(
                                     l,
+                                    probe_id,
+                                    &id,
                                     n_probes,
-                                    emeta,
-                                    pmeta,
                                     Some(pl),
                                     cfg,
                                     &mut stream,
@@ -364,20 +370,22 @@ fn print_as_graph<W: WriteIo>(
                         // This is a foreign clock: `lc.id != probe_id`.
                         } else {
                             let (lc_id, clock) = lc.pack();
-                            let from_pm = hopefully_ok!(
-                                cfg.probes.get(&lc_id.get_raw()),
-                                format!("Probe {} could not be found", lc_id.get_raw())
-                            )?;
-                            let to_pm = hopefully_ok!(
-                                cfg.probes.get(&probe_id.get_raw()),
-                                format!("Probe {} could not be found", probe_id.get_raw())
-                            )?;
+                            let from_name = cfg
+                                .probes
+                                .get(&lc_id.get_raw())
+                                .map(|pm| pm.name.clone())
+                                .unwrap_or_else(|| lc_id.get_raw().to_string());
+                            let to_name = cfg
+                                .probes
+                                .get(&probe_id.get_raw())
+                                .map(|pm| pm.name.clone())
+                                .unwrap_or_else(|| probe_id.get_raw().to_string());
                             if let Some(source_idx) = pending_sources.get(&(lc_id, clock + 1)) {
                                 print_edge_line(
                                     *source_idx,
                                     idx,
-                                    &from_pm.name,
-                                    &to_pm.name,
+                                    &from_name,
+                                    &to_name,
                                     n_probes,
                                     &mut stream,
                                 )?;
@@ -399,8 +407,8 @@ fn print_as_graph<W: WriteIo>(
                                 } else {
                                     print_missing_edge_line(
                                         idx,
-                                        &from_pm.name,
-                                        &to_pm.name,
+                                        &from_name,
+                                        &to_name,
                                         n_probes,
                                         l.probe.is_some(),
                                         &mut stream,
@@ -424,14 +432,17 @@ fn print_as_graph<W: WriteIo>(
 
 fn handle_graph_verbosity<W: WriteIo>(
     l: &Log,
+    probe_id: &ProbeId,
+    eid: &EventId,
     n_probes: usize,
-    emeta: &EventMeta,
-    pmeta: &ProbeMeta,
     pl: Option<u32>,
     cfg: &Cfg,
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if l.verbose != 0 {
+    let event_meta = meta::get_event_meta(&cfg, &probe_id, &eid);
+    let probe_meta = cfg.probes.get(&probe_id.get_raw());
+    if l.verbose != 0 && event_meta.is_ok() {
+        let emeta = event_meta.expect("just checked that event meta is_some");
         print_info_row(
             n_probes,
             &format!("    description: \"{}\"", emeta.description),
@@ -456,7 +467,8 @@ fn handle_graph_verbosity<W: WriteIo>(
             )?;
         }
     }
-    if l.verbose > 1 {
+    if l.verbose > 1 && probe_meta.is_some() {
+        let pmeta = probe_meta.expect("just checked that probe meta is_some");
         print_info_row(
             n_probes,
             &format!("    probe_tags: {}", pmeta.tags.replace(";", ", ")),
@@ -502,19 +514,21 @@ fn handle_source_edge<W: WriteIo>(
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some((target_idx, target_id)) = pending_targets.get(&(lc_id, clock - 1)) {
-        let from_pm = hopefully_ok!(
-            cfg.probes.get(&probe_id.get_raw()),
-            format!("Probe {} could not be found", probe_id.get_raw())
-        )?;
-        let to_pm = hopefully_ok!(
-            cfg.probes.get(&target_id.get_raw()),
-            format!("Probe {} could not be found", lc_id.get_raw())
-        )?;
+        let from_name = cfg
+            .probes
+            .get(&probe_id.get_raw())
+            .map(|pm| pm.name.clone())
+            .unwrap_or_else(|| probe_id.get_raw().to_string());
+        let to_name = cfg
+            .probes
+            .get(&target_id.get_raw())
+            .map(|pm| pm.name.clone())
+            .unwrap_or_else(|| probe_id.get_raw().to_string());
         print_edge_line(
             idx,
             *target_idx,
-            &from_pm.name,
-            &to_pm.name,
+            &from_name,
+            &to_name,
             n_probes,
             &mut stream,
         )?;
@@ -710,24 +724,12 @@ fn print_as_log(
                 if let Some(row) = log.pop() {
                     match row.data {
                         LogEntryData::Event(id) | LogEntryData::EventWithTime(.., id) => {
-                            let emeta = meta::get_event_meta(&cfg, &row.probe_id, &id)?;
-                            let probe_name = cfg
-                                .probes
-                                .get(&row.probe_id.get_raw())
-                                .map(|p| p.name.clone())
-                                .unwrap_or(format!("UNKNOWN_PROBE_{}", row.probe_id.get_raw()));
-                            print_event_info(row, emeta, None, &probe_name, l, &cfg)?;
+                            print_event_info(row, &id, None, l, &cfg)?;
                             count += 1;
                         }
                         LogEntryData::EventWithPayload(id, pl)
                         | LogEntryData::EventWithPayloadWithTime(.., id, pl) => {
-                            let emeta = meta::get_event_meta(&cfg, &row.probe_id, &id)?;
-                            let probe_name = cfg
-                                .probes
-                                .get(&row.probe_id.get_raw())
-                                .map(|p| p.name.clone())
-                                .unwrap_or(format!("UNKNOWN_PROBE_{}", row.probe_id.get_raw()));
-                            print_event_info(row, emeta, Some(pl), &probe_name, l, &cfg)?;
+                            print_event_info(row, &id, Some(pl), l, &cfg)?;
                             count += 1;
                         }
                         LogEntryData::TraceClock(lc) | LogEntryData::TraceClockWithTime(.., lc) => {
@@ -735,7 +737,7 @@ fn print_as_log(
                                 .probes
                                 .get(&row.probe_id.get_raw())
                                 .map(|p| p.name.clone())
-                                .unwrap_or(format!("UNKNOWN_PROBE_{}", row.probe_id.get_raw()));
+                                .unwrap_or_else(|| row.probe_id.get_raw().to_string());
                             if lc.id == *probe_id {
                                 if !seen_self_clock {
                                     if l.verbose == 0 {
@@ -760,7 +762,7 @@ fn print_as_log(
                                     .probes
                                     .get(&lc.id.get_raw())
                                     .map(|p| p.name.clone())
-                                    .unwrap_or(format!("UNKNOWN_PROBE_{}", row.probe_id.get_raw()));
+                                    .unwrap_or_else(|| row.probe_id.get_raw().to_string());
                                 println!(
                                     "Snapshot Merge @ {} ({}), from={} clock=({}, {})",
                                     probe_name,
@@ -793,21 +795,30 @@ fn print_as_log(
 
 fn print_event_info(
     ev: ReportLogEntry,
-    def: &EventMeta,
+    eid: &EventId,
     payload: Option<u32>,
-    pname: &str,
     l: &Log,
     cfg: &Cfg,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(ref fmt) = l.format {
         println!("{}", format::format(cfg, &ev, fmt));
     } else {
-        println!("{} @ {} ({})", def.name, pname, ev.coordinate());
-        if l.verbose != 0 {
+        let event_meta = meta::get_event_meta(&cfg, &ev.probe_id, eid);
+        let probe_meta = cfg.probes.get(&ev.probe_id.get_raw());
+        let ename = event_meta
+            .as_ref()
+            .map(|em| em.name.clone())
+            .unwrap_or_else(|_| eid.get_raw().to_string());
+        let pname = probe_meta
+            .map(|pm| pm.name.clone())
+            .unwrap_or_else(|| ev.probe_id.get_raw().to_string());
+        println!("{} @ {} ({})", ename, pname, ev.coordinate());
+        if l.verbose != 0 && event_meta.is_ok() {
+            let emeta = event_meta.expect("just checked that event meta is_ok");
             println!(
                 "    description: \"{}\"",
-                if !def.description.is_empty() {
-                    &def.description
+                if !emeta.description.is_empty() {
+                    &emeta.description
                 } else {
                     "None"
                 }
@@ -815,50 +826,49 @@ fn print_event_info(
             println!(
                 "    payload: {}",
                 if let Some(p) =
-                    meta::parsed_payload(def.type_hint.as_ref().map(|s| s.as_ref()), payload)?
+                    meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), payload)?
                 {
                     p
                 } else {
                     "None".to_string()
                 }
             );
-            println!("    tags: {}", def.tags.replace(";", ", "));
+            println!("    tags: {}", emeta.tags.replace(";", ", "));
             println!(
                 "{}",
-                match (def.file.is_empty(), def.line.is_empty()) {
+                match (emeta.file.is_empty(), emeta.line.is_empty()) {
                     (false, false) => {
-                        format!("    source: \"{}#L{}\"", def.file, def.line)
+                        format!("    source: \"{}#L{}\"", emeta.file, emeta.line)
                     }
                     (true, false) => {
-                        format!("    source: \"{}\"", def.file)
+                        format!("    source: \"{}\"", emeta.file)
                     }
                     _ => "    source: None".to_string(),
                 }
             );
         }
-        if l.verbose > 1 {
-            if let Some(pmeta) = cfg.probes.get(&ev.probe_id.get_raw()) {
-                println!("    probe tags: {}", pmeta.tags.replace(";", ", "));
-                println!(
-                    "{}",
-                    match (pmeta.file.is_empty(), pmeta.line.is_empty()) {
-                        (false, false) => {
-                            format!("    probe source: \"{}#L{}\"", pmeta.file, pmeta.line)
-                        }
-                        (false, true) => {
-                            format!("    probe source: \"{}\"", pmeta.file)
-                        }
-                        _ => "    probe source: None".to_string(),
+        if l.verbose > 1 && probe_meta.is_some() {
+            let pmeta = probe_meta.expect("just checked that probe meta is_some");
+            println!("    probe tags: {}", pmeta.tags.replace(";", ", "));
+            println!(
+                "{}",
+                match (pmeta.file.is_empty(), pmeta.line.is_empty()) {
+                    (false, false) => {
+                        format!("    probe source: \"{}#L{}\"", pmeta.file, pmeta.line)
                     }
-                );
-                let comp_name_or_id =
-                    if let Some(n) = cfg.component_names.get(&pmeta.component_id.to_string()) {
-                        n.to_string()
-                    } else {
-                        pmeta.component_id.to_string()
-                    };
-                println!("    component: {}", comp_name_or_id);
-            }
+                    (false, true) => {
+                        format!("    probe source: \"{}\"", pmeta.file)
+                    }
+                    _ => "    probe source: None".to_string(),
+                }
+            );
+            let comp_name_or_id =
+                if let Some(n) = cfg.component_names.get(&pmeta.component_id.to_string()) {
+                    n.to_string()
+                } else {
+                    pmeta.component_id.to_string()
+                };
+            println!("    component: {}", comp_name_or_id);
         }
         if l.verbose != 0 {
             println!();

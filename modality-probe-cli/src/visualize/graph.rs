@@ -193,7 +193,7 @@ fn graph_to_tree<'a>(
                 (comp_id, Some(pmeta))
             }
         } else {
-            ("UNKNOWN".to_string(), None)
+            ("UNKNOWN_COMPONENT".to_string(), None)
         };
         let comp = ctx.components.entry(comp_name.clone()).or_insert_with(|| {
             cluster_idx += 1;
@@ -203,7 +203,9 @@ fn graph_to_tree<'a>(
                 probes: ProbeSet::new(),
             }
         });
-        let probe_name = format!("UNKNOWN_PROBE_{}", node.probe_id.get_raw());
+        let probe_name = probe_meta
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| node.probe_id.get_raw().to_string());
         let probe = comp.probes.entry(probe_name.clone()).or_insert_with(|| {
             cluster_idx += 1;
             Probe {
@@ -253,7 +255,7 @@ fn graph_to_tree<'a>(
             let probe_name = if let Some(pmeta) = cfg.probes.get(&s.probe_id.get_raw()) {
                 pmeta.name.clone()
             } else {
-                format!("UNKNOWN_PROBE_{}", s.probe_id.get_raw())
+                s.probe_id.get_raw().to_string()
             };
             if let Ok(emeta) = meta::get_event_meta(cfg, &s.probe_id, &s.id) {
                 Event {
@@ -291,7 +293,7 @@ fn graph_to_tree<'a>(
             let probe_name = if let Some(pmeta) = cfg.probes.get(&t.probe_id.get_raw()) {
                 pmeta.name.clone()
             } else {
-                format!("UNKNOWN_PROBE_{}", s.probe_id.get_raw())
+                s.probe_id.get_raw().to_string()
             };
             if let Ok(emeta) = meta::get_event_meta(cfg, &t.probe_id, &t.id) {
                 Event {
@@ -341,7 +343,7 @@ pub(crate) mod test {
 
     use super::super::templates;
 
-    pub fn cfg() -> Cfg {
+    pub(crate) fn cfg() -> Cfg {
         let a_uuid = Uuid::new_v4();
         Cfg {
             probes: vec![
