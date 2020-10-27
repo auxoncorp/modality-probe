@@ -4,8 +4,7 @@
 //! use, these errors should be as tiny
 //! and precise as possible.
 
-#[cfg(feature = "std")]
-use core::fmt::Display;
+use core::fmt;
 
 /// Error that indicates an invalid event id was detected.
 ///
@@ -17,9 +16,8 @@ pub struct InvalidEventId;
 #[cfg(feature = "std")]
 impl std::error::Error for InvalidEventId {}
 
-#[cfg(feature = "std")]
-impl Display for InvalidEventId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for InvalidEventId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Invalid Event Id")
     }
 }
@@ -34,9 +32,8 @@ pub struct InvalidProbeId;
 #[cfg(feature = "std")]
 impl std::error::Error for InvalidProbeId {}
 
-#[cfg(feature = "std")]
-impl Display for InvalidProbeId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for InvalidProbeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Invalid Probe Id")
     }
 }
@@ -50,9 +47,8 @@ pub struct InvalidWallClockTime;
 #[cfg(feature = "std")]
 impl std::error::Error for InvalidWallClockTime {}
 
-#[cfg(feature = "std")]
-impl Display for InvalidWallClockTime {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for InvalidWallClockTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Invalid Nanoseconds wall clock time")
     }
 }
@@ -71,9 +67,8 @@ pub enum WithTimeError {
 #[cfg(feature = "std")]
 impl std::error::Error for WithTimeError {}
 
-#[cfg(feature = "std")]
-impl Display for WithTimeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for WithTimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WithTimeError::InvalidWallClockTime => InvalidWallClockTime.fmt(f),
             WithTimeError::InvalidEventId => InvalidWallClockTime.fmt(f),
@@ -114,9 +109,8 @@ impl std::error::Error for InitializationError {
     }
 }
 
-#[cfg(feature = "std")]
-impl Display for InitializationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for InitializationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             InitializationError::InvalidProbeId => f.write_str("Invalid Probe Id"),
             InitializationError::StorageSetupError(_) => f.write_str("Storage Setup Error"),
@@ -150,9 +144,8 @@ pub enum StorageSetupError {
 #[cfg(feature = "std")]
 impl std::error::Error for StorageSetupError {}
 
-#[cfg(feature = "std")]
-impl Display for StorageSetupError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for StorageSetupError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             StorageSetupError::UnderMinimumAllowedSize => {
                 f.write_str("Storage under minimum allowed size")
@@ -181,9 +174,8 @@ pub enum ProduceError {
 #[cfg(feature = "std")]
 impl std::error::Error for ProduceError {}
 
-#[cfg(feature = "std")]
-impl Display for ProduceError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ProduceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("Insufficient destination size")
     }
 }
@@ -209,9 +201,8 @@ pub enum MergeError {
 #[cfg(feature = "std")]
 impl std::error::Error for MergeError {}
 
-#[cfg(feature = "std")]
-impl Display for MergeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for MergeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MergeError::ExceededAvailableClocks => f.write_str("Exceeded available clocks"),
             MergeError::InsufficientSourceSize => f.write_str("Insufficient source size"),
@@ -235,9 +226,8 @@ pub enum ReportError {
 #[cfg(feature = "std")]
 impl std::error::Error for ReportError {}
 
-#[cfg(feature = "std")]
-impl Display for ReportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ReportError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ReportError::InsufficientDestinationSize => {
                 f.write_str("Insufficient destination size")
@@ -288,9 +278,8 @@ impl std::error::Error for ModalityProbeError {
     }
 }
 
-#[cfg(feature = "std")]
-impl Display for ModalityProbeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ModalityProbeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ModalityProbeError::InvalidEventId => f.write_str("Invalid Event Id"),
             ModalityProbeError::InvalidProbeId => f.write_str("Invalid Probe Id"),
