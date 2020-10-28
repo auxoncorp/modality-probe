@@ -269,10 +269,14 @@ impl<'a> DynamicHistory<'a> {
         self.merge_overwritten_clock(first_overwritten);
         self.merge_overwritten_clock(second_overwritten);
 
-        // Fenced-ring-buffer loses its ability to track the number of missed
-        // entries once we start pop'ing entries out
-        let n_entries_missed = u64::min(self.log.num_missed(), u32::MAX as u64) as u32;
-        self.missed_log_entry_count = cmp::max(self.missed_log_entry_count, n_entries_missed);
+        // Fenced-ring-buffer keeps track of missed entries until the log is pop'd
+        self.missed_log_entry_count =
+            cmp::max(self.missed_log_entry_count, self.log.num_missed() as u32);
+
+        // Fenced-ring-buffer will yield overwritten entries regardless
+        // of whether or not the buffer is full, only increment probe-local
+        // missed counter when the log is actually full and overwriting the tail
+        let log_was_full = self.log.is_full();
 
         if let Some(overwritten) = first_overwritten {
             if overwritten.is_double()
@@ -286,8 +290,10 @@ impl<'a> DynamicHistory<'a> {
                     let buddy_entry = self.log.pop();
 
                     if let Some(e) = buddy_entry {
-                        self.missed_log_entry_count =
-                            self.missed_log_entry_count.saturating_add(e.size().into());
+                        if log_was_full {
+                            self.missed_log_entry_count =
+                                self.missed_log_entry_count.saturating_add(e.size().into());
+                        }
                     }
 
                     self.merge_overwritten_clock(buddy_entry);
@@ -310,8 +316,10 @@ impl<'a> DynamicHistory<'a> {
                 let buddy_entry = self.log.pop();
 
                 if let Some(e) = buddy_entry {
-                    self.missed_log_entry_count =
-                        self.missed_log_entry_count.saturating_add(e.size().into());
+                    if log_was_full {
+                        self.missed_log_entry_count =
+                            self.missed_log_entry_count.saturating_add(e.size().into());
+                    }
                 }
 
                 self.merge_overwritten_clock(buddy_entry);
@@ -1408,7 +1416,7 @@ mod test {
 
         // Room for 2 more entries since we've pop'd off buddy entries
         assert_eq!(h.log.capacity() - h.log.len(), 2);
-        h.record_event_with_payload(event_b, 1234);
+        h.record_event_with_payload_with_time(event_b, 1234, Nanoseconds::new(12345).unwrap());
 
         // Next single entry should overwrite a double
         h.record_event(event_b);

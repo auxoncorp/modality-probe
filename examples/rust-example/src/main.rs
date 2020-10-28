@@ -14,7 +14,7 @@ use component_definitions::*;
 const PROBE_SIZE: usize = 1024;
 const REPORT_SIZE: usize = 1024;
 const COLLECTOR_ADDR: &str = "127.0.0.1:2718";
-const WALL_CLOCK_ID: WallClockId = WallClockId(1);
+const WALL_CLOCK_ID: WallClockId = WallClockId::LOCAL_ONLY;
 const TIME_RESOLUTION: NanosecondResolution = NanosecondResolution::UNSPECIFIED;
 
 fn main() {

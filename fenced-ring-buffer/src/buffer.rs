@@ -276,6 +276,11 @@ where
         self.len() == 0
     }
 
+    /// Returns true if the buffer is full to capacity.
+    pub fn is_full(&self) -> bool {
+        self.len() == self.capacity()
+    }
+
     /// Get capacity of buffer storage
     #[inline]
     pub fn capacity(&self) -> usize {
@@ -514,6 +519,8 @@ mod tests {
         // None written yet
         assert_eq!(buf.peek(), None);
         assert_eq!(buf.pop(), None);
+        assert!(!buf.is_full());
+        assert!(buf.is_empty());
 
         for i in 0..2 {
             buf.push(OrderedEntry::from_index(i));
@@ -540,6 +547,8 @@ mod tests {
         for i in 2..8 {
             buf.push(OrderedEntry::from_index(i));
         }
+        assert!(buf.is_full());
+        assert!(!buf.is_empty());
         // Buffer holds 4, 6 were written past tail
         assert_eq!(buf.num_missed(), 2);
         // Peek should use oldest if tail overwritten
