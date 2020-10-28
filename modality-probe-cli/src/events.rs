@@ -136,6 +136,16 @@ impl Events {
                 file: String::new(),
                 line: String::new(),
             },
+            Event {
+                component_id,
+                id: EventId(modality_probe::EventId::EVENT_WALL_CLOCK_TIME_ONLY.get_raw()),
+                name: "MODALITY_WALL_CLOCK_TIME_ONLY".to_string(),
+                description: "Reserved for indicating wall clock time".to_string(),
+                tags: "internal".to_string(),
+                type_hint: String::new(),
+                file: String::new(),
+                line: String::new(),
+            },
         ]
     }
 

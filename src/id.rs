@@ -222,6 +222,9 @@ impl EventId {
     /// returned an invalid zero value or a None option variant.
     pub const EVENT_INVALID_NEXT_EPOCH_SEQ_ID: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 7) });
+    /// Reserved for indicating wall clock time
+    pub const EVENT_WALL_CLOCK_TIME_ONLY: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 8) });
 
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[
@@ -232,6 +235,7 @@ impl EventId {
         EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE,
         EventId::EVENT_PROBE_INITIALIZED,
         EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID,
+        EventId::EVENT_WALL_CLOCK_TIME_ONLY,
     ];
 
     /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
