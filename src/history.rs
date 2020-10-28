@@ -1380,7 +1380,7 @@ mod test {
     #[test]
     fn overwritten_paired_wall_clock_time_drops_buddy_entry() {
         let probe_id = ProbeId::new(1).unwrap();
-        let mut storage = [0u8; 512];
+        let mut storage = [MaybeUninit::new(0u8); 512];
         let h = DynamicHistory::new_at(
             &mut storage,
             probe_id,

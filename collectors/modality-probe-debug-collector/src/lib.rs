@@ -1645,7 +1645,7 @@ pub mod tests {
     fn on_device_probe_missed_entries_are_detectable() {
         const STORAGE_CAP: usize = 512;
         const LOG_CAP: usize = 78;
-        let mut storage = [0u8; STORAGE_CAP];
+        let mut storage = [MaybeUninit::new(0u8); STORAGE_CAP];
         let storage_addr = storage.as_ptr() as *const _ as u64;
 
         let probe_id = ProbeId::new(1).unwrap();
