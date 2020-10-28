@@ -328,6 +328,7 @@ mod test {
             graph: true,
             verbose: 0,
             format: Some("event %en occurred at probe %pn".to_string()),
+            radius: None,
         };
         let (probes, clock_rows) = log::sort_probes(&cfg, &l, trace).unwrap();
         let mut out = Vec::new();
