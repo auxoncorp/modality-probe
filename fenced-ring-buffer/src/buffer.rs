@@ -80,24 +80,25 @@ where
 
     /// Create new FencedRingBuffer with properly aligned backing storage
     #[inline]
-    pub fn new_from_bytes(
-        bytes: &'a mut [u8],
+    pub fn new_from_uninit_bytes(
+        bytes: &'a mut [MaybeUninit<u8>],
         use_base_2_indexing: bool,
     ) -> Result<FencedRingBuffer<'a, E>, SizeError> {
-        let (_prefix, buf, _suffix) = Self::align_from_bytes(bytes, use_base_2_indexing);
+        let (_prefix, buf, _suffix) = Self::align_from_uninit_bytes(bytes, use_base_2_indexing);
         buf
     }
 
     /// Create new FencedRingBuffer with properly aligned backing storage,
     /// return unused bytes
     #[inline]
-    pub fn align_from_bytes(
-        bytes: &'a mut [u8],
+    #[allow(clippy::type_complexity)]
+    pub fn align_from_uninit_bytes(
+        bytes: &'a mut [MaybeUninit<u8>],
         use_base_2_indexing: bool,
     ) -> (
-        &'a mut [u8],
+        &'a mut [MaybeUninit<u8>],
         Result<FencedRingBuffer<'a, E>, SizeError>,
-        &'a mut [u8],
+        &'a mut [MaybeUninit<u8>],
     ) {
         // Safe because storage is treated as uninit after transmutation
         let (prefix, storage, suffix) = unsafe { bytes.align_to_mut() };
@@ -451,9 +452,9 @@ mod tests {
     proptest! {
         #[test]
         fn test_from_bytes(storage_cap in MIN_STORAGE_CAP..=7777) {
-            let mut storage = vec![0u8; storage_cap * size_of::<OrderedEntry>()];
+            let mut storage = vec![MaybeUninit::new(0u8); storage_cap * size_of::<OrderedEntry>()];
             let buf =
-                FencedRingBuffer::<OrderedEntry>::new_from_bytes(&mut storage[..], false).unwrap();
+                FencedRingBuffer::<OrderedEntry>::new_from_uninit_bytes(&mut storage[..], false).unwrap();
             // Should not lose more than one entry
             prop_assert!(buf.capacity() == storage_cap || (buf.capacity() == storage_cap - 1))
         }

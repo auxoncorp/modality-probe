@@ -493,11 +493,12 @@ macro_rules! __payload_as_u32_impls {
 #[cfg(test)]
 mod tests {
     use crate::{EventId, ModalityProbe, Probe, ProbeId, RestartCounterProvider};
+    use core::mem::MaybeUninit;
 
     #[test]
     fn event_macro_use() {
         let probe_id = ProbeId::new(1).unwrap();
-        let mut storage = [0_u8; 1024];
+        let mut storage = [MaybeUninit::new(0_u8); 1024];
         let probe = ModalityProbe::initialize_at(
             &mut storage,
             probe_id,
@@ -586,7 +587,7 @@ mod tests {
     #[test]
     fn probe_macro_use() {
         let probe_id = ProbeId::new(1).unwrap();
-        let mut storage = [0_u8; 1024];
+        let mut storage = [MaybeUninit::new(0_u8); 1024];
         let _probe = initialize_at!(
             &mut storage,
             probe_id,

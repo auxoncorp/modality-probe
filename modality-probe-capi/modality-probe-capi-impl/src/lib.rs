@@ -1,5 +1,6 @@
 #![no_std]
 
+use core::mem::MaybeUninit;
 use modality_probe::*;
 pub use modality_probe::{
     next_sequence_id_fn, CausalSnapshot, ModalityProbe, ModalityProbeInstant,
@@ -50,7 +51,7 @@ pub const MODALITY_PROBE_ERROR_RESTART_PERSISTENCE_SEQUENCE_ID_UNAVAILABLE: Moda
 /// in the case of an error.
 #[cfg_attr(feature = "no_mangle", no_mangle)]
 pub unsafe fn modality_probe_initialize(
-    destination: *mut u8,
+    destination: *mut MaybeUninit<u8>,
     destination_size_bytes: usize,
     probe_id: u32,
     next_sequence_id: Option<next_sequence_id_fn>,
@@ -360,12 +361,12 @@ mod tests {
         let mut backend = [0u8; 2099];
 
         let probe_id = 2;
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let storage_slice = &mut storage;
         let mut probe = MaybeUninit::uninit();
         let result = unsafe {
             modality_probe_initialize(
-                storage_slice.as_mut_ptr() as *mut u8,
+                storage_slice.as_mut_ptr(),
                 storage_slice.len(),
                 probe_id,
                 None,
@@ -425,12 +426,12 @@ mod tests {
         // some other thread.
         let remote_probe_id = probe_id + 1;
 
-        let mut remote_storage = [0u8; 1024];
+        let mut remote_storage = [MaybeUninit::new(0u8); 1024];
         let remote_storage_slice = &mut remote_storage;
         let mut remote_probe = MaybeUninit::uninit();
         let result = unsafe {
             modality_probe_initialize(
-                remote_storage_slice.as_mut_ptr() as *mut u8,
+                remote_storage_slice.as_mut_ptr(),
                 remote_storage_slice.len(),
                 remote_probe_id,
                 None,

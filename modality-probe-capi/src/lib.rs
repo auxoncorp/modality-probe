@@ -1,13 +1,14 @@
 #![no_std]
 #![feature(lang_items, core_intrinsics)]
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
+use core::mem::MaybeUninit;
 pub use modality_probe_capi_impl::{
     next_sequence_id_fn, CausalSnapshot, ModalityProbe, ModalityProbeError, ModalityProbeInstant,
 };
 
 #[no_mangle]
 pub extern "C" fn modality_probe_initialize(
-    destination: *mut u8,
+    destination: *mut MaybeUninit<u8>,
     destination_size_bytes: usize,
     probe_id: u32,
     next_sequence_id: Option<next_sequence_id_fn>,

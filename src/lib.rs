@@ -9,11 +9,11 @@ assert_cfg!(not(target_pointer_width = "16"));
 use core::{
     cmp::{max, Ordering},
     convert::TryFrom,
-    mem::{align_of, size_of},
+    mem::{align_of, size_of, MaybeUninit},
     num::NonZeroUsize,
 };
 
-use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
+use fixed_slice_vec::single::{embed_uninit, EmbedValueError, SplitUninitError};
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 use static_assertions::{assert_cfg, const_assert};
@@ -319,7 +319,7 @@ impl<'a> ModalityProbe<'a> {
     ///
     #[inline]
     pub fn try_initialize_at(
-        memory: &'a mut [u8],
+        memory: &'a mut [MaybeUninit<u8>],
         probe_id: u32,
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut ModalityProbe<'a>, InitializationError> {
@@ -343,7 +343,7 @@ impl<'a> ModalityProbe<'a> {
     /// Use `new_with_storage` instead if you're working in Rust.
     #[inline]
     pub fn initialize_at(
-        memory: &'a mut [u8],
+        memory: &'a mut [MaybeUninit<u8>],
         probe_id: ProbeId,
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut ModalityProbe<'a>, StorageSetupError> {
@@ -354,9 +354,9 @@ impl<'a> ModalityProbe<'a> {
         let (padding, aligned_memory) = memory.split_at_mut(padding_offset);
         let aligned_ptr = aligned_memory.as_ptr();
         for b in padding.iter_mut() {
-            *b = Self::PADDING_GUARD_BYTE;
+            *b = MaybeUninit::new(Self::PADDING_GUARD_BYTE);
         }
-        match embed(memory, |history_memory| {
+        match embed_uninit(memory, |history_memory| {
             ModalityProbe::new_with_storage(history_memory, probe_id, restart_counter)
         }) {
             Ok(v) => {
@@ -385,7 +385,7 @@ impl<'a> ModalityProbe<'a> {
     /// `probe_id` ought to be unique throughout the system.
     #[inline]
     pub fn new_with_storage(
-        history_memory: &'a mut [u8],
+        history_memory: &'a mut [MaybeUninit<u8>],
         probe_id: ProbeId,
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<ModalityProbe<'a>, StorageSetupError> {

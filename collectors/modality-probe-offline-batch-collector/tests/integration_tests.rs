@@ -7,6 +7,7 @@ use proptest::prelude::*;
 use std::convert::TryInto;
 use std::fs::File;
 use std::io::Write;
+use std::mem::MaybeUninit;
 
 const STORAGE_SIZE: usize = 512;
 
@@ -82,7 +83,7 @@ proptest! {
         init_logging();
 
         let probe_id_a = 1.try_into().unwrap();
-        let mut storage_a = vec![0_u8; STORAGE_SIZE];
+        let mut storage_a = vec![MaybeUninit::new(0_u8); STORAGE_SIZE];
         let probe_a = ModalityProbe::initialize_at(
             &mut storage_a,
             probe_id_a,
@@ -91,7 +92,7 @@ proptest! {
         .unwrap();
 
         let probe_id_b = 2.try_into().unwrap();
-        let mut storage_b = vec![0_u8; STORAGE_SIZE];
+        let mut storage_b = vec![MaybeUninit::new(0_u8); STORAGE_SIZE];
         let probe_b = ModalityProbe::initialize_at(
             &mut storage_b,
             probe_id_b,
@@ -100,7 +101,7 @@ proptest! {
         .unwrap();
 
         let probe_id_c = 3.try_into().unwrap();
-        let mut storage_c = vec![0_u8; STORAGE_SIZE];
+        let mut storage_c = vec![MaybeUninit::new(0_u8); STORAGE_SIZE];
         let probe_c = ModalityProbe::initialize_at(
             &mut storage_c,
             probe_id_c,
@@ -201,7 +202,7 @@ fn missed_reports_are_detected() {
     init_logging();
 
     let probe_id = 1.try_into().unwrap();
-    let mut storage = vec![0_u8; STORAGE_SIZE];
+    let mut storage = vec![MaybeUninit::new(0u8); STORAGE_SIZE];
     let probe = ModalityProbe::initialize_at(
         &mut storage,
         probe_id,
@@ -271,7 +272,7 @@ fn discarded_reports_are_detected() {
     init_logging();
 
     let probe_id = 1.try_into().unwrap();
-    let mut storage = vec![0_u8; STORAGE_SIZE];
+    let mut storage = vec![MaybeUninit::new(0_u8); STORAGE_SIZE];
     let probe = ModalityProbe::initialize_at(
         &mut storage,
         probe_id,
