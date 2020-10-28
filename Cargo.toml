@@ -36,7 +36,7 @@ exclude = [
 
 [dependencies]
 static_assertions = "1.1.0"
-fixed-slice-vec = "0.4"
+fixed-slice-vec = "0.6"
 fenced-ring-buffer = { path = "./fenced-ring-buffer" }
 
 # Used if the std feature is enabled.

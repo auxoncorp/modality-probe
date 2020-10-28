@@ -7,7 +7,7 @@ use core::{
 
 use fixed_slice_vec::{
     single::{EmbedValueError, SplitUninitError},
-    FixedSliceVec, TryPushError,
+    FixedSliceVec, StorageError,
 };
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_assert_eq};
 
@@ -552,7 +552,7 @@ impl<'a> DynamicHistory<'a> {
     pub(crate) fn merge_clocks<'c>(
         clocks: &mut FixedSliceVec<'c, LogicalClock>,
         ext_clock: LogicalClock,
-    ) -> Result<(), TryPushError<LogicalClock>> {
+    ) -> Result<(), StorageError<LogicalClock>> {
         let mut existed = false;
         for c in clocks.iter_mut() {
             if c.id == ext_clock.id {
