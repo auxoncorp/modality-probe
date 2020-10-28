@@ -1,7 +1,7 @@
 use core::{
     cmp,
     convert::TryFrom,
-    mem::{align_of, size_of},
+    mem::{align_of, size_of, MaybeUninit},
     num::NonZeroUsize,
 };
 
@@ -108,7 +108,7 @@ struct ClocksFullError;
 impl<'a> DynamicHistory<'a> {
     #[inline]
     pub(crate) fn new_at(
-        destination: &'a mut [u8],
+        destination: &'a mut [MaybeUninit<u8>],
         probe_id: ProbeId,
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut DynamicHistory<'a>, StorageSetupError> {
@@ -119,22 +119,25 @@ impl<'a> DynamicHistory<'a> {
         if destination.as_ptr().is_null() {
             return Err(StorageSetupError::NullDestination);
         }
-        let history = match fixed_slice_vec::single::embed(destination, |dynamic_region_slice| {
-            DynamicHistory::new(dynamic_region_slice, probe_id, restart_counter)
-        }) {
-            Ok(v) => Ok(v),
-            Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
-                Err(StorageSetupError::UnderMinimumAllowedSize)
-            }
-            Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => {
-                Err(StorageSetupError::UnderMinimumAllowedSize)
-            }
-            Err(EmbedValueError::SplitUninitError(SplitUninitError::ZeroSizedTypesUnsupported)) => {
-                const_assert!(size_of::<DynamicHistory>() > 0);
-                panic!("Static assertions ensure that this structure is not zero sized")
-            }
-            Err(EmbedValueError::ConstructionError(e)) => Err(e),
-        }?;
+        let history =
+            match fixed_slice_vec::single::embed_uninit(destination, |dynamic_region_slice| {
+                DynamicHistory::new(dynamic_region_slice, probe_id, restart_counter)
+            }) {
+                Ok(v) => Ok(v),
+                Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
+                    Err(StorageSetupError::UnderMinimumAllowedSize)
+                }
+                Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => {
+                    Err(StorageSetupError::UnderMinimumAllowedSize)
+                }
+                Err(EmbedValueError::SplitUninitError(
+                    SplitUninitError::ZeroSizedTypesUnsupported,
+                )) => {
+                    const_assert!(size_of::<DynamicHistory>() > 0);
+                    panic!("Static assertions ensure that this structure is not zero sized")
+                }
+                Err(EmbedValueError::ConstructionError(e)) => Err(e),
+            }?;
         {
             let history_ptr = history as *mut DynamicHistory as usize;
             let clocks_ptr = history.clocks.as_slice().as_ptr() as usize;
@@ -155,7 +158,7 @@ impl<'a> DynamicHistory<'a> {
 
     #[inline]
     fn new(
-        dynamic_region_slice: &'a mut [u8],
+        dynamic_region_slice: &'a mut [MaybeUninit<u8>],
         probe_id: ProbeId,
         mut restart_counter: RestartCounterProvider<'a>,
     ) -> Result<Self, StorageSetupError> {
@@ -168,12 +171,12 @@ impl<'a> DynamicHistory<'a> {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
-        let mut clocks = FixedSliceVec::from_bytes(clocks_region);
+        let mut clocks = FixedSliceVec::from_uninit_bytes(clocks_region);
         // Create new FencedRingBuffer, using full log region instead of rounding to power of 2 length for
         // optimized indexing
         // Note: point of future improvement - a heuristic could be used to determine whether or not the memory cost
         // of rounding the log's storage space outweighs the runtime cost of using mod operations for indexing
-        let log = FencedRingBuffer::new_from_bytes(log_region, false)
+        let log = FencedRingBuffer::new_from_uninit_bytes(log_region, false)
             .map_err(|_| StorageSetupError::UnderMinimumAllowedSize)?;
         if clocks.capacity() < MIN_CLOCKS_LEN || (log.capacity() as usize) < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
@@ -610,7 +613,7 @@ mod test {
             |h: &DynamicHistory, id: ProbeId| h.clocks.iter().find(|c| c.id == id).cloned();
 
         {
-            let mut storage_a = [0u8; 512];
+            let mut storage_a = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(
                 &mut storage_a,
                 probe_a,
@@ -651,7 +654,7 @@ mod test {
         // Wrap around can happen even if a few messages were missed (because of
         // repeated restarts)
         {
-            let mut storage_a = [0u8; 512];
+            let mut storage_a = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(
                 &mut storage_a,
                 probe_a,
@@ -666,7 +669,7 @@ mod test {
 
         // But not outside the threshold
         {
-            let mut storage_a = [0u8; 512];
+            let mut storage_a = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(
                 &mut storage_a,
                 probe_a,
@@ -686,7 +689,7 @@ mod test {
     #[test]
     fn merged_clocks_overflow_error_event() {
         let probe_id = ProbeId::new(1).unwrap();
-        let mut storage = [0u8; 512];
+        let mut storage = [MaybeUninit::new(0u8); 512];
         let h = DynamicHistory::new_at(
             &mut storage,
             probe_id,
@@ -743,7 +746,7 @@ mod test {
     #[test]
     fn drain_report_until_completion() {
         let probe_id = ProbeId::new(1).unwrap();
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let h = DynamicHistory::new_at(
             &mut storage,
             probe_id,
@@ -822,7 +825,7 @@ mod test {
                 iface: &mut next_id_provider,
             });
 
-            let mut storage_a = [0u8; 512];
+            let mut storage_a = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(&mut storage_a, probe_a, provider).unwrap();
 
             let now = h.now();
@@ -837,7 +840,7 @@ mod test {
                 iface: &mut next_id_provider,
             });
 
-            let mut storage_a = [0u8; 512];
+            let mut storage_a = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(&mut storage_a, probe_a, provider).unwrap();
 
             let now = h.now();
@@ -880,7 +883,7 @@ mod test {
         });
 
         let probe_id = ProbeId::new(1).unwrap();
-        let mut storage = [0u8; 512];
+        let mut storage = [MaybeUninit::new(0u8); 512];
         let h = DynamicHistory::new_at(&mut storage, probe_id, provider).unwrap();
 
         let now = h.now();
@@ -907,7 +910,7 @@ mod test {
         #[test]
         fn produce_and_merge_snapshot_ticks_clock() {
             let probe_id = ProbeId::new(1).unwrap();
-            let mut storage = [0u8; 512];
+            let mut storage = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(
                 &mut storage,
                 probe_id,
@@ -1004,7 +1007,7 @@ mod test {
         #[test]
         fn record_events_ticks_event_counts() {
             let probe_id = ProbeId::new(1).unwrap();
-            let mut storage = [0u8; 512];
+            let mut storage = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(
                 &mut storage,
                 probe_id,

@@ -819,6 +819,7 @@ pub(crate) mod test {
     use proptest::prelude::*;
     use proptest::std_facade::*;
     use std::convert::TryFrom;
+    use std::mem::MaybeUninit;
 
     pub fn arb_session_id() -> impl Strategy<Value = SessionId> {
         any::<u32>().prop_map_into()
@@ -978,7 +979,7 @@ pub(crate) mod test {
 
     #[test]
     fn report_e2e() {
-        let mut storage1 = vec![0; 1024];
+        let mut storage1 = vec![MaybeUninit::new(0); 1024];
         let mut p1 = modality_probe::ModalityProbe::new_with_storage(
             &mut storage1,
             ProbeId::new(1).unwrap(),
@@ -986,7 +987,7 @@ pub(crate) mod test {
         )
         .unwrap();
 
-        let mut storage2 = vec![0; 1024];
+        let mut storage2 = vec![MaybeUninit::new(0); 1024];
         let mut p2 = modality_probe::ModalityProbe::new_with_storage(
             &mut storage2,
             ProbeId::new(2).unwrap(),

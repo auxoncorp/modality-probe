@@ -176,6 +176,7 @@ mod tests {
     use modality_probe_collector_common::*;
 
     use super::*;
+    use std::mem::MaybeUninit;
 
     fn dummy_report(raw_main_probe_id: u32) -> Report {
         Report {
@@ -805,7 +806,7 @@ mod tests {
     ) + Send
            + 'static {
         move |id_to_sender, _receiver| {
-            let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
+            let mut probe_storage = vec![MaybeUninit::new(0u8); PROBE_STORAGE_BYTES_SIZE];
             let mut probe = modality_probe::ModalityProbe::new_with_storage(
                 &mut probe_storage,
                 probe_id,
@@ -868,7 +869,7 @@ mod tests {
     ) + Send
            + 'static {
         move |id_to_sender, receiver| {
-            let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
+            let mut probe_storage = vec![MaybeUninit::new(0u8); PROBE_STORAGE_BYTES_SIZE];
             let mut probe = modality_probe::ModalityProbe::new_with_storage(
                 &mut probe_storage,
                 probe_id,
@@ -949,7 +950,7 @@ mod tests {
     ) + Send
            + 'static {
         move |_id_to_sender, receiver| {
-            let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
+            let mut probe_storage = vec![MaybeUninit::new(0u8); PROBE_STORAGE_BYTES_SIZE];
             let mut probe = modality_probe::ModalityProbe::new_with_storage(
                 &mut probe_storage,
                 probe_id,

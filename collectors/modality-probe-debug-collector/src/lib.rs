@@ -549,6 +549,7 @@ pub mod tests {
 
     use modality_probe::{EventId, ModalityProbe, Probe, RestartCounterProvider};
     use modality_probe_collector_common::{EventLogEntry, SequenceNumber};
+    use std::mem::MaybeUninit;
 
     fn lc(probe_id: u32, epoch: u16, ticks: u16) -> LogicalClock {
         LogicalClock {
@@ -631,7 +632,7 @@ pub mod tests {
 
     #[test]
     fn local_probe() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
         let mut probe = ModalityProbe::new_with_storage(
@@ -674,7 +675,7 @@ pub mod tests {
 
     #[test]
     fn local_misaligned() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let offset = 1 + storage.as_ptr().align_offset(align_of::<ModalityProbe>());
         let storage_unaligned = &mut storage[offset..];
         let storage_unaligned_ptr = storage_unaligned.as_ptr();
@@ -690,7 +691,7 @@ pub mod tests {
         let padding_len = (align_of::<ModalityProbe>() - 1) as isize;
         for i in 0..padding_len {
             assert_eq!(
-                unsafe { *(storage_unaligned_ptr.offset(i as isize)) },
+                unsafe { (*(storage_unaligned_ptr.offset(i as isize))).assume_init() },
                 ModalityProbe::PADDING_GUARD_BYTE
             );
         }
@@ -733,7 +734,7 @@ pub mod tests {
 
     #[test]
     fn local_invalid_address() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
         let probe = ModalityProbe::new_with_storage(
@@ -763,7 +764,7 @@ pub mod tests {
 
     #[test]
     fn local_invalid_ptr() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
         let probe = ModalityProbe::new_with_storage(
@@ -794,7 +795,7 @@ pub mod tests {
 
     #[test]
     fn local_probe_interaction() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
         let mut probe = ModalityProbe::new_with_storage(
@@ -805,7 +806,7 @@ pub mod tests {
         .unwrap();
         let addr_raw = &probe as *const ModalityProbe as usize;
 
-        let mut storage_2 = [0u8; 1024];
+        let mut storage_2 = [MaybeUninit::new(0u8); 1024];
         let pid_raw_2 = 2;
         let probe_id_2 = ProbeId::new(pid_raw_2).unwrap();
         let mut probe_2 = ModalityProbe::new_with_storage(
@@ -921,7 +922,7 @@ pub mod tests {
 
     #[test]
     fn local_probe_writeback() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
         let probe = ModalityProbe::new_with_storage(

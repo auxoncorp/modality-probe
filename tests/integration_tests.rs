@@ -1,6 +1,7 @@
 #![deny(warnings)]
 
 use core::mem;
+use core::mem::MaybeUninit;
 use modality_probe::*;
 use proptest::prelude::*;
 use std::convert::{TryFrom, TryInto};
@@ -25,7 +26,7 @@ fn probe_lifecycle_does_not_panic() -> Result<(), ModalityProbeError> {
     let probe_id = 1u32.try_into()?;
 
     let mut backend = Buffer::new(1024);
-    let mut storage = [0u8; 1024];
+    let mut storage = [MaybeUninit::new(0u8); 1024];
     let probe = ModalityProbe::initialize_at(
         &mut storage,
         probe_id,
@@ -63,7 +64,7 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
     let probe_id_foo = 1.try_into()?;
     let probe_id_bar = 2.try_into()?;
 
-    let mut storage_foo = [0u8; 1024];
+    let mut storage_foo = [MaybeUninit::new(0u8); 1024];
     let probe_foo = ModalityProbe::initialize_at(
         &mut storage_foo,
         probe_id_foo,
@@ -72,7 +73,7 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
     let snap_foo_a = probe_foo.produce_snapshot();
 
     // Re-initialize a probe with no previous history
-    let mut storage_bar = [0u8; 1024];
+    let mut storage_bar = [MaybeUninit::new(0u8); 1024];
     let probe_bar = ModalityProbe::initialize_at(
         &mut storage_bar,
         probe_id_bar,
@@ -96,7 +97,7 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
 
 #[test]
 fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
-    let mut storage_foo = [0u8; 1024];
+    let mut storage_foo = [MaybeUninit::new(0u8); 1024];
     let probe_id_foo = 123.try_into()?;
     let mut probe = ModalityProbe::new_with_storage(
         &mut storage_foo,
@@ -186,7 +187,7 @@ fn all_allowed_events() -> Result<(), ModalityProbeError> {
 
 #[test]
 fn try_initialize_handles_raw_probe_ids() {
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     assert!(ModalityProbe::try_initialize_at(
         &mut storage,
         0,
@@ -209,7 +210,7 @@ fn try_initialize_handles_raw_probe_ids() {
 
 #[test]
 fn try_record_event_raw_probe_ids() -> Result<(), ModalityProbeError> {
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let probe = ModalityProbe::try_initialize_at(
         &mut storage,
         1,
@@ -229,7 +230,7 @@ fn try_record_event_raw_probe_ids() -> Result<(), ModalityProbeError> {
 
 #[test]
 fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let probe = ModalityProbe::try_initialize_at(
         &mut storage,
         1,
@@ -269,7 +270,7 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
 #[test]
 fn report_missed_log_items() -> Result<(), ModalityProbeError> {
     const NUM_STORAGE_BYTES: usize = 512;
-    let mut storage = [0u8; NUM_STORAGE_BYTES];
+    let mut storage = [MaybeUninit::new(0u8); NUM_STORAGE_BYTES];
     let probe = ModalityProbe::try_initialize_at(
         &mut storage,
         1,
@@ -325,7 +326,7 @@ proptest! {
         // num_events and num_events_with_payload set to at least 1
         // so that we can have a total of at least 2 events
 
-        let mut storage = [0u8; 512];
+        let mut storage = [MaybeUninit::new(0u8); 512];
         let probe = ModalityProbe::try_initialize_at(
             &mut storage,
             1,
@@ -408,7 +409,7 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         });
 
         let probe_id = 1u32.try_into()?;
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let probe = ModalityProbe::initialize_at(&mut storage, probe_id, provider)?;
 
         let now = probe.now();
@@ -429,7 +430,7 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         });
 
         let probe_id = 1u32.try_into()?;
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let probe = ModalityProbe::initialize_at(&mut storage, probe_id, provider)?;
 
         let now = probe.now();

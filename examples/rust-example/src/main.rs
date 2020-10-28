@@ -61,7 +61,7 @@ impl fmt::Display for Measurement {
 fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
     info!("Sensor measurement producer thread starting");
 
-    let mut storage = [0u8; PROBE_SIZE];
+    let mut storage = [std::mem::MaybeUninit::new(0u8); PROBE_SIZE];
     let probe = initialize_at!(
         &mut storage,
         PRODUCER_PROBE,
@@ -121,7 +121,7 @@ fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
 fn measurement_consumer_thread(rx: crossbeam_channel::Receiver<Measurement>) {
     info!("Sensor measurement consumer thread starting");
 
-    let mut storage = [0u8; PROBE_SIZE];
+    let mut storage = [std::mem::MaybeUninit::new(0u8); PROBE_SIZE];
     let probe = initialize_at!(
         &mut storage,
         CONSUMER_PROBE,

@@ -26,10 +26,10 @@ fn initialization_errors() {
 
     {
         let mut probe = MaybeUninit::uninit();
-        let mut storage = [0u8; 512];
+        let mut storage = [MaybeUninit::new(0u8); 512];
         let err = unsafe {
             modality_probe_initialize(
-                storage.as_mut_ptr() as *mut u8,
+                storage.as_mut_ptr(),
                 0, // Zero storage size
                 probe_id,
                 None,
@@ -41,10 +41,10 @@ fn initialization_errors() {
     }
 
     {
-        let mut storage = [0u8; 512];
+        let mut storage = [MaybeUninit::new(0u8); 512];
         let err = unsafe {
             modality_probe_initialize(
-                storage.as_mut_ptr() as *mut u8,
+                storage.as_mut_ptr(),
                 storage.len(),
                 probe_id,
                 None,
@@ -66,10 +66,10 @@ fn event_recording_errors() {
 
     let probe_id = 1;
     let mut probe = MaybeUninit::uninit();
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let err = unsafe {
         modality_probe_initialize(
-            storage.as_mut_ptr() as *mut u8,
+            storage.as_mut_ptr(),
             storage.len(),
             probe_id,
             None,
@@ -107,10 +107,10 @@ fn reporting_errors() {
 
     let probe_id = 1;
     let mut probe = MaybeUninit::uninit();
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let err = unsafe {
         modality_probe_initialize(
-            storage.as_mut_ptr() as *mut u8,
+            storage.as_mut_ptr(),
             storage.len(),
             probe_id,
             None,
@@ -196,10 +196,10 @@ fn produce_snapshot_errors() {
 
     let probe_id = 1;
     let mut probe = MaybeUninit::uninit();
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let err = unsafe {
         modality_probe_initialize(
-            storage.as_mut_ptr() as *mut u8,
+            storage.as_mut_ptr(),
             storage.len(),
             probe_id,
             None,
@@ -281,10 +281,10 @@ fn merge_snapshot_errors() {
 
     let probe_id = 1;
     let mut probe = MaybeUninit::uninit();
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let err = unsafe {
         modality_probe_initialize(
-            storage.as_mut_ptr() as *mut u8,
+            storage.as_mut_ptr(),
             storage.len(),
             probe_id,
             None,
@@ -344,12 +344,12 @@ proptest! {
         prop_assert!(report_buffer.len() <= report_buffer.len());
 
         let probe_id = 1;
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let storage_slice = &mut storage;
         let mut probe = MaybeUninit::uninit();
         let err = unsafe {
             modality_probe_initialize(
-                storage_slice.as_mut_ptr() as *mut u8,
+                storage_slice.as_mut_ptr(),
                 storage_slice.len(),
                 probe_id,
                 None,
@@ -396,11 +396,11 @@ proptest! {
     #[test]
     fn snapshot_exchanges_advance_clock(num_snapshot_exchanges in 1_usize..=1024_usize) {
         let probe_id_foo = 1;
-        let mut storage_foo = [0u8; 512];
+        let mut storage_foo = [MaybeUninit::new(0u8); 512];
         let mut probe_foo = MaybeUninit::uninit();
         let err = unsafe {
             modality_probe_initialize(
-                storage_foo.as_mut_ptr() as *mut u8,
+                storage_foo.as_mut_ptr(),
                 storage_foo.len(),
                 probe_id_foo,
                 None,
@@ -412,11 +412,11 @@ proptest! {
         let probe_foo = unsafe { probe_foo.assume_init() };
 
         let probe_id_bar = 2;
-        let mut storage_bar = [0u8; 512];
+        let mut storage_bar = [MaybeUninit::new(0u8); 512];
         let mut probe_bar = MaybeUninit::uninit();
         let err = unsafe {
             modality_probe_initialize(
-                storage_bar.as_mut_ptr() as *mut u8,
+                storage_bar.as_mut_ptr(),
                 storage_bar.len(),
                 probe_id_bar,
                 None,
