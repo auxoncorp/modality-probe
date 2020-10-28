@@ -22,6 +22,38 @@ mod format;
 const COL_SPACE: &str = "   ";
 const COL_EDGE: &str = "---";
 
+const FORMAT_DOC: &str = "Provide a custom format string to be interpreted by each event row.
+
+The format string may use any combination of the following identifiers.
+
+| Specifier | Data               |
+|-----------|--------------------|
+|    %ei    | Event id           |
+|    %en    | Event name         |
+|    %ef    | Event file         |
+|    %el    | Event line         |
+|    %et    | Event tags         |
+|    %ed    | Event description  |
+|    %et    | Event type hint    |
+|    %ep    | Event payload      |
+|    %er    | Raw event payload  |
+|    %ec    | Event coordinate   |
+|    %eo    | Event clock offset |
+|    %pi    | Probe id           |
+|    %pn    | Probe name         |
+|    %pc    | Probe clock        |
+|    %pd    | Probe description  |
+|    %pf    | Probe file         |
+|    %pl    | Probe line         |
+|    %pt    | Probe tags         |
+|    %ci    | Component id       |
+|    %cn    | Component name     |
+|    %rt    | Receive time       |
+
+NOTE: If an identifier is used in the string and that field is not available on the event, it will be replaced by an empty string.
+
+";
+
 /// View the trace as a log.
 #[derive(Debug, PartialEq, StructOpt)]
 pub struct Log {
@@ -47,9 +79,8 @@ pub struct Log {
     /// (-v, -vv, &c.)
     #[structopt(short, parse(from_occurrences))]
     pub verbose: u8,
-    /// Provide a custom format string to be interpreted by each event
-    /// row.
-    #[structopt(short, long)]
+
+    #[structopt(short, long, help = FORMAT_DOC)]
     pub format: Option<String>,
 }
 
