@@ -91,6 +91,7 @@ where
     /// Create new FencedRingBuffer with properly aligned backing storage,
     /// return unused bytes
     #[inline]
+    #[allow(clippy::type_complexity)]
     pub fn align_from_uninit_bytes(
         bytes: &'a mut [MaybeUninit<u8>],
         use_base_2_indexing: bool,
