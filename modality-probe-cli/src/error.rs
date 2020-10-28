@@ -51,7 +51,7 @@ impl<T> GracefulExit<T> for Option<T> {
 /// A generic, message-driven error type.
 #[derive(Debug, Error)]
 #[error(display = "{}", msg)]
-pub(crate) struct CmdError {
+pub struct CmdError {
     pub msg: String,
     pub src: Option<Box<dyn std::error::Error>>,
 }

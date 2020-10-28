@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    convert::TryFrom,
     fmt::Write,
     fs::File,
     io::Write as WriteIo,
@@ -17,6 +18,9 @@ use crate::{
 };
 
 mod format;
+mod radius;
+
+use radius::Radius;
 
 // 3 empty columns between each timeline.
 const COL_SPACE: &str = "   ";
@@ -82,6 +86,10 @@ pub struct Log {
 
     #[structopt(short, long, help = FORMAT_DOC)]
     pub format: Option<String>,
+    /// Filter a whole graph down to the radius around a specific
+    /// event.
+    #[structopt(long)]
+    pub radius: Option<String>,
 }
 
 pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
@@ -211,6 +219,10 @@ fn sort_probes(
             }
         }
     }
+    if let Some(ref r) = l.radius {
+        let radius = Radius::try_from(r.as_ref())?;
+        return Ok(radius::truncate_to_radius((probes, clock_rows), radius));
+    }
     Ok((probes, clock_rows))
 }
 
@@ -222,6 +234,7 @@ fn print_as_graph<W: WriteIo>(
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Edges waiting to be drawn.
+    // TODO: use increment / prev for these before moving on to testing.
     let mut pending_targets: HashMap<_, (usize, ProbeId)> = HashMap::new();
     let mut pending_sources = HashMap::new();
 
@@ -320,6 +333,7 @@ fn print_as_graph<W: WriteIo>(
 
                                 handle_graph_verbosity(
                                     l,
+                                    probe_id,
                                     &id,
                                     n_probes,
                                     Some(pl),
@@ -334,14 +348,13 @@ fn print_as_graph<W: WriteIo>(
                     }
                     LogEntryData::TraceClock(lc) | LogEntryData::TraceClockWithTime(.., lc) => {
                         // This is a local clock.
-                        let (lc_id, clock) = lc.pack();
                         if lc.id == *probe_id {
                             // The self-clock `0` is useful from a
                             // causal standpoint, but from a
                             // coordinating-timelines standpoint, it's
                             // ambiguous because it appears whether a
                             // snapshot was produced or not.
-                            if clock != 0 {
+                            if lc.pack().1 != 0 {
                                 if let Some(next) = log.pop() {
                                     match next.data.trace_clock() {
                                         Some(next_lc) => {
@@ -350,14 +363,12 @@ fn print_as_graph<W: WriteIo>(
                                                     &pending_targets,
                                                     &mut pending_sources,
                                                     cfg,
-                                                    lc_id,
-                                                    clock,
+                                                    lc,
                                                     probe_id,
                                                     n_probes,
                                                     &clock_rows,
                                                     &mut blocked_tls,
                                                     idx,
-                                                    lc,
                                                     &mut stream,
                                                 )?;
                                             }
@@ -367,14 +378,12 @@ fn print_as_graph<W: WriteIo>(
                                                 &pending_targets,
                                                 &mut pending_sources,
                                                 cfg,
-                                                lc_id,
-                                                clock,
+                                                lc,
                                                 probe_id,
                                                 n_probes,
                                                 &clock_rows,
                                                 &mut blocked_tls,
                                                 idx,
-                                                lc,
                                                 &mut stream,
                                             )?;
                                         }
@@ -385,32 +394,29 @@ fn print_as_graph<W: WriteIo>(
                                         &pending_targets,
                                         &mut pending_sources,
                                         cfg,
-                                        lc_id,
-                                        clock,
+                                        lc,
                                         probe_id,
                                         n_probes,
                                         &clock_rows,
                                         &mut blocked_tls,
                                         idx,
-                                        lc,
                                         &mut stream,
                                     )?;
                                 }
                             }
                         // This is a foreign clock: `lc.id != probe_id`.
                         } else {
-                            let (lc_id, clock) = lc.pack();
                             let from_name = cfg
                                 .probes
-                                .get(&lc_id.get_raw())
+                                .get(&lc.id.get_raw())
                                 .map(|pm| pm.name.clone())
-                                .unwrap_or_else(|| lc_id.get_raw().to_string());
+                                .unwrap_or_else(|| lc.id.get_raw().to_string());
                             let to_name = cfg
                                 .probes
                                 .get(&probe_id.get_raw())
                                 .map(|pm| pm.name.clone())
                                 .unwrap_or_else(|| probe_id.get_raw().to_string());
-                            if let Some(source_idx) = pending_sources.get(&(lc_id, clock + 1)) {
+                            if let Some(source_idx) = pending_sources.get(&lc.next()) {
                                 print_edge_line(
                                     *source_idx,
                                     idx,
@@ -426,13 +432,11 @@ fn print_as_graph<W: WriteIo>(
                             // matched with this target.
                             } else {
                                 let is_present = clock_rows.iter().any(|r| {
-                                    let (inner_lc_id, inner_clock) =
-                                        r.data.trace_clock().unwrap().pack();
-                                    r.probe_id == inner_lc_id
-                                        && (lc_id, clock + 1) == (inner_lc_id, inner_clock)
+                                    let inner_lc = r.data.trace_clock().unwrap();
+                                    r.probe_id == inner_lc.id && lc.next() == inner_lc
                                 });
                                 if is_present {
-                                    pending_targets.insert((lc_id, clock), (idx, *probe_id));
+                                    pending_targets.insert(lc, (idx, *probe_id));
                                     blocked_tls.insert(*probe_id);
                                 } else {
                                     print_missing_edge_line(
@@ -530,20 +534,18 @@ fn handle_graph_verbosity<W: WriteIo>(
 
 #[allow(clippy::too_many_arguments)]
 fn handle_source_edge<W: WriteIo>(
-    pending_targets: &HashMap<(ProbeId, u32), (usize, ProbeId)>,
-    pending_sources: &mut HashMap<(ProbeId, u32), usize>,
+    pending_targets: &HashMap<LogicalClock, (usize, ProbeId)>,
+    pending_sources: &mut HashMap<LogicalClock, usize>,
     cfg: &Cfg,
-    lc_id: ProbeId,
-    clock: u32,
+    lc: LogicalClock,
     probe_id: &ProbeId,
     n_probes: usize,
     clock_rows: &[ReportLogEntry],
     blocked_tls: &mut HashSet<ProbeId>,
     idx: usize,
-    lc: LogicalClock,
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some((target_idx, target_id)) = pending_targets.get(&(lc_id, clock - 1)) {
+    if let Some((target_idx, target_id)) = pending_targets.get(&lc.prev()) {
         let from_name = cfg
             .probes
             .get(&probe_id.get_raw())
@@ -566,12 +568,11 @@ fn handle_source_edge<W: WriteIo>(
         blocked_tls.remove(probe_id);
         blocked_tls.remove(&target_id);
     } else {
-        let is_present = clock_rows.iter().any(|r| {
-            r.probe_id != *probe_id && r.data.trace_clock().unwrap().pack() == (lc_id, clock - 1)
-        });
+        let is_present = clock_rows
+            .iter()
+            .any(|r| r.probe_id != *probe_id && r.data.trace_clock().unwrap() == lc.prev());
         if is_present {
-            let (lc_id, clock) = lc.pack();
-            pending_sources.insert((lc_id, clock), idx);
+            pending_sources.insert(lc, idx);
             blocked_tls.insert(*probe_id);
         }
     }
@@ -1319,6 +1320,7 @@ pub(crate) mod test {
             graph: true,
             verbose: 0,
             format: None,
+            radius: None,
         };
         let (probes, clock_rows) = sort_probes(&cfg, &l, trace).unwrap();
         let mut out = Vec::new();
