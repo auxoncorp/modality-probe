@@ -60,10 +60,10 @@ pub fn assemble_components(
     for pf in probe_files.iter_mut() {
         let mut pr_rdr = hopefully!(
             csv::Reader::from_path(pf.clone()),
-            format!("failed to open the probes file at {}", pf.display(),)
+            format!("Failed to open the probes file at {}", pf.display(),)
         )?;
         for res in pr_rdr.deserialize() {
-            let p: ProbeMeta = hopefully!(res, "failed to deserialize a probe row")?;
+            let p: ProbeMeta = hopefully!(res, "Failed to deserialize a probe row")?;
             pf.pop();
             pf.push("Component.toml");
             let comp = Component::from_toml(&pf);
@@ -75,10 +75,10 @@ pub fn assemble_components(
     for ef in event_files.iter_mut() {
         let mut ev_rdr = hopefully!(
             csv::Reader::from_path(ef.clone()),
-            format!("failed to open the events file at {}", ef.display())
+            format!("Failed to open the events file at {}", ef.display())
         )?;
         for res in ev_rdr.deserialize() {
-            let e: EventMeta = hopefully!(res, "failed to deserialize an event row")?;
+            let e: EventMeta = hopefully!(res, "Failed to deserialize an event row")?;
             ef.pop();
             ef.push("Component.toml");
             let comp = Component::from_toml(&ef);
@@ -104,14 +104,14 @@ pub fn get_event_meta<'a>(
     let comp_id = hopefully_ok!(
         cfg.probes_to_components.get(&pid.get_raw()),
         format!(
-            "unable to find a matching component for probe {}",
+            "Unable to find a matching component for probe {}",
             pid.get_raw()
         )
     )?;
     Ok(hopefully_ok!(
         cfg.events.get(&(*comp_id, eid.get_raw())),
         format!(
-            "unable to find metadata for event {} in component {}",
+            "Unable to find metadata for event {} in component {}",
             eid.get_raw(),
             comp_id
         )

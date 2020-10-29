@@ -186,6 +186,7 @@ definitions for those otherwise undefined symbols.
 ### Log
 
 ```
+
 Inspect a trace in the terminal as a log or an ASCII-based graph
 
 USAGE:
@@ -195,20 +196,51 @@ FLAGS:
         --graph      Print the log as an ASCII-art graph
     -h, --help       Prints help information
     -V, --version    Prints version information
-    -v               Provide (more) verbose output. (-v, -vv, -vvv, &c.)
+    -v               Provide (more) verbose output. (-v, -vv, &c.)
 
 OPTIONS:
         --component <component>                 The component to target. If no component is given, the log from all
                                                 components is interleaved
     -c, --component-path <component-path>...    The path to a component directory. To include multiple components,
                                                 provide this switch multiple times
+    -f, --format <format>                       Provide a custom format string to be interpreted by each event row.
+
+                                                The format string may use any combination of the following identifiers.
+
+                                                | Specifier | Data               |
+                                                |-----------|--------------------|
+                                                |    %ei    | Event id           |
+                                                |    %en    | Event name         |
+                                                |    %ef    | Event file         |
+                                                |    %el    | Event line         |
+                                                |    %et    | Event tags         |
+                                                |    %ed    | Event description  |
+                                                |    %et    | Event type hint    |
+                                                |    %ep    | Event payload      |
+                                                |    %er    | Raw event payload  |
+                                                |    %ec    | Event coordinate   |
+                                                |    %eo    | Event clock offset |
+                                                |    %pi    | Probe id           |
+                                                |    %pn    | Probe name         |
+                                                |    %pc    | Probe clock        |
+                                                |    %pd    | Probe description  |
+                                                |    %pf    | Probe file         |
+                                                |    %pl    | Probe line         |
+                                                |    %pt    | Probe tags         |
+                                                |    %ci    | Component id       |
+                                                |    %cn    | Component name     |
+                                                |    %rt    | Receive time       |
+
+                                                NOTE: If an identifier is used in the string and that field is not
+                                                available on the event, it will be replaced by an empty string.
         --probe <probe>                         The probe to target. If no probe is given, the log from all probes is
                                                 interleaved
     -r, --report <report>                       The path to the collected trace
 ```
 
-Inspect a trace in the terminal. Filter by probe and component and
-optionally output as a graph.
+Inspect a trace in the terminal. Filter it by probe or component,
+provide custom format strings, and optionally output the log as an
+interaction graph.
 
 ```shell
 

@@ -363,22 +363,6 @@ $ head session_0_log_entries.jsonl
 {"session_id":1,"sequence_number":0,"sequence_index":2,"probe_id":606771187,"persistent_epoch_counting":false,"data":{"Event":5},"receive_time":"2020-09-14T15:08:56.215111896Z"}
 ```
 
-### Visualizing the Trace
-
-Now we can use this collected trace and visualize it as a graph with
-`modality-probe visualize` which will export the trace as a Graphviz
-DOT format file. The example below uses the `dot` command, and thus
-assumes you've already installed Graphviz which includes `dot`:
-
-```shell
-$ modality-probe visualize acyclic --component-path ./example-component --report session_0_log_entries.jsonl > trace.dot
-$ dot -Tpng trace.dot > trace.png
-```
-
-You can then open `trace.png` and see something like this:
-
-![trace](https://user-images.githubusercontent.com/1194436/95799022-4402b800-0ca8-11eb-9ad3-a8c0fab31fe5.png)
-
 ### Inspecting a Trace from Your Terminal
 
 The Modality Probe CLI also provides a way to inspect a trace from
@@ -450,6 +434,23 @@ something like this:
 |   |
 +<--+   CONSUMER_PROBE merged a snapshot from PRODUCER_PROBE
 ```
+
+
+### Visualizing the Trace
+
+Now we can use this collected trace and visualize it as a graph with
+`modality-probe visualize` which will export the trace as a Graphviz
+DOT format file. The example below uses the `dot` command, and thus
+assumes you've already installed Graphviz which includes `dot`:
+
+```shell
+$ modality-probe visualize acyclic --component-path ./example-component --report session_0_log_entries.jsonl > trace.dot
+$ dot -Tpng trace.dot > trace.png
+```
+
+You can then open `trace.png` and see something like this:
+
+![trace](https://user-images.githubusercontent.com/1194436/95799022-4402b800-0ca8-11eb-9ad3-a8c0fab31fe5.png)
 
 ### Associating Causality with your Existing Logging
 
