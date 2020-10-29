@@ -235,7 +235,7 @@ mod test {
 
     use chrono::Utc;
 
-    use modality_probe::{EventId, ProbeId};
+    use modality_probe::{EventId, NanosecondResolution, ProbeId, WallClockId};
     use modality_probe_collector_common::{
         LogEntryData, ReportLogEntry, SequenceNumber, SessionId,
     };
@@ -284,6 +284,8 @@ mod test {
             probe_id: ProbeId::new(4).unwrap(),
             persistent_epoch_counting: false,
             data: LogEntryData::Event(EventId::new(4).unwrap()),
+            time_resolution: NanosecondResolution(0),
+            wall_clock_id: WallClockId(0),
             receive_time: now,
         };
 
@@ -344,6 +346,8 @@ mod test {
             probe_id: ProbeId::new(4).unwrap(),
             persistent_epoch_counting: false,
             data: LogEntryData::Event(EventId::new(4).unwrap()),
+            time_resolution: NanosecondResolution(0),
+            wall_clock_id: WallClockId(0),
             receive_time: now,
         };
         assert_eq!(
