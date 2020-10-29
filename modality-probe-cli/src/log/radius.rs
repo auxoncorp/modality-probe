@@ -144,19 +144,19 @@ fn drain_truncated_log(
     let mut idx = 0;
     while let Some(row) = log.pop() {
         match row.data {
-            LogEntryData::Event(_) => {
+            LogEntryData::Event(..) | LogEntryData::EventWithTime(..) => {
                 if included_rows.insert((row.probe_id, row.sequence_number, row.sequence_index)) {
                     let p = new_probes.entry(row.probe_id).or_insert_with(Vec::new);
                     p.push(row.clone());
                 }
             }
-            LogEntryData::EventWithPayload(_, _) => {
+            LogEntryData::EventWithPayload(..) | LogEntryData::EventWithPayloadWithTime(..) => {
                 if included_rows.insert((row.probe_id, row.sequence_number, row.sequence_index)) {
                     let p = new_probes.entry(row.probe_id).or_insert_with(Vec::new);
                     p.push(row.clone());
                 }
             }
-            LogEntryData::TraceClock(lc) => {
+            LogEntryData::TraceClock(lc) | LogEntryData::TraceClockWithTime(.., lc) => {
                 if included_rows.insert((row.probe_id, row.sequence_number, row.sequence_index)) {
                     clock_rows.push(row.clone());
                     if lc.id != row.probe_id {
