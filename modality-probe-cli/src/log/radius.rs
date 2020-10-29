@@ -10,7 +10,7 @@ use crate::{error::CmdError, give_up, hopefully, hopefully_ok};
 
 use super::SortedProbes;
 
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub struct Radius {
     distance: usize,
     probe_id: ProbeId,
@@ -143,7 +143,7 @@ fn drain_truncated_log(
     let mut d = dist;
     let mut idx = 0;
     loop {
-        if let Some(row) = log.pop() {
+        while let Some(row) = log.pop() {
             match row.data {
                 LogEntryData::Event(_) => {
                     if included_rows.insert((row.probe_id, row.sequence_number, row.sequence_index))
@@ -257,8 +257,6 @@ fn drain_truncated_log(
             }
             d = dist - (dist - idx).abs();
             idx += 1;
-        } else {
-            break;
         }
     }
 }
@@ -338,5 +336,77 @@ fn handle_snap_merge(
                 dist,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::{convert::TryFrom, path::PathBuf};
+
+    use proptest::prelude::*;
+
+    use crate::{log, log::Log, visualize::graph};
+
+    use super::*;
+
+    const EXPECTED_GRAPH: &str = "\
+*   |   one @ one (1:1:1:2)
+|   |
+*   |   one @ one (1:1:1:3)
+|   |
++<--+   one merged a snapshot from two
+|   |
+|   *   two @ two (1:2:1:9)
+|   |
+|   *   two @ two (1:2:1:10)
+|   |
+";
+
+    proptest! {
+        #[test]
+        fn radius_rt(
+            dist in proptest::num::usize::ANY,
+            pid in proptest::num::u32::ANY,
+            seq in proptest::num::u64::ANY,
+            seq_index in proptest::num::u32::ANY,
+        ) {
+            let raid = format!("0:{}:{}:{},{}", pid, seq, seq_index, dist);
+            if let Some(probe_id) = ProbeId::new(pid) {
+                let init = Radius {
+                    distance: dist,
+                    seq: SequenceNumber(seq),
+                    probe_id,
+                    seq_index,
+                };
+                prop_assert_eq!(init, Radius::try_from(raid.as_ref()).unwrap());
+            } else if let Err(err) = Radius::try_from(raid.as_ref()) {
+                prop_assert_eq!(
+                    "Unable to parse the given coordinate".to_string(),
+                    err.msg
+                );
+            } else {
+                panic!("failed");
+            }
+        }
+    }
+
+    #[test]
+    fn radius_graph() {
+        let trace = log::test::trace();
+        let cfg = graph::test::cfg();
+        let l = Log {
+            probe: None,
+            component: None,
+            component_path: vec![],
+            report: PathBuf::default(),
+            graph: true,
+            verbose: 0,
+            format: None,
+            radius: Some("1:1:1:2,3".to_string()),
+        };
+        let (probes, clock_rows) = log::sort_probes(&cfg, &l, trace).unwrap();
+        let mut out = Vec::new();
+        log::print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();
+        assert_eq!(EXPECTED_GRAPH, std::str::from_utf8(&out).unwrap());
     }
 }
