@@ -10,6 +10,7 @@ use modality_probe_collector_common::{ReportIter, ReportLogEntry};
 use modality_probe_graph::{EventDigraph, Graph, GraphEvent};
 
 use crate::{
+    description_format::DescriptionFormat,
     hopefully,
     meta::{self, Cfg},
 };
@@ -226,9 +227,12 @@ fn graph_to_tree<'a>(
                         .flatten()
                 })
             });
-            let has_log_str = emeta.description.contains("{}");
+            let has_log_str = emeta.description.contains_formatting();
             let log_str = if has_log_str && payload.is_some() {
-                Some(emeta.description.replace("{}", payload.as_ref().unwrap()))
+                emeta
+                    .description
+                    .format_payload(payload.as_ref().unwrap())
+                    .ok()
             } else {
                 None
             };
