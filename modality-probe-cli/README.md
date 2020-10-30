@@ -6,14 +6,15 @@ visualize a trace.
 
 The Modality Probe CLI can be used to generate manifests containing
 metadata for your events and probes, and then can generate code for
-their definitions from those manifests. It can also be used to export
-a collected trace as Graphviz dot code.
+their definitions from those manifests. It can also be used to
+visualize a collected trace as Graphviz dot code or to inspect it in
+the terminal as a log.
 
 ## Getting Started
 
 ### Dependencies
 
-* [Rust Toolchain](https://rustup.sh)
+* [Rust Toolchain](https://rustup.rs)
 
 ### Building
 Once Rust is installed (don’t forget to follow directions about
@@ -42,20 +43,20 @@ FLAGS:
 	-V, --version	Prints version information
 
 SUBCOMMANDS:
-	export      	Export a collected trace as a Graphviz dot file
 	header-gen  	Generate Rust/C header files with event/probe id constants
 	help        	Prints this message or the help of the given subcommand(s)
+	log         	Inspect a trace in the terminal as a log or an ASCII-based graph
 	manifest-gen	Generate component, event and probe manifest files from probe macro invocations
+	visualize      	Visualize a collected trace as a Graphviz digraph
 
 ```
 
-### Export
+### Visualize
 ```
-modality-probe-export 0.3.0
-Export a collected as a Graphviz dot file
+Visualize a collected as a Graphviz digraph
 
 USAGE:
-    modality-probe export [FLAGS] <graph-type> --components <components>... --report <report>
+    modality-probe visualize [FLAGS] <graph-type> --components <components>... --report <report>
 
 FLAGS:
     -h, --help
@@ -82,12 +83,12 @@ ARGS:
             history of either all events or the interactions between probes in the system.
 ```
 
-Export provides a way to convert your collected trace into a Graphviz
-dot graph.
+Visualize provides a way to convert your collected trace into a
+Graphviz dot graph.
 
 
 ```
-$ modality-probe export acyclic \
+$ modality-probe visualize acyclic \
     --components my-component \
     --report session_8_log_entries.csv > complete.dot
 ```
@@ -137,7 +138,7 @@ other metadata about the event. This CSV file then serves two
 purposes: generating headers files that contain event and probe
 definitions which you can read about in the following section, and
 secondly, when interacting with a trace after it’s been collected,
-such as with the `export` command, to convert the raw ids back to
+such as with the `visualize` command, to convert the raw ids back to
 human-readable formats.
 
 ```
@@ -181,6 +182,70 @@ $ modality-probe header-gen -o include/probes.h my-component
 
 **Note:** you’ll need to run `header-gen` _before_ compilation to give
 definitions for those otherwise undefined symbols.
+
+### Log
+
+```
+
+Inspect a trace in the terminal as a log or an ASCII-based graph
+
+USAGE:
+    modality-probe log [FLAGS] [OPTIONS] --component-path <component-path>... --report <report>
+
+FLAGS:
+        --graph      Print the log as an ASCII-art graph
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+    -v               Provide (more) verbose output. (-v, -vv, &c.)
+
+OPTIONS:
+        --component <component>                 The component to target. If no component is given, the log from all
+                                                components is interleaved
+    -c, --component-path <component-path>...    The path to a component directory. To include multiple components,
+                                                provide this switch multiple times
+    -f, --format <format>                       Provide a custom format string to be interpreted by each event row.
+
+                                                The format string may use any combination of the following identifiers.
+
+                                                | Specifier | Data               |
+                                                |-----------|--------------------|
+                                                |    %ei    | Event id           |
+                                                |    %en    | Event name         |
+                                                |    %ef    | Event file         |
+                                                |    %el    | Event line         |
+                                                |    %et    | Event tags         |
+                                                |    %ed    | Event description  |
+                                                |    %et    | Event type hint    |
+                                                |    %ep    | Event payload      |
+                                                |    %er    | Raw event payload  |
+                                                |    %ec    | Event coordinate   |
+                                                |    %eo    | Event clock offset |
+                                                |    %pi    | Probe id           |
+                                                |    %pn    | Probe name         |
+                                                |    %pc    | Probe clock        |
+                                                |    %pd    | Probe description  |
+                                                |    %pf    | Probe file         |
+                                                |    %pl    | Probe line         |
+                                                |    %pt    | Probe tags         |
+                                                |    %ci    | Component id       |
+                                                |    %cn    | Component name     |
+                                                |    %rt    | Receive time       |
+
+                                                NOTE: If an identifier is used in the string and that field is not
+                                                available on the event, it will be replaced by an empty string.
+        --probe <probe>                         The probe to target. If no probe is given, the log from all probes is
+                                                interleaved
+    -r, --report <report>                       The path to the collected trace
+```
+
+Inspect a trace in the terminal. Filter it by probe or component,
+provide custom format strings, and optionally output the log as an
+interaction graph.
+
+```shell
+
+$ modality-probe log -vv --component-path ./example-component --report session_0_log_entries.jsonl
+```
 
 ## Running the tests
 

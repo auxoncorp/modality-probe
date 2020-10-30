@@ -179,6 +179,19 @@ where
             Self::Double(_, _) => 2,
         }
     }
+
+    /// Returns the entry if single, or the first entry if a double
+    pub fn first_entry(&self) -> &E {
+        match self {
+            Self::Single(e) => e,
+            Self::Double(e, _) => e,
+        }
+    }
+
+    /// Returns true if this is a double entry
+    pub fn is_double(&self) -> bool {
+        matches!(self, Self::Double(_, _))
+    }
 }
 
 #[cfg(feature = "std")]

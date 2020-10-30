@@ -1,6 +1,6 @@
 # modality-probe
 
-An embedded-friendly causal tracing system.
+Embedded-friendly causal event tracing.
 
 ## Overview
 
@@ -28,12 +28,16 @@ environments.
   UDP-based service that collects probes' outgoing reports.
 * [Debug Collector](./collectors/modality-probe-debug-collector): A
   collector that uses JTAG to retrieve data from the probes' logs.
+* [Batch
+  Collector](./collectors/modality-probe-offline-batch-collector): A
+  utility for converting batches of binary report blobs into log
+  files.
 
 ## Getting Started
 
 ### Dependencies
 
-* [Rust Toolchain](https://rustup.sh)
+* [Rust Toolchain](https://rustup.rs)
 
 ### Building
 
@@ -77,9 +81,11 @@ probe for each thread.
 
 ```rust
 let mut storage = [0u8; PROBE_SIZE];
-let probe = try_initialize_at!(
+let probe = initialize_at!(
     &mut storage,
     PRODUCER_PROBE,
+    NanosecondResolution::UNSPECIFIED,
+    WallClockId::local_only(),
     RestartCounterProvider::NoRestartTracking,
     tags!("rust-example", "measurement", "producer"),
     "Measurement producer probe"
@@ -88,17 +94,17 @@ let probe = try_initialize_at!(
 
 ### Recording Events
 
-Step two is to start recording events. The `try_record!` callsite
+Step two is to start recording events. The `record!` callsite
 takes a probe, an event _name_, a description of the event, and any
 tags you want to associate with this event.
 
 ```rust
-try_record!(
+record!(
     probe,
     PRODUCER_STARTED,
     "Measurement producer thread started",
     tags!("producer")
-)?;
+);
 ```
 
 Events can also be recorded with payloads up to 4 bytes in size.
@@ -108,13 +114,13 @@ let mut m: i8 = 1;
 let delta: i8 = rng.gen_range(-1, 2);
 m = m.wrapping_add(delta);
 
-try_record_w_i8!(
+record_w_i8!(
     probe,
     PRODUCER_MEASUREMENT_SAMPLED,
     m,
     tags!("producer", "measurement sample"),
     "Measurement producer sampled a value for transmission"
-)?;
+);
 ```
 
 ### Recording Expectations
@@ -124,16 +130,50 @@ also include a binary payload denoting whether or not the expectation
 passed or failed.
 
 ```rust
-try_expect!(
+expect!(
     probe,
     PRODUCER_TX_STATUS_OK,
     tx_status.is_ok(),
     "Measurement producer send result status",
     tags!("producer", "SEVERITY_10")
-)?;
+);
+```
+
+### Recording Wall Clock Time
+
+Wall clock time can be recorded as a standalone timestamp or
+alongside other events.
+
+A probe that uses wall clock time can identify the time domain it's operating
+in via a `WallClockId`. All probes in the same time domain should
+use the same wall clock identifier.
+
+Probes should use a consistent monotonic clock-source for all the time-related measurements
+at a given probe (don't mix and match clock-sources for a probe).
+
+```rust
+probe.record_time(Nanoseconds::new(1)?);
+
+record_w_time!(
+    probe,
+    PRODUCER_STARTED,
+    Nanoseconds::new(2)?,
+    "Measurement producer thread started",
+    tags!("producer")
+);
+
+record_w_i8_w_time!(
+    probe,
+    PRODUCER_MEASUREMENT_SAMPLED,
+    m,
+    Nanoseconds::new(3)?,
+    tags!("producer", "measurement sample"),
+    "Measurement producer sampled a value for transmission"
+);
 ```
 
 ### Tracking Interactions
+
 To connect two probe's causal history, they must exchange
 _snapshots_. A snapshot contains the sender's current logical clock
 and it can be merged into the receiver's log, creating a causal
@@ -194,13 +234,15 @@ their definitions. To do that, we'll use `header-gen`:
 
 ```shell
 $ modality-probe header-gen \
-    --lang rust
-    --output-path examples/rust-example/src/component_definitions.rs
+    --lang rust \
+    --output-path examples/rust-example/src/component_definitions.rs \
     example-component
 ```
 
-You could also include this process in your `build.rs` file
-using the CLI's library interface.
+NOTE: It can be helpful to have the manifest & header generation tools run as
+part of your regular build process to automatically pick up changes to
+your instrumentation or alert you to potential issues in your instrumentation.
+To do this you can include this process in your crate's `build.rs` file.
 
 ```rust
 use modality_probe_cli::{header_gen, lang::Lang, manifest_gen};
@@ -246,11 +288,18 @@ Using the configuration:
 ```
 
 When the service starts it prints the configuration it's using. In the
-example above it's using all defaults. You can also pass args to
-direct it to a certain port, or a specific output file.
+example above it's using all defaults. You can also pass CLI arguments to
+direct the collector to listen on a certain port and write to a specific
+output file. Check `modality-probe-udp-collector --help` for details.
 
-To get data out to a collector, use the Probe's `report` API, and then
-send the report that that API creates along to your collector.
+### Getting Trace Data Out of the System
+
+`modality-probe` is intended to be flexible in the kind of environments
+that it can be deployed in. There are generally two ways to get trace data
+out of the system.
+
+The first is to use an I/O interface on your device and use the `report` API to
+send data to a waiting collector, like in this UDP oriented example below:
 
 ```rust
 fn send_report<'a>(socket: &UdpSocket, probe: &mut ModalityProbe<'a>, report_buffer: &mut [u8]) {
@@ -264,6 +313,10 @@ fn send_report<'a>(socket: &UdpSocket, probe: &mut ModalityProbe<'a>, report_buf
     }
 }
 ```
+
+The second is to connect to your device over its JTAG/SWD debug interface using the
+`modality-probe-debug-collector` and pull data down over the debug interface to
+the host machine ([see here for details](./collectors/modality-probe-debug-collector/README.md)).
 
 ### Running the Instrumented Example
 
@@ -280,7 +333,7 @@ Using the configuration:
 Then, in another terminal, navigate to the Rust example and run it.
 
 ```shell
-$ cd examples/rust-examples
+$ cd examples/rust-example
 $ cargo run
     Finished dev [unoptimized + debuginfo] target(s) in 0.01s
      Running `target/debug/rust-example`
@@ -310,17 +363,94 @@ $ head session_0_log_entries.jsonl
 {"session_id":1,"sequence_number":0,"sequence_index":2,"probe_id":606771187,"persistent_epoch_counting":false,"data":{"Event":5},"receive_time":"2020-09-14T15:08:56.215111896Z"}
 ```
 
-### Visualizing the Trace
-Now we can use this collected trace and visualize it as a graph with `modality-probe export`:
+### Inspecting a Trace from Your Terminal
+
+The Modality Probe CLI also provides a way to inspect a trace from
+your terminal with the `log` subcommand. Given the trace we generated
+in the “Running the Instrumented Example” section above, we can
+inspect that trace with the following command:
 
 ```shell
-$ modality-probe export acyclic --component ./example-component --report session_0_log_entries.jsonl > trace.dot
+$ modality-probe log -vv --component-path ./example-component --report session_0_log_entries.jsonl
+```
+
+This command takes a path to the component's metadata and a path to
+the trace; it also asks `log` to provide its most verbose output
+(`-vv`). That output should look something like this:
+
+```
+Clock Tick @ CONSUMER_PROBE (1:30020207:0:1) clock=(0, 0)
+
+CONSUMER_STARTED @ CONSUMER_PROBE (1:30020207:0:3)
+    description: "Measurement consumer thread started"
+    payload: None
+    tags: consumer
+    source: "rust-example/src/main.rs#L141"
+    probe tags: rust-example, measurement, consumer
+    probe source: "rust-example/src/main.rs#L129"
+    component: example-component
+
+Clock Tick @ PRODUCER_PROBE (1:837318897:0:1) clock=(0, 0)
+
+PRODUCER_STARTED @ PRODUCER_PROBE (1:837318897:0:3)
+    description: "Measurement producer thread started"
+    payload: None
+    tags: producer
+    source: "rust-example/src/main.rs#L77"
+    probe tags: rust-example, measurement, producer
+    probe source: "rust-example/src/main.rs#L65"
+    component: example-component
+```
+
+Alternatively, you can pass `--graph` to `log` and it will _graph_ the
+interactions and events across all of the probes. It should look
+something like this:
+
+```
+*   |   CONSUMER_STARTED @ CONSUMER_PROBE (1:30020207:0:3)
+|   |       description: "Measurement consumer thread started"
+|   |       tags: consumer
+|   |       source: "rust-example/src/main.rs#L141"
+|   |       probe_tags: rust-example, measurement, consumer
+|   |       probe source: "rust-example/src/main.rs#L129"
+|   |       component: example-component
+|   |
+|   *   PRODUCER_STARTED @ PRODUCER_PROBE (1:837318897:0:3)
+|   |       description: "Measurement producer thread started"
+|   |       tags: producer
+|   |       source: "rust-example/src/main.rs#L77"
+|   |       probe_tags: rust-example, measurement, producer
+|   |       probe source: "rust-example/src/main.rs#L65"
+|   |       component: example-component
+|   |
+|   *   PRODUCER_MEASUREMENT_SAMPLED @ PRODUCER_PROBE (1:837318897:0:4)
+|   |       description: "Measurement producer sampled a value for transmission"
+|   |       payload: 1
+|   |       tags: producer, measurement sample
+|   |       source: "rust-example/src/main.rs#L91"
+|   |       probe_tags: rust-example, measurement, producer
+|   |       probe source: "rust-example/src/main.rs#L65"
+|   |       component: example-component
+|   |
++<--+   CONSUMER_PROBE merged a snapshot from PRODUCER_PROBE
+```
+
+
+### Visualizing the Trace
+
+Now we can use this collected trace and visualize it as a graph with
+`modality-probe visualize` which will export the trace as a Graphviz
+DOT format file. The example below uses the `dot` command, and thus
+assumes you've already installed Graphviz which includes `dot`:
+
+```shell
+$ modality-probe visualize acyclic --component-path ./example-component --report session_0_log_entries.jsonl > trace.dot
 $ dot -Tpng trace.dot > trace.png
 ```
 
 You can then open `trace.png` and see something like this:
 
-![trace](https://user-images.githubusercontent.com/1194436/92818571-b6683b80-f37c-11ea-9f50-aa1fd2fbf430.png)
+![trace](https://user-images.githubusercontent.com/1194436/95799022-4402b800-0ca8-11eb-9ad3-a8c0fab31fe5.png)
 
 ### Associating Causality with your Existing Logging
 
@@ -332,16 +462,30 @@ something like this:
 
 ```rust
 let instant = probe.now();
-trace!("Producer now {:?}", instant);
+log::info!("Producer now {:?}", instant);
 ```
+
+This will place a Modality causal-coordinate into your log message, so
+that later in offline processing any given log message can be
+correlated with a specific location in the Modality probe's logical
+timeline. You can now stitch together the causal history of your
+typical device logging along side Modality's events & expectations.
 
 ## Running the tests
 
-There is a top-level testing script that executes the tests for each
-subcrate: [test.sh](./test.sh). Before you can run it, you'll need to
-install the `thumbv7em-none-eabihf` target.
+To run the Rust unit & property-based test suites you need to run:
 
 ```shell
+$ cargo test --features std
+```
+
+There is also a top-level testing script that executes the tests for each
+subcrate, [test.sh](./test.sh). Before you can run it, you'll need to
+install `libusb-1.0-0-dev`, or the equivalent package for your system, and
+also the `thumbv7em-none-eabihf` Rust target.
+
+```shell
+$ sudo apt install libusb-1.0-0-dev
 $ rustup target add thumbv7em-none-eabihf
 $ ./test.sh
 ```

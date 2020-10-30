@@ -99,7 +99,7 @@ impl<G: Graph> EventDigraph<G> {
 
         for (idx, ev) in report.event_log.iter().enumerate() {
             match ev {
-                EventLogEntry::Event(id) => {
+                EventLogEntry::Event(id) | EventLogEntry::EventWithTime(.., id) => {
                     let node = GraphEvent {
                         probe_id,
                         id: *id,
@@ -118,7 +118,8 @@ impl<G: Graph> EventDigraph<G> {
                         seq_num,
                     );
                 }
-                EventLogEntry::EventWithPayload(id, payload) => {
+                EventLogEntry::EventWithPayload(id, payload)
+                | EventLogEntry::EventWithPayloadWithTime(.., id, payload) => {
                     let node = GraphEvent {
                         probe_id,
                         id: *id,
@@ -137,7 +138,7 @@ impl<G: Graph> EventDigraph<G> {
                         seq_num,
                     );
                 }
-                EventLogEntry::TraceClock(lc) => {
+                EventLogEntry::TraceClock(lc) | EventLogEntry::TraceClockWithTime(.., lc) => {
                     if lc.id == probe_id {
                         // when we see a clock, the previous event we
                         // saw is the last event from the previous
@@ -168,6 +169,7 @@ impl<G: Graph> EventDigraph<G> {
                     }
                     prev_tc = Some(*lc);
                 }
+                EventLogEntry::WallClockTime(_t) => (),
             }
         }
         if let Some(pe) = prev_event {
@@ -245,6 +247,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 0,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 1,
                 fc_probe_id: Some(1),
@@ -260,6 +264,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 1,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 1,
                 fc_probe_id: None,
@@ -275,6 +281,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 2,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 1,
                 fc_probe_id: None,
@@ -291,6 +299,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 0,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 2,
                 fc_probe_id: Some(2),
@@ -306,6 +316,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 1,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 2,
                 fc_probe_id: None,
@@ -321,6 +333,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 2,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 2,
                 fc_probe_id: None,
@@ -336,6 +350,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 3,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 2,
                 fc_probe_id: None,
@@ -351,6 +367,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 4,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 2,
                 fc_probe_id: None,
@@ -367,6 +385,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 0,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 3,
                 fc_probe_id: Some(3),
@@ -382,6 +402,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 1,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 3,
                 fc_probe_id: None,
@@ -397,6 +419,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 2,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 3,
                 fc_probe_id: None,
@@ -412,6 +436,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 3,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 3,
                 fc_probe_id: None,
@@ -427,6 +453,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 4,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 3,
                 fc_probe_id: None,
@@ -443,6 +471,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 0,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 4,
                 fc_probe_id: Some(4),
@@ -458,6 +488,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 1,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 4,
                 fc_probe_id: None,
@@ -473,6 +505,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 2,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 4,
                 fc_probe_id: None,
@@ -488,6 +522,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 1,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 4,
                 fc_probe_id: None,
@@ -503,6 +539,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 3,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 4,
                 fc_probe_id: None,
@@ -518,6 +556,8 @@ pub mod test_support {
                 session_id: 1,
                 sequence_number: 1,
                 sequence_index: 5,
+                time_resolution: 0,
+                wall_clock_id: 0,
                 receive_time: now,
                 probe_id: 4,
                 fc_probe_id: None,

@@ -16,6 +16,8 @@ fn initialization_errors() {
                 ptr::null_mut(), // NULL storage pointer
                 1024,
                 probe_id,
+                0,
+                0,
                 None,
                 ptr::null_mut(),
                 probe.as_mut_ptr(),
@@ -26,12 +28,14 @@ fn initialization_errors() {
 
     {
         let mut probe = MaybeUninit::uninit();
-        let mut storage = [0u8; 512];
+        let mut storage = [MaybeUninit::new(0u8); 512];
         let err = unsafe {
             modality_probe_initialize(
-                storage.as_mut_ptr() as *mut u8,
+                storage.as_mut_ptr(),
                 0, // Zero storage size
                 probe_id,
+                0,
+                0,
                 None,
                 ptr::null_mut(),
                 probe.as_mut_ptr(),
@@ -41,12 +45,14 @@ fn initialization_errors() {
     }
 
     {
-        let mut storage = [0u8; 512];
+        let mut storage = [MaybeUninit::new(0u8); 512];
         let err = unsafe {
             modality_probe_initialize(
-                storage.as_mut_ptr() as *mut u8,
+                storage.as_mut_ptr(),
                 storage.len(),
                 probe_id,
+                0,
+                0,
                 None,
                 ptr::null_mut(),
                 ptr::null_mut(), // NULL probe pointer
@@ -66,12 +72,14 @@ fn event_recording_errors() {
 
     let probe_id = 1;
     let mut probe = MaybeUninit::uninit();
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let err = unsafe {
         modality_probe_initialize(
-            storage.as_mut_ptr() as *mut u8,
+            storage.as_mut_ptr(),
             storage.len(),
             probe_id,
+            0,
+            0,
             None,
             ptr::null_mut(),
             probe.as_mut_ptr(),
@@ -85,6 +93,16 @@ fn event_recording_errors() {
 
     let err = unsafe { modality_probe_record_event_with_payload(probe, 0, 0) };
     assert_eq!(MODALITY_PROBE_ERROR_INVALID_EVENT_ID, err);
+
+    let err = unsafe { modality_probe_record_time(probe, core::u64::MAX) };
+    assert_eq!(MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME, err);
+
+    let err = unsafe { modality_probe_record_event_with_time(probe, 1, core::u64::MAX) };
+    assert_eq!(MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME, err);
+
+    let err =
+        unsafe { modality_probe_record_event_with_payload_with_time(probe, 1, 2, core::u64::MAX) };
+    assert_eq!(MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME, err);
 }
 
 #[test]
@@ -107,12 +125,14 @@ fn reporting_errors() {
 
     let probe_id = 1;
     let mut probe = MaybeUninit::uninit();
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let err = unsafe {
         modality_probe_initialize(
-            storage.as_mut_ptr() as *mut u8,
+            storage.as_mut_ptr(),
             storage.len(),
             probe_id,
+            0,
+            0,
             None,
             ptr::null_mut(),
             probe.as_mut_ptr(),
@@ -196,12 +216,14 @@ fn produce_snapshot_errors() {
 
     let probe_id = 1;
     let mut probe = MaybeUninit::uninit();
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let err = unsafe {
         modality_probe_initialize(
-            storage.as_mut_ptr() as *mut u8,
+            storage.as_mut_ptr(),
             storage.len(),
             probe_id,
+            0,
+            0,
             None,
             ptr::null_mut(),
             probe.as_mut_ptr(),
@@ -217,6 +239,15 @@ fn produce_snapshot_errors() {
         )
     };
     assert_eq!(MODALITY_PROBE_ERROR_NULL_POINTER, err);
+
+    let err = unsafe {
+        modality_probe_produce_snapshot_with_time(
+            probe,
+            core::u64::MAX, // Invalid time
+            &mut snapshot as *mut _,
+        )
+    };
+    assert_eq!(MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME, err);
 
     let err = unsafe {
         modality_probe_produce_snapshot_bytes(
@@ -247,6 +278,17 @@ fn produce_snapshot_errors() {
         )
     };
     assert_eq!(MODALITY_PROBE_ERROR_NULL_POINTER, err);
+
+    let err = unsafe {
+        modality_probe_produce_snapshot_bytes_with_time(
+            probe,
+            core::u64::MAX, // Invalid time
+            snapshot_bytes.as_mut_ptr(),
+            snapshot_bytes.len(),
+            &mut bytes_written as *mut usize,
+        )
+    };
+    assert_eq!(MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME, err);
 }
 
 #[test]
@@ -281,12 +323,14 @@ fn merge_snapshot_errors() {
 
     let probe_id = 1;
     let mut probe = MaybeUninit::uninit();
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let err = unsafe {
         modality_probe_initialize(
-            storage.as_mut_ptr() as *mut u8,
+            storage.as_mut_ptr(),
             storage.len(),
             probe_id,
+            0,
+            0,
             None,
             ptr::null_mut(),
             probe.as_mut_ptr(),
@@ -302,6 +346,15 @@ fn merge_snapshot_errors() {
         )
     };
     assert_eq!(MODALITY_PROBE_ERROR_NULL_POINTER, err);
+
+    let err = unsafe {
+        modality_probe_merge_snapshot_with_time(
+            probe,
+            &snapshot as *const _,
+            core::u64::MAX, // Invalid time
+        )
+    };
+    assert_eq!(MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME, err);
 
     let err = unsafe {
         modality_probe_merge_snapshot_bytes(
@@ -320,6 +373,16 @@ fn merge_snapshot_errors() {
         )
     };
     assert_eq!(MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES, err);
+
+    let err = unsafe {
+        modality_probe_merge_snapshot_bytes_with_time(
+            probe,
+            snapshot_bytes.as_ptr(),
+            snapshot_bytes.len(),
+            core::u64::MAX, // Invalid time
+        )
+    };
+    assert_eq!(MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME, err);
 }
 
 #[test]
@@ -344,14 +407,16 @@ proptest! {
         prop_assert!(report_buffer.len() <= report_buffer.len());
 
         let probe_id = 1;
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let storage_slice = &mut storage;
         let mut probe = MaybeUninit::uninit();
         let err = unsafe {
             modality_probe_initialize(
-                storage_slice.as_mut_ptr() as *mut u8,
+                storage_slice.as_mut_ptr(),
                 storage_slice.len(),
                 probe_id,
+                0,
+                0,
                 None,
                 ptr::null_mut(),
                 probe.as_mut_ptr(),
@@ -396,13 +461,15 @@ proptest! {
     #[test]
     fn snapshot_exchanges_advance_clock(num_snapshot_exchanges in 1_usize..=1024_usize) {
         let probe_id_foo = 1;
-        let mut storage_foo = [0u8; 512];
+        let mut storage_foo = [MaybeUninit::new(0u8); 512];
         let mut probe_foo = MaybeUninit::uninit();
         let err = unsafe {
             modality_probe_initialize(
-                storage_foo.as_mut_ptr() as *mut u8,
+                storage_foo.as_mut_ptr(),
                 storage_foo.len(),
                 probe_id_foo,
+                0,
+                0,
                 None,
                 ptr::null_mut(),
                 probe_foo.as_mut_ptr(),
@@ -412,13 +479,15 @@ proptest! {
         let probe_foo = unsafe { probe_foo.assume_init() };
 
         let probe_id_bar = 2;
-        let mut storage_bar = [0u8; 512];
+        let mut storage_bar = [MaybeUninit::new(0u8); 512];
         let mut probe_bar = MaybeUninit::uninit();
         let err = unsafe {
             modality_probe_initialize(
-                storage_bar.as_mut_ptr() as *mut u8,
+                storage_bar.as_mut_ptr(),
                 storage_bar.len(),
                 probe_id_bar,
+                0,
+                0,
                 None,
                 ptr::null_mut(),
                 probe_bar.as_mut_ptr(),

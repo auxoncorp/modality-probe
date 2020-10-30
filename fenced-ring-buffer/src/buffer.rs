@@ -80,24 +80,25 @@ where
 
     /// Create new FencedRingBuffer with properly aligned backing storage
     #[inline]
-    pub fn new_from_bytes(
-        bytes: &'a mut [u8],
+    pub fn new_from_uninit_bytes(
+        bytes: &'a mut [MaybeUninit<u8>],
         use_base_2_indexing: bool,
     ) -> Result<FencedRingBuffer<'a, E>, SizeError> {
-        let (_prefix, buf, _suffix) = Self::align_from_bytes(bytes, use_base_2_indexing);
+        let (_prefix, buf, _suffix) = Self::align_from_uninit_bytes(bytes, use_base_2_indexing);
         buf
     }
 
     /// Create new FencedRingBuffer with properly aligned backing storage,
     /// return unused bytes
     #[inline]
-    pub fn align_from_bytes(
-        bytes: &'a mut [u8],
+    #[allow(clippy::type_complexity)]
+    pub fn align_from_uninit_bytes(
+        bytes: &'a mut [MaybeUninit<u8>],
         use_base_2_indexing: bool,
     ) -> (
-        &'a mut [u8],
+        &'a mut [MaybeUninit<u8>],
         Result<FencedRingBuffer<'a, E>, SizeError>,
-        &'a mut [u8],
+        &'a mut [MaybeUninit<u8>],
     ) {
         // Safe because storage is treated as uninit after transmutation
         let (prefix, storage, suffix) = unsafe { bytes.align_to_mut() };
@@ -275,6 +276,11 @@ where
         self.len() == 0
     }
 
+    /// Returns true if the buffer is full to capacity.
+    pub fn is_full(&self) -> bool {
+        self.len() == self.capacity()
+    }
+
     /// Get capacity of buffer storage
     #[inline]
     pub fn capacity(&self) -> usize {
@@ -390,6 +396,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn entry_helpers() {
+        let e = WholeEntry::Single(OrderedEntry::from_index(1));
+        assert_eq!(e.size(), 1);
+        assert_eq!(e.first_entry(), &OrderedEntry::from_index(1));
+        assert_eq!(e.is_double(), false);
+        let e = WholeEntry::Double(OrderedEntry::from_index(2), OrderedEntry::from_index(3));
+        assert_eq!(e.size(), 2);
+        assert_eq!(e.first_entry(), &OrderedEntry::from_index(2));
+        assert_eq!(e.is_double(), true);
+    }
+
     /// Test backing storage size rounding and minimum size enforcement
     #[test]
     fn test_init_sizes() {
@@ -451,9 +469,9 @@ mod tests {
     proptest! {
         #[test]
         fn test_from_bytes(storage_cap in MIN_STORAGE_CAP..=7777) {
-            let mut storage = vec![0u8; storage_cap * size_of::<OrderedEntry>()];
+            let mut storage = vec![MaybeUninit::new(0u8); storage_cap * size_of::<OrderedEntry>()];
             let buf =
-                FencedRingBuffer::<OrderedEntry>::new_from_bytes(&mut storage[..], false).unwrap();
+                FencedRingBuffer::<OrderedEntry>::new_from_uninit_bytes(&mut storage[..], false).unwrap();
             // Should not lose more than one entry
             prop_assert!(buf.capacity() == storage_cap || (buf.capacity() == storage_cap - 1))
         }
@@ -501,6 +519,8 @@ mod tests {
         // None written yet
         assert_eq!(buf.peek(), None);
         assert_eq!(buf.pop(), None);
+        assert!(!buf.is_full());
+        assert!(buf.is_empty());
 
         for i in 0..2 {
             buf.push(OrderedEntry::from_index(i));
@@ -527,6 +547,8 @@ mod tests {
         for i in 2..8 {
             buf.push(OrderedEntry::from_index(i));
         }
+        assert!(buf.is_full());
+        assert!(!buf.is_empty());
         // Buffer holds 4, 6 were written past tail
         assert_eq!(buf.num_missed(), 2);
         // Peek should use oldest if tail overwritten

@@ -273,6 +273,8 @@ pub struct Collector {
     seq_num: u64,
     /// Reader used to read the probe's FencedRingBuffer
     reader: FencedReader<LogEntry, MemorySnapper>,
+    /// Temporary storage for trailing paired wall clock time entry
+    prev_paired_wall_clock_time: Option<WholeEntry<LogEntry>>,
     /// Allocated buffer for reading the log into
     rbuf: Vec<WholeEntry<LogEntry>>,
     /// Processed clocks backing storage
@@ -331,6 +333,7 @@ impl Collector {
                 },
                 buf_cap,
             ),
+            prev_paired_wall_clock_time: None,
             rbuf: Vec::new(),
             clocks,
             priority_writer: PriorityWriter {
@@ -399,18 +402,37 @@ impl Collector {
     /// Collect all new logs, return a report
     pub fn collect_report(&mut self) -> Result<Option<Report>, Error> {
         self.rbuf.clear();
+
         let num_missed = self.reader.read(&mut self.rbuf)?;
+
         // Possibly add entries missed event
         if num_missed > 0 {
             let num_missed_rounded = u64::min(num_missed, u32::MAX as u64) as u32;
             let (ev, payload) =
                 LogEntry::event_with_payload(EventId::EVENT_LOG_ITEMS_MISSED, num_missed_rounded);
             self.rbuf.insert(0, WholeEntry::Double(ev, payload));
+
+            if let Some(e) = self.prev_paired_wall_clock_time.take() {
+                eprintln!("Warning: dropping paired wall clock time entry {:?} from previous report because items were missed and the associated entry was lost", e);
+            }
+        } else if let Some(e) = self.prev_paired_wall_clock_time.take() {
+            // Insert paired wall clock time entry from previous report if needed
+            self.rbuf.insert(0, e);
         }
 
         if self.rbuf.is_empty() {
             // No entries to report
             return Ok(None);
+        }
+
+        // If the last entry is a paired wall clock time entry, then
+        // save it for the next report so its not fragmented away from
+        // its associated entry
+        if let Some(e) = self.rbuf.last() {
+            if e.is_double() && e.first_entry().has_wall_clock_time_paired_bit_set() {
+                self.prev_paired_wall_clock_time =
+                    Some(self.rbuf.pop().expect("Just checked last entry"));
+            }
         }
 
         // Add report produced event
@@ -544,11 +566,17 @@ pub fn run(c: &Config, shutdown_receiver: Receiver<()>) -> Result<(), Error> {
 pub mod tests {
     use super::*;
     use maplit::hashmap;
+    use pretty_assertions::assert_eq;
     use std::collections::HashMap;
     use std::convert::TryInto;
+    use std::ptr;
 
-    use modality_probe::{EventId, ModalityProbe, Probe, RestartCounterProvider};
+    use modality_probe::{
+        time::{NanosecondResolution, Nanoseconds, WallClockId},
+        EventId, ModalityProbe, Probe, RestartCounterProvider,
+    };
     use modality_probe_collector_common::{EventLogEntry, SequenceNumber};
+    use std::mem::MaybeUninit;
 
     fn lc(probe_id: u32, epoch: u16, ticks: u16) -> LogicalClock {
         LogicalClock {
@@ -631,12 +659,14 @@ pub mod tests {
 
     #[test]
     fn local_probe() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
         let mut probe = ModalityProbe::new_with_storage(
             &mut storage[..],
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -668,13 +698,15 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         )
     }
 
     #[test]
     fn local_misaligned() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let offset = 1 + storage.as_ptr().align_offset(align_of::<ModalityProbe>());
         let storage_unaligned = &mut storage[offset..];
         let storage_unaligned_ptr = storage_unaligned.as_ptr();
@@ -684,13 +716,15 @@ pub mod tests {
         let probe = ModalityProbe::initialize_at(
             storage_unaligned,
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
         let padding_len = (align_of::<ModalityProbe>() - 1) as isize;
         for i in 0..padding_len {
             assert_eq!(
-                unsafe { *(storage_unaligned_ptr.offset(i as isize)) },
+                unsafe { (*(storage_unaligned_ptr.offset(i as isize))).assume_init() },
                 ModalityProbe::PADDING_GUARD_BYTE
             );
         }
@@ -727,18 +761,22 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         )
     }
 
     #[test]
     fn local_invalid_address() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
         let probe = ModalityProbe::new_with_storage(
             &mut storage[..],
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -763,12 +801,14 @@ pub mod tests {
 
     #[test]
     fn local_invalid_ptr() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
         let probe = ModalityProbe::new_with_storage(
             &mut storage[..],
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -794,23 +834,27 @@ pub mod tests {
 
     #[test]
     fn local_probe_interaction() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
         let mut probe = ModalityProbe::new_with_storage(
             &mut storage[..],
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
         let addr_raw = &probe as *const ModalityProbe as usize;
 
-        let mut storage_2 = [0u8; 1024];
+        let mut storage_2 = [MaybeUninit::new(0u8); 1024];
         let pid_raw_2 = 2;
         let probe_id_2 = ProbeId::new(pid_raw_2).unwrap();
         let mut probe_2 = ModalityProbe::new_with_storage(
             &mut storage_2[..],
             probe_id_2,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -855,6 +899,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -876,6 +922,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -897,6 +945,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -911,6 +961,8 @@ pub mod tests {
                 seq_num: SequenceNumber(1),
                 frontier_clocks: vec![lc(pid_raw, 0, 2), lc(pid_raw_2, 0, 1)],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
                 event_log: vec![
                     EventLogEntry::Event(ev(2)),
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
@@ -921,12 +973,14 @@ pub mod tests {
 
     #[test]
     fn local_probe_writeback() {
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1024];
         let pid_raw = 1;
         let probe_id = ProbeId::new(pid_raw).unwrap();
         let probe = ModalityProbe::new_with_storage(
             &mut storage[..],
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -1058,6 +1112,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         )
     }
@@ -1100,6 +1156,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         )
     }
@@ -1144,6 +1202,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         )
     }
@@ -1193,6 +1253,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -1229,6 +1291,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
     }
@@ -1296,6 +1360,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -1324,6 +1390,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
     }
@@ -1365,6 +1433,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
 
@@ -1393,6 +1463,357 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+    }
+
+    #[test]
+    fn fragmented_paired_wall_clock_time_entries_are_carried_over() {
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let (a, b) = LogEntry::paired_wall_clock_time(Nanoseconds::new(1).unwrap());
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
+            probe_id,
+            3,
+            0,
+            &mut vec![LogEntry::event(ev(10)), a, b],
+        )));
+
+        let mut collector = Collector::initialize(
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
+        )
+        .unwrap();
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(0),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(ev(10)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+
+        mem_accessor
+            .borrow_mut()
+            .overwrite_buffer(&vec![LogEntry::event(ev(11)), LogEntry::event(ev(12))]);
+        mem_accessor.borrow_mut().set_write_seqn(5);
+        mem_accessor.borrow_mut().set_overwrite_seqn(2);
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(1),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::EventWithTime(Nanoseconds::new(1).unwrap(), ev(11)),
+                    EventLogEntry::Event(ev(12)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+    }
+
+    #[test]
+    fn fragmented_paired_wall_clock_time_entries_are_dropped_when_items_are_missed() {
+        let pid_raw = 1;
+        let probe_id = ProbeId::new(pid_raw).unwrap();
+        let (a, b) = LogEntry::paired_wall_clock_time(Nanoseconds::new(1).unwrap());
+        let mem_accessor = Rc::new(RefCell::new(HashMapMemAccessor::new(
+            probe_id,
+            3,
+            0,
+            &mut vec![LogEntry::event(ev(10)), a, b],
+        )));
+
+        let mut collector = Collector::initialize(
+            &ProbeAddr::Addr(HashMapMemAccessor::PROBE_ADDR),
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
+        )
+        .unwrap();
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(0),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(ev(10)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+
+        mem_accessor
+            .borrow_mut()
+            .overwrite_buffer(&vec![LogEntry::event(ev(11)), LogEntry::event(ev(12))]);
+        mem_accessor.borrow_mut().set_write_seqn(5);
+        mem_accessor.borrow_mut().set_overwrite_seqn(4);
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(pid_raw, 0, 0),
+                seq_num: SequenceNumber(1),
+                frontier_clocks: vec![lc(pid_raw, 0, 0)],
+                event_log: vec![
+                    EventLogEntry::EventWithPayload(EventId::EVENT_LOG_ITEMS_MISSED, 1),
+                    EventLogEntry::Event(ev(12)),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+    }
+
+    struct ProbeInMemAccessor {
+        // Address of the storage buffer given to ModalityProbe::initialize_at()
+        storage_addr: u64,
+    }
+
+    impl Target for ProbeInMemAccessor {
+        fn reset(&mut self) -> Result<(), TargetError> {
+            unimplemented!()
+        }
+
+        fn read_word(&mut self, addr: Word) -> Result<Word, TargetError> {
+            match addr {
+                Word::U64(addr) => {
+                    assert!(addr >= self.storage_addr);
+                    let src = addr as *const u64;
+                    Ok(Word::U64(unsafe { ptr::read_volatile(src) }))
+                }
+                _ => unimplemented!(),
+            }
+        }
+
+        fn read_32(&mut self, addr: Word) -> Result<u32, TargetError> {
+            match addr {
+                Word::U64(addr) => {
+                    assert!(addr >= self.storage_addr);
+                    let src = addr as *const u32;
+                    Ok(unsafe { ptr::read_volatile(src) })
+                }
+                _ => unimplemented!(),
+            }
+        }
+
+        fn read_byte(&mut self, addr: Word) -> Result<u8, TargetError> {
+            match addr {
+                Word::U64(addr) => {
+                    assert!(addr >= self.storage_addr);
+                    let src = addr as *const u8;
+                    Ok(unsafe { ptr::read_volatile(src) })
+                }
+                _ => unimplemented!(),
+            }
+        }
+
+        fn write_32(&mut self, _: Word, _: u32) -> Result<(), TargetError> {
+            unimplemented!()
+        }
+    }
+
+    #[test]
+    fn on_device_probe_missed_entries_are_detectable() {
+        const STORAGE_CAP: usize = 512;
+        const LOG_CAP: usize = 78;
+        let mut storage = [MaybeUninit::new(0u8); STORAGE_CAP];
+        let storage_addr = storage.as_ptr() as *const _ as u64;
+
+        let probe_id = ProbeId::new(1).unwrap();
+        let probe = ModalityProbe::initialize_at(
+            &mut storage,
+            probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
+
+        let mem_accessor = Rc::new(RefCell::new(ProbeInMemAccessor { storage_addr }));
+
+        let mut collector = Collector::initialize(
+            &ProbeAddr::Addr(Word::U64(storage_addr)),
+            mem_accessor.clone() as Rc<RefCell<dyn Target>>,
+        )
+        .unwrap();
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(probe_id.get_raw(), 0, 0),
+                seq_num: SequenceNumber(0),
+                frontier_clocks: vec![lc(probe_id.get_raw(), 0, 0)],
+                event_log: vec![
+                    EventLogEntry::TraceClock(lc(probe_id.get_raw(), 0, 0)),
+                    EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+
+        let event_a = EventId::new(8888).unwrap();
+        probe.record_event(event_a);
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(probe_id.get_raw(), 0, 0),
+                seq_num: SequenceNumber(1),
+                frontier_clocks: vec![lc(probe_id.get_raw(), 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(event_a),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+
+        // Fill up the log, overwriting 2 entries
+        let event_b = EventId::new(9999).unwrap();
+        let num_events = LOG_CAP + 2;
+        let mut expected_event_log = Vec::new();
+        for _ in 0..num_events {
+            probe.record_event(event_b);
+            expected_event_log.push(EventLogEntry::Event(event_b));
+        }
+
+        // Shave off the expected overwritten entries
+        while expected_event_log.len() > LOG_CAP {
+            let _ = expected_event_log.remove(0);
+        }
+
+        // Debug collector puts these events in
+        expected_event_log.insert(
+            0,
+            EventLogEntry::EventWithPayload(EventId::EVENT_LOG_ITEMS_MISSED, 2),
+        );
+        expected_event_log.push(EventLogEntry::Event(
+            EventId::EVENT_PRODUCED_EXTERNAL_REPORT,
+        ));
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(report.event_log.len(), LOG_CAP + 2);
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(probe_id.get_raw(), 0, 0),
+                seq_num: SequenceNumber(2),
+                frontier_clocks: vec![lc(probe_id.get_raw(), 0, 0)],
+                event_log: expected_event_log,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+
+        // All caught up, shouldn't miss any events this go around
+        let event_a = EventId::new(8888).unwrap();
+        probe.record_event(event_a);
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(probe_id.get_raw(), 0, 0),
+                seq_num: SequenceNumber(3),
+                frontier_clocks: vec![lc(probe_id.get_raw(), 0, 0)],
+                event_log: vec![
+                    EventLogEntry::Event(event_a),
+                    EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
+                ],
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+            }
+        );
+
+        // Do another round of overwriting, with time, should end with with 2 missed items
+        let event_c = EventId::new(7777).unwrap();
+        let num_events = 1 + (LOG_CAP / 4);
+        let mut expected_event_log = Vec::new();
+        for i in 0..num_events {
+            let payload = 0xFF00_0000 + (i as u32);
+            let time = Nanoseconds::new(i as u64).unwrap();
+            probe.record_event_with_payload_with_time(event_c, payload, time);
+
+            // NOTE: debug-collector bug, see issue #288
+            // Wall clock time portion will be dropped
+            if i == 0 {
+                expected_event_log.push(EventLogEntry::EventWithPayload(event_c, payload));
+            } else {
+                expected_event_log.push(EventLogEntry::EventWithPayloadWithTime(
+                    time, event_c, payload,
+                ));
+            }
+        }
+
+        // Shave off the expected overwritten entries
+        while expected_event_log.len() > LOG_CAP {
+            let _ = expected_event_log.remove(0);
+        }
+
+        // Debug collector puts these events in
+        expected_event_log.insert(
+            0,
+            EventLogEntry::EventWithPayload(EventId::EVENT_LOG_ITEMS_MISSED, 2),
+        );
+        expected_event_log.push(EventLogEntry::Event(
+            EventId::EVENT_PRODUCED_EXTERNAL_REPORT,
+        ));
+
+        let report = collector.collect_report().unwrap().unwrap();
+        assert_eq!(report.event_log.len(), num_events + 2);
+
+        assert_eq!(
+            report,
+            Report {
+                probe_id,
+                probe_clock: lc(probe_id.get_raw(), 0, 0),
+                seq_num: SequenceNumber(4),
+                frontier_clocks: vec![lc(probe_id.get_raw(), 0, 0)],
+                event_log: expected_event_log,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
             }
         );
     }

@@ -1,142 +1,48 @@
-//! Export a textual representation of a causal graph using the
-//! collected columnar form as input.
+use std::{collections::HashMap, path::PathBuf};
 
-use std::{collections::HashMap, fmt, fs::File, path::PathBuf, str::FromStr};
-
-use err_derive::Error;
-use structopt::StructOpt;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use modality_probe_collector_common::{json, Error as CollectorError};
+use modality_probe::{EventId, ProbeId};
 
-use crate::{component::Component, events::Events};
+use crate::{component::Component, events::Events, give_up, hopefully, hopefully_ok};
 
-mod templates;
-
-mod graph;
-use graph::{EventMeta, ProbeMeta};
-
-/// Export a textual representation of a causal graph using the
-/// collected trace file as input.
-#[derive(Debug, PartialEq, StructOpt)]
-pub struct Export {
-    /// Generate the graph showing only the causal relationships,
-    /// eliding the events in between.
-    #[structopt(long)]
-    pub interactions_only: bool,
-    /// Include probe-generated events in the output.
-    #[structopt(long)]
-    pub include_internal_events: bool,
-    /// The path to a component directory. To include multiple
-    /// components, provide this switch multiple times.
-    #[structopt(short, long, required = true)]
-    pub components: Vec<PathBuf>,
-    /// The path to the collected trace.
-    #[structopt(short, long, required = true)]
-    pub report: PathBuf,
-    /// The type of graph to output.
-    ///
-    /// This can be either `cyclic` or `acyclic`. A cyclic graph is
-    /// one which shows the possible paths from either an event or a
-    /// probe. An acyclic graph shows the causal history of either all
-    /// events or the interactions between probes in the system.
-    #[structopt(required = true)]
-    pub graph_type: GraphType,
+/// A row in the events.csv for a component.
+#[derive(PartialEq, Eq, Debug, Clone, Deserialize, Hash, Serialize)]
+pub struct EventMeta {
+    pub component_id: Uuid,
+    pub id: u32,
+    pub name: String,
+    pub type_hint: Option<String>,
+    pub tags: String,
+    pub description: String,
+    pub file: String,
+    pub line: String,
 }
 
-#[derive(Debug, PartialEq, StructOpt)]
-pub enum GraphType {
-    Cyclic,
-    Acyclic,
+/// A row in probes.csv for a component.
+#[derive(PartialEq, Serialize, Debug, Clone, Deserialize)]
+pub struct ProbeMeta {
+    pub component_id: Uuid,
+    pub tags: String,
+    pub id: u32,
+    pub name: String,
+    pub description: String,
+    pub file: String,
+    pub line: String,
 }
 
-impl FromStr for GraphType {
-    type Err = ExportError;
-    fn from_str(s: &str) -> Result<Self, ExportError> {
-        match s {
-            "cyclic" => Ok(GraphType::Cyclic),
-            "acyclic" => Ok(GraphType::Acyclic),
-            _ => Err(ExportError(format!("{} is not a valid graph type", s))),
-        }
-    }
-}
-
-#[derive(Debug, Error)]
-#[error(display = "{}", _0)]
-pub struct ExportError(String);
-
-impl From<fmt::Error> for ExportError {
-    fn from(e: fmt::Error) -> Self {
-        ExportError(format!("encountered an error generating dot: {}", e))
-    }
-}
-
-impl From<CollectorError> for ExportError {
-    fn from(e: CollectorError) -> Self {
-        ExportError(format!("failed to read log file: {}", e))
-    }
-}
-
-pub fn run(mut exp: Export) -> Result<(), ExportError> {
-    let cfg = assemble_components(&mut exp.components)?;
-    let mut log_file = File::open(&exp.report).map_err(|e| {
-        ExportError(format!(
-            "failed to open the report file at {}: {}",
-            exp.report.display(),
-            e
-        ))
-    })?;
-
-    let graph = graph::log_to_graph(
-        json::read_log_entries(&mut log_file)?
-            .into_iter()
-            .peekable(),
-    )?;
-
-    match (exp.graph_type, exp.interactions_only) {
-        (GraphType::Acyclic, false) => println!(
-            "{}",
-            graph.graph.as_complete(exp.include_internal_events).dot(
-                &cfg,
-                "complete",
-                templates::COMPLETE
-            )?
-        ),
-        (GraphType::Acyclic, true) => println!(
-            "{}",
-            graph
-                .graph
-                .as_interactions()
-                .dot(&cfg, "interactions", templates::INTERACTIONS)?
-        ),
-        (GraphType::Cyclic, false) => println!(
-            "{}",
-            graph.graph.as_states(exp.include_internal_events).dot(
-                &cfg,
-                "states",
-                templates::STATES
-            )?
-        ),
-        (GraphType::Cyclic, true) => println!(
-            "{}",
-            graph
-                .graph
-                .as_topology()
-                .dot(&cfg, "topo", templates::TOPO)?
-        ),
-    }
-
-    Ok(())
-}
-
-struct Cfg {
+#[derive(Debug)]
+pub struct Cfg {
     pub probes: HashMap<u32, ProbeMeta>,
     pub events: HashMap<(Uuid, u32), EventMeta>,
     pub probes_to_components: HashMap<u32, Uuid>,
     pub component_names: HashMap<String, String>,
 }
 
-fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Cfg, ExportError> {
+pub fn assemble_components(
+    comp_dirs: &mut Vec<PathBuf>,
+) -> Result<Cfg, Box<dyn std::error::Error>> {
     let mut probes = HashMap::new();
     let mut probes_to_components = HashMap::new();
     let mut events = HashMap::new();
@@ -152,16 +58,12 @@ fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Cfg, ExportError>
         event_files.push(dir.clone());
     }
     for pf in probe_files.iter_mut() {
-        let mut pr_rdr = csv::Reader::from_path(pf.clone()).map_err(|e| {
-            ExportError(format!(
-                "failed to open the probes file at {}: {}",
-                pf.display(),
-                e
-            ))
-        })?;
+        let mut pr_rdr = hopefully!(
+            csv::Reader::from_path(pf.clone()),
+            format!("Failed to open the probes file at {}", pf.display(),)
+        )?;
         for res in pr_rdr.deserialize() {
-            let p: ProbeMeta =
-                res.map_err(|e| ExportError(format!("failed to deserialize a probe row: {}", e)))?;
+            let p: ProbeMeta = hopefully!(res, "Failed to deserialize a probe row")?;
             pf.pop();
             pf.push("Component.toml");
             let comp = Component::from_toml(&pf);
@@ -171,16 +73,12 @@ fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Cfg, ExportError>
         }
     }
     for ef in event_files.iter_mut() {
-        let mut ev_rdr = csv::Reader::from_path(ef.clone()).map_err(|e| {
-            ExportError(format!(
-                "failed to open the events file at {}: {}",
-                ef.display(),
-                e
-            ))
-        })?;
+        let mut ev_rdr = hopefully!(
+            csv::Reader::from_path(ef.clone()),
+            format!("Failed to open the events file at {}", ef.display())
+        )?;
         for res in ev_rdr.deserialize() {
-            let e: EventMeta =
-                res.map_err(|e| ExportError(format!("failed to deserialize a event row: {}", e)))?;
+            let e: EventMeta = hopefully!(res, "Failed to deserialize an event row")?;
             ef.pop();
             ef.push("Component.toml");
             let comp = Component::from_toml(&ef);
@@ -188,7 +86,7 @@ fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Cfg, ExportError>
         }
     }
 
-    add_internal_events(&mut events)?;
+    add_internal_events(&mut events);
 
     Ok(Cfg {
         events,
@@ -198,7 +96,49 @@ fn assemble_components(comp_dirs: &mut Vec<PathBuf>) -> Result<Cfg, ExportError>
     })
 }
 
-fn add_internal_events(events: &mut HashMap<(Uuid, u32), EventMeta>) -> Result<(), ExportError> {
+pub fn get_event_meta<'a>(
+    cfg: &'a Cfg,
+    pid: &ProbeId,
+    eid: &EventId,
+) -> Result<&'a EventMeta, Box<dyn std::error::Error>> {
+    let comp_id = hopefully_ok!(
+        cfg.probes_to_components.get(&pid.get_raw()),
+        format!(
+            "Unable to find a matching component for probe {}",
+            pid.get_raw()
+        )
+    )?;
+    Ok(hopefully_ok!(
+        cfg.events.get(&(*comp_id, eid.get_raw())),
+        format!(
+            "Unable to find metadata for event {} in component {}",
+            eid.get_raw(),
+            comp_id
+        )
+    )?)
+}
+
+pub fn parsed_payload(
+    th: Option<&str>,
+    pl: Option<u32>,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    match (th, pl) {
+        (Some("i8"), Some(pl)) => Ok(Some(format!("{}", pl as i8))),
+        (Some("i16"), Some(pl)) => Ok(Some(format!("{}", pl as i16))),
+        (Some("i32"), Some(pl)) => Ok(Some(format!("{}", pl as i32))),
+        (Some("u8"), Some(pl)) => Ok(Some(format!("{}", pl as u8))),
+        (Some("u16"), Some(pl)) => Ok(Some(format!("{}", pl as u16))),
+        (Some("u32"), Some(pl)) => Ok(Some(format!("{}", pl as u32))),
+        (Some("f32"), Some(pl)) => Ok(Some(format!("{}", f32::from_bits(pl)))),
+        (Some("bool"), Some(pl)) => Ok(Some(format!("{}", pl != 0))),
+        (Some(th), Some(_)) => give_up!(format!("{} is not a valid type hint", th)),
+        (None, Some(pl)) => Ok(Some(pl.to_string())),
+        (Some(_), None) => Ok(None),
+        (None, None) => Ok(None),
+    }
+}
+
+fn add_internal_events(events: &mut HashMap<(Uuid, u32), EventMeta>) {
     let nil_uuid = Uuid::nil();
     for ie in Events::internal_events() {
         let ev = EventMeta {
@@ -217,8 +157,6 @@ fn add_internal_events(events: &mut HashMap<(Uuid, u32), EventMeta>) -> Result<(
         };
         events.insert((nil_uuid, ie.id.0), ev.clone());
     }
-
-    Ok(())
 }
 
 #[cfg(test)]
@@ -228,7 +166,7 @@ mod test {
     use tempfile::tempdir;
     use uuid::Uuid;
 
-    use super::graph::{EventMeta, ProbeMeta};
+    use crate::meta::{EventMeta, ProbeMeta};
 
     const COMP_ONE_CONTENT: &'static str = r#"
 name = "one"
@@ -295,6 +233,7 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,36
                         description: "probe one".to_string(),
                         file: "examples/event-recording.rs".to_string(),
                         line: "26".to_string(),
+                        tags: "example".to_string(),
                     },
                 ),
                 (
@@ -307,6 +246,7 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,36
                         description: "probe two".to_string(),
                         file: "examples/event-recording.rs".to_string(),
                         line: "26".to_string(),
+                        tags: "example".to_string(),
                     },
                 ),
             ]
@@ -352,7 +292,7 @@ bba61171-e4b5-4db4-8cbb-8b4f4a581cb2,2,TEST_TWO,test event two,,,,36
             .into_iter()
             .collect();
 
-            super::add_internal_events(&mut expected_events).unwrap();
+            super::add_internal_events(&mut expected_events);
 
             tmp_one.pop();
             tmp_two.pop();

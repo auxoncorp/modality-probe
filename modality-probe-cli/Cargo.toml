@@ -35,7 +35,7 @@ toml = "0.5"
 sha3 = "0.9"
 hex = "0.4"
 derivative = "2.1"
-err-derive = "0.2.4"
+err-derive = "0.3.0"
 colorous = "1.0.3"
 tinytemplate = "1.1.0"
 modality-probe-collector-common = { path = "../collectors/modality-probe-collector-common" }
@@ -68,6 +68,12 @@ features = ["serde", "v4"]
 version = "0.1"
 default-features = false
 features = ["curly"]
+
+# Used to prevent panics on broken pipes.
+# See:
+#   https://github.com/rust-lang/rust/issues/46016#issuecomment-605624865
+[target.'cfg(target_family = "unix")'.dependencies]
+nix = "0.17.0"
 
 [dev-dependencies]
 pretty_assertions = "0.6"

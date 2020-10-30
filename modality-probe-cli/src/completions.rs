@@ -6,12 +6,14 @@ mod component;
 mod description_format;
 mod error;
 mod events;
-mod export;
 mod header_gen;
 mod lang;
+mod log;
 mod manifest_gen;
+mod meta;
 mod opts;
 mod probes;
+mod visualize;
 
 fn main() {
     // Generate `bash` completions in the current working directory

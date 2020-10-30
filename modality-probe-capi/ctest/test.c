@@ -32,6 +32,8 @@ bool test_backend_piping(void) {
             destination,
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
+            0,
+            0,
             NULL,
             NULL,
             &t);
@@ -90,6 +92,8 @@ bool test_event_recording(void) {
             destination,
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
+            0,
+            0,
             NULL,
             NULL,
             &t,
@@ -103,6 +107,7 @@ bool test_event_recording(void) {
     if (snap_a.clock.id != DEFAULT_PROBE_ID) {
         passed = false;
     }
+
     result = modality_probe_record_event(t, EVENT_A);
     ERROR_CHECK(result, passed);
     result = modality_probe_record_event_with_payload(t, EVENT_A, 1);
@@ -133,6 +138,39 @@ bool test_event_recording(void) {
     result = modality_probe_produce_snapshot(t, &snap_b);
     ERROR_CHECK(result, passed);
 
+    result = modality_probe_record_time(t, 1);
+    ERROR_CHECK(result, passed);
+    result = modality_probe_record_event_with_time(t, EVENT_A, 1);
+    ERROR_CHECK(result, passed);
+    result = modality_probe_record_event_with_payload_with_time(t, EVENT_A, 1, 1);
+    ERROR_CHECK(result, passed);
+    result = modality_probe_record_time(t, 1);
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_RECORD_W_TIME(t, EVENT_A, 1, MODALITY_TAGS(my-tag));
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_RECORD_W_I8_W_TIME(t, EVENT_A, (int8_t) 1, 1);
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_RECORD_W_U8_W_TIME(t, EVENT_A, (uint8_t) 1, 1, "more docs");
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_RECORD_W_I16_W_TIME(t, EVENT_A, (int16_t) 1, 1, MODALITY_TAGS(my tag));
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_RECORD_W_U16_W_TIME(t, EVENT_A, (uint16_t) 1, 1, MODALITY_TAGS("a-tag"), "desc");
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_RECORD_W_I32_W_TIME(t, EVENT_A, (int32_t) 1, 1, "some docs");
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_RECORD_W_U32_W_TIME(t, EVENT_A, (uint32_t) 1, 1);
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_RECORD_W_BOOL_W_TIME(t, EVENT_A, true, 1, "my docs");
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_RECORD_W_F32_W_TIME(t, EVENT_A, 1.23f, 1, "my docs");
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_EXPECT(t, EVENT_A, 1 == 0, "my docs", MODALITY_TAGS("SEVERITY_10"));
+    ERROR_CHECK(result, passed);
+    result = modality_probe_produce_snapshot_with_time(t, 1, &snap_b);
+    ERROR_CHECK(result, passed);
+    result = modality_probe_merge_snapshot_with_time(t, &snap_b, 1);
+    ERROR_CHECK(result, passed);
+
     free(t);
     return passed;
 }
@@ -146,6 +184,8 @@ bool test_merge(void) {
             destination_a,
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
+            0,
+            0,
             NULL,
             NULL,
             &probe_a);
@@ -157,6 +197,8 @@ bool test_merge(void) {
             destination_b,
             DEFAULT_PROBE_SIZE,
             probe_b_id,
+            0,
+            0,
             NULL,
             NULL,
             &probe_b);
@@ -223,6 +265,8 @@ bool test_now(void) {
             destination_a,
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
+            0,
+            0,
             NULL,
             NULL,
             &probe_a);
@@ -240,6 +284,8 @@ bool test_now(void) {
             destination_b,
             DEFAULT_PROBE_SIZE,
             probe_b_id,
+            0,
+            0,
             NULL,
             NULL,
             &probe_b);
@@ -347,6 +393,8 @@ bool test_persistent_restart_sequence_id(void) {
             destination,
             DEFAULT_PROBE_SIZE,
             DEFAULT_PROBE_ID,
+            0,
+            0,
             &next_persistent_sequence_id,
             (void*) 1,
             &probe);

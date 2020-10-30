@@ -26,11 +26,21 @@ impl ProbeId {
 
     /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
     #[inline]
-    pub fn new(raw_id: u32) -> Option<Self> {
+    pub const fn new(raw_id: u32) -> Option<Self> {
         if raw_id > Self::MAX_ID {
             return None;
         }
-        NonZeroU32::new(raw_id).map(Self)
+        match NonZeroU32::new(raw_id) {
+            Some(id) => Some(Self(id)),
+            None => None,
+        }
+    }
+
+    /// # Safety
+    ///
+    /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
+    pub const unsafe fn new_unchecked(raw_id: u32) -> Self {
+        Self(NonZeroU32::new_unchecked(raw_id))
     }
 
     /// Get the underlying value with Rust's assurances
@@ -212,6 +222,9 @@ impl EventId {
     /// returned an invalid zero value or a None option variant.
     pub const EVENT_INVALID_NEXT_EPOCH_SEQ_ID: EventId =
         EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 7) });
+    /// Reserved for indicating wall clock time
+    pub const EVENT_WALL_CLOCK_TIME_ONLY: EventId =
+        EventId(unsafe { NonZeroU32::new_unchecked(EventId::MAX_INTERNAL_ID - 8) });
 
     /// The events reserved for internal use
     pub const INTERNAL_EVENTS: &'static [EventId] = &[
@@ -222,15 +235,26 @@ impl EventId {
         EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE,
         EventId::EVENT_PROBE_INITIALIZED,
         EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID,
+        EventId::EVENT_WALL_CLOCK_TIME_ONLY,
     ];
 
     /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
     #[inline]
-    pub fn new(raw_id: u32) -> Option<Self> {
+    pub const fn new(raw_id: u32) -> Option<Self> {
         if raw_id > Self::MAX_USER_ID {
             return None;
         }
-        NonZeroU32::new(raw_id).map(Self)
+        match NonZeroU32::new(raw_id) {
+            Some(id) => Some(Self(id)),
+            None => None,
+        }
+    }
+
+    /// # Safety
+    ///
+    /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
+    pub const unsafe fn new_unchecked(raw_id: u32) -> Self {
+        Self(NonZeroU32::new_unchecked(raw_id))
     }
 
     /// A means of generating ids for internal protocol use.

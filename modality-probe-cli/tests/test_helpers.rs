@@ -1,3 +1,5 @@
+#![deny(warnings)]
+
 use std::path::PathBuf;
 use std::process;
 use std::process::Command;

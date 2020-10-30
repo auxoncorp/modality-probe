@@ -2,7 +2,12 @@
 //! A report is a section of the probe's event log prepended by
 //! the most up-to-date neighbor clocks UP TO that report.
 
-use crate::{log::LogEntry, wire::le_bytes, LogicalClock, ProbeId};
+use crate::{
+    log::LogEntry,
+    time::{NanosecondResolution, WallClockId},
+    wire::le_bytes,
+    LogicalClock, ProbeId,
+};
 use core::mem;
 use static_assertions::assert_eq_size;
 
@@ -54,24 +59,28 @@ mod field {
     /// A u32 representing the probe_id of the Modality probe instance
     /// producing this report.
     pub const PROBE_ID: Field = 4..8;
-    /// The packed clock value for the probe at the time that this
+    /// The packed logical clock word for the probe at the time that this
     /// report was created.
     pub const CLOCK: Field = 8..12;
     /// The sequence number of the report.
     pub const SEQ_NUM: Field = 12..20;
     /// Whether or not this probe is using persistent epoch/restart tracking.
     pub const PERSISTENT_EPOCH_COUNTING: usize = 20;
+    /// The user-provided time resolution
+    pub const TIME_RESOLUTION: Field = 21..25;
+    /// The user-provided wall clock id
+    pub const WALL_CLOCK_ID: Field = 25..27;
     /// The number of frontier clocks present in the payload.
     ///
     /// Note: These are at the front of the payload and are specially
     /// encoded as frontier clocks.
-    pub const N_CLOCKS: Field = 21..23;
+    pub const N_CLOCKS: Field = 27..29;
     /// The number of log entries present in the payload.
-    pub const N_LOG_ENTRIES: Field = 23..27;
+    pub const N_LOG_ENTRIES: Field = 29..33;
     /// The payload, consists of (in order):
     /// * Frontier clocks
     /// * Log entries
-    pub const PAYLOAD: Rest = 27..;
+    pub const PAYLOAD: Rest = 33..;
 }
 
 impl<T: AsRef<[u8]>> WireReport<T> {
@@ -202,6 +211,20 @@ impl<T: AsRef<[u8]>> WireReport<T> {
         data[field::PERSISTENT_EPOCH_COUNTING] != 0
     }
 
+    /// Return the `time_resolution` field
+    #[inline]
+    pub fn time_resolution(&self) -> NanosecondResolution {
+        let data = self.buffer.as_ref();
+        NanosecondResolution(le_bytes::read_u32(&data[field::TIME_RESOLUTION]))
+    }
+
+    /// Return the `wall_clock_id` field
+    #[inline]
+    pub fn wall_clock_id(&self) -> WallClockId {
+        let data = self.buffer.as_ref();
+        le_bytes::read_u16(&data[field::WALL_CLOCK_ID]).into()
+    }
+
     /// Return the `n_clocks` field
     #[inline]
     pub fn n_clocks(&self) -> u16 {
@@ -263,6 +286,20 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireReport<T> {
         data[field::PERSISTENT_EPOCH_COUNTING] = u8::from(value);
     }
 
+    /// Set the `time_resolution` field
+    #[inline]
+    pub fn set_time_resolution(&mut self, value: NanosecondResolution) {
+        let data = self.buffer.as_mut();
+        le_bytes::write_u32(&mut data[field::TIME_RESOLUTION], value.0);
+    }
+
+    /// Set the `wall_clock_id` field
+    #[inline]
+    pub fn set_wall_clock_id(&mut self, value: WallClockId) {
+        let data = self.buffer.as_mut();
+        le_bytes::write_u16(&mut data[field::WALL_CLOCK_ID], u16::from(value));
+    }
+
     /// Set the `n_clocks` field
     #[inline]
     pub fn set_n_clocks(&mut self, value: u16) {
@@ -295,7 +332,7 @@ mod tests {
     use super::*;
 
     #[rustfmt::skip]
-    static MSG_BYTES: [u8; 55] = [
+    static MSG_BYTES: [u8; 61] = [
         // fingerprint
         0x54, 0x50, 0x52, 0x4D,
         // probe_id: 1
@@ -307,6 +344,10 @@ mod tests {
         0x00, 0x00, 0x00, 0x00,
         // persistent_epoch_counting: 0
         0x00,
+        // time_resolution: 255
+        0xFF, 0x00, 0x00, 0x00,
+        // wall_clock_id: 1
+        0x01, 0x00,
         // n_clocks: 2
         0x02, 0x00,
         // n_log_entries: 3
@@ -339,18 +380,18 @@ mod tests {
 
     #[test]
     fn header_len() {
-        assert_eq!(WireReport::<&[u8]>::header_len(), 27);
+        assert_eq!(WireReport::<&[u8]>::header_len(), 33);
         let n_clocks = 12;
         let n_log_items = 14;
         assert_eq!(
             WireReport::<&[u8]>::buffer_len(n_clocks, n_log_items),
-            27 + (12 * mem::size_of::<LogicalClock>()) + (14 * mem::size_of::<LogEntry>())
+            33 + (12 * mem::size_of::<LogicalClock>()) + (14 * mem::size_of::<LogEntry>())
         );
     }
 
     #[test]
     fn construct() {
-        let mut bytes = [0xFF; 55];
+        let mut bytes = [0xFF; 61];
         let mut r = WireReport::new_unchecked(&mut bytes[..]);
         assert_eq!(r.check_len(), Ok(()));
         r.set_fingerprint();
@@ -358,6 +399,8 @@ mod tests {
         r.set_clock(2);
         r.set_seq_num(8);
         r.set_persistent_epoch_counting(false);
+        r.set_time_resolution(255.into());
+        r.set_wall_clock_id(1.into());
         r.set_n_clocks(2);
         r.set_n_log_entries(3);
         r.payload_mut().copy_from_slice(&PAYLOAD_BYTES[..]);
@@ -374,6 +417,8 @@ mod tests {
         assert_eq!(r.clock(), 2);
         assert_eq!(r.seq_num(), 8);
         assert_eq!(r.persistent_epoch_counting(), false);
+        assert_eq!(r.time_resolution(), 255.into());
+        assert_eq!(r.wall_clock_id(), 1.into());
         assert_eq!(r.n_clocks(), 2);
         assert_eq!(r.n_log_entries(), 3);
         assert_eq!(
@@ -408,6 +453,8 @@ mod tests {
             r.set_clock(0xAAAA_BBBB);
             r.set_seq_num(123);
             r.set_persistent_epoch_counting(true);
+            r.set_time_resolution(0xABAB.into());
+            r.set_wall_clock_id(0xFF.into());
             r.set_n_clocks(2);
             r.set_n_log_entries(3);
             let payload_len = r.payload_len();
@@ -423,6 +470,8 @@ mod tests {
         assert_eq!(r.clock(), 0xAAAA_BBBB);
         assert_eq!(r.seq_num(), 123);
         assert_eq!(r.persistent_epoch_counting(), true);
+        assert_eq!(r.time_resolution(), 0xABAB.into());
+        assert_eq!(r.wall_clock_id(), 0xFF.into());
         assert_eq!(r.n_clocks(), 2);
         assert_eq!(r.n_log_entries(), 3);
         assert_eq!(
@@ -434,14 +483,14 @@ mod tests {
 
     #[test]
     fn invalid_fingerprint() {
-        let bytes = [0xFF; 27];
+        let bytes = [0xFF; 33];
         let r = WireReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), ReportWireError::InvalidFingerprint);
     }
 
     #[test]
     fn missing_header() {
-        let bytes = [0xFF; 27 - 1];
+        let bytes = [0xFF; 33 - 1];
         assert_eq!(bytes.len(), WireReport::<&[u8]>::header_len() - 1);
         let r = WireReport::new(&bytes[..]);
         assert_eq!(r.unwrap_err(), ReportWireError::MissingHeader);

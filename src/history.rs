@@ -1,13 +1,13 @@
 use core::{
     cmp,
     convert::TryFrom,
-    mem::{align_of, size_of},
+    mem::{align_of, size_of, MaybeUninit},
     num::NonZeroUsize,
 };
 
 use fixed_slice_vec::{
     single::{EmbedValueError, SplitUninitError},
-    FixedSliceVec, TryPushError,
+    FixedSliceVec, StorageError,
 };
 use static_assertions::{assert_eq_align, assert_eq_size, const_assert, const_assert_eq};
 
@@ -16,6 +16,7 @@ use fenced_ring_buffer::{FencedRingBuffer, WholeEntry};
 use crate::{
     log::{LogBuffer, LogEntry},
     restart_counter::RestartCounterProvider,
+    time::{NanosecondResolution, Nanoseconds, WallClockId},
     wire::{report::WireReport, WireCausalSnapshot},
     CausalSnapshot, EventId, LogicalClock, MergeError, ModalityProbeInstant, OrdClock, ProbeEpoch,
     ProbeId, ProbeTicks, ProduceError, ReportError, RestartCounter, StorageSetupError,
@@ -56,11 +57,15 @@ const_assert_eq!(
         + size_of::<LogicalClock>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
         + size_of::<RestartCounterProvider<'_>>()
-        + size_of::<u64>(),
+        + size_of::<u64>()
+        + size_of::<NanosecondResolution>()
+        + size_of::<WallClockId>()
+        + size_of::<u32>()
+        + 6,
     size_of::<DynamicHistory>()
 );
 
-// 4 bytes of padding required before clocks list to get FixedSliceVec to 8 byte align
+// 10 bytes of padding required before clocks list to get FixedSliceVec to 8 byte align
 #[cfg(target_pointer_width = "64")]
 const_assert_eq!(
     size_of::<u32>()
@@ -68,20 +73,28 @@ const_assert_eq!(
         + size_of::<LogBuffer<'_>>()
         + size_of::<u32>()
         + size_of::<LogicalClock>()
-        + 4
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
         + size_of::<RestartCounterProvider<'_>>()
-        + size_of::<u64>(),
+        + size_of::<u64>()
+        + size_of::<NanosecondResolution>()
+        + size_of::<WallClockId>()
+        + size_of::<u32>()
+        + 10,
     size_of::<DynamicHistory>()
 );
 
 /// Manages the core of a probe in-memory implementation
 /// backed by runtime-sized arrays of current logical clocks
-/// and probe log items
+/// and probe log items.
 ///
-/// Note: overwrite_priority, probe_id, and log must be accessed by the debug collector using direct memory access.
-/// No non-repr(C) fields or usizes (including refs or slices) should be put before those fields,
-/// as that would result in the offsets of those fields to change depending on the architecture of the target.
+/// NOTE: the debug-collector relies on the layout and ordering
+/// of the fields in the ModalityProbe and DynamicHistory.
+/// This keeps the offsets from changing across target architectures.
+/// The following fields *must* be repr(c) and be kept before
+/// any non-repr(c) fields:
+/// * overwrite_priority
+/// * probe_id
+/// * log
 #[derive(Debug)]
 #[repr(C)]
 pub struct DynamicHistory<'a> {
@@ -100,6 +113,9 @@ pub struct DynamicHistory<'a> {
     pub(crate) clocks: FixedSliceVec<'a, LogicalClock>,
     pub(crate) restart_counter: RestartCounterProvider<'a>,
     pub(crate) report_seq_num: u64,
+    pub(crate) time_resolution: NanosecondResolution,
+    pub(crate) wall_clock_id: WallClockId,
+    pub(crate) missed_log_entry_count: u32,
 }
 
 #[derive(Debug)]
@@ -108,8 +124,10 @@ struct ClocksFullError;
 impl<'a> DynamicHistory<'a> {
     #[inline]
     pub(crate) fn new_at(
-        destination: &'a mut [u8],
+        destination: &'a mut [MaybeUninit<u8>],
         probe_id: ProbeId,
+        time_resolution: NanosecondResolution,
+        wall_clock_id: WallClockId,
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut DynamicHistory<'a>, StorageSetupError> {
         let remaining_bytes = destination.len();
@@ -119,22 +137,31 @@ impl<'a> DynamicHistory<'a> {
         if destination.as_ptr().is_null() {
             return Err(StorageSetupError::NullDestination);
         }
-        let history = match fixed_slice_vec::single::embed(destination, |dynamic_region_slice| {
-            DynamicHistory::new(dynamic_region_slice, probe_id, restart_counter)
-        }) {
-            Ok(v) => Ok(v),
-            Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
-                Err(StorageSetupError::UnderMinimumAllowedSize)
-            }
-            Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => {
-                Err(StorageSetupError::UnderMinimumAllowedSize)
-            }
-            Err(EmbedValueError::SplitUninitError(SplitUninitError::ZeroSizedTypesUnsupported)) => {
-                const_assert!(size_of::<DynamicHistory>() > 0);
-                panic!("Static assertions ensure that this structure is not zero sized")
-            }
-            Err(EmbedValueError::ConstructionError(e)) => Err(e),
-        }?;
+        let history =
+            match fixed_slice_vec::single::embed_uninit(destination, |dynamic_region_slice| {
+                DynamicHistory::new(
+                    dynamic_region_slice,
+                    probe_id,
+                    time_resolution,
+                    wall_clock_id,
+                    restart_counter,
+                )
+            }) {
+                Ok(v) => Ok(v),
+                Err(EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)) => {
+                    Err(StorageSetupError::UnderMinimumAllowedSize)
+                }
+                Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => {
+                    Err(StorageSetupError::UnderMinimumAllowedSize)
+                }
+                Err(EmbedValueError::SplitUninitError(
+                    SplitUninitError::ZeroSizedTypesUnsupported,
+                )) => {
+                    const_assert!(size_of::<DynamicHistory>() > 0);
+                    panic!("Static assertions ensure that this structure is not zero sized")
+                }
+                Err(EmbedValueError::ConstructionError(e)) => Err(e),
+            }?;
         {
             let history_ptr = history as *mut DynamicHistory as usize;
             let clocks_ptr = history.clocks.as_slice().as_ptr() as usize;
@@ -155,8 +182,10 @@ impl<'a> DynamicHistory<'a> {
 
     #[inline]
     fn new(
-        dynamic_region_slice: &'a mut [u8],
+        dynamic_region_slice: &'a mut [MaybeUninit<u8>],
         probe_id: ProbeId,
+        time_resolution: NanosecondResolution,
+        wall_clock_id: WallClockId,
         mut restart_counter: RestartCounterProvider<'a>,
     ) -> Result<Self, StorageSetupError> {
         let max_n_clocks = cmp::max(
@@ -168,12 +197,12 @@ impl<'a> DynamicHistory<'a> {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
         }
         let (clocks_region, log_region) = dynamic_region_slice.split_at_mut(clocks_region_bytes);
-        let mut clocks = FixedSliceVec::from_bytes(clocks_region);
+        let mut clocks = FixedSliceVec::from_uninit_bytes(clocks_region);
         // Create new FencedRingBuffer, using full log region instead of rounding to power of 2 length for
         // optimized indexing
         // Note: point of future improvement - a heuristic could be used to determine whether or not the memory cost
         // of rounding the log's storage space outweighs the runtime cost of using mod operations for indexing
-        let log = FencedRingBuffer::new_from_bytes(log_region, false)
+        let log = FencedRingBuffer::new_from_uninit_bytes(log_region, false)
             .map_err(|_| StorageSetupError::UnderMinimumAllowedSize)?;
         if clocks.capacity() < MIN_CLOCKS_LEN || (log.capacity() as usize) < MIN_LOG_LEN {
             return Err(StorageSetupError::UnderMinimumAllowedSize);
@@ -202,6 +231,9 @@ impl<'a> DynamicHistory<'a> {
             clocks,
             log,
             restart_counter,
+            time_resolution,
+            wall_clock_id,
+            missed_log_entry_count: 0,
         };
         history.write_clocks_to_log(&[history.self_clock]);
         history.record_event(EventId::EVENT_PROBE_INITIALIZED);
@@ -220,6 +252,77 @@ impl<'a> DynamicHistory<'a> {
                     let (epoch, ticks) = crate::unpack_clock_word(two.raw());
                     self.merge_clock(LogicalClock { id, epoch, ticks });
                 }
+            }
+        }
+    }
+
+    /// Merge overwritten logical clock entries as needed, then check
+    /// for overwritten paired wall clock time entries, removing their
+    /// buddy entries as needed, managing
+    /// the missed entry counter along the way
+    #[inline]
+    fn process_overwritten_log_entries(
+        &mut self,
+        first_overwritten: Option<WholeEntry<LogEntry>>,
+        second_overwritten: Option<WholeEntry<LogEntry>>,
+    ) {
+        self.merge_overwritten_clock(first_overwritten);
+        self.merge_overwritten_clock(second_overwritten);
+
+        // Fenced-ring-buffer keeps track of missed entries until the log is pop'd
+        self.missed_log_entry_count =
+            cmp::max(self.missed_log_entry_count, self.log.num_missed() as u32);
+
+        // Fenced-ring-buffer will yield overwritten entries regardless
+        // of whether or not the buffer is full, only increment probe-local
+        // missed counter when the log is actually full and overwriting the tail
+        let log_was_full = self.log.is_full();
+
+        if let Some(overwritten) = first_overwritten {
+            if overwritten.is_double()
+                && overwritten
+                    .first_entry()
+                    .has_wall_clock_time_paired_bit_set()
+            {
+                // The buddy entry is either already pop'd in second_overwritten
+                // or the next tail entry in the log
+                if second_overwritten.is_none() {
+                    let buddy_entry = self.log.pop();
+
+                    if let Some(e) = buddy_entry {
+                        if log_was_full {
+                            self.missed_log_entry_count =
+                                self.missed_log_entry_count.saturating_add(e.size().into());
+                        }
+                    }
+
+                    self.merge_overwritten_clock(buddy_entry);
+                }
+
+                // All done, don't need to do anything with second_overwritten
+                return;
+            }
+        }
+
+        // first_overwritten was not a paired wall clock time entry,
+        // need to do the same checks on second_overwritten
+        if let Some(overwritten) = second_overwritten {
+            if overwritten.is_double()
+                && overwritten
+                    .first_entry()
+                    .has_wall_clock_time_paired_bit_set()
+            {
+                // The buddy entry is the next tail entry in the log
+                let buddy_entry = self.log.pop();
+
+                if let Some(e) = buddy_entry {
+                    if log_was_full {
+                        self.missed_log_entry_count =
+                            self.missed_log_entry_count.saturating_add(e.size().into());
+                    }
+                }
+
+                self.merge_overwritten_clock(buddy_entry);
             }
         }
     }
@@ -264,7 +367,7 @@ impl<'a> DynamicHistory<'a> {
     pub(crate) fn record_event(&mut self, event_id: EventId) {
         // N.B. point for future improvement - basic compression here
         let overwritten = self.log.push(LogEntry::event(event_id));
-        self.merge_overwritten_clock(overwritten);
+        self.process_overwritten_log_entries(overwritten, None);
         self.event_count = self.event_count.saturating_add(1);
     }
 
@@ -277,8 +380,46 @@ impl<'a> DynamicHistory<'a> {
     pub(crate) fn record_event_with_payload(&mut self, event_id: EventId, payload: u32) {
         let (first, second) = LogEntry::event_with_payload(event_id, payload);
         let (first_overwritten, second_overwritten) = self.log.push_double(first, second);
-        self.merge_overwritten_clock(first_overwritten);
-        self.merge_overwritten_clock(second_overwritten);
+        self.process_overwritten_log_entries(first_overwritten, second_overwritten);
+        self.event_count = self.event_count.saturating_add(1);
+    }
+
+    #[inline]
+    pub(crate) fn record_time(&mut self, time: Nanoseconds) {
+        self.record_unpaired_wall_clock_time(time);
+    }
+
+    #[inline]
+    pub fn record_event_with_time(&mut self, event_id: EventId, time: Nanoseconds) {
+        self.record_paired_wall_clock_time(time);
+        self.record_event(event_id);
+    }
+
+    #[inline]
+    pub fn record_event_with_payload_with_time(
+        &mut self,
+        event_id: EventId,
+        payload: u32,
+        time: Nanoseconds,
+    ) {
+        self.record_paired_wall_clock_time(time);
+        self.record_event_with_payload(event_id, payload);
+    }
+
+    #[inline]
+    fn record_paired_wall_clock_time(&mut self, time: Nanoseconds) {
+        let (first, second) = LogEntry::paired_wall_clock_time(time);
+        let (first_overwritten, second_overwritten) = self.log.push_double(first, second);
+        self.process_overwritten_log_entries(first_overwritten, second_overwritten);
+        // NOTE: paired wall clock time entries do not increment the event count, they're
+        // associated with another entry
+    }
+
+    #[inline]
+    fn record_unpaired_wall_clock_time(&mut self, time: Nanoseconds) {
+        let (first, second) = LogEntry::unpaired_wall_clock_time(time);
+        let (first_overwritten, second_overwritten) = self.log.push_double(first, second);
+        self.process_overwritten_log_entries(first_overwritten, second_overwritten);
         self.event_count = self.event_count.saturating_add(1);
     }
 
@@ -318,7 +459,7 @@ impl<'a> DynamicHistory<'a> {
         &mut self,
         destination: &mut [u8],
     ) -> Result<Option<NonZeroUsize>, ReportError> {
-        // The log has been drained if there are no events report
+        // The log has been drained if there are no events to report
         // (excluding the expected EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
         match self.log.len() {
             0 => return Ok(None),
@@ -345,6 +486,8 @@ impl<'a> DynamicHistory<'a> {
         report.set_probe_id(self.probe_id);
         report.set_clock(crate::pack_clock_word(self_clock.epoch, self_clock.ticks));
         report.set_persistent_epoch_counting(self.restart_counter.is_tracking_restarts());
+        report.set_time_resolution(self.time_resolution);
+        report.set_wall_clock_id(self.wall_clock_id);
 
         // We can't store at least the frontier clocks and a single two-word item
         if report.as_ref().len() < WireReport::<&[u8]>::buffer_len(self.clocks.len(), 2) {
@@ -379,12 +522,13 @@ impl<'a> DynamicHistory<'a> {
             let mut did_clocks_overflow = false;
             let mut n_copied = 0;
 
-            // Round num_missed to fit into a u32
-            let n_entries_missed = u64::min(self.log.num_missed(), u32::MAX as u64) as u32;
-            if n_entries_missed != 0 {
-                // Log missed entries event
-                let (first, second) =
-                    LogEntry::event_with_payload(EventId::EVENT_LOG_ITEMS_MISSED, n_entries_missed);
+            // Log missed entries event
+            if self.missed_log_entry_count != 0 {
+                let (first, second) = LogEntry::event_with_payload(
+                    EventId::EVENT_LOG_ITEMS_MISSED,
+                    self.missed_log_entry_count,
+                );
+                self.missed_log_entry_count = 0;
                 let dest_bytes = &mut log_region[0..2 * size_of::<LogEntry>()];
                 dest_bytes[0..4].copy_from_slice(&first.raw().to_le_bytes());
                 dest_bytes[4..8].copy_from_slice(&second.raw().to_le_bytes());
@@ -401,6 +545,15 @@ impl<'a> DynamicHistory<'a> {
                             // Not enough space for the double-item entry, break
                             // out of the loop here, and don't consume the peeked entries
                             break;
+                        }
+
+                        // Ensure we never fragment a paired wall clock entry from its
+                        // associated other entry across reports
+                        if first.has_wall_clock_time_paired_bit_set() {
+                            // Bail out early if we don't have room another double-item entry
+                            if n_copied + 4 > n_entries_possible {
+                                break;
+                            }
                         }
 
                         // Merge clocks into probe's clock list
@@ -467,6 +620,19 @@ impl<'a> DynamicHistory<'a> {
     }
 
     #[inline]
+    pub(crate) fn produce_snapshot_with_time(&mut self, time: Nanoseconds) -> CausalSnapshot {
+        let snap = CausalSnapshot {
+            clock: self.self_clock,
+            reserved_0: [0, 0],
+            reserved_1: [0, 0],
+        };
+        self.increment_local_clock();
+        self.record_paired_wall_clock_time(time);
+        self.write_clocks_to_log(&[self.self_clock]);
+        snap
+    }
+
+    #[inline]
     pub(crate) fn produce_snapshot_bytes(
         &mut self,
         destination: &mut [u8],
@@ -484,6 +650,25 @@ impl<'a> DynamicHistory<'a> {
     }
 
     #[inline]
+    pub(crate) fn produce_snapshot_bytes_with_time(
+        &mut self,
+        time: Nanoseconds,
+        destination: &mut [u8],
+    ) -> Result<usize, ProduceError> {
+        let mut s = WireCausalSnapshot::new_unchecked(destination);
+        s.check_len()?;
+        s.set_probe_id(self.self_clock.id);
+        s.set_epoch(self.self_clock.epoch);
+        s.set_ticks(self.self_clock.ticks);
+        s.set_reserved_0([0, 0]);
+        s.set_reserved_1([0, 0]);
+        self.increment_local_clock();
+        self.record_paired_wall_clock_time(time);
+        self.write_clocks_to_log(&[self.self_clock]);
+        Ok(WireCausalSnapshot::<&[u8]>::min_buffer_len())
+    }
+
+    #[inline]
     pub(crate) fn merge_snapshot(
         &mut self,
         external_history: &CausalSnapshot,
@@ -492,6 +677,7 @@ impl<'a> DynamicHistory<'a> {
             external_history.clock.id,
             external_history.clock.epoch,
             external_history.clock.ticks,
+            None,
         )
     }
 
@@ -502,15 +688,48 @@ impl<'a> DynamicHistory<'a> {
             external_history.clock.id,
             external_history.clock.epoch,
             external_history.clock.ticks,
+            None,
         )
     }
 
+    #[inline]
+    pub(crate) fn merge_snapshot_with_time(
+        &mut self,
+        external_history: &CausalSnapshot,
+        time: Nanoseconds,
+    ) -> Result<(), MergeError> {
+        self.merge_internal(
+            external_history.clock.id,
+            external_history.clock.epoch,
+            external_history.clock.ticks,
+            Some(time),
+        )
+    }
+
+    #[inline]
+    pub(crate) fn merge_snapshot_bytes_with_time(
+        &mut self,
+        source: &[u8],
+        time: Nanoseconds,
+    ) -> Result<(), MergeError> {
+        let external_history = CausalSnapshot::try_from(source)?;
+        self.merge_internal(
+            external_history.clock.id,
+            external_history.clock.epoch,
+            external_history.clock.ticks,
+            Some(time),
+        )
+    }
+
+    // NOTE: if paired_wall_clock_time is provided (via a snapshot merge/produce_with_time),
+    // then it will be inserted into the log before the local logical clock
     #[inline]
     fn merge_internal(
         &mut self,
         external_id: ProbeId,
         external_epoch: ProbeEpoch,
         external_clock: ProbeTicks,
+        paired_wall_clock_time: Option<Nanoseconds>,
     ) -> Result<(), MergeError> {
         if external_id == self.probe_id {
             // Quietly ignore self-snapshots in order to reduce complexity
@@ -520,6 +739,9 @@ impl<'a> DynamicHistory<'a> {
             return Ok(());
         }
         self.increment_local_clock();
+        if let Some(t) = paired_wall_clock_time {
+            self.record_paired_wall_clock_time(t);
+        }
         self.write_clocks_to_log(&[
             self.self_clock,
             LogicalClock {
@@ -531,13 +753,14 @@ impl<'a> DynamicHistory<'a> {
         Ok(())
     }
 
+    // NOTE: if there was an associated paired wall clock time entry
+    // (via snapshot merge/produce_with_time), it will precede the local logical clocks
     #[inline]
     fn write_clocks_to_log(&mut self, clocks: &[LogicalClock]) {
         for c in clocks.iter() {
             let (first, second) = LogEntry::clock(*c);
             let (first_overwritten, second_overwritten) = self.log.push_double(first, second);
-            self.merge_overwritten_clock(first_overwritten);
-            self.merge_overwritten_clock(second_overwritten);
+            self.process_overwritten_log_entries(first_overwritten, second_overwritten);
         }
     }
 
@@ -552,7 +775,7 @@ impl<'a> DynamicHistory<'a> {
     pub(crate) fn merge_clocks<'c>(
         clocks: &mut FixedSliceVec<'c, LogicalClock>,
         ext_clock: LogicalClock,
-    ) -> Result<(), TryPushError<LogicalClock>> {
+    ) -> Result<(), StorageError<LogicalClock>> {
         let mut existed = false;
         for c in clocks.iter_mut() {
             if c.id == ext_clock.id {
@@ -610,10 +833,12 @@ mod test {
             |h: &DynamicHistory, id: ProbeId| h.clocks.iter().find(|c| c.id == id).cloned();
 
         {
-            let mut storage_a = [0u8; 512];
+            let mut storage_a = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(
                 &mut storage_a,
                 probe_a,
+                NanosecondResolution::UNSPECIFIED,
+                WallClockId::local_only(),
                 RestartCounterProvider::NoRestartTracking,
             )
             .unwrap();
@@ -651,10 +876,12 @@ mod test {
         // Wrap around can happen even if a few messages were missed (because of
         // repeated restarts)
         {
-            let mut storage_a = [0u8; 512];
+            let mut storage_a = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(
                 &mut storage_a,
                 probe_a,
+                NanosecondResolution::UNSPECIFIED,
+                WallClockId::local_only(),
                 RestartCounterProvider::NoRestartTracking,
             )
             .unwrap();
@@ -666,10 +893,12 @@ mod test {
 
         // But not outside the threshold
         {
-            let mut storage_a = [0u8; 512];
+            let mut storage_a = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(
                 &mut storage_a,
                 probe_a,
+                NanosecondResolution::UNSPECIFIED,
+                WallClockId::local_only(),
                 RestartCounterProvider::NoRestartTracking,
             )
             .unwrap();
@@ -686,10 +915,12 @@ mod test {
     #[test]
     fn merged_clocks_overflow_error_event() {
         let probe_id = ProbeId::new(1).unwrap();
-        let mut storage = [0u8; 512];
+        let mut storage = [MaybeUninit::new(0u8); 512];
         let h = DynamicHistory::new_at(
             &mut storage,
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -715,7 +946,7 @@ mod test {
         let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         assert_eq!(log_report.n_clocks() as usize, h.clocks.capacity());
-        assert_eq!(log_report.n_log_entries(), 20);
+        assert_eq!(log_report.n_log_entries(), 17);
 
         let offset = log_report.n_clocks() as usize * size_of::<LogicalClock>();
         let log_bytes = &log_report.payload()[offset..];
@@ -743,25 +974,28 @@ mod test {
     #[test]
     fn drain_report_until_completion() {
         let probe_id = ProbeId::new(1).unwrap();
-        let mut storage = [0u8; 1024];
+        let mut storage = [MaybeUninit::new(0u8); 1036];
         let h = DynamicHistory::new_at(
             &mut storage,
             probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
 
-        for i in 0..h.log.capacity() {
+        const EXPECTED_LOG_CAPACITY: usize = 196;
+        assert_eq!(h.log.capacity(), EXPECTED_LOG_CAPACITY);
+        assert_eq!(h.log.len(), 3);
+
+        for i in 0..(h.log.capacity() - h.log.len()) {
             h.record_event(EventId::new(i as u32 + 1).unwrap());
         }
         assert_eq!(h.log.len(), h.log.capacity());
 
-        const EXPECTED_LOG_CAPACITY: usize = 196;
-        assert_eq!(h.log.capacity(), EXPECTED_LOG_CAPACITY);
-
         // Each report (excluding the first, and until drained) adds an
         // extra internal event: EventId::EVENT_PRODUCED_EXTERNAL_REPORT.
-        const EXPECTED_LOG_ENTRIES: usize = EXPECTED_LOG_CAPACITY + 6;
+        const EXPECTED_LOG_ENTRIES: usize = EXPECTED_LOG_CAPACITY + 4;
 
         // Drain into a buffer that is ~1/4 of the log buffer capacity
         let report_buffer_size =
@@ -782,10 +1016,10 @@ mod test {
 
         // One more to get the remainder
         let bytes_written = h.report(&mut report_dest).unwrap().unwrap();
-        assert_eq!(bytes_written.get(), 59);
+        assert_eq!(bytes_written.get(), 57);
         let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
-        assert_eq!(log_report.n_log_entries(), 6);
+        assert_eq!(log_report.n_log_entries(), 4);
         reported_log_entries += log_report.n_log_entries() as usize;
 
         assert_eq!(reported_log_entries, EXPECTED_LOG_ENTRIES);
@@ -822,8 +1056,15 @@ mod test {
                 iface: &mut next_id_provider,
             });
 
-            let mut storage_a = [0u8; 512];
-            let h = DynamicHistory::new_at(&mut storage_a, probe_a, provider).unwrap();
+            let mut storage_a = [MaybeUninit::new(0u8); 512];
+            let h = DynamicHistory::new_at(
+                &mut storage_a,
+                probe_a,
+                NanosecondResolution::UNSPECIFIED,
+                WallClockId::local_only(),
+                provider,
+            )
+            .unwrap();
 
             let now = h.now();
             assert_eq!(now.clock.epoch.0, 100);
@@ -837,8 +1078,15 @@ mod test {
                 iface: &mut next_id_provider,
             });
 
-            let mut storage_a = [0u8; 512];
-            let h = DynamicHistory::new_at(&mut storage_a, probe_a, provider).unwrap();
+            let mut storage_a = [MaybeUninit::new(0u8); 512];
+            let h = DynamicHistory::new_at(
+                &mut storage_a,
+                probe_a,
+                NanosecondResolution::UNSPECIFIED,
+                WallClockId::local_only(),
+                provider,
+            )
+            .unwrap();
 
             let now = h.now();
             assert_eq!(now.clock.epoch.0, 101);
@@ -880,8 +1128,15 @@ mod test {
         });
 
         let probe_id = ProbeId::new(1).unwrap();
-        let mut storage = [0u8; 512];
-        let h = DynamicHistory::new_at(&mut storage, probe_id, provider).unwrap();
+        let mut storage = [MaybeUninit::new(0u8); 512];
+        let h = DynamicHistory::new_at(
+            &mut storage,
+            probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
+            provider,
+        )
+        .unwrap();
 
         let now = h.now();
         assert_eq!(now.clock.epoch, ProbeEpoch::MIN);
@@ -907,10 +1162,12 @@ mod test {
         #[test]
         fn produce_and_merge_snapshot_ticks_clock() {
             let probe_id = ProbeId::new(1).unwrap();
-            let mut storage = [0u8; 512];
+            let mut storage = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(
                 &mut storage,
                 probe_id,
+                NanosecondResolution::UNSPECIFIED,
+                WallClockId::local_only(),
                 RestartCounterProvider::NoRestartTracking,
             )
             .unwrap();
@@ -1001,13 +1258,16 @@ mod test {
                 }
             );
         }
+
         #[test]
         fn record_events_ticks_event_counts() {
             let probe_id = ProbeId::new(1).unwrap();
-            let mut storage = [0u8; 512];
+            let mut storage = [MaybeUninit::new(0u8); 512];
             let h = DynamicHistory::new_at(
                 &mut storage,
                 probe_id,
+                NanosecondResolution::UNSPECIFIED,
+                WallClockId::local_only(),
                 RestartCounterProvider::NoRestartTracking,
             )
             .unwrap();
@@ -1114,6 +1374,59 @@ mod test {
                     event_count: 1
                 }
             );
+        }
+    }
+
+    #[test]
+    fn overwritten_paired_wall_clock_time_drops_buddy_entry() {
+        let probe_id = ProbeId::new(1).unwrap();
+        let mut storage = [MaybeUninit::new(0u8); 512];
+        let h = DynamicHistory::new_at(
+            &mut storage,
+            probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
+        let event_a = EventId::new(8888).unwrap();
+        let event_b = EventId::new(9999).unwrap();
+
+        // self clock (double) + probe-initialized (single)
+        assert_eq!(h.log.len(), 3);
+        assert_eq!(h.log.capacity() % 2, 0);
+        assert_eq!(h.missed_log_entry_count, 0);
+
+        let double_item_capacity = h.log.capacity() / 2;
+        // +1 (4 entries) to overwrite the initial 3 entries logged in construction
+        let ev_with_payload_and_time_capacity = 1 + (double_item_capacity / 2);
+
+        // Fill the log to capacity with paired wall clock entries
+        for i in 0..ev_with_payload_and_time_capacity {
+            h.record_event_with_payload_with_time(
+                event_a,
+                i as u32,
+                Nanoseconds::new(i as u64).unwrap(),
+            );
+        }
+
+        // Should miss the first 3 entries followed by another
+        // 4 for the paired time + event with payload (+1 from above)
+        assert_eq!(h.missed_log_entry_count, 3 + 4);
+
+        // Room for 2 more entries since we've pop'd off buddy entries
+        assert_eq!(h.log.capacity() - h.log.len(), 2);
+        h.record_event_with_payload_with_time(event_b, 1234, Nanoseconds::new(12345).unwrap());
+
+        // Next single entry should overwrite a double
+        h.record_event(event_b);
+        assert_eq!(h.missed_log_entry_count, 3 + 4 + 2);
+
+        // Now search through the log entries, check that all paired time entries have a buddy
+        while let Some(e) = h.log.pop() {
+            if e.is_double() && e.first_entry().has_wall_clock_time_paired_bit_set() {
+                assert!(h.log.peek().is_some());
+            }
         }
     }
 }

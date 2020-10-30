@@ -9,11 +9,11 @@ assert_cfg!(not(target_pointer_width = "16"));
 use core::{
     cmp::{max, Ordering},
     convert::TryFrom,
-    mem::{align_of, size_of},
+    mem::{align_of, size_of, MaybeUninit},
     num::NonZeroUsize,
 };
 
-use fixed_slice_vec::single::{embed, EmbedValueError, SplitUninitError};
+use fixed_slice_vec::single::{embed_uninit, EmbedValueError, SplitUninitError};
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 use static_assertions::{assert_cfg, const_assert};
@@ -27,6 +27,7 @@ pub use restart_counter::{
     next_sequence_id_fn, CRestartCounterProvider, RestartCounter, RestartCounterProvider,
     RestartSequenceIdUnavailable, RustRestartCounterProvider,
 };
+pub use time::{NanosecondResolution, Nanoseconds, WallClockId};
 
 mod error;
 mod history;
@@ -34,6 +35,7 @@ mod id;
 pub mod log;
 mod macros;
 mod restart_counter;
+pub mod time;
 pub mod wire;
 
 #[cfg(feature = "debug-collector-access")]
@@ -233,12 +235,20 @@ impl LogicalClock {
 
 /// Interface for the core (post-initialization) operations of `ModalityProbe`
 pub trait Probe {
+    /// Record a timestamp into the log.
+    fn record_time(&mut self, time: Nanoseconds);
+
     /// Record that an event occurred. The end user is responsible
     /// for associating meaning with each event_id.
     ///
     /// Accepts an event_id pre-validated to be within the acceptable
     /// range.
     fn record_event(&mut self, event_id: EventId);
+
+    /// Record that an event occurred with time.
+    ///
+    /// See also [ModalityProbe::record_event](struct.ModalityProbe.html#method.record_event).
+    fn record_event_with_time(&mut self, event_id: EventId, time: Nanoseconds);
 
     /// Record that an event occurred with a `u32`'s width's worth (4
     /// bytes) of context via `payload`. The end user is responsible for
@@ -248,9 +258,24 @@ pub trait Probe {
     /// range.
     fn record_event_with_payload(&mut self, event_id: EventId, payload: u32);
 
+    /// Record that an event occurred with a `u32`'s width's worth (4
+    /// bytes) of context via `payload` and time.
+    ///
+    /// See also [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.          record_event_with_payload).
+    fn record_event_with_payload_with_time(
+        &mut self,
+        event_id: EventId,
+        payload: u32,
+        time: Nanoseconds,
+    );
+
     /// Write a summary of this probe's causal history for use
     /// by another probe elsewhere in the system.
     fn produce_snapshot(&mut self) -> CausalSnapshot;
+
+    /// Write a summary of this probe's causal history with time for use
+    /// by another probe elsewhere in the system.
+    fn produce_snapshot_with_time(&mut self, time: Nanoseconds) -> CausalSnapshot;
 
     /// Write a summary of this probe's causal history for use
     /// by another probe elsewhere in the system.
@@ -262,13 +287,43 @@ pub trait Probe {
     /// If the write was successful, returns the number of bytes written.
     fn produce_snapshot_bytes(&mut self, destination: &mut [u8]) -> Result<usize, ProduceError>;
 
+    /// Write a summary of this probe's causal history with time for use
+    /// by another probe elsewhere in the system.
+    ///
+    /// This summary can be treated as an opaque blob of data
+    /// that ought to be passed around to be `merge_snapshot`d, though
+    /// it will conform to an internal schema for the interested.
+    ///
+    /// If the write was successful, returns the number of bytes written.
+    fn produce_snapshot_bytes_with_time(
+        &mut self,
+        time: Nanoseconds,
+        destination: &mut [u8],
+    ) -> Result<usize, ProduceError>;
+
     /// Consume a causal history summary structure provided
     /// by some other probe via `produce_snapshot`.
     fn merge_snapshot(&mut self, external_history: &CausalSnapshot) -> Result<(), MergeError>;
 
+    /// Consume a causal history summary structure with time provided
+    /// by some other probe via `produce_snapshot`.
+    fn merge_snapshot_with_time(
+        &mut self,
+        external_history: &CausalSnapshot,
+        time: Nanoseconds,
+    ) -> Result<(), MergeError>;
+
     /// Consume a causal history summary blob provided
     /// by some other probe via `produce_snapshot_bytes`.
     fn merge_snapshot_bytes(&mut self, source: &[u8]) -> Result<(), MergeError>;
+
+    /// Consume a causal history summary blob with time provided
+    /// by some other probe via `produce_snapshot_bytes`.
+    fn merge_snapshot_bytes_with_time(
+        &mut self,
+        source: &[u8],
+        time: Nanoseconds,
+    ) -> Result<(), MergeError>;
 
     /// Copies a wire-ready report into `destination`.
     ///
@@ -319,14 +374,22 @@ impl<'a> ModalityProbe<'a> {
     ///
     #[inline]
     pub fn try_initialize_at(
-        memory: &'a mut [u8],
+        memory: &'a mut [MaybeUninit<u8>],
         probe_id: u32,
+        time_resolution: NanosecondResolution,
+        wall_clock_id: WallClockId,
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut ModalityProbe<'a>, InitializationError> {
         let probe_id = ProbeId::try_from(probe_id)
             .map_err(|_: InvalidProbeId| InitializationError::InvalidProbeId)?;
-        ModalityProbe::initialize_at(memory, probe_id, restart_counter)
-            .map_err(InitializationError::StorageSetupError)
+        ModalityProbe::initialize_at(
+            memory,
+            probe_id,
+            time_resolution,
+            wall_clock_id,
+            restart_counter,
+        )
+        .map_err(InitializationError::StorageSetupError)
     }
 
     /// Initialize a probe for this probe id.
@@ -343,8 +406,10 @@ impl<'a> ModalityProbe<'a> {
     /// Use `new_with_storage` instead if you're working in Rust.
     #[inline]
     pub fn initialize_at(
-        memory: &'a mut [u8],
+        memory: &'a mut [MaybeUninit<u8>],
         probe_id: ProbeId,
+        time_resolution: NanosecondResolution,
+        wall_clock_id: WallClockId,
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<&'a mut ModalityProbe<'a>, StorageSetupError> {
         // Align memory before embedding so that all padding is filled with guard bytes
@@ -354,10 +419,16 @@ impl<'a> ModalityProbe<'a> {
         let (padding, aligned_memory) = memory.split_at_mut(padding_offset);
         let aligned_ptr = aligned_memory.as_ptr();
         for b in padding.iter_mut() {
-            *b = Self::PADDING_GUARD_BYTE;
+            *b = MaybeUninit::new(Self::PADDING_GUARD_BYTE);
         }
-        match embed(memory, |history_memory| {
-            ModalityProbe::new_with_storage(history_memory, probe_id, restart_counter)
+        match embed_uninit(memory, |history_memory| {
+            ModalityProbe::new_with_storage(
+                history_memory,
+                probe_id,
+                time_resolution,
+                wall_clock_id,
+                restart_counter,
+            )
         }) {
             Ok(v) => {
                 // Check there is no extra padding beyond guard bytes
@@ -385,15 +456,88 @@ impl<'a> ModalityProbe<'a> {
     /// `probe_id` ought to be unique throughout the system.
     #[inline]
     pub fn new_with_storage(
-        history_memory: &'a mut [u8],
+        history_memory: &'a mut [MaybeUninit<u8>],
         probe_id: ProbeId,
+        time_resolution: NanosecondResolution,
+        wall_clock_id: WallClockId,
         restart_counter: RestartCounterProvider<'a>,
     ) -> Result<ModalityProbe<'a>, StorageSetupError> {
         Ok(ModalityProbe::<'a> {
             fingerprint: Self::STRUCT_FINGERPRINT,
             fingerprint_padding: 0,
-            history: DynamicHistory::new_at(history_memory, probe_id, restart_counter)?,
+            history: DynamicHistory::new_at(
+                history_memory,
+                probe_id,
+                time_resolution,
+                wall_clock_id,
+                restart_counter,
+            )?,
         })
+    }
+
+    /// Record a timestamp into the log.
+    ///
+    /// Accepts a primitive time and
+    /// returns an error if the time was discovered
+    /// to be invalid.
+    ///
+    /// If you're working in Rust and want type assurances around
+    /// id kinds or want to avoid the performance penalty of id validation
+    /// every call, use `record_time` instead.
+    #[inline]
+    pub fn try_record_time(&mut self, time_ns: u64) -> Result<(), InvalidWallClockTime> {
+        let time = Nanoseconds::new(time_ns).ok_or(InvalidWallClockTime)?;
+        self.history.record_time(time);
+        Ok(())
+    }
+
+    /// Record that an event occurred with time.
+    ///
+    /// Accepts a primitive event_id/time and
+    /// returns an error if either was discovered
+    /// to be invalid.
+    ///
+    /// If you're working in Rust and want type assurances around
+    /// id kinds or want to avoid the performance penalty of id validation
+    /// every call, use `record_event_with_time` instead.
+    ///
+    /// See also [ModalityProbe::record_event](struct.ModalityProbe.html#method.record_event).
+    #[inline]
+    pub fn try_record_event_with_time(
+        &mut self,
+        event_id: u32,
+        time_ns: u64,
+    ) -> Result<(), WithTimeError> {
+        let event_id = EventId::try_from(event_id)?;
+        let time = Nanoseconds::new(time_ns).ok_or(InvalidWallClockTime)?;
+        self.history.record_event_with_time(event_id, time);
+        Ok(())
+    }
+
+    /// Record that an event occurred with a `u32`'s width's worth (4
+    /// bytes) of context via `payload` and time.
+    ///
+    /// Accepts a primitive event_id/time and
+    /// returns an error if either was discovered
+    /// to be invalid.
+    ///
+    /// If you're working in Rust and want type assurances around
+    /// id kinds or want to avoid the performance penalty of id validation
+    /// every call, use `record_event_with_payload_with_time` instead.
+    ///
+    /// See also [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.          record_event_with_payload).
+    #[inline]
+    pub fn try_record_event_with_payload_with_time(
+        &mut self,
+        event_id: u32,
+        payload: u32,
+        time_ns: u64,
+    ) -> Result<(), WithTimeError> {
+        let event_id = EventId::try_from(event_id)?;
+        let time = Nanoseconds::new(time_ns).ok_or(InvalidWallClockTime)?;
+        self.history
+            .record_event_with_payload_with_time(event_id, payload, time);
+        Ok(())
     }
 
     /// Record that an event occurred. The end user is responsible
@@ -471,20 +615,36 @@ impl PartialOrd for ModalityProbeInstant {
     }
 }
 
-/// Raw bytes related to extension metadata stored alongside
-/// the messages transmitted in this system (reports).
-#[derive(Debug)]
-pub struct ExtensionBytes<'a>(pub &'a [u8]);
-
 impl<'a> Probe for ModalityProbe<'a> {
+    #[inline]
+    fn record_time(&mut self, time: Nanoseconds) {
+        self.history.record_time(time);
+    }
+
     #[inline]
     fn record_event(&mut self, event_id: EventId) {
         self.history.record_event(event_id);
     }
 
     #[inline]
+    fn record_event_with_time(&mut self, event_id: EventId, time: Nanoseconds) {
+        self.history.record_event_with_time(event_id, time);
+    }
+
+    #[inline]
     fn record_event_with_payload(&mut self, event_id: EventId, payload: u32) {
         self.history.record_event_with_payload(event_id, payload)
+    }
+
+    #[inline]
+    fn record_event_with_payload_with_time(
+        &mut self,
+        event_id: EventId,
+        payload: u32,
+        time: Nanoseconds,
+    ) {
+        self.history
+            .record_event_with_payload_with_time(event_id, payload, time);
     }
 
     #[inline]
@@ -498,6 +658,21 @@ impl<'a> Probe for ModalityProbe<'a> {
     }
 
     #[inline]
+    fn produce_snapshot_with_time(&mut self, time: Nanoseconds) -> CausalSnapshot {
+        self.history.produce_snapshot_with_time(time)
+    }
+
+    #[inline]
+    fn produce_snapshot_bytes_with_time(
+        &mut self,
+        time: Nanoseconds,
+        destination: &mut [u8],
+    ) -> Result<usize, ProduceError> {
+        self.history
+            .produce_snapshot_bytes_with_time(time, destination)
+    }
+
+    #[inline]
     fn merge_snapshot(&mut self, external_history: &CausalSnapshot) -> Result<(), MergeError> {
         self.history.merge_snapshot(external_history)
     }
@@ -505,6 +680,25 @@ impl<'a> Probe for ModalityProbe<'a> {
     #[inline]
     fn merge_snapshot_bytes(&mut self, source: &[u8]) -> Result<(), MergeError> {
         self.history.merge_snapshot_bytes(source)
+    }
+
+    #[inline]
+    fn merge_snapshot_with_time(
+        &mut self,
+        external_history: &CausalSnapshot,
+        time: Nanoseconds,
+    ) -> Result<(), MergeError> {
+        self.history
+            .merge_snapshot_with_time(external_history, time)
+    }
+
+    #[inline]
+    fn merge_snapshot_bytes_with_time(
+        &mut self,
+        source: &[u8],
+        time: Nanoseconds,
+    ) -> Result<(), MergeError> {
+        self.history.merge_snapshot_bytes_with_time(source, time)
     }
 
     #[inline]

@@ -4,46 +4,23 @@ use std::{
     iter::Peekable,
 };
 
-use serde::{Deserialize, Serialize};
 use tinytemplate::TinyTemplate;
-use uuid::Uuid;
 
-use modality_probe::{EventId, ProbeId};
 use modality_probe_collector_common::{ReportIter, ReportLogEntry};
 use modality_probe_graph::{EventDigraph, Graph, GraphEvent};
 
-use super::{
-    templates::{self, Component, ComponentSet, Context, Edge, EdgeSet, Event, Probe, ProbeSet},
-    {Cfg, ExportError},
+use crate::{
+    hopefully,
+    meta::{self, Cfg},
 };
 
-/// A row in the events.csv for a component.
-#[derive(PartialEq, Eq, Debug, Clone, Deserialize, Hash, Serialize)]
-pub struct EventMeta {
-    pub component_id: Uuid,
-    pub id: u32,
-    pub name: String,
-    pub type_hint: Option<String>,
-    pub tags: String,
-    pub description: String,
-    pub file: String,
-    pub line: String,
-}
+use super::templates::{
+    self, Component, ComponentSet, Context, Edge, EdgeSet, Event, Probe, ProbeSet,
+};
 
-/// A row in probes.csv for a component.
-#[derive(PartialEq, Serialize, Debug, Clone, Deserialize)]
-pub struct ProbeMeta {
-    pub component_id: Uuid,
-    pub id: u32,
-    pub name: String,
-    pub description: String,
-    pub file: String,
-    pub line: String,
-}
-
-pub(super) fn log_to_graph<I>(
+pub fn log_to_graph<I>(
     log: Peekable<I>,
-) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent>>, ExportError>
+) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent>>, Box<dyn std::error::Error>>
 where
     I: Iterator<Item = ReportLogEntry>,
 {
@@ -53,18 +30,16 @@ where
     });
     let report_iter = ReportIter::new(log);
     for report in report_iter {
-        graph.add_report(&report).map_err(|e| {
-            ExportError(format!(
-                "encountered an error reconstructing the graph: {}",
-                e
-            ))
-        })?;
+        hopefully!(
+            graph.add_report(&report),
+            "Encountered an error reconstructing the graph"
+        )?;
     }
     Ok(graph)
 }
 
 #[derive(Default)]
-pub(super) struct NodeAndEdgeLists<G>
+pub struct NodeAndEdgeLists<G>
 where
     G: Hash + Eq,
 {
@@ -152,12 +127,7 @@ impl NodeAndEdgeLists<GraphEvent> {
         NF: FnMut(&'a GraphEvent) -> bool,
         EF: FnMut(&'a GraphEvent, &'a GraphEvent) -> bool,
     {
-        let nodes = self
-            .nodes
-            .iter()
-            .filter(|n| node_filter(n))
-            .map(|n| n)
-            .collect();
+        let nodes = self.nodes.iter().filter(|n| node_filter(n)).collect();
 
         let edges = self
             .edges
@@ -175,7 +145,7 @@ impl<'a> NodeAndEdgeLists<&'a GraphEvent> {
         cfg: &Cfg,
         name: &'static str,
         temp: &'static str,
-    ) -> Result<String, ExportError> {
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let ctx = graph_to_tree(&self.nodes, &self.edges, cfg);
         let mut tt = TinyTemplate::new();
         tt.add_formatter(
@@ -186,8 +156,8 @@ impl<'a> NodeAndEdgeLists<&'a GraphEvent> {
             "gradient_color_formatter",
             templates::gradient_color_formatter,
         );
-        tt.add_template(name, temp).unwrap();
-        Ok(tt.render(name, &ctx).unwrap())
+        tt.add_template(name, temp)?;
+        Ok(tt.render(name, &ctx)?)
     }
 }
 
@@ -198,43 +168,6 @@ impl Graph for NodeAndEdgeLists<GraphEvent> {
 
     fn add_edge(&mut self, source: GraphEvent, target: GraphEvent) {
         self.edges.insert((source, target));
-    }
-}
-
-fn get_event_meta<'a>(
-    cfg: &'a Cfg,
-    pid: &ProbeId,
-    eid: &EventId,
-) -> Result<&'a EventMeta, ExportError> {
-    let comp_id = cfg
-        .probes_to_components
-        .get(&pid.get_raw())
-        .ok_or_else(|| {
-            ExportError(format!(
-                "unable to find a matching component for probe {}",
-                pid.get_raw()
-            ))
-        })?;
-    Ok(cfg.events.get(&(*comp_id, eid.get_raw())).ok_or_else(|| {
-        ExportError(format!(
-            "unable to find metadata for event {} in component {}",
-            eid.get_raw(),
-            comp_id
-        ))
-    })?)
-}
-
-fn parsed_payload(th: &str, pl: u32) -> Result<String, ExportError> {
-    match th {
-        "i8" => Ok(format!("{}", pl as i8)),
-        "i16" => Ok(format!("{}", pl as i16)),
-        "i32" => Ok(format!("{}", pl as i32)),
-        "u8" => Ok(format!("{}", pl as u8)),
-        "u16" => Ok(format!("{}", pl as u16)),
-        "u32" => Ok(format!("{}", pl as u32)),
-        "f32" => Ok(format!("{}", pl as f32)),
-        "bool" => Ok(format!("{}", pl != 0)),
-        _ => Err(ExportError(format!("{} is not a valid type hint", th))),
     }
 }
 
@@ -260,7 +193,7 @@ fn graph_to_tree<'a>(
                 (comp_id, Some(pmeta))
             }
         } else {
-            ("UNKNOWN".to_string(), None)
+            ("UNKNOWN_COMPONENT".to_string(), None)
         };
         let comp = ctx.components.entry(comp_name.clone()).or_insert_with(|| {
             cluster_idx += 1;
@@ -270,7 +203,9 @@ fn graph_to_tree<'a>(
                 probes: ProbeSet::new(),
             }
         });
-        let probe_name = format!("UNKNOWN_PROBE_{}", node.probe_id.get_raw());
+        let probe_name = probe_meta
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| node.probe_id.get_raw().to_string());
         let probe = comp.probes.entry(probe_name.clone()).or_insert_with(|| {
             cluster_idx += 1;
             Probe {
@@ -283,12 +218,13 @@ fn graph_to_tree<'a>(
             }
         });
 
-        if let Ok(emeta) = get_event_meta(cfg, &node.probe_id, &node.id) {
+        if let Ok(emeta) = meta::get_event_meta(cfg, &node.probe_id, &node.id) {
             let payload = node.payload.and_then(|pl| {
-                emeta
-                    .type_hint
-                    .as_ref()
-                    .and_then(|th| parsed_payload(&th, pl).ok())
+                emeta.type_hint.as_ref().and_then(|th| {
+                    meta::parsed_payload(Some(th.as_ref()), Some(pl))
+                        .ok()
+                        .flatten()
+                })
             });
             let has_log_str = emeta.description.contains("{}");
             let log_str = if has_log_str && payload.is_some() {
@@ -334,9 +270,9 @@ fn graph_to_tree<'a>(
             let probe_name = if let Some(pmeta) = cfg.probes.get(&s.probe_id.get_raw()) {
                 pmeta.name.clone()
             } else {
-                format!("UNKNOWN_PROBE_{}", s.probe_id.get_raw())
+                s.probe_id.get_raw().to_string()
             };
-            if let Ok(emeta) = get_event_meta(cfg, &s.probe_id, &s.id) {
+            if let Ok(emeta) = meta::get_event_meta(cfg, &s.probe_id, &s.id) {
                 Event {
                     is_known: true,
                     probe_name: probe_name.clone(),
@@ -376,9 +312,9 @@ fn graph_to_tree<'a>(
             let probe_name = if let Some(pmeta) = cfg.probes.get(&t.probe_id.get_raw()) {
                 pmeta.name.clone()
             } else {
-                format!("UNKNOWN_PROBE_{}", s.probe_id.get_raw())
+                s.probe_id.get_raw().to_string()
             };
-            if let Ok(emeta) = get_event_meta(cfg, &t.probe_id, &t.id) {
+            if let Ok(emeta) = meta::get_event_meta(cfg, &t.probe_id, &t.id) {
                 Event {
                     is_known: true,
                     probe_name: probe_name.clone(),
@@ -421,12 +357,16 @@ fn graph_to_tree<'a>(
 }
 
 #[cfg(test)]
-mod test {
+pub(crate) mod test {
     use std::convert::TryInto;
 
-    use super::{super::templates, *};
+    use uuid::Uuid;
 
-    fn cfg() -> Cfg {
+    use crate::meta::{Cfg, EventMeta, ProbeMeta};
+
+    use super::super::templates;
+
+    pub(crate) fn cfg() -> Cfg {
         let a_uuid = Uuid::new_v4();
         Cfg {
             probes: vec![
@@ -439,6 +379,7 @@ mod test {
                         description: "one".to_string(),
                         file: "one.c".to_string(),
                         line: "1".to_string(),
+                        tags: "".to_string(),
                     },
                 ),
                 (
@@ -450,6 +391,7 @@ mod test {
                         description: "two".to_string(),
                         file: "two.c".to_string(),
                         line: "2".to_string(),
+                        tags: "".to_string(),
                     },
                 ),
                 (
@@ -461,6 +403,7 @@ mod test {
                         description: "three".to_string(),
                         file: "three.c".to_string(),
                         line: "3".to_string(),
+                        tags: "".to_string(),
                     },
                 ),
                 (
@@ -472,6 +415,7 @@ mod test {
                         description: "four".to_string(),
                         file: "four.c".to_string(),
                         line: "4".to_string(),
+                        tags: "".to_string(),
                     },
                 ),
             ]

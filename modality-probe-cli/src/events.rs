@@ -53,7 +53,7 @@ impl Events {
             Event {
                 component_id,
                 id: EventId(modality_probe::EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw()),
-                name: "INTERNAL_EVENT_PRODUCED_EXTERNAL_REPORT".to_string(),
+                name: "MODALITY_PRODUCED_EXTERNAL_REPORT".to_string(),
                 description: "The probe produced a log report for transmission to \
                     the backend for external analysis"
                     .to_string(),
@@ -65,7 +65,7 @@ impl Events {
             Event {
                 component_id,
                 id: EventId(modality_probe::EventId::EVENT_LOG_ITEMS_MISSED.get_raw()),
-                name: "INTERNAL_EVENT_LOG_ITEMS_MISSED".to_string(),
+                name: "MODALITY_LOG_ITEMS_MISSED".to_string(),
                 description: "Some log items were overwritten without successfully getting \
                     reported to the collector, the number of missed entries is stored\
                     in the payload"
@@ -78,7 +78,7 @@ impl Events {
             Event {
                 component_id,
                 id: EventId(modality_probe::EventId::EVENT_LOGICAL_CLOCK_OVERFLOWED.get_raw()),
-                name: "INTERNAL_EVENT_LOGICAL_CLOCK_OVERFLOWED".to_string(),
+                name: "MODALITY_LOGICAL_CLOCK_OVERFLOWED".to_string(),
                 description: "A logical clock's count reached the maximum trackable value"
                     .to_string(),
                 tags: "internal".to_string(),
@@ -89,7 +89,7 @@ impl Events {
             Event {
                 component_id,
                 id: EventId(modality_probe::EventId::EVENT_NUM_CLOCKS_OVERFLOWED.get_raw()),
-                name: "INTERNAL_EVENT_NUM_CLOCKS_OVERFLOWED".to_string(),
+                name: "MODALITY_NUM_CLOCKS_OVERFLOWED".to_string(),
                 description:
                     "The probe did not have enough memory reserved to store enough logical \
                     clocks to track all of the unique neighbors that attempt to communicate with it"
@@ -104,7 +104,7 @@ impl Events {
                 id: EventId(
                     modality_probe::EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE.get_raw(),
                 ),
-                name: "INTERNAL_EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE".to_string(),
+                name: "MODALITY_INSUFFICIENT_REPORT_BUFFER_SIZE".to_string(),
                 description: "The report destination buffer is too small to fit a header \
                     and/or the frontier clocks"
                     .to_string(),
@@ -116,7 +116,7 @@ impl Events {
             Event {
                 component_id,
                 id: EventId(modality_probe::EventId::EVENT_PROBE_INITIALIZED.get_raw()),
-                name: "INTERNAL_EVENT_PROBE_INITIALIZED".to_string(),
+                name: "MODALITY_PROBE_INITIALIZED".to_string(),
                 description: "The probe successfully initialized itself".to_string(),
                 tags: "internal".to_string(),
                 type_hint: String::new(),
@@ -126,11 +126,21 @@ impl Events {
             Event {
                 component_id,
                 id: EventId(modality_probe::EventId::EVENT_INVALID_NEXT_EPOCH_SEQ_ID.get_raw()),
-                name: "INTERNAL_EVENT_INVALID_NEXT_EPOCH_SEQ_ID".to_string(),
+                name: "MODALITY_INVALID_NEXT_EPOCH_SEQ_ID".to_string(),
                 description:
                     "The probe is configured to track restarts, but the user's implementation \
                         returned an invalid zero value or a None option variant."
                         .to_string(),
+                tags: "internal".to_string(),
+                type_hint: String::new(),
+                file: String::new(),
+                line: String::new(),
+            },
+            Event {
+                component_id,
+                id: EventId(modality_probe::EventId::EVENT_WALL_CLOCK_TIME_ONLY.get_raw()),
+                name: "MODALITY_WALL_CLOCK_TIME_ONLY".to_string(),
+                description: "Reserved for indicating wall clock time".to_string(),
                 tags: "internal".to_string(),
                 type_hint: String::new(),
                 file: String::new(),

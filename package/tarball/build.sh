@@ -41,9 +41,12 @@ LLVM_STRIP=`find $(rustc --print sysroot) -name llvm-strip`
 
     cargo build --release \
         -p modality-probe-udp-collector --bin modality-probe-udp-collector
-    
+
     cargo build --release \
         -p modality-probe-debug-collector --bin modality-probe-debug-collector
+
+    cargo build --release \
+        -p modality-probe-offline-batch-collector --bin modality-probe-offline-batch-collector
 )
 
 # Build the binaries for the target
@@ -55,6 +58,9 @@ LLVM_STRIP=`find $(rustc --print sysroot) -name llvm-strip`
 
     cross build --release --target "$BINARY_TARGET_TRIPLE" \
         -p modality-probe-udp-collector --bin modality-probe-udp-collector
+
+    cross build --release --target "$BINARY_TARGET_TRIPLE" \
+        -p modality-probe-offline-batch-collector --bin modality-probe-offline-batch-collector
 
     # Requires toolchain of target binary to be installed
     PKG_CONFIG_ALLOW_CROSS=1 cargo build --release --target "$BINARY_TARGET_TRIPLE" \
@@ -69,12 +75,17 @@ LLVM_STRIP=`find $(rustc --print sysroot) -name llvm-strip`
     $LLVM_STRIP --strip-unneeded --strip-debug \
         "target/$BINARY_TARGET_TRIPLE/release/modality-probe-debug-collector"
 
+    $LLVM_STRIP --strip-unneeded --strip-debug \
+        "target/$BINARY_TARGET_TRIPLE/release/modality-probe-offline-batch-collector"
+
     mkdir -p "$OUTPUT_DIR/$PACKAGE_NAME/bin"
     cp -a "target/$BINARY_TARGET_TRIPLE/release/modality-probe" \
         "$OUTPUT_DIR/$PACKAGE_NAME/bin/"
     cp -a "target/$BINARY_TARGET_TRIPLE/release/modality-probe-udp-collector" \
         "$OUTPUT_DIR/$PACKAGE_NAME/bin/"
     cp -a "target/$BINARY_TARGET_TRIPLE/release/modality-probe-debug-collector" \
+        "$OUTPUT_DIR/$PACKAGE_NAME/bin/"
+    cp -a "target/$BINARY_TARGET_TRIPLE/release/modality-probe-offline-batch-collector" \
         "$OUTPUT_DIR/$PACKAGE_NAME/bin/"
 
     chmod 755 "$OUTPUT_DIR/$PACKAGE_NAME/bin/"*
@@ -141,10 +152,13 @@ LLVM_STRIP=`find $(rustc --print sysroot) -name llvm-strip`
         > "$man_dir/modality-probe-udp-collector.1"
     help2man --no-info "target/release/modality-probe-debug-collector" \
         > "$man_dir/modality-probe-debug-collector.1"
+    help2man --no-info "target/release/modality-probe-offline-batch-collector" \
+        > "$man_dir/modality-probe-offline-batch-collector.1"
 
     gzip --no-name --best "$man_dir/modality-probe.1"
     gzip --no-name --best "$man_dir/modality-probe-udp-collector.1"
     gzip --no-name --best "$man_dir/modality-probe-debug-collector.1"
+    gzip --no-name --best "$man_dir/modality-probe-offline-batch-collector.1"
 
     chmod 644 "$man_dir/"*
 )
@@ -162,10 +176,13 @@ LLVM_STRIP=`find $(rustc --print sysroot) -name llvm-strip`
         -p modality-probe-udp-collector --bin modality-probe-udp-collector-completions
     cargo run --release \
         -p modality-probe-debug-collector --bin modality-probe-debug-collector-completions
+    cargo run --release \
+        -p modality-probe-offline-batch-collector --bin modality-probe-offline-batch-collector-completions
 
     mv modality-probe.bash "$comp_dir/"
     mv modality-probe-udp-collector.bash "$comp_dir/"
     mv modality-probe-debug-collector.bash "$comp_dir/"
+    mv modality-probe-offline-batch-collector.bash "$comp_dir/"
 
     chmod 644 "$comp_dir/"*
 )

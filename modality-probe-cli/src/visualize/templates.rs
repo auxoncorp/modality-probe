@@ -11,7 +11,7 @@ use serde::{
 };
 use serde_json::Value;
 
-use super::graph::{EventMeta, ProbeMeta};
+use crate::meta::{EventMeta, ProbeMeta};
 
 #[derive(Serialize)]
 pub struct Component<'a> {
@@ -252,8 +252,8 @@ pub const COMPLETE: &str = "digraph G \\{
                 raw_probe_id = { event.raw_probe_id }
             ];
             {{ else }}
-            UNKNOWN_EVENT_{ event.probe_name }_{ event.seq }_{ event.seq_idx } [
-                label        = \"UNKNOWN_EVENT_{ event.raw_id }\"
+            { event.probe_name }_{ event.seq }_{ event.seq_idx } [
+                label        = \"{ event.raw_id }\"
                 probe        = \"{ event.probe_name }\"
                 raw_event_id = { event.raw_id }
                 raw_probe_id = { event.raw_probe_id }
@@ -266,8 +266,8 @@ pub const COMPLETE: &str = "digraph G \\{
     {{ endfor }}
 
     {{ for edge in edges }}
-    {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}UNKNOWN_EVENT_{ edge.from.raw_id }{{ endif }}_{ edge.from.probe_name }_{ edge.from.seq }_{ edge.from.seq_idx } ->
-    {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}UNKNOWN_EVENT_{ edge.to.raw_id }{{ endif }}_{ edge.to.probe_name }_{ edge.to.seq }_{ edge.to.seq_idx };
+    {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}{ edge.from.raw_id }{{ endif }}_{ edge.from.probe_name }_{ edge.from.seq }_{ edge.from.seq_idx } ->
+    {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}{ edge.to.raw_id }{{ endif }}_{ edge.to.probe_name }_{ edge.to.seq }_{ edge.to.seq_idx };
     {{ endfor }}
 }";
 
@@ -304,7 +304,7 @@ pub const INTERACTIONS: &str = "digraph G \\{
                 raw_event_id = { event.raw_id }
                 raw_probe_id = { event.raw_probe_id }
                 {{ else }}
-                label        = \"UNKNOWN_EVENT_{ event.raw_id }\"
+                label        = \"{ event.raw_id }\"
                 probe        = \"{ event.probe_name }\"
                 raw_event_id = { event.raw_id }
                 raw_probe_id = { event.raw_probe_id }{{ endif }}
@@ -351,8 +351,8 @@ pub const STATES: &str = "digraph G \\{
                 {{ endif }}
                 raw_event_id = { event.raw_id }
                 raw_probe_id = { event.raw_probe_id }
-            {{ else }}UNKNOWN_EVENT_{ event.raw_id }_AT_{ event.probe_name } [
-                label        = \"UNKNOWN_EVENT_{ event.raw_id } @ { event.probe_name }\"
+            {{ else }}{ event.raw_id }_AT_{ event.probe_name } [
+                label        = \"{ event.raw_id } @ { event.probe_name }\"
                 probe        = \"{ event.probe_name }\"
                 raw_event_id = { event.raw_id }
                 raw_probe_id = { event.raw_probe_id } {{ endif }}
@@ -364,8 +364,8 @@ pub const STATES: &str = "digraph G \\{
     {{ endfor }}
 
     {{ for edge in edges }}
-    {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}UNKNOWN_EVENT_{ edge.from.raw_id }{{ endif }}_AT_{ edge.from.probe_name } ->
-    {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}UNKNOWN_EVENT_{ edge.to.raw_id }{{ endif }}_AT_{ edge.to.probe_name }
+    {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}{ edge.from.raw_id }{{ endif }}_AT_{ edge.from.probe_name } ->
+    {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}{ edge.to.raw_id }{{ endif }}_AT_{ edge.to.probe_name }
     {{ endfor }}
 }";
 pub const TOPO: &str = "digraph G \\{

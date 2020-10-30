@@ -16,7 +16,7 @@ fn main() {
     let micro = env::var("CARGO_PKG_VERSION_PATCH").unwrap();
 
     let prefix: PathBuf = env::var_os("CARGO_C_PREFIX")
-        .unwrap_or("/usr/local".into())
+        .unwrap_or_else(|| "/usr/local".into())
         .into();
     let libdir = env::var_os("CARGO_C_LIBDIR").map_or(prefix.join("lib"), |v| v.into());
 

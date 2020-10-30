@@ -26,6 +26,16 @@ cargo clean
 )
 
 (
+    cd collectors/modality-probe-debug-collector/tests/empty-example
+    cargo clean
+)
+
+(
+    cd collectors/modality-probe-debug-collector/tests/symbols-example
+    cargo clean
+)
+
+(
     cd fuzz
     cargo clean
 )

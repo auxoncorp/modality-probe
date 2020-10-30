@@ -28,6 +28,7 @@ tempfile = "3.1.0"
 err-derive = "0.2.4"
 ctrlc = "3.1.6"
 crossbeam-channel = "0.4.3"
+pretty_assertions = "0.6"
 
 fenced-ring-buffer = { path = "../../fenced-ring-buffer", features = ["std"] }
 modality-probe = { path = "../..", features = ["debug-collector-access"] }

@@ -172,10 +172,12 @@ mod tests {
     use lazy_static::*;
     use pretty_assertions::assert_eq;
 
+    use modality_probe::time::{NanosecondResolution, WallClockId};
     use modality_probe::*;
     use modality_probe_collector_common::*;
 
     use super::*;
+    use std::mem::MaybeUninit;
 
     fn dummy_report(raw_main_probe_id: u32) -> Report {
         Report {
@@ -187,6 +189,8 @@ mod tests {
             },
             seq_num: 1.into(),
             persistent_epoch_counting: false,
+            time_resolution: NanosecondResolution::UNSPECIFIED,
+            wall_clock_id: WallClockId::default(),
             frontier_clocks: vec![LogicalClock {
                 id: ProbeId::new(2).unwrap(),
                 epoch: ProbeEpoch(0),
@@ -222,6 +226,8 @@ mod tests {
                 sequence_index: 0,
                 probe_id: main_probe_id,
                 persistent_epoch_counting: rep.persistent_epoch_counting,
+                time_resolution: rep.time_resolution,
+                wall_clock_id: rep.wall_clock_id,
                 data: LogEntryData::FrontierClock(LogicalClock {
                     id: ProbeId::new(2).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -235,6 +241,8 @@ mod tests {
                 sequence_index: 1,
                 probe_id: main_probe_id,
                 persistent_epoch_counting: rep.persistent_epoch_counting,
+                time_resolution: rep.time_resolution,
+                wall_clock_id: rep.wall_clock_id,
                 data: LogEntryData::Event(EventId::new(2).unwrap()),
                 receive_time,
             },
@@ -244,6 +252,8 @@ mod tests {
                 sequence_index: 2,
                 probe_id: main_probe_id,
                 persistent_epoch_counting: rep.persistent_epoch_counting,
+                time_resolution: rep.time_resolution,
+                wall_clock_id: rep.wall_clock_id,
                 data: LogEntryData::TraceClock(LogicalClock {
                     id: ProbeId::new(2).unwrap(),
                     epoch: ProbeEpoch(1),
@@ -257,6 +267,8 @@ mod tests {
                 sequence_index: 3,
                 probe_id: main_probe_id,
                 persistent_epoch_counting: rep.persistent_epoch_counting,
+                time_resolution: rep.time_resolution,
+                wall_clock_id: rep.wall_clock_id,
                 data: LogEntryData::TraceClock(LogicalClock {
                     id: ProbeId::new(1).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -541,6 +553,10 @@ mod tests {
                         assert!(lc.id == probe_c_id || lc.id == probe_b_id);
                     }
                 }
+                LogEntryData::WallClockTime(_) => (),
+                LogEntryData::EventWithTime(_, _) => (),
+                LogEntryData::EventWithPayloadWithTime(_, _, _) => (),
+                LogEntryData::TraceClockWithTime(_, _) => (),
             }
         }
     }
@@ -667,6 +683,10 @@ mod tests {
                         assert!(expected_probe_ids.contains(&lc.id));
                     }
                 }
+                LogEntryData::WallClockTime(_) => (),
+                LogEntryData::EventWithTime(_, _) => (),
+                LogEntryData::EventWithPayloadWithTime(_, _, _) => (),
+                LogEntryData::TraceClockWithTime(_, _) => (),
             }
         }
     }
@@ -789,6 +809,10 @@ mod tests {
                         assert!(expected_probe_ids.contains(&lc.id));
                     }
                 }
+                LogEntryData::WallClockTime(_) => (),
+                LogEntryData::EventWithTime(_, _) => (),
+                LogEntryData::EventWithPayloadWithTime(_, _, _) => (),
+                LogEntryData::TraceClockWithTime(_, _) => (),
             }
         }
     }
@@ -805,10 +829,12 @@ mod tests {
     ) + Send
            + 'static {
         move |id_to_sender, _receiver| {
-            let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
+            let mut probe_storage = vec![MaybeUninit::new(0u8); PROBE_STORAGE_BYTES_SIZE];
             let mut probe = modality_probe::ModalityProbe::new_with_storage(
                 &mut probe_storage,
                 probe_id,
+                NanosecondResolution::UNSPECIFIED,
+                WallClockId::local_only(),
                 RestartCounterProvider::NoRestartTracking,
             )
             .expect("Could not make probe");
@@ -868,10 +894,12 @@ mod tests {
     ) + Send
            + 'static {
         move |id_to_sender, receiver| {
-            let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
+            let mut probe_storage = vec![MaybeUninit::new(0u8); PROBE_STORAGE_BYTES_SIZE];
             let mut probe = modality_probe::ModalityProbe::new_with_storage(
                 &mut probe_storage,
                 probe_id,
+                NanosecondResolution::UNSPECIFIED,
+                WallClockId::local_only(),
                 RestartCounterProvider::NoRestartTracking,
             )
             .expect("Could not make probe");
@@ -949,10 +977,12 @@ mod tests {
     ) + Send
            + 'static {
         move |_id_to_sender, receiver| {
-            let mut probe_storage = vec![0u8; PROBE_STORAGE_BYTES_SIZE];
+            let mut probe_storage = vec![MaybeUninit::new(0u8); PROBE_STORAGE_BYTES_SIZE];
             let mut probe = modality_probe::ModalityProbe::new_with_storage(
                 &mut probe_storage,
                 probe_id,
+                NanosecondResolution::UNSPECIFIED,
+                WallClockId::local_only(),
                 RestartCounterProvider::NoRestartTracking,
             )
             .expect("Could not make probe");

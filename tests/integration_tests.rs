@@ -1,6 +1,7 @@
 #![deny(warnings)]
 
 use core::mem;
+use core::mem::MaybeUninit;
 use modality_probe::*;
 use proptest::prelude::*;
 use std::convert::{TryFrom, TryInto};
@@ -25,10 +26,12 @@ fn probe_lifecycle_does_not_panic() -> Result<(), ModalityProbeError> {
     let probe_id = 1u32.try_into()?;
 
     let mut backend = Buffer::new(1024);
-    let mut storage = [0u8; 1024];
+    let mut storage = [MaybeUninit::new(0u8); 1024];
     let probe = ModalityProbe::initialize_at(
         &mut storage,
         probe_id,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking,
     )?;
 
@@ -63,19 +66,23 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
     let probe_id_foo = 1.try_into()?;
     let probe_id_bar = 2.try_into()?;
 
-    let mut storage_foo = [0u8; 1024];
+    let mut storage_foo = [MaybeUninit::new(0u8); 1024];
     let probe_foo = ModalityProbe::initialize_at(
         &mut storage_foo,
         probe_id_foo,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking,
     )?;
     let snap_foo_a = probe_foo.produce_snapshot();
 
     // Re-initialize a probe with no previous history
-    let mut storage_bar = [0u8; 1024];
+    let mut storage_bar = [MaybeUninit::new(0u8); 1024];
     let probe_bar = ModalityProbe::initialize_at(
         &mut storage_bar,
         probe_id_bar,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking,
     )?;
     assert!(probe_bar.merge_snapshot(&snap_foo_a).is_ok());
@@ -96,11 +103,13 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
 
 #[test]
 fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
-    let mut storage_foo = [0u8; 1024];
+    let mut storage_foo = [MaybeUninit::new(0u8); 1024];
     let probe_id_foo = 123.try_into()?;
     let mut probe = ModalityProbe::new_with_storage(
         &mut storage_foo,
         probe_id_foo,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking,
     )?;
     let mut backend = [0u8; 1024];
@@ -186,22 +195,28 @@ fn all_allowed_events() -> Result<(), ModalityProbeError> {
 
 #[test]
 fn try_initialize_handles_raw_probe_ids() {
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     assert!(ModalityProbe::try_initialize_at(
         &mut storage,
         0,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking
     )
     .is_err());
     assert!(ModalityProbe::try_initialize_at(
         &mut storage,
         ProbeId::MAX_ID + 1,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking
     )
     .is_err());
     assert!(ModalityProbe::try_initialize_at(
         &mut storage,
         1,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking
     )
     .is_ok());
@@ -209,10 +224,12 @@ fn try_initialize_handles_raw_probe_ids() {
 
 #[test]
 fn try_record_event_raw_probe_ids() -> Result<(), ModalityProbeError> {
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let probe = ModalityProbe::try_initialize_at(
         &mut storage,
         1,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking,
     )?;
     assert!(probe.try_record_event(0).is_err());
@@ -229,10 +246,12 @@ fn try_record_event_raw_probe_ids() -> Result<(), ModalityProbeError> {
 
 #[test]
 fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
-    let mut storage = [0u8; 512];
+    let mut storage = [MaybeUninit::new(0u8); 512];
     let probe = ModalityProbe::try_initialize_at(
         &mut storage,
         1,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking,
     )?;
     assert!(probe.try_record_event(0).is_err());
@@ -269,10 +288,12 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
 #[test]
 fn report_missed_log_items() -> Result<(), ModalityProbeError> {
     const NUM_STORAGE_BYTES: usize = 512;
-    let mut storage = [0u8; NUM_STORAGE_BYTES];
+    let mut storage = [MaybeUninit::new(0u8); NUM_STORAGE_BYTES];
     let probe = ModalityProbe::try_initialize_at(
         &mut storage,
         1,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking,
     )?;
     let event = EventId::new(2).unwrap();
@@ -288,7 +309,7 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
         let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         assert_eq!(log_report.n_clocks(), 1);
-        assert_eq!(log_report.n_log_entries(), 84);
+        assert_eq!(log_report.n_log_entries(), 80);
 
         let offset = log_report.n_clocks() as usize * mem::size_of::<LogicalClock>();
         let log_bytes = &log_report.payload()[offset..];
@@ -305,124 +326,13 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
         );
 
         if i == 0 {
-            assert_eq!(raw_payload, 945);
+            assert_eq!(raw_payload, 949);
         } else {
-            assert_eq!(raw_payload, 943);
+            assert_eq!(raw_payload, 947);
         }
     }
 
     Ok(())
-}
-
-#[test]
-#[cfg(all(target_os = "linux", target_endian = "little"))]
-fn export_cli_produces_a_reasonable_dot_file() {
-    use std::{
-        path::PathBuf,
-        process::{Command, Stdio},
-    };
-    let run = |args: &[&str]| {
-        let mut cmd_path = PathBuf::new();
-        cmd_path.push("target");
-        cmd_path.push("debug");
-        cmd_path.push("modality-probe");
-        let mut out = Command::new(&cmd_path)
-            .args(args)
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
-        assert!(out.wait().unwrap().success());
-
-        let dot = Command::new("dot")
-            .stdin(out.stdout.unwrap())
-            .args(&["-T", "svg"])
-            .output()
-            .unwrap();
-        assert!(dot.status.success(), "{:#?}", dot)
-    };
-
-    let mut comp_path = PathBuf::new();
-    comp_path.push("tests");
-    comp_path.push("fixtures");
-    comp_path.push("test-component");
-
-    let mut log_path = PathBuf::new();
-    log_path.push("tests");
-    log_path.push("fixtures");
-    log_path.push("test-log.jsonl");
-
-    run(&[
-        "export",
-        "acyclic",
-        "-c",
-        &comp_path.display().to_string(),
-        "-r",
-        &log_path.display().to_string(),
-    ]);
-    run(&[
-        "export",
-        "cyclic",
-        "-c",
-        &comp_path.display().to_string(),
-        "-r",
-        &log_path.display().to_string(),
-    ]);
-    run(&[
-        "export",
-        "acyclic",
-        "--interactions-only",
-        "-c",
-        &comp_path.display().to_string(),
-        "-r",
-        &log_path.display().to_string(),
-    ]);
-    run(&[
-        "export",
-        "cyclic",
-        "--interactions-only",
-        "-c",
-        &comp_path.display().to_string(),
-        "-r",
-        &log_path.display().to_string(),
-    ]);
-
-    comp_path.pop();
-    comp_path.push("test-component-empty");
-
-    run(&[
-        "export",
-        "acyclic",
-        "-c",
-        &comp_path.display().to_string(),
-        "-r",
-        &log_path.display().to_string(),
-    ]);
-    run(&[
-        "export",
-        "cyclic",
-        "-c",
-        &comp_path.display().to_string(),
-        "-r",
-        &log_path.display().to_string(),
-    ]);
-    run(&[
-        "export",
-        "acyclic",
-        "--interactions-only",
-        "-c",
-        &comp_path.display().to_string(),
-        "-r",
-        &log_path.display().to_string(),
-    ]);
-    run(&[
-        "export",
-        "cyclic",
-        "--interactions-only",
-        "-c",
-        &comp_path.display().to_string(),
-        "-r",
-        &log_path.display().to_string(),
-    ]);
 }
 
 proptest! {
@@ -436,19 +346,33 @@ proptest! {
         // num_events and num_events_with_payload set to at least 1
         // so that we can have a total of at least 2 events
 
-        let mut storage = [0u8; 512];
+        let mut storage = [MaybeUninit::new(0u8); 512];
         let probe = ModalityProbe::try_initialize_at(
             &mut storage,
             1,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking).unwrap();
         let event_a = EventId::new(2).unwrap();
         let event_b = EventId::new(3).unwrap();
 
-        for _ in 0..num_events {
-            probe.record_event(event_a);
+        for i in 0..num_events {
+            if i % 3 == 0 {
+                probe.record_event_with_time(event_a, Nanoseconds::new(i as u64).unwrap());
+            } else {
+                probe.record_event(event_a);
+            }
         }
-        for _ in 0..num_events_with_payload {
-            probe.record_event_with_payload(event_b, event_payload);
+        for i in 0..num_events_with_payload {
+            if i % 3 == 0 {
+                probe.record_event_with_payload_with_time(
+                    event_b,
+                    event_payload,
+                    Nanoseconds::new(i as u64).unwrap()
+                );
+            } else {
+                probe.record_event_with_payload(event_b, event_payload);
+            }
         }
 
         let min_report_size =
@@ -486,7 +410,8 @@ proptest! {
 
         // If the second-to-last item is not a two-item log entry
         if !second_to_last_item.has_clock_bit_set()
-            && !second_to_last_item.has_event_with_payload_bit_set() {
+            && !second_to_last_item.has_event_with_payload_bit_set()
+            && !second_to_last_item.has_wall_clock_time_bits_set() {
             // Then the last item also must not be the start of a multi-item entry
             prop_assert!(
                 !last_item.has_clock_bit_set(),
@@ -498,9 +423,18 @@ proptest! {
                 "Last item has event with payload bit set: 0x{:X}",
                 last_item.raw()
             );
+            prop_assert!(
+                !last_item.has_wall_clock_time_bits_set(),
+                "Last item has wall clock time bits set: 0x{:X}",
+                last_item.raw()
+            );
         }
-        // else the second-to-last item is a two-item log entry,
-        // and therefor the last item can be anything (event payload, or clock)
+        // else the second-to-last item is a two-item log entry, last item is part of it
+
+        // Last two-item entry must never be a paired wall clock time entry
+        if second_to_last_item.has_wall_clock_time_bits_set() {
+            prop_assert!(!second_to_last_item.has_wall_clock_time_paired_bit_set());
+        }
     }
 }
 
@@ -519,8 +453,14 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         });
 
         let probe_id = 1u32.try_into()?;
-        let mut storage = [0u8; 1024];
-        let probe = ModalityProbe::initialize_at(&mut storage, probe_id, provider)?;
+        let mut storage = [MaybeUninit::new(0u8); 1024];
+        let probe = ModalityProbe::initialize_at(
+            &mut storage,
+            probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
+            provider,
+        )?;
 
         let now = probe.now();
         assert_eq!(now.clock.epoch.0, 100);
@@ -540,8 +480,14 @@ fn persistent_restart_sequence_id() -> Result<(), ModalityProbeError> {
         });
 
         let probe_id = 1u32.try_into()?;
-        let mut storage = [0u8; 1024];
-        let probe = ModalityProbe::initialize_at(&mut storage, probe_id, provider)?;
+        let mut storage = [MaybeUninit::new(0u8); 1024];
+        let probe = ModalityProbe::initialize_at(
+            &mut storage,
+            probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
+            provider,
+        )?;
 
         let now = probe.now();
         assert_eq!(now.clock.epoch.0, 101);

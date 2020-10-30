@@ -13,6 +13,9 @@ use static_assertions::assert_eq_size;
 
 use modality_probe::{
     log::LogEntry,
+    time::{
+        NanosecondResolution, Nanoseconds, NanosecondsHighBits, NanosecondsLowBits, WallClockId,
+    },
     wire::{le_bytes, ReportWireError, WireReport},
     EventId, LogicalClock, ProbeEpoch, ProbeId, ProbeTicks,
 };
@@ -85,6 +88,9 @@ pub enum SerializationError {
         _0
     )]
     TooManyLogEntries(usize),
+
+    #[error(display = "Invalid time {:?}", _0)]
+    InvalidTime((NanosecondsLowBits, NanosecondsHighBits)),
 }
 
 #[derive(Debug, PartialEq)]
@@ -93,6 +99,8 @@ pub struct Report {
     pub probe_clock: LogicalClock,
     pub seq_num: SequenceNumber,
     pub persistent_epoch_counting: bool,
+    pub time_resolution: NanosecondResolution,
+    pub wall_clock_id: WallClockId,
     pub frontier_clocks: Vec<LogicalClock>,
     pub event_log: Vec<EventLogEntry>,
 }
@@ -102,7 +110,61 @@ pub enum EventLogEntry {
     Event(EventId),
     EventWithPayload(EventId, u32),
     TraceClock(LogicalClock),
+    EventWithTime(Nanoseconds, EventId),
+    EventWithPayloadWithTime(Nanoseconds, EventId, u32),
+    TraceClockWithTime(Nanoseconds, LogicalClock),
+    WallClockTime(Nanoseconds),
 }
+
+pub mod serde_ns {
+    use super::Nanoseconds;
+    use serde::{de, Deserialize, Serialize};
+
+    pub fn serialize<S>(value: &Option<Nanoseconds>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let Some(time) = value {
+            time.get().serialize(serializer)
+        } else {
+            ().serialize(serializer)
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Nanoseconds>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let v: Option<u64> = Deserialize::deserialize(deserializer)?;
+        match v {
+            Some(t) => {
+                let t = Nanoseconds::new(t)
+                    .ok_or("Invalid Nanoseconds")
+                    .map_err(de::Error::custom)?;
+                Ok(Some(t))
+            }
+            None => Ok(None),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "Nanoseconds")]
+struct NanosecondsDef(#[serde(getter = "Nanoseconds::get")] u64);
+
+impl From<NanosecondsDef> for Nanoseconds {
+    fn from(def: NanosecondsDef) -> Nanoseconds {
+        Nanoseconds::new_truncate(def.0)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "NanosecondResolution")]
+struct NanosecondResolutionDef(pub u32);
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "WallClockId")]
+struct WallClockIdDef(pub u16);
 
 /// A single entry in the log
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
@@ -123,6 +185,14 @@ pub struct ReportLogEntry {
     /// persistent epoch counter.
     pub persistent_epoch_counting: bool,
 
+    /// Time resolution
+    #[serde(with = "NanosecondResolutionDef")]
+    pub time_resolution: NanosecondResolution,
+
+    /// Wall clock ID
+    #[serde(with = "WallClockIdDef")]
+    pub wall_clock_id: WallClockId,
+
     /// This entry's data; a frontier
     /// clock, event, event with payload, or a trace clock
     pub data: LogEntryData,
@@ -135,12 +205,53 @@ pub struct ReportLogEntry {
     pub receive_time: DateTime<Utc>,
 }
 
+impl ReportLogEntry {
+    pub fn is_frontier_clock(&self) -> bool {
+        matches!(self.data, LogEntryData::FrontierClock(_))
+    }
+    pub fn is_internal_event(&self) -> bool {
+        match self.data {
+            LogEntryData::Event(id) => id.is_internal(),
+            LogEntryData::EventWithPayload(id, _) => id.is_internal(),
+            LogEntryData::EventWithTime(_, id) => id.is_internal(),
+            LogEntryData::EventWithPayloadWithTime(_, id, _) => id.is_internal(),
+            _ => false,
+        }
+    }
+
+    pub fn coordinate(&self) -> String {
+        // TODO(dan@auxon.io): Clocks not available here.
+        // https://github.com/auxoncorp/modality-probe/issues/278
+        format!(
+            "{}:{}:{}:{}",
+            self.session_id.0,
+            self.probe_id.get_raw(),
+            self.sequence_number.0,
+            self.sequence_index
+        )
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 pub enum LogEntryData {
     FrontierClock(LogicalClock),
     Event(EventId),
     EventWithPayload(EventId, u32),
     TraceClock(LogicalClock),
+    EventWithTime(#[serde(with = "NanosecondsDef")] Nanoseconds, EventId),
+    EventWithPayloadWithTime(#[serde(with = "NanosecondsDef")] Nanoseconds, EventId, u32),
+    TraceClockWithTime(#[serde(with = "NanosecondsDef")] Nanoseconds, LogicalClock),
+    WallClockTime(#[serde(with = "NanosecondsDef")] Nanoseconds),
+}
+
+impl LogEntryData {
+    pub fn trace_clock(&self) -> Option<LogicalClock> {
+        match self {
+            LogEntryData::TraceClock(lc) => Some(*lc),
+            LogEntryData::TraceClockWithTime(_, lc) => Some(*lc),
+            _ => None,
+        }
+    }
 }
 
 impl From<EventLogEntry> for LogEntryData {
@@ -149,16 +260,24 @@ impl From<EventLogEntry> for LogEntryData {
             EventLogEntry::Event(id) => LogEntryData::Event(id),
             EventLogEntry::EventWithPayload(id, p) => LogEntryData::EventWithPayload(id, p),
             EventLogEntry::TraceClock(lc) => LogEntryData::TraceClock(lc),
+            EventLogEntry::EventWithTime(t, id) => LogEntryData::EventWithTime(t, id),
+            EventLogEntry::EventWithPayloadWithTime(t, id, p) => {
+                LogEntryData::EventWithPayloadWithTime(t, id, p)
+            }
+            EventLogEntry::TraceClockWithTime(t, lc) => LogEntryData::TraceClockWithTime(t, lc),
+            EventLogEntry::WallClockTime(t) => LogEntryData::WallClockTime(t),
         }
     }
 }
 
 /// A row in a collected trace.
-#[derive(Debug, serde::Serialize, serde::Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct LogFileRow {
     pub session_id: u32,
     pub sequence_number: u64,
     pub sequence_index: u32,
+    pub time_resolution: u32,
+    pub wall_clock_id: u16,
     pub receive_time: DateTime<Utc>,
     pub probe_id: u32,
     pub fc_probe_id: Option<u32>,
@@ -244,6 +363,8 @@ where
                 ticks: ProbeTicks(0),
             },
             persistent_epoch_counting: next.persistent_epoch_counting,
+            time_resolution: next.time_resolution,
+            wall_clock_id: next.wall_clock_id,
             seq_num: next.sequence_number,
             frontier_clocks: Vec::new(),
             event_log: Vec::new(),
@@ -281,6 +402,26 @@ where
                 LogEntryData::EventWithPayload(e, p) => {
                     report.event_log.push(EventLogEntry::EventWithPayload(e, p));
                 }
+                LogEntryData::TraceClockWithTime(t, lc) => {
+                    let id = lc.id;
+                    report
+                        .event_log
+                        .push(EventLogEntry::TraceClockWithTime(t, lc));
+                    if id == report.probe_id {
+                        report.probe_clock = lc;
+                    }
+                }
+                LogEntryData::EventWithTime(t, e) => {
+                    report.event_log.push(EventLogEntry::EventWithTime(t, e));
+                }
+                LogEntryData::EventWithPayloadWithTime(t, e, p) => {
+                    report
+                        .event_log
+                        .push(EventLogEntry::EventWithPayloadWithTime(t, e, p));
+                }
+                LogEntryData::WallClockTime(t) => {
+                    report.event_log.push(EventLogEntry::WallClockTime(t));
+                }
             }
         }
     }
@@ -292,6 +433,8 @@ impl From<&ReportLogEntry> for LogFileRow {
             session_id: e.session_id.0,
             sequence_number: e.sequence_number.0,
             sequence_index: e.sequence_index,
+            time_resolution: e.time_resolution.into(),
+            wall_clock_id: e.wall_clock_id.into(),
             probe_id: e.probe_id.get_raw(),
             fc_probe_id: match e.data {
                 LogEntryData::FrontierClock(lc) => Some(lc.id.get_raw()),
@@ -308,22 +451,28 @@ impl From<&ReportLogEntry> for LogFileRow {
             event_id: match &e.data {
                 LogEntryData::Event(id) => Some(id.get_raw()),
                 LogEntryData::EventWithPayload(id, _) => Some(id.get_raw()),
+                LogEntryData::EventWithTime(_t, id) => Some(id.get_raw()),
+                LogEntryData::EventWithPayloadWithTime(_t, id, _) => Some(id.get_raw()),
                 _ => None,
             },
             event_payload: match &e.data {
-                LogEntryData::EventWithPayload(_, payload) => Some(*payload),
+                LogEntryData::EventWithPayload(_id, payload) => Some(*payload),
+                LogEntryData::EventWithPayloadWithTime(_t, _id, payload) => Some(*payload),
                 _ => None,
             },
             tc_probe_id: match &e.data {
                 LogEntryData::TraceClock(lc) => Some(lc.id.get_raw()),
+                LogEntryData::TraceClockWithTime(_t, lc) => Some(lc.id.get_raw()),
                 _ => None,
             },
             tc_probe_epoch: match &e.data {
                 LogEntryData::TraceClock(lc) => Some(lc.epoch.0),
+                LogEntryData::TraceClockWithTime(_t, lc) => Some(lc.epoch.0),
                 _ => None,
             },
             tc_probe_clock: match &e.data {
                 LogEntryData::TraceClock(lc) => Some(lc.ticks.0),
+                LogEntryData::TraceClockWithTime(_t, lc) => Some(lc.ticks.0),
                 _ => None,
             },
             receive_time: e.receive_time,
@@ -359,6 +508,8 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
         let session_id: SessionId = l.session_id.into();
         let sequence_number: SequenceNumber = l.sequence_number.into();
         let sequence_index: u32 = l.sequence_index;
+        let time_resolution = l.time_resolution.into();
+        let wall_clock_id = l.wall_clock_id.into();
 
         let data = if let Some(fc_probe_id) = l.fc_probe_id {
             match (l.fc_probe_epoch, l.fc_probe_clock) {
@@ -499,6 +650,8 @@ impl TryFrom<&LogFileRow> for ReportLogEntry {
             sequence_number,
             sequence_index,
             persistent_epoch_counting: false,
+            time_resolution,
+            wall_clock_id,
             probe_id: l.probe_id.try_into().map_err(|_e| Error::InvalidContent {
                 session_id,
                 sequence_number,
@@ -519,6 +672,8 @@ pub fn add_log_report_to_entries(
 ) {
     let probe_id = log_report.probe_id;
     let sequence_number = log_report.seq_num;
+    let time_resolution = log_report.time_resolution;
+    let wall_clock_id = log_report.wall_clock_id;
     let mut sequence_index = 0;
 
     for fc in &log_report.frontier_clocks {
@@ -526,6 +681,8 @@ pub fn add_log_report_to_entries(
             session_id,
             sequence_number,
             sequence_index,
+            time_resolution,
+            wall_clock_id,
             probe_id,
             persistent_epoch_counting: log_report.persistent_epoch_counting,
             data: LogEntryData::FrontierClock(*fc),
@@ -539,6 +696,8 @@ pub fn add_log_report_to_entries(
             session_id,
             sequence_number,
             sequence_index,
+            time_resolution,
+            wall_clock_id,
             probe_id,
             persistent_epoch_counting: log_report.persistent_epoch_counting,
             data: LogEntryData::from(*event),
@@ -559,6 +718,8 @@ impl TryFrom<&[u8]> for Report {
             probe_clock: LogicalClock { id, epoch, ticks },
             seq_num: report.seq_num().into(),
             persistent_epoch_counting: report.persistent_epoch_counting(),
+            time_resolution: report.time_resolution(),
+            wall_clock_id: report.wall_clock_id(),
             frontier_clocks: vec![],
             event_log: vec![],
         };
@@ -588,6 +749,7 @@ impl TryFrom<&[u8]> for Report {
             }
         }
 
+        let mut paired_wall_clock_time = None;
         let mut interpret_next_as = Next::DontKnow;
         for u32_bytes in payload[clocks_len..].chunks_exact(mem::size_of::<LogEntry>()) {
             let raw = le_bytes::read_u32(u32_bytes);
@@ -605,6 +767,29 @@ impl TryFrom<&[u8]> for Report {
                                 .interpret_as_event_id()
                                 .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
                         );
+                    } else if raw_entry.has_wall_clock_time_bits_set() {
+                        if raw_entry.has_wall_clock_time_paired_bit_set() {
+                            interpret_next_as =
+                                Next::PairedWallClockTimeLowBits(NanosecondsHighBits(
+                                    raw_entry
+                                        .interpret_as_wall_clock_time_high_bits()
+                                        .to_le_bytes(),
+                                ));
+                        } else {
+                            interpret_next_as =
+                                Next::UnpairedWallClockTimeLowBits(NanosecondsHighBits(
+                                    raw_entry
+                                        .interpret_as_wall_clock_time_high_bits()
+                                        .to_le_bytes(),
+                                ));
+                        }
+                    } else if let Some(pwct) = paired_wall_clock_time.take() {
+                        owned_report.event_log.push(EventLogEntry::EventWithTime(
+                            pwct,
+                            raw_entry
+                                .interpret_as_event_id()
+                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
+                        ));
                     } else {
                         owned_report.event_log.push(EventLogEntry::Event(
                             raw_entry
@@ -615,9 +800,18 @@ impl TryFrom<&[u8]> for Report {
                 }
                 Next::Clock(id) => {
                     let (epoch, ticks) = modality_probe::unpack_clock_word(raw);
-                    owned_report
-                        .event_log
-                        .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
+                    if let Some(pwct) = paired_wall_clock_time.take() {
+                        owned_report
+                            .event_log
+                            .push(EventLogEntry::TraceClockWithTime(
+                                pwct,
+                                LogicalClock { id, epoch, ticks },
+                            ));
+                    } else {
+                        owned_report
+                            .event_log
+                            .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
+                    }
                     interpret_next_as = Next::DontKnow;
                 }
                 Next::Payload(id) => {
@@ -628,9 +822,29 @@ impl TryFrom<&[u8]> for Report {
                             raw
                         );
                     }
-                    owned_report
-                        .event_log
-                        .push(EventLogEntry::EventWithPayload(id, raw));
+                    if let Some(pwct) = paired_wall_clock_time.take() {
+                        owned_report
+                            .event_log
+                            .push(EventLogEntry::EventWithPayloadWithTime(pwct, id, raw));
+                    } else {
+                        owned_report
+                            .event_log
+                            .push(EventLogEntry::EventWithPayload(id, raw));
+                    }
+                    interpret_next_as = Next::DontKnow;
+                }
+                Next::PairedWallClockTimeLowBits(high_bits) => {
+                    let low_bits = NanosecondsLowBits(raw.to_le_bytes());
+                    let t = Nanoseconds::from_parts(low_bits, high_bits)
+                        .ok_or_else(|| SerializationError::InvalidTime((low_bits, high_bits)))?;
+                    paired_wall_clock_time = Some(t);
+                    interpret_next_as = Next::DontKnow;
+                }
+                Next::UnpairedWallClockTimeLowBits(high_bits) => {
+                    let low_bits = NanosecondsLowBits(raw.to_le_bytes());
+                    let t = Nanoseconds::from_parts(low_bits, high_bits)
+                        .ok_or_else(|| SerializationError::InvalidTime((low_bits, high_bits)))?;
+                    owned_report.event_log.push(EventLogEntry::WallClockTime(t));
                     interpret_next_as = Next::DontKnow;
                 }
             }
@@ -643,6 +857,8 @@ impl TryFrom<&[u8]> for Report {
 enum Next {
     Clock(ProbeId),
     Payload(EventId),
+    PairedWallClockTimeLowBits(NanosecondsHighBits),
+    UnpairedWallClockTimeLowBits(NanosecondsHighBits),
     DontKnow,
 }
 
@@ -661,33 +877,73 @@ impl Report {
             frontier_clocks,
             event_log: vec![],
             persistent_epoch_counting: false,
+            time_resolution: NanosecondResolution::UNSPECIFIED,
+            wall_clock_id: WallClockId::default(),
         };
+        let mut paired_wall_clock_time = None;
 
         for entry in log {
             match entry {
                 WholeEntry::Single(ev) => {
-                    owned_report.event_log.push(EventLogEntry::Event(
-                        ev.interpret_as_event_id()
-                            .ok_or_else(|| SerializationError::InvalidEventId(*ev))?,
-                    ));
+                    if let Some(pwct) = paired_wall_clock_time.take() {
+                        owned_report.event_log.push(EventLogEntry::EventWithTime(
+                            pwct,
+                            ev.interpret_as_event_id()
+                                .ok_or_else(|| SerializationError::InvalidEventId(*ev))?,
+                        ));
+                    } else {
+                        owned_report.event_log.push(EventLogEntry::Event(
+                            ev.interpret_as_event_id()
+                                .ok_or_else(|| SerializationError::InvalidEventId(*ev))?,
+                        ));
+                    }
                 }
                 WholeEntry::Double(first, second) => {
                     if first.has_clock_bit_set() {
                         let id = ProbeId::new(first.interpret_as_logical_clock_probe_id())
                             .ok_or_else(|| SerializationError::InvalidProbeId(*first))?;
                         let (epoch, ticks) = modality_probe::unpack_clock_word(second.raw());
-                        owned_report
-                            .event_log
-                            .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
+                        if let Some(pwct) = paired_wall_clock_time.take() {
+                            owned_report
+                                .event_log
+                                .push(EventLogEntry::TraceClockWithTime(
+                                    pwct,
+                                    LogicalClock { id, epoch, ticks },
+                                ));
+                        } else {
+                            owned_report
+                                .event_log
+                                .push(EventLogEntry::TraceClock(LogicalClock { id, epoch, ticks }));
+                        }
+                    } else if first.has_wall_clock_time_bits_set() {
+                        let high_bits = first
+                            .interpret_as_wall_clock_time_high_bits()
+                            .to_le_bytes()
+                            .into();
+                        let low_bits = second.raw().to_le_bytes().into();
+                        let t = Nanoseconds::from_parts(low_bits, high_bits).ok_or_else(|| {
+                            SerializationError::InvalidTime((low_bits, high_bits))
+                        })?;
+                        if first.has_wall_clock_time_paired_bit_set() {
+                            paired_wall_clock_time = Some(t);
+                        } else {
+                            owned_report.event_log.push(EventLogEntry::WallClockTime(t));
+                        }
                     } else {
                         debug_assert!(first.has_event_with_payload_bit_set());
                         let ev = first
                             .interpret_as_event_id()
                             .ok_or_else(|| SerializationError::InvalidEventId(*first))?;
                         let payload = second.raw();
-                        owned_report
-                            .event_log
-                            .push(EventLogEntry::EventWithPayload(ev, payload));
+                        if let Some(pwct) = paired_wall_clock_time.take() {
+                            owned_report
+                                .event_log
+                                .push(EventLogEntry::EventWithPayloadWithTime(pwct, ev, payload));
+                        } else {
+                            owned_report
+                                .event_log
+                                .push(EventLogEntry::EventWithPayload(ev, payload));
+                        }
                     }
                 }
             }
@@ -711,17 +967,27 @@ impl Report {
             self.probe_clock.ticks,
         ));
         wire.set_seq_num(self.seq_num.0);
+        wire.set_persistent_epoch_counting(self.persistent_epoch_counting);
+        wire.set_time_resolution(self.time_resolution);
+        wire.set_wall_clock_id(self.wall_clock_id);
         wire.set_n_clocks(self.frontier_clocks.len() as _);
 
+        let entries_per_time = mem::size_of::<Nanoseconds>() / mem::size_of::<u32>();
+        let entries_per_logical_clock = mem::size_of::<LogicalClock>() / mem::size_of::<u32>();
         let num_u32_entries: usize = self
             .event_log
             .iter()
             .map(|e| match e {
                 EventLogEntry::Event(_) => 1,
                 EventLogEntry::EventWithPayload(_, _) => 2,
-                EventLogEntry::TraceClock(_) => {
-                    mem::size_of::<LogicalClock>() / mem::size_of::<u32>()
+                EventLogEntry::TraceClock(_) => entries_per_logical_clock,
+
+                EventLogEntry::EventWithTime(_, _) => 1 + entries_per_time,
+                EventLogEntry::EventWithPayloadWithTime(_, _, _) => 2 + entries_per_time,
+                EventLogEntry::TraceClockWithTime(_, _) => {
+                    entries_per_logical_clock + entries_per_time
                 }
+                EventLogEntry::WallClockTime(_) => entries_per_time,
             })
             .sum();
 
@@ -743,6 +1009,16 @@ impl Report {
             le_bytes::write_u32(&mut dest_bytes[..4], entry_a.raw());
             le_bytes::write_u32(&mut dest_bytes[4..8], entry_b.raw());
         }
+
+        let write_paired_time = |t: &Nanoseconds, buffer: &mut [u8]| -> usize {
+            let (entry_a, entry_b) = LogEntry::paired_wall_clock_time(*t);
+            let mut bc = 0;
+            le_bytes::write_u32(&mut buffer[bc..], entry_a.raw());
+            bc += mem::size_of::<u32>();
+            le_bytes::write_u32(&mut buffer[bc..], entry_b.raw());
+            bc += mem::size_of::<u32>();
+            bc
+        };
 
         let mut byte_cursor = n_clock_bytes;
         for src_entry in self.event_log.iter() {
@@ -766,6 +1042,35 @@ impl Report {
                     le_bytes::write_u32(&mut payload[byte_cursor..], entry_b.raw());
                     byte_cursor += mem::size_of::<u32>();
                 }
+                EventLogEntry::EventWithTime(t, id) => {
+                    byte_cursor += write_paired_time(t, &mut payload[byte_cursor..]);
+                    let entry = LogEntry::event(*id);
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                }
+                EventLogEntry::EventWithPayloadWithTime(t, id, p) => {
+                    byte_cursor += write_paired_time(t, &mut payload[byte_cursor..]);
+                    let (entry_a, entry_b) = LogEntry::event_with_payload(*id, *p);
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry_a.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry_b.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                }
+                EventLogEntry::TraceClockWithTime(t, lc) => {
+                    byte_cursor += write_paired_time(t, &mut payload[byte_cursor..]);
+                    let (entry_a, entry_b) = LogEntry::clock(*lc);
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry_a.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry_b.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                }
+                EventLogEntry::WallClockTime(t) => {
+                    let (entry_a, entry_b) = LogEntry::unpaired_wall_clock_time(*t);
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry_a.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                    le_bytes::write_u32(&mut payload[byte_cursor..], entry_b.raw());
+                    byte_cursor += mem::size_of::<u32>();
+                }
             }
         }
 
@@ -784,6 +1089,7 @@ pub(crate) mod test {
     use proptest::prelude::*;
     use proptest::std_facade::*;
     use std::convert::TryFrom;
+    use std::mem::MaybeUninit;
 
     pub fn arb_session_id() -> impl Strategy<Value = SessionId> {
         any::<u32>().prop_map_into()
@@ -824,6 +1130,25 @@ pub(crate) mod test {
         }
     }
 
+    prop_compose! {
+        pub fn gen_wall_clock_time()
+            (raw_time in 0_u64..=Nanoseconds::MAX.get()) -> Nanoseconds {
+            Nanoseconds::new(raw_time).unwrap()
+        }
+    }
+
+    pub fn arb_persistent_epoch_counting() -> impl Strategy<Value = bool> {
+        any::<bool>()
+    }
+
+    pub fn arb_wall_clock_id() -> impl Strategy<Value = WallClockId> {
+        any::<u16>().prop_map_into()
+    }
+
+    pub fn arb_time_resolution() -> impl Strategy<Value = NanosecondResolution> {
+        any::<u32>().prop_map_into()
+    }
+
     pub fn arb_probe_epoch() -> impl Strategy<Value = ProbeEpoch> {
         any::<ProbeEpoch>()
     }
@@ -862,7 +1187,25 @@ pub(crate) mod test {
         let tc = arb_logical_clock()
             .prop_map(|lc| LogEntryData::TraceClock(lc))
             .boxed();
-        fc.prop_union(eid).or(eid_wp).or(tc)
+        let eid_wt = (gen_wall_clock_time(), arb_event_id())
+            .prop_map(|(t, id)| LogEntryData::EventWithTime(t, id))
+            .boxed();
+        let eid_wp_wt = (gen_wall_clock_time(), arb_event_id(), any::<u32>())
+            .prop_map(|(t, id, p)| LogEntryData::EventWithPayloadWithTime(t, id, p))
+            .boxed();
+        let tc_wt = (gen_wall_clock_time(), arb_logical_clock())
+            .prop_map(|(t, lc)| LogEntryData::TraceClockWithTime(t, lc))
+            .boxed();
+        let wct = gen_wall_clock_time()
+            .prop_map(|t| LogEntryData::WallClockTime(t))
+            .boxed();
+        fc.prop_union(eid)
+            .or(eid_wt)
+            .or(eid_wp)
+            .or(eid_wp_wt)
+            .or(tc)
+            .or(tc_wt)
+            .or(wct)
     }
 
     pub fn arb_event_log_entry() -> impl Strategy<Value = EventLogEntry> {
@@ -875,7 +1218,24 @@ pub(crate) mod test {
         let eid_wp = (arb_event_id(), any::<u32>())
             .prop_map(|(id, p)| EventLogEntry::EventWithPayload(id, p))
             .boxed();
-        tc.prop_union(eid).or(eid_wp)
+        let tc_wt = (gen_wall_clock_time(), arb_logical_clock())
+            .prop_map(|(t, lc)| EventLogEntry::TraceClockWithTime(t, lc))
+            .boxed();
+        let eid_wt = (gen_wall_clock_time(), arb_event_id())
+            .prop_map(|(t, id)| EventLogEntry::EventWithTime(t, id))
+            .boxed();
+        let eid_wp_wt = (gen_wall_clock_time(), arb_event_id(), any::<u32>())
+            .prop_map(|(t, id, p)| EventLogEntry::EventWithPayloadWithTime(t, id, p))
+            .boxed();
+        let wct = gen_wall_clock_time()
+            .prop_map(|t| EventLogEntry::WallClockTime(t))
+            .boxed();
+        tc.prop_union(tc_wt)
+            .or(eid)
+            .or(eid_wt)
+            .or(eid_wp)
+            .or(eid_wp_wt)
+            .or(wct)
     }
 
     prop_compose! {
@@ -895,6 +1255,8 @@ pub(crate) mod test {
             arb_log_entry_data(),
             arb_datetime(),
             any::<bool>(),
+            arb_time_resolution(),
+            arb_wall_clock_id(),
         )
             .prop_map(
                 |(
@@ -905,6 +1267,8 @@ pub(crate) mod test {
                     data,
                     receive_time,
                     persistent_epoch_counting,
+                    time_resolution,
+                    wall_clock_id,
                 )| {
                     ReportLogEntry {
                         session_id,
@@ -912,6 +1276,8 @@ pub(crate) mod test {
                         sequence_index,
                         probe_id,
                         persistent_epoch_counting,
+                        time_resolution,
+                        wall_clock_id,
                         data,
                         receive_time,
                     }
@@ -929,12 +1295,17 @@ pub(crate) mod test {
                 seq_num in arb_sequence_number(),
                 frontier_clocks in gen_frontier_clocks(max_frontier_clocks),
                 event_log in gen_event_log(max_log_entries),
+                persistent_epoch_counting in arb_persistent_epoch_counting(),
+                time_resolution in arb_time_resolution(),
+                wall_clock_id in arb_wall_clock_id(),
              ) -> Report {
                 Report {
                     probe_id,
                     probe_clock,
                     seq_num,
-                    persistent_epoch_counting: false,
+                    persistent_epoch_counting,
+                    time_resolution,
+                    wall_clock_id,
                     frontier_clocks,
                     event_log,
                 }
@@ -943,23 +1314,29 @@ pub(crate) mod test {
 
     #[test]
     fn report_e2e() {
-        let mut storage1 = vec![0; 1024];
+        let mut storage1 = vec![MaybeUninit::new(0); 1024];
         let mut p1 = modality_probe::ModalityProbe::new_with_storage(
             &mut storage1,
             ProbeId::new(1).unwrap(),
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
 
-        let mut storage2 = vec![0; 1024];
+        let mut storage2 = vec![MaybeUninit::new(0); 1024];
         let mut p2 = modality_probe::ModalityProbe::new_with_storage(
             &mut storage2,
             ProbeId::new(2).unwrap(),
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
 
         p1.record_event(EventId::new(1).unwrap());
+        p1.record_event_with_time(EventId::new(2).unwrap(), Nanoseconds::new(10).unwrap());
+        p1.record_time(Nanoseconds::new(15).unwrap());
         let mut report_dest = vec![0; 512];
         let n_bytes = p1.report(&mut report_dest).unwrap().unwrap();
         let o_report = Report::try_from(&report_dest[..n_bytes.get()]).unwrap();
@@ -974,6 +1351,8 @@ pub(crate) mod test {
                 },
                 seq_num: 0.into(),
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(1).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -986,7 +1365,12 @@ pub(crate) mod test {
                         ticks: ProbeTicks(0),
                     }),
                     EventLogEntry::Event(EventId::EVENT_PROBE_INITIALIZED),
-                    EventLogEntry::Event(EventId::new(1).unwrap())
+                    EventLogEntry::Event(EventId::new(1).unwrap()),
+                    EventLogEntry::EventWithTime(
+                        Nanoseconds::new(10).unwrap(),
+                        EventId::new(2).unwrap()
+                    ),
+                    EventLogEntry::WallClockTime(Nanoseconds::new(15).unwrap()),
                 ],
             }
         );
@@ -1011,6 +1395,8 @@ pub(crate) mod test {
                 },
                 seq_num: 1.into(),
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(1).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -1031,7 +1417,13 @@ pub(crate) mod test {
         let i_report = Report::try_from(&report_dest[..bytes_written]).unwrap();
         assert_eq!(o_report, i_report);
 
-        p2.record_event_with_payload(EventId::new(8).unwrap(), 10);
+        p2.record_time(Nanoseconds::new(9).unwrap());
+        p2.record_event(EventId::new(7).unwrap());
+        p2.record_event_with_payload_with_time(
+            EventId::new(8).unwrap(),
+            10,
+            Nanoseconds::new(12).unwrap(),
+        );
         let n_bytes = p2.report(&mut report_dest).unwrap().unwrap();
         let o_report = Report::try_from(&report_dest[..n_bytes.get()]).unwrap();
         assert_eq!(
@@ -1045,6 +1437,8 @@ pub(crate) mod test {
                 },
                 seq_num: 0.into(),
                 persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
                 frontier_clocks: vec![LogicalClock {
                     id: ProbeId::new(2).unwrap(),
                     epoch: ProbeEpoch(0),
@@ -1068,7 +1462,13 @@ pub(crate) mod test {
                         epoch: ProbeEpoch(0),
                         ticks: ProbeTicks(0),
                     }),
-                    EventLogEntry::EventWithPayload(EventId::new(8).unwrap(), 10),
+                    EventLogEntry::WallClockTime(Nanoseconds::new(9).unwrap()),
+                    EventLogEntry::Event(EventId::new(7).unwrap(),),
+                    EventLogEntry::EventWithPayloadWithTime(
+                        Nanoseconds::new(12).unwrap(),
+                        EventId::new(8).unwrap(),
+                        10
+                    ),
                 ],
             }
         );

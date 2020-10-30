@@ -24,6 +24,7 @@ members = [
     "collectors/modality-probe-udp-collector",
     "collectors/modality-probe-debug-collector",
     "collectors/modality-probe-collector-common",
+    "collectors/modality-probe-offline-batch-collector",
     "fenced-ring-buffer",
 ]
 exclude = [
@@ -35,7 +36,7 @@ exclude = [
 
 [dependencies]
 static_assertions = "1.1.0"
-fixed-slice-vec = "0.4"
+fixed-slice-vec = "0.7.1"
 fenced-ring-buffer = { path = "./fenced-ring-buffer" }
 
 # Used if the std feature is enabled.

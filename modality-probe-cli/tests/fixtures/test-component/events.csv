@@ -1,0 +1,16 @@
+component_id,id,name,description,tags,type_hint,file,line
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,1073741822,MODALITY_PRODUCED_EXTERNAL_REPORT,The probe produced a log report for transmission to the backend for external analysis,internal,,,
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,1073741821,MODALITY_LOG_ITEMS_MISSED,"Some log items were overwritten without successfully getting reported to the collector, the number of missed entries is storedin the payload",internal,u32,,
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,1073741820,MODALITY_LOGICAL_CLOCK_OVERFLOWED,A logical clock's count reached the maximum trackable value,internal,u32,,
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,1073741819,MODALITY_NUM_CLOCKS_OVERFLOWED,The probe did not have enough memory reserved to store enough logical clocks to track all of the unique neighbors that attempt to communicate with it,internal,,,
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,1073741818,MODALITY_INSUFFICIENT_REPORT_BUFFER_SIZE,The report destination buffer is too small to fit a header and/or the frontier clocks,internal,,,
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,1073741817,MODALITY_PROBE_INITIALIZED,The probe successfully initialized itself,internal,,,
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,1073741816,MODALITY_INVALID_NEXT_EPOCH_SEQ_ID,"The probe is configured to track restarts, but the user's implementation returned an invalid zero value or a None option variant.",internal,,,
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,1,PRODUCER_STARTED,Measurement producer started,producer,,c-example/src/main.c,102
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,2,PRODUCER_SHUTDOWN,Measurement producer shutting down,producer,,c-example/src/main.c,114
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,3,PRODUCER_MEASUREMENT_SAMPLED,Measurement producer sampled a value for transmission,producer;measurement sample,i8,c-example/src/main.c,144
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,4,PRODUCER_SAMPLE_DELTA_OK,Measurement delta within ok range,EXPECTATION;producer;SEVERITY_10,u32,c-example/src/main.c,157
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,5,PRODUCER_MEASUREMENT_SENT,Measurement producer sent a measurement,producer;transmit,,c-example/src/main.c,168
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,6,CONSUMER_STARTED,Measurement consumer started,consumer,,c-example/src/main.c,195
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,7,CONSUMER_SHUTDOWN,Measurement consumer shutting down,consumer,,c-example/src/main.c,207
+9504a421-e3ff-41b2-b65e-73a67f8fb54f,8,CONSUMER_MEASUREMENT_RECVD,Measurement consumer recvd a new value,consumer;measurement;receive,i8,c-example/src/main.c,246
