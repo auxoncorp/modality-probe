@@ -3,7 +3,7 @@
 set -ex
 
 cargo build --all
-cargo test --workspace --features "std"
+cargo test --workspace --features "std, debug-collector-access"
 cargo test --workspace
 
 (

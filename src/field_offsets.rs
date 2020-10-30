@@ -19,6 +19,21 @@ pub fn probe_id_offset() -> u64 {
     offset_of!(DynamicHistory => probe_id).get_byte_offset() as u64
 }
 
+/// Offset of time_resolution field in DynamicHistory struct
+pub fn time_resolution_offset() -> u64 {
+    offset_of!(DynamicHistory => time_resolution).get_byte_offset() as u64
+}
+
+/// Offset of wall_clock_id field in DynamicHistory struct
+pub fn wall_clock_id_offset() -> u64 {
+    offset_of!(DynamicHistory => wall_clock_id).get_byte_offset() as u64
+}
+
+/// Offset of persistent_epoch_counting field in DynamicHistory struct
+pub fn persistent_epoch_counting_offset() -> u64 {
+    offset_of!(DynamicHistory => persistent_epoch_counting).get_byte_offset() as u64
+}
+
 /// Offset of the high word (u32) of the write sequence number field in DynamicHistory's FencedRingBuffer
 pub fn write_seqn_high_offset() -> u64 {
     offset_of!(DynamicHistory => log: FencedRingBuffer<LogEntry> => write_seqn: SeqNum => high)

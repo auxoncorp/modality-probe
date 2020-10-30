@@ -309,7 +309,10 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
         let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         assert_eq!(log_report.n_clocks(), 1);
+        #[cfg(target_pointer_width = "64")]
         assert_eq!(log_report.n_log_entries(), 80);
+        #[cfg(target_pointer_width = "32")]
+        assert_eq!(log_report.n_log_entries(), 88);
 
         let offset = log_report.n_clocks() as usize * mem::size_of::<LogicalClock>();
         let log_bytes = &log_report.payload()[offset..];
@@ -326,9 +329,15 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
         );
 
         if i == 0 {
+            #[cfg(target_pointer_width = "64")]
             assert_eq!(raw_payload, 949);
+            #[cfg(target_pointer_width = "32")]
+            assert_eq!(raw_payload, 941);
         } else {
+            #[cfg(target_pointer_width = "64")]
             assert_eq!(raw_payload, 947);
+            #[cfg(target_pointer_width = "32")]
+            assert_eq!(raw_payload, 939);
         }
     }
 

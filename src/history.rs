@@ -48,38 +48,41 @@ const_assert_eq!(4, align_of::<CausalSnapshot>());
 const_assert_eq!(12, size_of::<ModalityProbeInstant>());
 const_assert_eq!(4, align_of::<ModalityProbeInstant>());
 
+// 5 bytes of padding required to get the size (99) up to 104, 8-byte aligned
 #[cfg(target_pointer_width = "32")]
 const_assert_eq!(
     size_of::<u32>()
         + size_of::<ProbeId>()
+        + size_of::<NanosecondResolution>()
+        + size_of::<WallClockId>()
+        + size_of::<u8>()
         + size_of::<LogBuffer<'_>>()
         + size_of::<u32>()
         + size_of::<LogicalClock>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
         + size_of::<RestartCounterProvider<'_>>()
         + size_of::<u64>()
-        + size_of::<NanosecondResolution>()
-        + size_of::<WallClockId>()
         + size_of::<u32>()
-        + 6,
+        + 5,
     size_of::<DynamicHistory>()
 );
 
-// 10 bytes of padding required before clocks list to get FixedSliceVec to 8 byte align
+// 9 bytes of padding required to get the size (135) up to 144, 8-byte aligned
 #[cfg(target_pointer_width = "64")]
 const_assert_eq!(
     size_of::<u32>()
         + size_of::<ProbeId>()
+        + size_of::<NanosecondResolution>()
+        + size_of::<WallClockId>()
+        + size_of::<u8>()
         + size_of::<LogBuffer<'_>>()
         + size_of::<u32>()
         + size_of::<LogicalClock>()
         + size_of::<FixedSliceVec<'_, LogicalClock>>()
         + size_of::<RestartCounterProvider<'_>>()
         + size_of::<u64>()
-        + size_of::<NanosecondResolution>()
-        + size_of::<WallClockId>()
         + size_of::<u32>()
-        + 10,
+        + 9,
     size_of::<DynamicHistory>()
 );
 
@@ -94,6 +97,9 @@ const_assert_eq!(
 /// any non-repr(c) fields:
 /// * overwrite_priority
 /// * probe_id
+/// * time_resolution
+/// * wall_clock_id
+/// * persistent_epoch_counting
 /// * log
 #[derive(Debug)]
 #[repr(C)]
@@ -102,6 +108,9 @@ pub struct DynamicHistory<'a> {
     pub(crate) overwrite_priority: u32,
     /// ID of this probe
     pub(crate) probe_id: ProbeId,
+    pub(crate) time_resolution: NanosecondResolution,
+    pub(crate) wall_clock_id: WallClockId,
+    pub(crate) persistent_epoch_counting: u8,
     /// Log used to store events and trace clocks
     pub(crate) log: LogBuffer<'a>,
     /// The number of events seen since the current
@@ -113,8 +122,6 @@ pub struct DynamicHistory<'a> {
     pub(crate) clocks: FixedSliceVec<'a, LogicalClock>,
     pub(crate) restart_counter: RestartCounterProvider<'a>,
     pub(crate) report_seq_num: u64,
-    pub(crate) time_resolution: NanosecondResolution,
-    pub(crate) wall_clock_id: WallClockId,
     pub(crate) missed_log_entry_count: u32,
 }
 
@@ -228,11 +235,16 @@ impl<'a> DynamicHistory<'a> {
                 ticks: ProbeTicks(0),
             },
             probe_id,
+            time_resolution,
+            wall_clock_id,
+            persistent_epoch_counting: if restart_counter.is_tracking_restarts() {
+                1
+            } else {
+                0
+            },
             clocks,
             log,
             restart_counter,
-            time_resolution,
-            wall_clock_id,
             missed_log_entry_count: 0,
         };
         history.write_clocks_to_log(&[history.self_clock]);
@@ -946,7 +958,10 @@ mod test {
         let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
 
         assert_eq!(log_report.n_clocks() as usize, h.clocks.capacity());
+        #[cfg(target_pointer_width = "64")]
         assert_eq!(log_report.n_log_entries(), 17);
+        #[cfg(target_pointer_width = "32")]
+        assert_eq!(log_report.n_log_entries(), 20);
 
         let offset = log_report.n_clocks() as usize * size_of::<LogicalClock>();
         let log_bytes = &log_report.payload()[offset..];
@@ -984,7 +999,10 @@ mod test {
         )
         .unwrap();
 
+        #[cfg(target_pointer_width = "64")]
         const EXPECTED_LOG_CAPACITY: usize = 196;
+        #[cfg(target_pointer_width = "32")]
+        const EXPECTED_LOG_CAPACITY: usize = 205;
         assert_eq!(h.log.capacity(), EXPECTED_LOG_CAPACITY);
         assert_eq!(h.log.len(), 3);
 
@@ -1010,16 +1028,25 @@ mod test {
             assert_eq!(bytes_written.get(), report_buffer_size);
             let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
             assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
+            #[cfg(target_pointer_width = "64")]
             assert_eq!(log_report.n_log_entries(), 49);
+            #[cfg(target_pointer_width = "32")]
+            assert_eq!(log_report.n_log_entries(), 51);
             reported_log_entries += log_report.n_log_entries() as usize;
         }
 
         // One more to get the remainder
         let bytes_written = h.report(&mut report_dest).unwrap().unwrap();
+        #[cfg(target_pointer_width = "64")]
         assert_eq!(bytes_written.get(), 57);
+        #[cfg(target_pointer_width = "32")]
+        assert_eq!(bytes_written.get(), 61);
         let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
+        #[cfg(target_pointer_width = "64")]
         assert_eq!(log_report.n_log_entries(), 4);
+        #[cfg(target_pointer_width = "32")]
+        assert_eq!(log_report.n_log_entries(), 5);
         reported_log_entries += log_report.n_log_entries() as usize;
 
         assert_eq!(reported_log_entries, EXPECTED_LOG_ENTRIES);
@@ -1380,7 +1407,10 @@ mod test {
     #[test]
     fn overwritten_paired_wall_clock_time_drops_buddy_entry() {
         let probe_id = ProbeId::new(1).unwrap();
+        #[cfg(target_pointer_width = "64")]
         let mut storage = [MaybeUninit::new(0u8); 512];
+        #[cfg(target_pointer_width = "32")]
+        let mut storage = [MaybeUninit::new(0u8); 478];
         let h = DynamicHistory::new_at(
             &mut storage,
             probe_id,
@@ -1394,7 +1424,7 @@ mod test {
 
         // self clock (double) + probe-initialized (single)
         assert_eq!(h.log.len(), 3);
-        assert_eq!(h.log.capacity() % 2, 0);
+        assert_eq!(h.log.capacity(), 82);
         assert_eq!(h.missed_log_entry_count, 0);
 
         let double_item_capacity = h.log.capacity() / 2;
@@ -1428,5 +1458,79 @@ mod test {
                 assert!(h.log.peek().is_some());
             }
         }
+    }
+
+    #[cfg(feature = "debug-collector-access")]
+    #[test]
+    fn debug_collector_offsets() {
+        use crate::field_offsets::*;
+
+        let probe_id = ProbeId::new(1).unwrap();
+        let mut storage = [MaybeUninit::new(0u8); 512];
+        let probe = crate::ModalityProbe::initialize_at(
+            &mut storage,
+            probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
+
+        let probe_addr = probe as *const _ as u64;
+        let history_ptr_addr = &probe.history as *const _ as u64;
+        assert_eq!(history_ptr_offset(), history_ptr_addr - probe_addr);
+
+        let history_addr = probe.history as *const _ as u64;
+
+        let overwrite_priority_addr = &probe.history.overwrite_priority as *const _ as u64;
+        assert_eq!(
+            overwrite_priority_offset(),
+            overwrite_priority_addr - history_addr
+        );
+
+        let probe_id_addr = &probe.history.probe_id as *const _ as u64;
+        assert_eq!(probe_id_offset(), probe_id_addr - history_addr);
+
+        let time_res_addr = &probe.history.time_resolution as *const _ as u64;
+        assert_eq!(time_resolution_offset(), time_res_addr - history_addr);
+
+        let wcid_addr = &probe.history.wall_clock_id as *const _ as u64;
+        assert_eq!(wall_clock_id_offset(), wcid_addr - history_addr);
+
+        let pec_addr = &probe.history.persistent_epoch_counting as *const _ as u64;
+        assert_eq!(persistent_epoch_counting_offset(), pec_addr - history_addr);
+
+        let write_seqn_high_addr = &probe.history.log.write_seqn.high as *const _ as u64;
+        assert_eq!(
+            write_seqn_high_offset(),
+            write_seqn_high_addr - history_addr
+        );
+
+        let write_seqn_low_addr = &probe.history.log.write_seqn.low as *const _ as u64;
+        assert_eq!(write_seqn_low_offset(), write_seqn_low_addr - history_addr);
+
+        let overwrite_seqn_high_addr = &probe.history.log.overwrite_seqn.high as *const _ as u64;
+        assert_eq!(
+            overwrite_seqn_high_offset(),
+            overwrite_seqn_high_addr - history_addr
+        );
+
+        let overwrite_seqn_low_addr = &probe.history.log.overwrite_seqn.low as *const _ as u64;
+        assert_eq!(
+            overwrite_seqn_low_offset(),
+            overwrite_seqn_low_addr - history_addr
+        );
+
+        let log_storage_ptr_addr = &probe.history.log.storage as *const _ as u64;
+        assert_eq!(
+            log_storage_addr_offset(),
+            log_storage_ptr_addr - history_addr
+        );
+
+        let log_storage_cap_addr = log_storage_ptr_addr + (size_of::<usize>() as u64);
+        assert_eq!(
+            log_storage_cap_offset(size_of::<usize>() as _),
+            log_storage_cap_addr - history_addr
+        );
     }
 }

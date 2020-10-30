@@ -20,7 +20,8 @@ use fenced_ring_buffer::async_reader::{FencedReader, Snapper};
 use fenced_ring_buffer::WholeEntry;
 use modality_probe::field_offsets::*;
 use modality_probe::{
-    log::LogEntry, EventId, LogicalClock, ModalityProbe, OrdClock, ProbeEpoch, ProbeId, ProbeTicks,
+    log::LogEntry, EventId, LogicalClock, ModalityProbe, NanosecondResolution, OrdClock,
+    ProbeEpoch, ProbeId, ProbeTicks, WallClockId,
 };
 use modality_probe_collector_common::{
     add_log_report_to_entries, json::write_log_entries, Report, ReportLogEntry, SerializationError,
@@ -281,6 +282,12 @@ pub struct Collector {
     clocks: Vec<LogicalClock>,
     /// Used to write to the probe's "overwrite_priority" field
     priority_writer: PriorityWriter,
+    /// Time resolution extracted from the probe
+    time_resolution: NanosecondResolution,
+    /// Wall clock id extracted from the probe
+    wall_clock_id: WallClockId,
+    /// Persistent epoch counting flag extracted from the probe
+    persistent_epoch_counting: bool,
 }
 
 impl Collector {
@@ -290,18 +297,31 @@ impl Collector {
         mem_accessor: Rc<RefCell<dyn Target>>,
     ) -> Result<Self, Error> {
         let addr = Self::find_probe(probe_addr, mem_accessor.clone())?;
-        let (hist_addr, id, buf_addr, buf_cap) = {
+        let (hist_addr, id, time_res, wall_clock_id, persistent_epoch_counting, buf_addr, buf_cap) = {
             let mut mem = mem_accessor.borrow_mut();
             // Get address of DynamicHistory
             let hist_addr = mem.read_word(addr + history_ptr_offset())?;
             // Read DynamicHistory fields
             let id_raw = mem.read_32(hist_addr + probe_id_offset())?;
             let id = ProbeId::new(id_raw).ok_or_else(|| Error::InvalidProbeId)?;
+            let time_res = mem.read_32(hist_addr + time_resolution_offset())?;
+            // NOTE: probe-rs does have read_16
+            let wall_clock_id = mem.read_32(hist_addr + wall_clock_id_offset())? as u16;
+            let persistent_epoch_counting =
+                mem.read_byte(hist_addr + persistent_epoch_counting_offset())?;
             let buf_addr = mem.read_word(hist_addr + log_storage_addr_offset())?;
             let buf_cap = mem
                 .read_word(hist_addr + log_storage_cap_offset(hist_addr.size()))?
                 .into();
-            (hist_addr, id, buf_addr, buf_cap)
+            (
+                hist_addr,
+                id,
+                time_res,
+                wall_clock_id,
+                persistent_epoch_counting,
+                buf_addr,
+                buf_cap,
+            )
         };
         let write_seqn_high_addr = hist_addr + write_seqn_high_offset();
         let write_seqn_low_addr = hist_addr + write_seqn_low_offset();
@@ -340,6 +360,9 @@ impl Collector {
                 mem_accessor: priority_mem_accessor,
                 priority_field_addr,
             },
+            time_resolution: time_res.into(),
+            wall_clock_id: wall_clock_id.into(),
+            persistent_epoch_counting: persistent_epoch_counting != 0,
         })
     }
 
@@ -456,8 +479,11 @@ impl Collector {
         }
 
         Report::try_from_log(self.clocks[0], self.seq_num, report_clocks, &self.rbuf[..])
-            .map(|report| {
+            .map(|mut report| {
                 self.seq_num += 1;
+                report.time_resolution = self.time_resolution;
+                report.wall_clock_id = self.wall_clock_id;
+                report.persistent_epoch_counting = self.persistent_epoch_counting;
                 report
             })
             .map(Some)
@@ -1019,6 +1045,9 @@ pub mod tests {
                 Self::PROBE_ADDR => ModalityProbe::STRUCT_FINGERPRINT,
                 Self::PROBE_ADDR + history_ptr_offset() => Self::HIST_ADDR.unwrap_32(),
                 Self::HIST_ADDR + probe_id_offset() => probe_id.get().into(),
+                Self::HIST_ADDR + time_resolution_offset() => NanosecondResolution::UNSPECIFIED.into(),
+                Self::HIST_ADDR + wall_clock_id_offset() => WallClockId::LOCAL_ONLY.0 as u32,
+                Self::HIST_ADDR + persistent_epoch_counting_offset() => 0,
                 Self::HIST_ADDR + log_storage_addr_offset() => Self::STORAGE_ADDR.unwrap_32(),
                 Self::HIST_ADDR + log_storage_cap_offset(Word::U32(0).size()) => buf_contents.len() as u32,
                 Self::HIST_ADDR + write_seqn_high_offset() => 0,
@@ -1652,8 +1681,8 @@ pub mod tests {
         let probe = ModalityProbe::initialize_at(
             &mut storage,
             probe_id,
-            NanosecondResolution::UNSPECIFIED,
-            WallClockId::local_only(),
+            NanosecondResolution(123),
+            WallClockId(1),
             RestartCounterProvider::NoRestartTracking,
         )
         .unwrap();
@@ -1680,8 +1709,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
-                time_resolution: NanosecondResolution::UNSPECIFIED,
-                wall_clock_id: WallClockId::default(),
+                time_resolution: NanosecondResolution(123),
+                wall_clock_id: WallClockId(1),
             }
         );
 
@@ -1701,8 +1730,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
-                time_resolution: NanosecondResolution::UNSPECIFIED,
-                wall_clock_id: WallClockId::default(),
+                time_resolution: NanosecondResolution(123),
+                wall_clock_id: WallClockId(1),
             }
         );
 
@@ -1740,8 +1769,8 @@ pub mod tests {
                 frontier_clocks: vec![lc(probe_id.get_raw(), 0, 0)],
                 event_log: expected_event_log,
                 persistent_epoch_counting: false,
-                time_resolution: NanosecondResolution::UNSPECIFIED,
-                wall_clock_id: WallClockId::default(),
+                time_resolution: NanosecondResolution(123),
+                wall_clock_id: WallClockId(1),
             }
         );
 
@@ -1761,8 +1790,8 @@ pub mod tests {
                     EventLogEntry::Event(EventId::EVENT_PRODUCED_EXTERNAL_REPORT)
                 ],
                 persistent_epoch_counting: false,
-                time_resolution: NanosecondResolution::UNSPECIFIED,
-                wall_clock_id: WallClockId::default(),
+                time_resolution: NanosecondResolution(123),
+                wall_clock_id: WallClockId(1),
             }
         );
 
@@ -1812,8 +1841,8 @@ pub mod tests {
                 frontier_clocks: vec![lc(probe_id.get_raw(), 0, 0)],
                 event_log: expected_event_log,
                 persistent_epoch_counting: false,
-                time_resolution: NanosecondResolution::UNSPECIFIED,
-                wall_clock_id: WallClockId::default(),
+                time_resolution: NanosecondResolution(123),
+                wall_clock_id: WallClockId(1),
             }
         );
     }

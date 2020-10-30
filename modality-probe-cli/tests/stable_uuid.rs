@@ -1,13 +1,15 @@
-#![deny(warnings)]
+#![deny(warnings, clippy::all)]
 
-use std::fs::{self, File};
-use std::io::Write;
-
+#[cfg(all(target_endian = "little", target_pointer_width = "64"))]
 mod test_helpers;
-use test_helpers::run_cli;
 
 #[test]
+#[cfg(all(target_endian = "little", target_pointer_width = "64"))]
 fn stable_uuid() {
+    use std::fs::{self, File};
+    use std::io::Write;
+    use test_helpers::run_cli;
+
     let root_dir = tempfile::tempdir().unwrap();
     let root_path = root_dir.path().to_owned();
 
@@ -28,22 +30,24 @@ fn stable_uuid() {
     // Scope this so the files get immediately closed; this matters on windows
     {
         let mut c_src_file = File::create(&c_src_path).unwrap();
-        c_src_file.write_all(C_SRC.as_bytes()).unwrap();
+        c_src_file.write_all(consts::C_SRC.as_bytes()).unwrap();
         c_src_file.sync_all().unwrap();
 
         let mut c_exclude_src_file = File::create(&c_excluded_src_path).unwrap();
         c_exclude_src_file
-            .write_all(C_EXCLUDE_SRC.as_bytes())
+            .write_all(consts::C_EXCLUDE_SRC.as_bytes())
             .unwrap();
         c_exclude_src_file.sync_all().unwrap();
 
         let mut rust_src_file = File::create(&rust_src_path).unwrap();
-        rust_src_file.write_all(RUST_SRC.as_bytes()).unwrap();
+        rust_src_file
+            .write_all(consts::RUST_SRC.as_bytes())
+            .unwrap();
         rust_src_file.sync_all().unwrap();
 
         let mut comp_file = File::create(&component_path).unwrap();
         comp_file
-            .write_all(COMPONENT_TOML_WO_HASHES.as_bytes())
+            .write_all(consts::COMPONENT_TOML_WO_HASHES.as_bytes())
             .unwrap();
         comp_file.sync_all().unwrap();
     }
@@ -73,7 +77,7 @@ fn stable_uuid() {
     // Hashes should be added, UUID is stable
     let component_content = fs::read_to_string(&component_path).unwrap();
     println!("{}", component_content);
-    assert!(component_content.contains(COMPONENT_TOML));
+    assert!(component_content.contains(consts::COMPONENT_TOML));
 
     let out = run_cli(&vec![
         "manifest-gen",
@@ -94,19 +98,21 @@ fn stable_uuid() {
     // Nothing changes on successive runs
     let component_content = fs::read_to_string(&component_path).unwrap();
     println!("{}", component_content);
-    assert!(component_content.contains(COMPONENT_TOML));
+    assert!(component_content.contains(consts::COMPONENT_TOML));
 }
 
-const COMPONENT_TOML: &'static str = r#"name = "my-component"
+#[cfg(all(target_endian = "little", target_pointer_width = "64"))]
+mod consts {
+    pub const COMPONENT_TOML: &'static str = r#"name = "my-component"
 id = "fa46ca95-c6fd-4020-b6a7-4323cfa084be"
 code_hash = "af30400eeda5e1f52684e3cfb4c3be1db2c31ba4e46dc8a0156c0fba9a2fcf7a"
 "#;
 
-const COMPONENT_TOML_WO_HASHES: &'static str = r#"name = "my-component"
+    pub const COMPONENT_TOML_WO_HASHES: &'static str = r#"name = "my-component"
 id = "fa46ca95-c6fd-4020-b6a7-4323cfa084be"
 "#;
 
-const C_SRC: &'static str = r#"
+    pub const C_SRC: &'static str = r#"
 size_t err = MODALITY_PROBE_INIT(
         &probe_storage[0],
         PROBE_STORAGE_SIZE,
@@ -126,9 +132,9 @@ size_t err = MODALITY_PROBE_RECORD_W_U8(
 assert(err == MODALITY_PROBE_ERROR_OK);
 "#;
 
-const C_EXCLUDE_SRC: &'static str = "#include <stdlib.h>";
+    pub const C_EXCLUDE_SRC: &'static str = "#include <stdlib.h>";
 
-const RUST_SRC: &'static str = r#"
+    pub const RUST_SRC: &'static str = r#"
 let probe = try_initialize_at!(
     &mut storage,
     PROBE_ID_B,
@@ -148,3 +154,4 @@ try_expect!(
 )
 .expect("Could not record event");
 "#;
+}

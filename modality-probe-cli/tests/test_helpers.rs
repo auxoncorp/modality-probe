@@ -1,4 +1,4 @@
-#![deny(warnings)]
+#![deny(warnings, clippy::all)]
 
 use std::path::PathBuf;
 use std::process;

@@ -1,7 +1,11 @@
 #![deny(warnings)]
 
 #[test]
-#[cfg(all(target_os = "linux", target_endian = "little"))]
+#[cfg(all(
+    target_os = "linux",
+    target_endian = "little",
+    target_pointer_width = "64"
+))]
 fn visualize_cli_produces_a_reasonable_dot_file() {
     use std::{
         path::PathBuf,

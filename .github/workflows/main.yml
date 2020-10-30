@@ -84,13 +84,21 @@ jobs:
           cd examples/rust-example
           cargo clippy --all
 
+      - name: Test (armv7 target)
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: test
+          # Exclude debug collector because libusb is required to build
+          args: --all --exclude modality-probe-debug-collector --features "std, debug-collector-access" --target=armv7-unknown-linux-gnueabihf
+
       - name: Test (big endian target)
         uses: actions-rs/cargo@v1
         with:
           use-cross: true
           command: test
           # Exclude debug collector because libusb is required to build
-          args: --all --exclude modality-probe-debug-collector --features "std" --target=mips64-unknown-linux-gnuabi64
+          args: --all --exclude modality-probe-debug-collector --features "std, debug-collector-access" --target=mips64-unknown-linux-gnuabi64
 
   windows:
     name: Windows
