@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, HashSet},
     convert::TryFrom,
 };
@@ -18,34 +19,27 @@ pub struct Radius {
     seq_index: u32,
 }
 
-impl TryFrom<&str> for Radius {
+impl TryFrom<(&usize, &str)> for Radius {
     type Error = Box<CmdError>;
-    fn try_from(s: &str) -> Result<Self, Self::Error> {
-        let sections: Vec<&str> = s.split(',').collect();
-        if sections.len() != 2 {
-            give_up!(format!(
-                "{} is not a valid radius. It's missing either the coordinate or the distance",
-                s
-            ));
-        }
-        let coord = sections[0];
-        let c_sections: Vec<&str> = coord.split(':').collect();
-        if c_sections.len() < 4 {
-            give_up!(format!(
-                "Invalid coordinate: {} is missing a section",
-                coord
-            ));
-        } else if c_sections.len() > 4 {
-            give_up!(format!(
-                "Invalid coordinate: {} has too many sections",
-                coord
-            ));
-        }
+    fn try_from(r: (&usize, &str)) -> Result<Self, Self::Error> {
+        let (distance, coord) = r;
 
-        let distance = hopefully!(
-            sections[1].parse::<usize>(),
-            "Unable to parse the given distance"
-        )?;
+        let c_sections: Vec<&str> = coord.split(':').collect();
+        match c_sections.len().cmp(&4) {
+            Ordering::Less => {
+                give_up!(format!(
+                    "Invalid coordinate: {} is missing a section",
+                    coord
+                ));
+            }
+            Ordering::Greater => {
+                give_up!(format!(
+                    "Invalid coordinate: {} has too many sections",
+                    coord
+                ));
+            }
+            _ => (),
+        }
 
         let probe_id = {
             let raw_pid = hopefully!(
@@ -84,7 +78,7 @@ impl TryFrom<&str> for Radius {
         )?;
 
         Ok(Radius {
-            distance,
+            distance: *distance,
             probe_id,
             seq,
             seq_index,
@@ -385,7 +379,8 @@ mod test {
             seq in proptest::num::u64::ANY,
             seq_index in proptest::num::u32::ANY,
         ) {
-            let raid = format!("0:{}:{}:{},{}", pid, seq, seq_index, dist);
+            let coord = format!("0:{}:{}:{}", pid, seq, seq_index);
+            let raid = (&dist, coord.as_ref());
             if let Some(probe_id) = ProbeId::new(pid) {
                 let init = Radius {
                     distance: dist,
@@ -393,8 +388,8 @@ mod test {
                     probe_id,
                     seq_index,
                 };
-                prop_assert_eq!(init, Radius::try_from(raid.as_ref()).unwrap());
-            } else if let Err(err) = Radius::try_from(raid.as_ref()) {
+                prop_assert_eq!(init, Radius::try_from(raid).unwrap());
+            } else if let Err(err) = Radius::try_from(raid) {
                 prop_assert!(
                     err.msg.contains("Unable to parse the given coordinate")
                 );
@@ -416,7 +411,8 @@ mod test {
             graph: true,
             verbose: 0,
             format: None,
-            radius: Some("1:1:1:2,3".to_string()),
+            radius: Some(3),
+            from: Some("1:1:1:2".to_string()),
         };
         let (probes, clock_rows) = log::sort_probes(&cfg, &l, trace).unwrap();
         let mut out = Vec::new();

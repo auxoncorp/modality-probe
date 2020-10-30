@@ -245,22 +245,19 @@ OPTIONS:
 
             NOTE: If an identifier is used in the string and that field is not
             available on the event, it will be replaced by an empty string.
+        --from <from>
+            Provide an event coordinate as a starting point for the filters that require it
+
         --probe <probe>
             The probe to target. If no probe is given, the log from all probes is interleaved
 
         --radius <radius>
-            Filter a whole graph down to the radius around a specific
-            event.
+            Filter a whole graph down to the radius around a specific event.
 
-            Radius takes an event coordinate and the length of the radius
-            around that coordinate to be included in the output.
+            Takes a number used as the “size” of the radius—the number of events on any path in either direction that
+            should be included in the output.
 
-            It takes the form:
-
-            <coord>,<radius>
-
-            Where <coord> is a colon separated event coordinate such as
-            1:2:3:4.
+            Requires `--from`.
     -r, --report <report>
             The path to the collected trace
 ```

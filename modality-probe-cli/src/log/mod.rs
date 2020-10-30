@@ -90,17 +90,18 @@ pub struct Log {
     /// Filter a whole graph down to the radius around a specific
     /// event.
     ///
-    /// Radius takes an event coordinate and the length of the radius
-    /// around that coordinate to be included in the output.
+    /// Takes a number used as the “size” of the radius—the number of
+    /// events on any path in either direction that should be included
+    /// in the output.
     ///
-    /// It takes the form:
-    ///
-    /// <coord>,<radius>
-    ///
-    /// Where <coord> is a colon separated event coordinate such as
-    /// 1:2:3:4.
-    #[structopt(long, verbatim_doc_comment)]
-    pub radius: Option<String>,
+    /// Requires `--from`.
+    #[structopt(long, requires = "from")]
+    pub radius: Option<usize>,
+
+    /// Provide an event coordinate as a starting point for the
+    /// filters that require it.
+    #[structopt(long)]
+    pub from: Option<String>,
 }
 
 pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
@@ -230,10 +231,11 @@ fn sort_probes(
             }
         }
     }
-    if let Some(ref r) = l.radius {
-        let radius = Radius::try_from(r.as_ref())?;
+    if let (Some(ref r), Some(ref coord)) = (l.radius, l.from.as_ref()) {
+        let radius = Radius::try_from((r, coord.as_ref()))?;
         return Ok(radius::truncate_to_radius((probes, clock_rows), radius));
     }
+
     Ok((probes, clock_rows))
 }
 
@@ -1331,6 +1333,7 @@ pub(crate) mod test {
             verbose: 0,
             format: None,
             radius: None,
+            from: None,
         };
         let (probes, clock_rows) = sort_probes(&cfg, &l, trace).unwrap();
         let mut out = Vec::new();
