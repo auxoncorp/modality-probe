@@ -93,7 +93,7 @@ fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
         PRODUCER_MEASUREMENT_SAMPLED,
         m,
         tags!("producer", "measurement sample"),
-        "Measurement producer sampled a value for transmission"
+        "Measurement producer sampled a value for transmission: {}"
     );
 
     // Construct a measurement for transmission with a Modality probe snapshot in-band

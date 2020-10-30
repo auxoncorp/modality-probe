@@ -64,6 +64,11 @@ features = ["serde"]
 version = "0.8"
 features = ["serde", "v4"]
 
+[dependencies.dynfmt]
+version = "0.1"
+default-features = false
+features = ["curly"]
+
 # Used to prevent panics on broken pipes.
 # See:
 #   https://github.com/rust-lang/rust/issues/46016#issuecomment-605624865

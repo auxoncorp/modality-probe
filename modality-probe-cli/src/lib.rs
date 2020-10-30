@@ -1,4 +1,5 @@
 pub mod component;
+pub mod description_format;
 pub mod error;
 pub mod events;
 pub mod header_gen;

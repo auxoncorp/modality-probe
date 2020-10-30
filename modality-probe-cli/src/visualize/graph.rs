@@ -10,6 +10,7 @@ use modality_probe_collector_common::{ReportIter, ReportLogEntry};
 use modality_probe_graph::{EventDigraph, Graph, GraphEvent};
 
 use crate::{
+    description_format::DescriptionFormat,
     hopefully,
     meta::{self, Cfg},
 };
@@ -219,13 +220,29 @@ fn graph_to_tree<'a>(
         });
 
         if let Ok(emeta) = meta::get_event_meta(cfg, &node.probe_id, &node.id) {
-            let payload =
-                meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), node.payload)
-                    .unwrap_or(None);
+            let payload = node.payload.and_then(|pl| {
+                emeta.type_hint.as_ref().and_then(|th| {
+                    meta::parsed_payload(Some(th.as_ref()), Some(pl))
+                        .ok()
+                        .flatten()
+                })
+            });
+            let has_log_str = emeta.description.contains_formatting();
+            let log_str = if has_log_str && payload.is_some() {
+                emeta
+                    .description
+                    .format_payload(payload.as_ref().unwrap())
+                    .ok()
+            } else {
+                None
+            };
+
             probe.events.push(Event {
                 is_known: true,
                 probe_name: probe.name.clone(),
                 has_payload: payload.is_some(),
+                has_log_str,
+                log_str,
                 payload,
                 meta: Some(emeta),
                 raw_id: node.id.get_raw(),
@@ -237,6 +254,8 @@ fn graph_to_tree<'a>(
         } else {
             probe.events.push(Event {
                 is_known: false,
+                has_log_str: false,
+                log_str: None,
                 probe_name: probe.name.clone(),
                 meta: None,
                 has_payload: false,
@@ -247,7 +266,7 @@ fn graph_to_tree<'a>(
                 seq: node.seq.0,
                 seq_idx: node.seq_idx,
             });
-        }
+        };
     }
 
     for (s, t) in edges {
@@ -271,6 +290,8 @@ fn graph_to_tree<'a>(
                     // enumeration.
                     payload: None,
                     has_payload: false,
+                    log_str: None,
+                    has_log_str: false,
                 }
             } else {
                 Event {
@@ -286,6 +307,8 @@ fn graph_to_tree<'a>(
                     // enumeration.
                     payload: None,
                     has_payload: false,
+                    log_str: None,
+                    has_log_str: false,
                 }
             }
         };
@@ -309,6 +332,8 @@ fn graph_to_tree<'a>(
                     // enumeration.
                     payload: None,
                     has_payload: false,
+                    log_str: None,
+                    has_log_str: false,
                 }
             } else {
                 Event {
@@ -324,6 +349,8 @@ fn graph_to_tree<'a>(
                     // enumeration.
                     payload: None,
                     has_payload: false,
+                    log_str: None,
+                    has_log_str: false,
                 }
             }
         };

@@ -175,6 +175,10 @@ macro_rules! try_record_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i8 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -211,6 +215,10 @@ macro_rules! record_w_i8_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u8 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -247,6 +255,10 @@ macro_rules! record_w_u8_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i16 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -283,6 +295,10 @@ macro_rules! record_w_i16_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u16 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -319,6 +335,10 @@ macro_rules! record_w_u16_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -355,6 +375,10 @@ macro_rules! record_w_i32_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -391,6 +415,10 @@ macro_rules! record_w_u32_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_bool {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -427,6 +455,10 @@ macro_rules! record_w_bool_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_f32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -463,6 +495,10 @@ macro_rules! record_w_f32_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i8 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -499,6 +535,10 @@ macro_rules! try_record_w_i8_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u8 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -535,6 +575,10 @@ macro_rules! try_record_w_u8_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i16 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -571,6 +615,10 @@ macro_rules! try_record_w_i16_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u16 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -607,6 +655,10 @@ macro_rules! try_record_w_u16_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -643,6 +695,10 @@ macro_rules! try_record_w_i32_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -679,6 +735,10 @@ macro_rules! try_record_w_u32_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_bool {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -715,6 +775,10 @@ macro_rules! try_record_w_bool_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_f32 {
     ($probe:expr, $event:expr, $payload:expr) => {{
@@ -751,6 +815,10 @@ macro_rules! try_record_w_f32_w_time {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! expect {
     ($probe:expr, $event:expr, $expression:expr) => {{
@@ -769,6 +837,10 @@ macro_rules! expect {
 ///
 /// The optional description and tags string arguments are only used
 /// by the CLI and compile away.
+///
+/// Event with payload descriptions may additionally use a single
+/// format specifier token (`{}`) to have the payload value formatted
+/// in the description when displayed.
 #[macro_export(local_inner_macros)]
 macro_rules! try_expect {
     ($probe:expr, $event:expr, $expression:expr) => {{

@@ -146,7 +146,7 @@ static void run_producer(void)
             PRODUCER_MEASUREMENT_SAMPLED,
             sample,
             MODALITY_TAGS("producer", "measurement sample"),
-            "Measurement producer sampled a value for transmission");
+            "Measurement producer sampled a value for transmission: {}");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
     err = modality_probe_produce_snapshot(

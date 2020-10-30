@@ -142,6 +142,8 @@ pub struct Event<'a> {
     pub is_known: bool,
     pub meta: Option<&'a EventMeta>,
     pub has_payload: bool,
+    pub has_log_str: bool,
+    pub log_str: Option<String>,
     pub payload: Option<String>,
     pub raw_id: u32,
     pub raw_probe_id: u32,
@@ -235,11 +237,17 @@ pub const COMPLETE: &str = "digraph G \\{
             {{ if event.is_known }}
             { event.meta.name }_{ event.probe_name }_{ event.seq }_{ event.seq_idx } [
                 label        = \"{ event.meta.name }\"
+                {{ if event.has_log_str }}
+                message      = \"{ event.log_str }\"
+                {{ else }}
                 description  = \"{ event.meta.description }\"
+                {{ endif }}
                 file         = \"{ event.meta.file }\"
                 probe        = \"{ event.probe_name }\"
-                tags         = \"{ event.meta.tags }\"{{ if event.has_payload }}
-                payload      = { event.payload }{{ endif }}
+                tags         = \"{ event.meta.tags }\"
+                {{ if event.has_payload }}
+                payload      = { event.payload }
+                {{ endif }}
                 raw_event_id = { event.raw_id }
                 raw_probe_id = { event.raw_probe_id }
             ];
@@ -282,7 +290,11 @@ pub const INTERACTIONS: &str = "digraph G \\{
             { event.probe_name }_{ event.clock } [
                 {{if event.is_known }}
                 label        = \"{ event.meta.name }\"
+                {{ if event.has_log_str }}
+                message      = \"{ event.log_str }\"
+                {{ else }}
                 description  = \"{ event.meta.description }\"
+                {{ endif }}
                 file         = \"{ event.meta.file }\"
                 probe        = \"{ event.probe_name }\"
                 tags         = \"{ event.meta.tags }\"
@@ -326,11 +338,17 @@ pub const STATES: &str = "digraph G \\{
             {{ for event in probe.events }}
             {{ if event.is_known }}{ event.meta.name }_AT_{ event.probe_name } [
                 label        = \"{ event.meta.name } @ {event.probe_name }\"
+                {{ if event.has_log_str }}
+                message      = \"{ event.log_str }\"
+                {{ else }}
                 description  = \"{ event.meta.description }\"
+                {{ endif }}
                 file         = \"{ event.meta.file }\"
                 probe        = \"{ event.probe_name }\"
-                tags         = \"{ event.meta.tags }\"{{ if event.has_payload }}
-                payload      = { event.payload }{{ endif }}
+                tags         = \"{ event.meta.tags }\"
+                {{ if event.has_payload }}
+                payload      = { event.payload }
+                {{ endif }}
                 raw_event_id = { event.raw_id }
                 raw_probe_id = { event.raw_probe_id }
             {{ else }}{ event.raw_id }_AT_{ event.probe_name } [
