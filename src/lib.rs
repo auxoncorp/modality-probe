@@ -231,15 +231,15 @@ impl LogicalClock {
     /// Calculate the clock which preceeded this one.
     pub fn prev(&self) -> LogicalClock {
         let (new_clock, overflow) = self.ticks.0.overflowing_sub(1);
-        let epoch = if overflow {
-            self.epoch.0.saturating_sub(1)
+        let (epoch, ticks) = if overflow {
+            (self.epoch.0.saturating_sub(1), 0)
         } else {
-            self.epoch.0
+            (self.epoch.0, new_clock)
         };
         LogicalClock {
             id: self.id,
             epoch: ProbeEpoch(epoch),
-            ticks: ProbeTicks(new_clock),
+            ticks: ProbeTicks(ticks),
         }
     }
 
@@ -919,5 +919,89 @@ mod tests {
                 oc_cmp_eq(Greater, (left, 0), (right, 0));
             }
         }
+    }
+
+    #[test]
+    fn overflowing_next() {
+        let pid = ProbeId::new(1).unwrap();
+        let l = LogicalClock {
+            id: pid,
+            epoch: ProbeEpoch(0),
+            ticks: ProbeTicks::MAX,
+        };
+        let init = l.clone();
+        assert_eq!(
+            l.next(),
+            LogicalClock {
+                id: pid,
+                epoch: ProbeEpoch(1),
+                ticks: ProbeTicks(1),
+            }
+        );
+        // Make sure that the original clock remains untouched.
+        assert_eq!(init, l);
+    }
+
+    #[test]
+    fn saturating_sub() {
+        let pid = ProbeId::new(1).unwrap();
+        let l = LogicalClock {
+            id: pid,
+            epoch: ProbeEpoch(0),
+            ticks: ProbeTicks(0),
+        };
+        let init = l.clone();
+        assert_eq!(
+            l.prev(),
+            LogicalClock {
+                id: pid,
+                epoch: ProbeEpoch(0),
+                ticks: ProbeTicks(0),
+            }
+        );
+        // Make sure that the original clock remains untouched.
+        assert_eq!(init, l);
+    }
+
+    #[test]
+    fn overflowing_sub() {
+        let pid = ProbeId::new(1).unwrap();
+        let l = LogicalClock {
+            id: pid,
+            epoch: ProbeEpoch(2),
+            ticks: ProbeTicks(0),
+        };
+        let init = l.clone();
+        assert_eq!(
+            l.prev(),
+            LogicalClock {
+                id: pid,
+                epoch: ProbeEpoch(1),
+                ticks: ProbeTicks(0),
+            }
+        );
+        // Make sure that the original clock remains untouched.
+        assert_eq!(init, l);
+    }
+
+    #[test]
+    fn nominal_sub() {
+        let pid = ProbeId::new(1).unwrap();
+        let l = LogicalClock {
+            id: pid,
+            epoch: ProbeEpoch(2),
+            ticks: ProbeTicks(2),
+        };
+        let init = l.clone();
+        assert_eq!(
+            l.prev(),
+            LogicalClock {
+                id: pid,
+                epoch: ProbeEpoch(2),
+                ticks: ProbeTicks(1),
+            }
+        );
+        // Make sure that the original clock remains untouched.
+        assert_eq!(init, l);
     }
 }
