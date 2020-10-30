@@ -30,8 +30,16 @@ impl TryFrom<&str> for Radius {
         }
         let coord = sections[0];
         let c_sections: Vec<&str> = coord.split(':').collect();
-        if c_sections.len() != 4 {
-            give_up!(format!("{} is not a valid coordinate", coord));
+        if c_sections.len() < 4 {
+            give_up!(format!(
+                "Invalid coordinate: {} is missing a section",
+                coord
+            ));
+        } else if c_sections.len() > 4 {
+            give_up!(format!(
+                "Invalid coordinate: {} has too many sections",
+                coord
+            ));
         }
 
         let distance = hopefully!(
@@ -42,25 +50,37 @@ impl TryFrom<&str> for Radius {
         let probe_id = {
             let raw_pid = hopefully!(
                 c_sections[1].parse::<u32>(),
-                "Unable to parse the given coordinate"
+                format!(
+                    "Unable to parse the given coordinate: {}:->{}<-:{}:{}",
+                    c_sections[0], c_sections[1], c_sections[2], c_sections[3]
+                )
             )?;
             hopefully_ok!(
                 ProbeId::new(raw_pid),
-                "Unable to parse the given coordinate"
+                format!(
+                    "Unable to parse the given coordinate: {}:->{}<-:{}:{}",
+                    c_sections[0], c_sections[1], c_sections[2], c_sections[3]
+                )
             )?
         };
 
         let seq = {
             let s = hopefully!(
                 c_sections[2].parse::<u64>(),
-                "Unable to parse the given coordinate"
+                format!(
+                    "Unable to parse the given coordinate: {}:{}:->{}<-:{}",
+                    c_sections[0], c_sections[1], c_sections[2], c_sections[3]
+                )
             )?;
             SequenceNumber(s)
         };
 
         let seq_index = hopefully!(
             c_sections[3].parse::<u32>(),
-            "Unable to parse the given coordinate"
+            format!(
+                "Unable to parse the given coordinate: {}:{}:{}:->{}<-",
+                c_sections[0], c_sections[1], c_sections[2], c_sections[3]
+            )
         )?;
 
         Ok(Radius {
@@ -375,9 +395,8 @@ mod test {
                 };
                 prop_assert_eq!(init, Radius::try_from(raid.as_ref()).unwrap());
             } else if let Err(err) = Radius::try_from(raid.as_ref()) {
-                prop_assert_eq!(
-                    "Unable to parse the given coordinate".to_string(),
-                    err.msg
+                prop_assert!(
+                    err.msg.contains("Unable to parse the given coordinate")
                 );
             } else {
                 panic!("failed");
