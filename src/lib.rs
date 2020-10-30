@@ -169,14 +169,6 @@ pub struct LogicalClock {
     pub ticks: ProbeTicks,
 }
 
-impl LogicalClock {
-    /// Produce a tuple containing the probe id and a packed version
-    /// of the clock.
-    pub fn pack(&self) -> (ProbeId, u32) {
-        (self.id, pack_clock_word(self.epoch, self.ticks))
-    }
-}
-
 impl PartialOrd for LogicalClock {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.id != other.id {
@@ -208,6 +200,12 @@ impl PartialOrd for OrdClock {
 }
 
 impl LogicalClock {
+    /// Produce a tuple containing the probe id and a packed version
+    /// of the clock.
+    pub fn pack(&self) -> (ProbeId, u32) {
+        (self.id, pack_clock_word(self.epoch, self.ticks))
+    }
+
     /// Increment the logical clock by one. If the clock portion overflows,
     /// clock wraps around and epoch is incremented. Epoch and clock both wrap
     /// around to 1.
@@ -221,6 +219,28 @@ impl LogicalClock {
             self.epoch = ProbeEpoch(self.epoch.0.wrapping_add(1));
         }
         overflow
+    }
+
+    /// Calculate the clock which follows this one.
+    pub fn next(&self) -> LogicalClock {
+        let mut new = *self;
+        new.increment();
+        new
+    }
+
+    /// Calculate the clock which preceeded this one.
+    pub fn prev(&self) -> LogicalClock {
+        let (new_clock, overflow) = self.ticks.0.overflowing_sub(1);
+        let (epoch, ticks) = if overflow {
+            (self.epoch.0.saturating_sub(1), 0)
+        } else {
+            (self.epoch.0, new_clock)
+        };
+        LogicalClock {
+            id: self.id,
+            epoch: ProbeEpoch(epoch),
+            ticks: ProbeTicks(ticks),
+        }
     }
 
     /// Put the clock into a byte array, probe id first, where the two
@@ -899,5 +919,89 @@ mod tests {
                 oc_cmp_eq(Greater, (left, 0), (right, 0));
             }
         }
+    }
+
+    #[test]
+    fn overflowing_next() {
+        let pid = ProbeId::new(1).unwrap();
+        let l = LogicalClock {
+            id: pid,
+            epoch: ProbeEpoch(0),
+            ticks: ProbeTicks::MAX,
+        };
+        let init = l.clone();
+        assert_eq!(
+            l.next(),
+            LogicalClock {
+                id: pid,
+                epoch: ProbeEpoch(1),
+                ticks: ProbeTicks(1),
+            }
+        );
+        // Make sure that the original clock remains untouched.
+        assert_eq!(init, l);
+    }
+
+    #[test]
+    fn saturating_sub() {
+        let pid = ProbeId::new(1).unwrap();
+        let l = LogicalClock {
+            id: pid,
+            epoch: ProbeEpoch(0),
+            ticks: ProbeTicks(0),
+        };
+        let init = l.clone();
+        assert_eq!(
+            l.prev(),
+            LogicalClock {
+                id: pid,
+                epoch: ProbeEpoch(0),
+                ticks: ProbeTicks(0),
+            }
+        );
+        // Make sure that the original clock remains untouched.
+        assert_eq!(init, l);
+    }
+
+    #[test]
+    fn overflowing_sub() {
+        let pid = ProbeId::new(1).unwrap();
+        let l = LogicalClock {
+            id: pid,
+            epoch: ProbeEpoch(2),
+            ticks: ProbeTicks(0),
+        };
+        let init = l.clone();
+        assert_eq!(
+            l.prev(),
+            LogicalClock {
+                id: pid,
+                epoch: ProbeEpoch(1),
+                ticks: ProbeTicks(0),
+            }
+        );
+        // Make sure that the original clock remains untouched.
+        assert_eq!(init, l);
+    }
+
+    #[test]
+    fn nominal_sub() {
+        let pid = ProbeId::new(1).unwrap();
+        let l = LogicalClock {
+            id: pid,
+            epoch: ProbeEpoch(2),
+            ticks: ProbeTicks(2),
+        };
+        let init = l.clone();
+        assert_eq!(
+            l.prev(),
+            LogicalClock {
+                id: pid,
+                epoch: ProbeEpoch(2),
+                ticks: ProbeTicks(1),
+            }
+        );
+        // Make sure that the original clock remains untouched.
+        assert_eq!(init, l);
     }
 }

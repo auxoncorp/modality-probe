@@ -186,11 +186,11 @@ pub struct ReportLogEntry {
     pub persistent_epoch_counting: bool,
 
     /// Time resolution
-    #[serde(with = "NanosecondResolutionDef")]
+    #[serde(with = "NanosecondResolutionDef", default)]
     pub time_resolution: NanosecondResolution,
 
     /// Wall clock ID
-    #[serde(with = "WallClockIdDef")]
+    #[serde(with = "WallClockIdDef", default)]
     pub wall_clock_id: WallClockId,
 
     /// This entry's data; a frontier
