@@ -17,6 +17,7 @@ use crate::{
     meta::{self, Cfg},
 };
 
+mod color;
 mod format;
 mod radius;
 
@@ -102,6 +103,9 @@ pub struct Log {
     /// filters that require it.
     #[structopt(long)]
     pub from: Option<String>,
+
+    #[structopt(long)]
+    pub no_color: bool,
 }
 
 pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
@@ -113,6 +117,14 @@ pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
 
     let report = json::read_log_entries(&mut log_file)?;
     let (probes, clock_rows) = sort_probes(&cfg, &l, report)?;
+
+    if l.no_color {
+        let mut b = hopefully!(
+            color::COLORIZE.write(),
+            "an internal error occurred before before printing the log"
+        )?;
+        *b = false;
+    }
 
     if l.graph {
         print_as_graph(probes, clock_rows, &cfg, &l, std::io::stdout())
@@ -260,6 +272,12 @@ fn print_as_graph<W: WriteIo>(
 
     // How many timelines are there?
     let n_probes = probes.len();
+    // Probes mapped to their indices.
+    let indices = probes
+        .keys()
+        .enumerate()
+        .map(|(idx, id)| (*id, idx))
+        .collect::<HashMap<ProbeId, usize>>();
 
     loop {
         let init_count = count;
@@ -286,10 +304,10 @@ fn print_as_graph<W: WriteIo>(
                             } else {
                                 print_event_row(
                                     &format!(
-                                        "{} @ {} ({})",
-                                        event_name,
-                                        probe_name,
-                                        row.coordinate()
+                                        "{} {} {}",
+                                        color::white(&event_name),
+                                        color::colorize_probe(idx, &format!("@ {}", probe_name)),
+                                        color::colorize_coord(&row.coordinate())
                                     ),
                                     idx,
                                     n_probes,
@@ -307,7 +325,7 @@ fn print_as_graph<W: WriteIo>(
                                 )?;
                             }
 
-                            print_info_row(n_probes, "", &mut stream)?;
+                            print_info_row(n_probes, "", "", "", &mut stream)?;
                         } else {
                             log.push(row);
                         }
@@ -333,10 +351,10 @@ fn print_as_graph<W: WriteIo>(
                             } else {
                                 print_event_row(
                                     &format!(
-                                        "{} @ {} ({})",
-                                        event_name,
-                                        probe_name,
-                                        row.coordinate(),
+                                        "{} {} {}",
+                                        color::white(&event_name),
+                                        color::colorize_probe(idx, &format!("@ {}", probe_name)),
+                                        color::colorize_coord(&row.coordinate())
                                     ),
                                     idx,
                                     n_probes,
@@ -353,7 +371,7 @@ fn print_as_graph<W: WriteIo>(
                                     &mut stream,
                                 )?;
                             }
-                            print_info_row(n_probes, "", &mut stream)?;
+                            print_info_row(n_probes, "", "", "", &mut stream)?;
                         } else {
                             log.push(row);
                         }
@@ -423,6 +441,7 @@ fn print_as_graph<W: WriteIo>(
                                 .get(&lc.id.get_raw())
                                 .map(|pm| pm.name.clone())
                                 .unwrap_or_else(|| lc.id.get_raw().to_string());
+                            let from_idx = indices.get(&lc.id);
                             let to_name = cfg
                                 .probes
                                 .get(&probe_id.get_raw())
@@ -437,7 +456,7 @@ fn print_as_graph<W: WriteIo>(
                                     n_probes,
                                     &mut stream,
                                 )?;
-                                print_info_row(n_probes, "", &mut stream)?;
+                                print_info_row(n_probes, "", "", "", &mut stream)?;
                                 blocked_tls.remove(probe_id);
                                 blocked_tls.remove(&lc.id);
                             // There is not a source waiting to be
@@ -452,14 +471,15 @@ fn print_as_graph<W: WriteIo>(
                                     blocked_tls.insert(*probe_id);
                                 } else {
                                     print_missing_edge_line(
-                                        idx,
+                                        from_idx,
                                         &from_name,
+                                        idx,
                                         &to_name,
                                         n_probes,
                                         l.probe.is_some(),
                                         &mut stream,
                                     )?;
-                                    print_info_row(n_probes, "", &mut stream)?;
+                                    print_info_row(n_probes, "", "", "", &mut stream)?;
                                 }
                             }
                         }
@@ -491,24 +511,30 @@ fn handle_graph_verbosity<W: WriteIo>(
         let emeta = event_meta.expect("just checked that event meta is_some");
         print_info_row(
             n_probes,
-            &format!("    description: \"{}\"", emeta.description),
+            "description",
+            &emeta.description,
+            "    ",
             &mut stream,
         )?;
         // TODO(dan@auxon.io): Interpolate log-style payload / string
         // combos here if they're present.
         // https://github.com/auxoncorp/modality-probe/issues/281
         if let Some(pp) = meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), pl)? {
-            print_info_row(n_probes, &format!("    payload: {}", pp), &mut stream)?;
+            print_info_row(n_probes, "payload", &pp, "    ", &mut stream)?;
         }
         print_info_row(
             n_probes,
-            &format!("    tags: {}", emeta.tags.replace(";", ", ")),
+            "tags",
+            &emeta.tags.replace(";", ", "),
+            "    ",
             &mut stream,
         )?;
         if !emeta.file.is_empty() && !emeta.line.is_empty() {
             print_info_row(
                 n_probes,
-                &format!("    source: \"{}#L{}\"", emeta.file, emeta.line),
+                "source",
+                &format!("\"{}#L{}\"", emeta.file, emeta.line),
+                "    ",
                 &mut stream,
             )?;
         }
@@ -517,16 +543,20 @@ fn handle_graph_verbosity<W: WriteIo>(
         let pmeta = probe_meta.expect("just checked that probe meta is_some");
         print_info_row(
             n_probes,
-            &format!("    probe_tags: {}", pmeta.tags.replace(";", ", ")),
+            "probe tags",
+            &pmeta.tags.replace(";", ", "),
+            "    ",
             &mut stream,
         )?;
         print_info_row(
             n_probes,
+            "probe source",
             &match (pmeta.file.is_empty(), pmeta.line.is_empty()) {
-                (false, false) => format!("    probe source: \"{}#L{}\"", pmeta.file, pmeta.line),
-                (false, true) => format!("    probe source: \"{}\"", pmeta.file),
-                _ => "probe source: None".to_string(),
+                (false, false) => format!("\"{}#L{}\"", pmeta.file, pmeta.line),
+                (false, true) => format!("\"{}\"", pmeta.file),
+                _ => "None".to_string(),
             },
+            "    ",
             &mut stream,
         )?;
         let comp_name_or_id =
@@ -535,11 +565,7 @@ fn handle_graph_verbosity<W: WriteIo>(
             } else {
                 pmeta.component_id.to_string()
             };
-        print_info_row(
-            n_probes,
-            &format!("    component: {}", comp_name_or_id),
-            &mut stream,
-        )?;
+        print_info_row(n_probes, "component", &comp_name_or_id, "    ", &mut stream)?;
     }
     Ok(())
 }
@@ -576,7 +602,7 @@ fn handle_source_edge<W: WriteIo>(
             n_probes,
             &mut stream,
         )?;
-        print_info_row(n_probes, "", &mut stream)?;
+        print_info_row(n_probes, "", "", "", &mut stream)?;
         blocked_tls.remove(probe_id);
         blocked_tls.remove(&target_id);
     } else {
@@ -606,7 +632,7 @@ fn print_event_row<W: WriteIo>(
             )?;
         } else {
             hopefully!(
-                write!(s, "|{}", COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(i, "|"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         }
@@ -618,7 +644,9 @@ fn print_event_row<W: WriteIo>(
 
 fn print_info_row<W: WriteIo>(
     n_probe: usize,
+    key: &str,
     info: &str,
+    indent: &str,
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut s = String::new();
@@ -626,15 +654,21 @@ fn print_info_row<W: WriteIo>(
         // If the info string is empty and we're on the lat timeline,
         // don't include the column spacing.
         if i == n_probe.saturating_sub(1) && info.is_empty() {
-            hopefully!(write!(s, "|"), "Internal error formatting graph")?;
+            hopefully!(
+                write!(s, "{}", color::colorize_probe(i, "|")),
+                "Internal error formatting graph"
+            )?;
         } else {
             hopefully!(
-                write!(s, "|{}", COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(i, "|"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         }
     }
-    hopefully!(write!(s, "{}", info), "Internal error formatting graph")?;
+    hopefully!(
+        write!(s, "{}{}", indent, color::colorize_info(key, info)),
+        "Internal error formatting graph"
+    )?;
     hopefully!(writeln!(stream, "{}", s), "Internal error formatting graph")?;
     Ok(())
 }
@@ -655,19 +689,30 @@ fn print_edge_line<W: WriteIo>(
         // case because we must adjust for the arrow's head.
         if l_to_r && i == from && i == to - 1 {
             hopefully!(
-                write!(s, "+{}>", &COL_EDGE[1..]),
+                write!(
+                    s,
+                    "{}{}{}",
+                    color::colorize_probe(from, "+"),
+                    color::colorize_probe(from, &COL_EDGE[1..]),
+                    color::colorize_probe(from, ">")
+                ),
                 "Internal error formatting graph"
             )?;
         // This timeline is the source (left-to-right).
         } else if l_to_r && i == from {
             hopefully!(
-                write!(s, "+{}", COL_EDGE),
+                write!(
+                    s,
+                    "{}{}",
+                    color::colorize_probe(from, "+"),
+                    color::colorize_probe(from, COL_EDGE)
+                ),
                 "Internal error formatting graph"
             )?;
         // This timeline is the source (right-to-left).
         } else if i == from {
             hopefully!(
-                write!(s, "+{}", COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(from, "+"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         // This timeline is the target (in left-to-right).
@@ -679,31 +724,50 @@ fn print_edge_line<W: WriteIo>(
         // This timeline is the target (in right-to-left).
         } else if i == to {
             hopefully!(
-                write!(s, "+<{}", &COL_EDGE[1..]),
+                write!(
+                    s,
+                    "+{}{}",
+                    color::colorize_probe(from, "<"),
+                    color::colorize_probe(from, &COL_EDGE[1..])
+                ),
                 "Internal error formatting graph"
             )?;
         // In a left-to-right edge, write the head of the arrow.
         } else if l_to_r && i == to - 1 {
             hopefully!(
-                write!(s, "{}>", COL_EDGE),
+                write!(
+                    s,
+                    "{}{}",
+                    color::colorize_probe(from, COL_EDGE),
+                    color::colorize_probe(from, ">")
+                ),
                 "Internal error formatting graph"
             )?;
         // We're on a timeline that lay between the source and
         // target and the edge should “jump” it.
         } else if (l_to_r && i > from && i < to) || (i > to && i < from) {
             hopefully!(
-                write!(s, "-{}", COL_EDGE),
+                write!(
+                    s,
+                    "{}{}",
+                    color::colorize_probe(from, "-"),
+                    color::colorize_probe(from, COL_EDGE)
+                ),
                 "Internal error formatting graph"
             )?;
         } else {
             hopefully!(
-                write!(s, "|{}", COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(i, "|"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         }
     }
     hopefully!(
-        write!(s, "{} merged a snapshot from {}", to_pname, from_pname),
+        write!(
+            s,
+            "{}",
+            color::colorize_merge(from_pname, from, to_pname, to),
+        ),
         "Internal error formatting graph"
     )?;
     hopefully!(writeln!(stream, "{}", s), "Internal error formatting graph")?;
@@ -711,8 +775,9 @@ fn print_edge_line<W: WriteIo>(
 }
 
 fn print_missing_edge_line<W: WriteIo>(
-    idx: usize,
+    from_idx: Option<&usize>,
     from_name: &str,
+    to_idx: usize,
     to_name: &str,
     n_probe: usize,
     single_probe_mode: bool,
@@ -720,31 +785,53 @@ fn print_missing_edge_line<W: WriteIo>(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut s = String::new();
     for i in 0..n_probe {
-        if i == idx && !single_probe_mode {
+        if i == to_idx && !single_probe_mode {
             hopefully!(
                 write!(s, "?{}", COL_SPACE),
                 "Internal error formatting graph"
             )?;
-        } else if i == idx && single_probe_mode {
+        } else if i == to_idx && single_probe_mode {
             hopefully!(
-                write!(s, "+<-{}", &COL_SPACE[2..]),
+                write!(
+                    s,
+                    "+{}{}",
+                    if let Some(fi) = from_idx {
+                        color::colorize_probe(*fi, "<-").to_string()
+                    } else {
+                        "<-".to_string()
+                    },
+                    &COL_SPACE[2..]
+                ),
                 "Internal error formatting graph"
             )?;
         } else {
             hopefully!(
-                write!(s, "|{}", COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(i, "|"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         }
     }
     hopefully!(
         if single_probe_mode {
-            write!(s, "{} merged a snapshot from {}", to_name, from_name)
+            write!(
+                s,
+                "{}",
+                if let Some(fi) = from_idx {
+                    color::colorize_merge(from_name, *fi, to_name, to_idx)
+                } else {
+                    format!("{} merged a snapshot from {}", to_name, from_name)
+                }
+            )
         } else {
             write!(
                 s,
                 "{} expected a snapshot from {} but it is missing",
-                to_name, from_name
+                color::colorize_probe(to_idx, to_name),
+                if let Some(fi) = from_idx {
+                    color::colorize_probe(*fi, from_name)
+                } else {
+                    from_name.to_string()
+                },
             )
         },
         "Internal error formatting graph"
@@ -759,20 +846,25 @@ fn print_as_log(
     cfg: &Cfg,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut count = 0;
+    let indices = probes
+        .keys()
+        .enumerate()
+        .map(|(idx, id)| (*id, idx))
+        .collect::<HashMap<ProbeId, usize>>();
     'outer: loop {
         let init_count = count;
-        for (probe_id, log) in probes.iter_mut() {
+        for (idx, (probe_id, log)) in probes.iter_mut().enumerate() {
             let mut seen_self_clock = false;
             'inner: loop {
                 if let Some(row) = log.pop() {
                     match row.data {
                         LogEntryData::Event(id) | LogEntryData::EventWithTime(.., id) => {
-                            print_event_info(row, &id, None, l, &cfg)?;
+                            print_event_info(idx, row, &id, None, l, &cfg)?;
                             count += 1;
                         }
                         LogEntryData::EventWithPayload(id, pl)
                         | LogEntryData::EventWithPayloadWithTime(.., id, pl) => {
-                            print_event_info(row, &id, Some(pl), l, &cfg)?;
+                            print_event_info(idx, row, &id, Some(pl), l, &cfg)?;
                             count += 1;
                         }
                         LogEntryData::TraceClock(lc) | LogEntryData::TraceClockWithTime(.., lc) => {
@@ -787,9 +879,9 @@ fn print_as_log(
                                         println!();
                                     }
                                     println!(
-                                        "Clock Tick @ {} ({}) clock=({}, {})",
-                                        probe_name,
-                                        row.coordinate(),
+                                        "Clock Tick @ {} {} clock=({}, {})",
+                                        color::colorize_probe(idx, &probe_name),
+                                        color::colorize_coord(&row.coordinate()),
                                         lc.epoch.0,
                                         lc.ticks.0
                                     );
@@ -806,11 +898,16 @@ fn print_as_log(
                                     .get(&lc.id.get_raw())
                                     .map(|p| p.name.clone())
                                     .unwrap_or_else(|| row.probe_id.get_raw().to_string());
+                                let remote_probe_idx = indices.get(&lc.id);
                                 println!(
                                     "Snapshot Merge @ {} ({}), from={} clock=({}, {})",
-                                    probe_name,
-                                    row.coordinate(),
-                                    remote_probe_name,
+                                    color::colorize_probe(idx, &probe_name),
+                                    color::colorize_coord(&row.coordinate()),
+                                    if let Some(ri) = remote_probe_idx {
+                                        color::colorize_probe(*ri, &remote_probe_name).to_string()
+                                    } else {
+                                        remote_probe_name
+                                    },
                                     lc.epoch.0,
                                     lc.ticks.0
                                 );
@@ -837,6 +934,7 @@ fn print_as_log(
 }
 
 fn print_event_info(
+    idx: usize,
     ev: ReportLogEntry,
     eid: &EventId,
     payload: Option<u32>,
@@ -855,54 +953,79 @@ fn print_event_info(
         let pname = probe_meta
             .map(|pm| pm.name.clone())
             .unwrap_or_else(|| ev.probe_id.get_raw().to_string());
-        println!("{} @ {} ({})", ename, pname, ev.coordinate());
+        println!(
+            "{} {} {}",
+            ename,
+            color::colorize_probe(idx, &format!("@ {}", pname)),
+            color::colorize_coord(&ev.coordinate())
+        );
         if l.verbose != 0 && event_meta.is_ok() {
             let emeta = event_meta.expect("just checked that event meta is_ok");
             println!(
-                "    description: \"{}\"",
-                if !emeta.description.is_empty() {
-                    &emeta.description
-                } else {
-                    "None"
-                }
+                "    {}",
+                color::colorize_info(
+                    "description",
+                    if !emeta.description.is_empty() {
+                        &emeta.description
+                    } else {
+                        "None"
+                    }
+                )
             );
             println!(
-                "    payload: {}",
-                if let Some(p) =
-                    meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), payload)?
-                {
-                    p
-                } else {
-                    "None".to_string()
-                }
+                "    {}",
+                color::colorize_info(
+                    "payload",
+                    if let Some(ref p) =
+                        meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), payload)?
+                    {
+                        p
+                    } else {
+                        "None"
+                    }
+                )
             );
-            println!("    tags: {}", emeta.tags.replace(";", ", "));
             println!(
-                "{}",
+                "    {}",
+                color::colorize_info("tags", &emeta.tags.replace(";", ", "))
+            );
+            println!(
+                "    {}",
                 match (emeta.file.is_empty(), emeta.line.is_empty()) {
                     (false, false) => {
-                        format!("    source: \"{}#L{}\"", emeta.file, emeta.line)
+                        color::colorize_info(
+                            "source",
+                            &format!("\"{}#L{}\"", emeta.file, emeta.line),
+                        )
                     }
                     (true, false) => {
-                        format!("    source: \"{}\"", emeta.file)
+                        color::colorize_info("source", &format!("\"{}\"", emeta.file))
                     }
-                    _ => "    source: None".to_string(),
+                    _ => {
+                        color::colorize_info("source", "None")
+                    }
                 }
             );
         }
         if l.verbose > 1 && probe_meta.is_some() {
             let pmeta = probe_meta.expect("just checked that probe meta is_some");
-            println!("    probe tags: {}", pmeta.tags.replace(";", ", "));
             println!(
-                "{}",
+                "    {}",
+                color::colorize_info("probe tags", &pmeta.tags.replace(";", ", "))
+            );
+            println!(
+                "    {}",
                 match (pmeta.file.is_empty(), pmeta.line.is_empty()) {
                     (false, false) => {
-                        format!("    probe source: \"{}#L{}\"", pmeta.file, pmeta.line)
+                        color::colorize_info(
+                            "probe source",
+                            &format!("\"{}#L{}\"", pmeta.file, pmeta.line),
+                        )
                     }
                     (false, true) => {
-                        format!("    probe source: \"{}\"", pmeta.file)
+                        color::colorize_info("probe source", &format!("\"{}\"", pmeta.file))
                     }
-                    _ => "    probe source: None".to_string(),
+                    _ => color::colorize_info("probe source", "None"),
                 }
             );
             let comp_name_or_id =
@@ -911,7 +1034,10 @@ fn print_event_info(
                 } else {
                     pmeta.component_id.to_string()
                 };
-            println!("    component: {}", comp_name_or_id);
+            println!(
+                "    {}",
+                color::colorize_info("component", &comp_name_or_id)
+            );
         }
         if l.verbose != 0 {
             println!();
@@ -1334,7 +1460,12 @@ pub(crate) mod test {
             format: None,
             radius: None,
             from: None,
+            no_color: true,
         };
+        {
+            let mut b = color::COLORIZE.write().unwrap();
+            *b = false;
+        }
         let (probes, clock_rows) = sort_probes(&cfg, &l, trace).unwrap();
         let mut out = Vec::new();
         print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();

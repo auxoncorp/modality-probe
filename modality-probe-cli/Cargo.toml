@@ -37,7 +37,10 @@ hex = "0.4"
 derivative = "2.1"
 err-derive = "0.3.0"
 colorous = "1.0.3"
+colored = "2"
 tinytemplate = "1.1.0"
+lazy_static = "1.4.0"
+
 modality-probe-collector-common = { path = "../collectors/modality-probe-collector-common" }
 modality-probe-graph = { path = "../modality-probe-graph" }
 

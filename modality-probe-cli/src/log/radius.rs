@@ -354,7 +354,11 @@ mod test {
 
     use proptest::prelude::*;
 
-    use crate::{log, log::Log, visualize::graph};
+    use crate::{
+        log,
+        log::{color, Log},
+        visualize::graph,
+    };
 
     use super::*;
 
@@ -413,7 +417,12 @@ mod test {
             format: None,
             radius: Some(3),
             from: Some("1:1:1:2".to_string()),
+            no_color: true,
         };
+        {
+            let mut b = color::COLORIZE.write().unwrap();
+            *b = false;
+        }
         let (probes, clock_rows) = log::sort_probes(&cfg, &l, trace).unwrap();
         let mut out = Vec::new();
         log::print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();

@@ -205,6 +205,7 @@ mod test {
                 format: Some("event %en occurred at probe %pn".to_string()),
                 radius: None,
                 from: None,
+                no_color: false,
             })
         );
     }
