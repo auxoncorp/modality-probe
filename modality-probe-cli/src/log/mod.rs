@@ -123,7 +123,7 @@ pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     if l.no_color || (color_term != "truecolor" && color_term != "24bit") {
         let mut b = hopefully!(
             color::COLORIZE.write(),
-            "an internal error occurred before before printing the log"
+            "An internal error occurred before before printing the log"
         )?;
         *b = false;
     }
