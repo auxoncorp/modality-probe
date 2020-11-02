@@ -240,7 +240,11 @@ mod test {
         LogEntryData, ReportLogEntry, SequenceNumber, SessionId,
     };
 
-    use crate::{log, log::Log, visualize::graph};
+    use crate::{
+        log,
+        log::{color, Log},
+        visualize::graph,
+    };
 
     use super::*;
 
@@ -330,7 +334,12 @@ mod test {
             format: Some("event %en occurred at probe %pn".to_string()),
             radius: None,
             from: None,
+            no_color: true,
         };
+        {
+            let mut b = color::COLORIZE.write().unwrap();
+            *b = false;
+        }
         let (probes, clock_rows) = log::sort_probes(&cfg, &l, trace).unwrap();
         let mut out = Vec::new();
         log::print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();
