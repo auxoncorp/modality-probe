@@ -104,6 +104,7 @@ pub struct Log {
     #[structopt(long)]
     pub from: Option<String>,
 
+    /// Don't colorize the output.
     #[structopt(long)]
     pub no_color: bool,
 }

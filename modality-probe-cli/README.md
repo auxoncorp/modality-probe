@@ -198,6 +198,9 @@ FLAGS:
     -h, --help
             Prints help information
 
+        --no-color
+            Don't colorize the output
+
     -V, --version
             Prints version information
 
