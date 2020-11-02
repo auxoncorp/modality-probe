@@ -119,7 +119,8 @@ pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     let report = json::read_log_entries(&mut log_file)?;
     let (probes, clock_rows) = sort_probes(&cfg, &l, report)?;
 
-    if l.no_color {
+    let color_term = std::env::var("COLORTERM").unwrap_or_else(|_| String::new());
+    if l.no_color || (color_term != "truecolor" && color_term != "24bit") {
         let mut b = hopefully!(
             color::COLORIZE.write(),
             "an internal error occurred before before printing the log"
