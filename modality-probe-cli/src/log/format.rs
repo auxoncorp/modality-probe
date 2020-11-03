@@ -11,7 +11,7 @@ const IDENTS: [Ident; 21] = [
     ("%el", event_line),
     ("%et", event_tags),
     ("%ed", event_description),
-    ("%et", event_type_hint),
+    ("%eh", event_type_hint),
     ("%ep", event_payload),
     ("%er", raw_event_payload),
     ("%ec", event_coordinate),
