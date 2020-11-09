@@ -57,7 +57,7 @@ impl Events {
                 description: "The probe produced a log report for transmission to \
                     the backend for external analysis"
                     .to_string(),
-                tags: "internal".to_string(),
+                tags: "INTERNAL".to_string(),
                 type_hint: String::new(),
                 file: String::new(),
                 line: String::new(),
@@ -70,7 +70,7 @@ impl Events {
                     reported to the collector, the number of missed entries is stored\
                     in the payload"
                     .to_string(),
-                tags: "internal".to_string(),
+                tags: "INTERNAL".to_string(),
                 type_hint: "u32".to_string(),
                 file: String::new(),
                 line: String::new(),
@@ -81,7 +81,7 @@ impl Events {
                 name: "MODALITY_LOGICAL_CLOCK_OVERFLOWED".to_string(),
                 description: "A logical clock's count reached the maximum trackable value"
                     .to_string(),
-                tags: "internal".to_string(),
+                tags: "INTERNAL".to_string(),
                 type_hint: "u32".to_string(),
                 file: String::new(),
                 line: String::new(),
@@ -94,7 +94,7 @@ impl Events {
                     "The probe did not have enough memory reserved to store enough logical \
                     clocks to track all of the unique neighbors that attempt to communicate with it"
                         .to_string(),
-                tags: "internal".to_string(),
+                tags: "INTERNAL".to_string(),
                 type_hint: String::new(),
                 file: String::new(),
                 line: String::new(),
@@ -108,7 +108,7 @@ impl Events {
                 description: "The report destination buffer is too small to fit a header \
                     and/or the frontier clocks"
                     .to_string(),
-                tags: "internal".to_string(),
+                tags: "INTERNAL".to_string(),
                 type_hint: String::new(),
                 file: String::new(),
                 line: String::new(),
@@ -118,7 +118,7 @@ impl Events {
                 id: EventId(modality_probe::EventId::EVENT_PROBE_INITIALIZED.get_raw()),
                 name: "MODALITY_PROBE_INITIALIZED".to_string(),
                 description: "The probe successfully initialized itself".to_string(),
-                tags: "internal".to_string(),
+                tags: "INTERNAL".to_string(),
                 type_hint: String::new(),
                 file: String::new(),
                 line: String::new(),
@@ -131,7 +131,7 @@ impl Events {
                     "The probe is configured to track restarts, but the user's implementation \
                         returned an invalid zero value or a None option variant."
                         .to_string(),
-                tags: "internal".to_string(),
+                tags: "INTERNAL".to_string(),
                 type_hint: String::new(),
                 file: String::new(),
                 line: String::new(),
@@ -141,7 +141,7 @@ impl Events {
                 id: EventId(modality_probe::EventId::EVENT_WALL_CLOCK_TIME_ONLY.get_raw()),
                 name: "MODALITY_WALL_CLOCK_TIME_ONLY".to_string(),
                 description: "Reserved for indicating wall clock time".to_string(),
-                tags: "internal".to_string(),
+                tags: "INTERNAL".to_string(),
                 type_hint: String::new(),
                 file: String::new(),
                 line: String::new(),
@@ -202,10 +202,10 @@ impl Events {
             let is_valid_user_id = modality_probe::EventId::new(event.id.0).is_some();
             let is_valid_internal_id = modality_probe::EventId::new_internal(event.id.0).is_some();
 
-            if is_valid_internal_id && !event.tags.contains("internal") {
+            if is_valid_internal_id && !event.tags.split(';').map(|t| t.to_uppercase()).any(|t| t == "INTERNAL") {
                 exit_error!(
                     "events",
-                    "Events manifest contains an event \"{}\" with an EventId ({}) in the internal range but is missing the \"internal\" tag",
+                    "Events manifest contains an event \"{}\" with an EventId ({}) in the internal range but is missing the \"INTERNAL\" tag",
                     event.name,
                     event.id.0,
                 );
