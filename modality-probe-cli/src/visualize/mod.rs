@@ -67,16 +67,16 @@ pub fn run(mut viz: Visualize) -> Result<(), Box<dyn std::error::Error>> {
         json::read_log_entries(&mut log_file)?
             .into_iter()
             .peekable(),
+        viz.include_internal_events,
     )?;
 
     match (viz.graph_type, viz.interactions_only) {
         (GraphType::Acyclic, false) => println!(
             "{}",
-            graph.graph.as_complete(viz.include_internal_events).dot(
-                &cfg,
-                "complete",
-                templates::COMPLETE
-            )?
+            graph
+                .graph
+                .as_complete()
+                .dot(&cfg, "complete", templates::COMPLETE)?
         ),
         (GraphType::Acyclic, true) => println!(
             "{}",
@@ -87,11 +87,10 @@ pub fn run(mut viz: Visualize) -> Result<(), Box<dyn std::error::Error>> {
         ),
         (GraphType::Cyclic, false) => println!(
             "{}",
-            graph.graph.as_states(viz.include_internal_events).dot(
-                &cfg,
-                "states",
-                templates::STATES
-            )?
+            graph
+                .graph
+                .as_states()
+                .dot(&cfg, "states", templates::STATES)?
         ),
         (GraphType::Cyclic, true) => println!(
             "{}",

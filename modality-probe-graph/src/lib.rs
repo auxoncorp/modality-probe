@@ -84,7 +84,7 @@ impl<G: Graph> EventDigraph<G> {
     }
 
     /// Turn a report into nodes and edges on the graph.
-    pub fn add_report(&mut self, report: &Report) -> Result<(), Error> {
+    pub fn add_report(&mut self, report: &Report, include_internals: bool) -> Result<(), Error> {
         let probe_id = report.probe_id;
         let seq_num = report.seq_num;
         let mut prev_event = None;
@@ -96,47 +96,55 @@ impl<G: Graph> EventDigraph<G> {
             return Err(Error::InconsistentData("missing self frontier clock"));
         };
         let mut pending_edges = vec![];
+        // To properly abide sequence indices from the original
+        // flattened log, we need to offset them by the number of
+        // frontier clocks.
+        let num_frontier_clocks = report.frontier_clocks.len();
 
         for (idx, ev) in report.event_log.iter().enumerate() {
             match ev {
                 EventLogEntry::Event(id) | EventLogEntry::EventWithTime(.., id) => {
-                    let node = GraphEvent {
-                        probe_id,
-                        id: *id,
-                        clock: *self_clock,
-                        payload: None,
-                        seq: seq_num,
-                        seq_idx: idx,
-                    };
-                    self.add_event_to_graph(
-                        node,
-                        &mut pending_edges,
-                        &mut prev_event,
-                        &mut prev_tc,
-                        &mut first_event,
-                        probe_id,
-                        seq_num,
-                    );
+                    if include_internals || !id.is_internal() {
+                        let node = GraphEvent {
+                            probe_id,
+                            id: *id,
+                            clock: *self_clock,
+                            payload: None,
+                            seq: seq_num,
+                            seq_idx: idx.saturating_add(num_frontier_clocks),
+                        };
+                        self.add_event_to_graph(
+                            node,
+                            &mut pending_edges,
+                            &mut prev_event,
+                            &mut prev_tc,
+                            &mut first_event,
+                            probe_id,
+                            seq_num,
+                        );
+                    }
                 }
                 EventLogEntry::EventWithPayload(id, payload)
                 | EventLogEntry::EventWithPayloadWithTime(.., id, payload) => {
-                    let node = GraphEvent {
-                        probe_id,
-                        id: *id,
-                        clock: *self_clock,
-                        payload: Some(*payload),
-                        seq: seq_num,
-                        seq_idx: idx,
-                    };
-                    self.add_event_to_graph(
-                        node,
-                        &mut pending_edges,
-                        &mut prev_event,
-                        &mut prev_tc,
-                        &mut first_event,
-                        probe_id,
-                        seq_num,
-                    );
+                    if include_internals || !id.is_internal() {
+                        let node = GraphEvent {
+                            probe_id,
+                            id: *id,
+                            clock: *self_clock,
+                            payload: Some(*payload),
+                            seq: seq_num,
+                            seq_idx: idx,
+                        };
+                        self.add_event_to_graph(
+                            node,
+                            &mut pending_edges,
+                            &mut prev_event,
+                            &mut prev_tc,
+                            &mut first_event,
+                            probe_id,
+                            seq_num,
+                        );
+                    }
                 }
                 EventLogEntry::TraceClock(lc) | EventLogEntry::TraceClockWithTime(.., lc) => {
                     if lc.id == probe_id {
@@ -577,8 +585,10 @@ pub mod test_support {
 mod test {
     use std::{collections::HashSet, convert::TryInto};
 
+    use chrono::prelude::*;
+
     use modality_probe::{EventId, ProbeEpoch, ProbeId, ProbeTicks};
-    use modality_probe_collector_common::ReportIter;
+    use modality_probe_collector_common::{LogFileRow, ReportIter};
 
     use super::*;
 
@@ -618,7 +628,7 @@ mod test {
 
         let mut graph = EventDigraph::new(inner);
         for report in report_iter {
-            graph.add_report(&report).unwrap();
+            graph.add_report(&report, false).unwrap();
         }
 
         let one = GraphEvent {
@@ -631,7 +641,7 @@ mod test {
                 ticks: ProbeTicks(0),
             },
             seq: SequenceNumber(1),
-            seq_idx: 0,
+            seq_idx: 1,
         };
         let two = GraphEvent {
             id: EventId::new(2).unwrap(),
@@ -643,7 +653,7 @@ mod test {
                 ticks: ProbeTicks(1),
             },
             seq: SequenceNumber(1),
-            seq_idx: 2,
+            seq_idx: 3,
         };
         let three = GraphEvent {
             id: EventId::new(3).unwrap(),
@@ -655,7 +665,7 @@ mod test {
                 ticks: ProbeTicks(1),
             },
             seq: SequenceNumber(1),
-            seq_idx: 2,
+            seq_idx: 3,
         };
         let four = GraphEvent {
             id: EventId::new(4).unwrap(),
@@ -667,7 +677,7 @@ mod test {
                 ticks: ProbeTicks(2),
             },
             seq: SequenceNumber(1),
-            seq_idx: 4,
+            seq_idx: 5,
         };
         expected.add_node(one);
         expected.add_node(two);
@@ -684,5 +694,144 @@ mod test {
             "\n{:#?}\n{:#?}",
             graph.graph, expected
         );
+    }
+
+    #[test]
+    fn internals() {
+        let now = Utc::now();
+        let log = vec![
+            LogFileRow {
+                session_id: 1,
+                sequence_number: 1,
+                sequence_index: 0,
+                time_resolution: 0,
+                wall_clock_id: 0,
+                receive_time: now,
+                probe_id: 1,
+                fc_probe_id: Some(1),
+                fc_probe_epoch: Some(0),
+                fc_probe_clock: Some(0),
+                event_id: None,
+                event_payload: None,
+                tc_probe_id: None,
+                tc_probe_epoch: None,
+                tc_probe_clock: None,
+            },
+            LogFileRow {
+                session_id: 1,
+                sequence_number: 1,
+                sequence_index: 1,
+                time_resolution: 0,
+                wall_clock_id: 0,
+                receive_time: now,
+                probe_id: 1,
+                fc_probe_id: None,
+                fc_probe_epoch: None,
+                fc_probe_clock: None,
+                event_id: Some(1),
+                event_payload: None,
+                tc_probe_id: None,
+                tc_probe_epoch: None,
+                tc_probe_clock: None,
+            },
+            LogFileRow {
+                session_id: 1,
+                sequence_number: 1,
+                sequence_index: 2,
+                time_resolution: 0,
+                wall_clock_id: 0,
+                receive_time: now,
+                probe_id: 1,
+                fc_probe_id: None,
+                fc_probe_epoch: None,
+                fc_probe_clock: None,
+                event_id: Some(EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw()),
+                event_payload: None,
+                tc_probe_id: None,
+                tc_probe_epoch: None,
+                tc_probe_clock: None,
+            },
+            LogFileRow {
+                session_id: 1,
+                sequence_number: 1,
+                sequence_index: 3,
+                time_resolution: 0,
+                wall_clock_id: 0,
+                receive_time: now,
+                probe_id: 1,
+                fc_probe_id: None,
+                fc_probe_epoch: None,
+                fc_probe_clock: None,
+                event_id: Some(EventId::EVENT_PRODUCED_EXTERNAL_REPORT.get_raw()),
+                event_payload: None,
+                tc_probe_id: None,
+                tc_probe_epoch: None,
+                tc_probe_clock: None,
+            },
+            LogFileRow {
+                session_id: 1,
+                sequence_number: 1,
+                sequence_index: 4,
+                time_resolution: 0,
+                wall_clock_id: 0,
+                receive_time: now,
+                probe_id: 1,
+                fc_probe_id: None,
+                fc_probe_epoch: None,
+                fc_probe_clock: None,
+                event_id: Some(1),
+                event_payload: None,
+                tc_probe_id: None,
+                tc_probe_epoch: None,
+                tc_probe_clock: None,
+            },
+        ];
+        let report_iter =
+            ReportIter::new(log.into_iter().map(|e| (&e).try_into().unwrap()).peekable());
+
+        let inner = NodeAndEdgeList {
+            nodes: HashSet::new(),
+            edges: HashSet::new(),
+        };
+        let mut expected = NodeAndEdgeList {
+            nodes: HashSet::new(),
+            edges: HashSet::new(),
+        };
+
+        let mut graph = EventDigraph::new(inner);
+        for report in report_iter {
+            graph.add_report(&report, false).unwrap();
+        }
+
+        let one = GraphEvent {
+            id: EventId::new(1).unwrap(),
+            payload: None,
+            probe_id: ProbeId::new(1).unwrap(),
+            clock: LogicalClock {
+                id: ProbeId::new(1).unwrap(),
+                epoch: ProbeEpoch(0),
+                ticks: ProbeTicks(0),
+            },
+            seq: SequenceNumber(1),
+            seq_idx: 1,
+        };
+        let one_prime = GraphEvent {
+            id: EventId::new(1).unwrap(),
+            payload: None,
+            probe_id: ProbeId::new(1).unwrap(),
+            clock: LogicalClock {
+                id: ProbeId::new(1).unwrap(),
+                epoch: ProbeEpoch(0),
+                ticks: ProbeTicks(0),
+            },
+            seq: SequenceNumber(1),
+            seq_idx: 4,
+        };
+        expected.add_node(one);
+        expected.add_node(one_prime);
+
+        expected.add_edge(one, one_prime);
+
+        assert_eq!(graph.graph, expected);
     }
 }

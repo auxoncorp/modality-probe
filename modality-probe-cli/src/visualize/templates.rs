@@ -252,7 +252,7 @@ pub const COMPLETE: &str = "digraph G \\{
                 raw_probe_id = { event.raw_probe_id }
             ];
             {{ else }}
-            { event.probe_name }_{ event.seq }_{ event.seq_idx } [
+            UNKNOWN_EVENT_{ event.raw_id }_{ event.probe_name }_{ event.seq }_{ event.seq_idx } [
                 label        = \"{ event.raw_id }\"
                 probe        = \"{ event.probe_name }\"
                 raw_event_id = { event.raw_id }
@@ -266,8 +266,8 @@ pub const COMPLETE: &str = "digraph G \\{
     {{ endfor }}
 
     {{ for edge in edges }}
-    {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}{ edge.from.raw_id }{{ endif }}_{ edge.from.probe_name }_{ edge.from.seq }_{ edge.from.seq_idx } ->
-    {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}{ edge.to.raw_id }{{ endif }}_{ edge.to.probe_name }_{ edge.to.seq }_{ edge.to.seq_idx };
+    {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}UNKNOWN_EVENT_{ edge.from.raw_id }{{ endif }}_{ edge.from.probe_name }_{ edge.from.seq }_{ edge.from.seq_idx } ->
+    {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}UNKNOWN_EVENT_{ edge.to.raw_id }{{ endif }}_{ edge.to.probe_name }_{ edge.to.seq }_{ edge.to.seq_idx };
     {{ endfor }}
 }";
 
@@ -287,27 +287,9 @@ pub const INTERACTIONS: &str = "digraph G \\{
             style = filled
             color = \"{ probe.name | discrete_color_formatter }\"
             {{ for event in probe.events }}
-            { event.probe_name }_{ event.clock } [
-                {{if event.is_known }}
-                label        = \"{ event.meta.name }\"
-                {{ if event.has_log_str }}
-                message      = \"{ event.log_str }\"
-                {{ else }}
-                description  = \"{ event.meta.description }\"
-                {{ endif }}
-                file         = \"{ event.meta.file }\"
-                probe        = \"{ event.probe_name }\"
-                tags         = \"{ event.meta.tags }\"
-                {{ if event.has_payload }}
-                payload      = { event.payload }
-                {{ endif }}
-                raw_event_id = { event.raw_id }
+            {{ if not event.is_known }}UNKNOWN_EVENT_{{ endif }}{ event.probe_name }_{ event.clock } [
+                label        = \"{ event.probe_name }({ event.clock })\"
                 raw_probe_id = { event.raw_probe_id }
-                {{ else }}
-                label        = \"{ event.raw_id }\"
-                probe        = \"{ event.probe_name }\"
-                raw_event_id = { event.raw_id }
-                raw_probe_id = { event.raw_probe_id }{{ endif }}
             ];
             {{ endfor}}
         }
@@ -316,7 +298,7 @@ pub const INTERACTIONS: &str = "digraph G \\{
     {{ endfor }}
 
     {{ for edge in edges }}
-    { edge.from.probe_name }_{ edge.from.clock } -> { edge.to.probe_name }_{ edge.to.clock }
+    {{ if not edge.from.is_known }}UNKNOWN_EVENT_{{ endif }}{ edge.from.probe_name }_{ edge.from.clock } -> {{ if not edge.to.is_known }}UNKNOWN_EVENT_{{ endif }}{ edge.to.probe_name }_{ edge.to.clock }
     {{ endfor }}
 }";
 
@@ -351,7 +333,7 @@ pub const STATES: &str = "digraph G \\{
                 {{ endif }}
                 raw_event_id = { event.raw_id }
                 raw_probe_id = { event.raw_probe_id }
-            {{ else }}{ event.raw_id }_AT_{ event.probe_name } [
+            {{ else }}UNKNOWN_EVENT_{ event.raw_id }_AT_{ event.probe_name } [
                 label        = \"{ event.raw_id } @ { event.probe_name }\"
                 probe        = \"{ event.probe_name }\"
                 raw_event_id = { event.raw_id }
@@ -364,8 +346,8 @@ pub const STATES: &str = "digraph G \\{
     {{ endfor }}
 
     {{ for edge in edges }}
-    {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}{ edge.from.raw_id }{{ endif }}_AT_{ edge.from.probe_name } ->
-    {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}{ edge.to.raw_id }{{ endif }}_AT_{ edge.to.probe_name }
+    {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}UNKNOWN_EVENT_{ edge.from.raw_id }{{ endif }}_AT_{ edge.from.probe_name } ->
+    {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}UNKNOWN_EVENT_{ edge.to.raw_id }{{ endif }}_AT_{ edge.to.probe_name }
     {{ endfor }}
 }";
 pub const TOPO: &str = "digraph G \\{
@@ -376,7 +358,7 @@ pub const TOPO: &str = "digraph G \\{
         style = filled
         color = \"{ comp.name | gradient_color_formatter }\"
         {{ for probe in comp.probes }}
-        { probe.name } [
+        {{if not probe.is_known }}UNKNOWN_PROBE_{{ endif }}{ probe.name } [
             color = \"{ probe.name | discrete_color_formatter }\"
             style = \"filled\"
             label = \"{ probe.name }\"
@@ -392,6 +374,6 @@ pub const TOPO: &str = "digraph G \\{
     {{ endfor }}
 
     {{ for edge in edges }}
-    { edge.from.probe_name } -> { edge.to.probe_name }
+    {{ if not edge.from.is_known }}UNKNOWN_PROBE_{{ endif }}{ edge.from.probe_name } -> {{ if not edge.to.is_known }}UNKNOWN_PROBE_{{ endif }}{ edge.to.probe_name }
     {{ endfor }}
 }";
