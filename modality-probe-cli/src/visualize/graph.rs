@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-    iter::Peekable,
-};
+use std::{collections::HashSet, hash::Hash, iter::Peekable};
 
 use tinytemplate::TinyTemplate;
 
@@ -21,6 +17,7 @@ use super::templates::{
 
 pub fn log_to_graph<I>(
     log: Peekable<I>,
+    include_internals: bool,
 ) -> Result<EventDigraph<NodeAndEdgeLists<GraphEvent>>, Box<dyn std::error::Error>>
 where
     I: Iterator<Item = ReportLogEntry>,
@@ -32,7 +29,7 @@ where
     let report_iter = ReportIter::new(log);
     for report in report_iter {
         hopefully!(
-            graph.add_report(&report),
+            graph.add_report(&report, include_internals),
             "Encountered an error reconstructing the graph"
         )?;
     }
@@ -49,23 +46,11 @@ where
 }
 
 impl NodeAndEdgeLists<GraphEvent> {
-    pub fn as_complete<'a>(&'a self, include_internals: bool) -> NodeAndEdgeLists<&'a GraphEvent> {
-        let nodes = self
-            .nodes
-            .iter()
-            .filter(|n| include_internals || !n.id.is_internal())
-            .collect();
-        let mut edges = HashSet::new();
-        for (s, t) in self.edges.iter() {
-            if !include_internals && t.id.is_internal() {
-                for (_, t2) in self.edges.iter().filter(|(s2, _)| s2 == t) {
-                    edges.insert((s, t2));
-                }
-            } else if include_internals || !s.id.is_internal() {
-                edges.insert((s, t));
-            }
+    pub fn as_complete<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+        NodeAndEdgeLists {
+            nodes: self.nodes.iter().collect(),
+            edges: self.edges.iter().map(|(s, t)| (s, t)).collect(),
         }
-        NodeAndEdgeLists { nodes, edges }
     }
 
     /// Pare down a complete graph into only trace clocks, which is to
@@ -83,29 +68,13 @@ impl NodeAndEdgeLists<GraphEvent> {
     }
 
     /// Pare down a complete graph into the event transitions.
-    pub fn as_states<'a>(&'a self, include_internals: bool) -> NodeAndEdgeLists<&'a GraphEvent> {
-        let mut nodes = HashMap::new();
-        for n in self
-            .nodes
-            .iter()
-            .filter(|n| include_internals || !n.id.is_internal())
-        {
-            nodes.insert((n.probe_id, n.id), n);
-        }
-        let mut edges = HashMap::new();
-        for (s, t) in self.edges.iter() {
-            if !include_internals && t.id.is_internal() {
-                for (_, t2) in self.edges.iter().filter(|(s2, _)| s2 == t) {
-                    edges.insert(((s.probe_id, s.id), (t2.probe_id, t2.id)), (s, t2));
-                }
-            } else if include_internals || !s.id.is_internal() {
-                edges.insert(((s.probe_id, s.id), (t.probe_id, t.id)), (s, t));
-            }
-        }
-        NodeAndEdgeLists {
-            nodes: nodes.into_iter().map(|(_, v)| v).collect(),
-            edges: edges.into_iter().map(|(_, v)| v).collect(),
-        }
+    pub fn as_states<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+        let mut node_set = HashSet::new();
+        let mut edge_set = HashSet::new();
+        self.filter(
+            |n| node_set.insert((n.probe_id, n.id)),
+            |s, t| edge_set.insert(((s.probe_id, s.id), (t.probe_id, t.id))),
+        )
     }
 
     /// Pare down a complete graph into just the probes and their
@@ -497,14 +466,14 @@ pub(crate) mod test {
             .into_iter()
             .map(|e| (&e).try_into().unwrap())
             .peekable();
-        let graph = super::log_to_graph(diamond_log).unwrap();
+        let graph = super::log_to_graph(diamond_log, false).unwrap();
 
         let dot = graph
             .graph
-            .as_complete(false)
+            .as_complete()
             .dot(&cfg, "complete", templates::COMPLETE)
             .unwrap();
-        assert!(dot.contains("one_one_1_0 ->\n    two_two_1_2"), dot);
+        assert!(dot.contains("one_one_1_1 ->\n    two_two_1_3"), dot);
     }
 
     #[test]
@@ -514,7 +483,7 @@ pub(crate) mod test {
             .into_iter()
             .map(|e| (&e).try_into().unwrap())
             .peekable();
-        let graph = super::log_to_graph(diamond_log).unwrap();
+        let graph = super::log_to_graph(diamond_log, false).unwrap();
 
         let dot = graph
             .graph
@@ -531,11 +500,11 @@ pub(crate) mod test {
             .into_iter()
             .map(|e| (&e).try_into().unwrap())
             .peekable();
-        let graph = super::log_to_graph(diamond_log).unwrap();
+        let graph = super::log_to_graph(diamond_log, false).unwrap();
 
         let dot = graph
             .graph
-            .as_states(false)
+            .as_states()
             .dot(&cfg, "states", templates::STATES)
             .unwrap();
         assert!(dot.contains("one_AT_one ->\n    two_AT_two"), dot);
@@ -548,7 +517,7 @@ pub(crate) mod test {
             .into_iter()
             .map(|e| (&e).try_into().unwrap())
             .peekable();
-        let graph = super::log_to_graph(diamond_log).unwrap();
+        let graph = super::log_to_graph(diamond_log, false).unwrap();
 
         let dot = graph
             .graph
