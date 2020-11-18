@@ -52,7 +52,8 @@ jobs:
       - name: Install cargo-fuzz
         uses: actions-rs/cargo@v1
         with:
-          command: install cargo-fuzz
+          command: install
+          args: cargo-fuzz
 
       - name: Test
         run: ./test.sh
