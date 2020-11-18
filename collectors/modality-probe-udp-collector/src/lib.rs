@@ -131,12 +131,17 @@ pub fn start_receiving_from_socket<W: Write>(
 
         match Report::try_from(&buf[..bytes_read]) {
             Ok(log_report) => {
-                common::add_log_report_to_entries(
+                if let Err(e) = common::add_log_report_to_entries(
                     &log_report,
                     session_id,
                     receive_time,
                     &mut log_entries_buffer,
-                );
+                ) {
+                    eprintln!(
+                        "Encountered a malformed report, not adding it to the trace: {}",
+                        e
+                    )
+                }
             }
             Err(_) => {
                 eprintln!(
@@ -192,7 +197,7 @@ mod tests {
             time_resolution: NanosecondResolution::UNSPECIFIED,
             wall_clock_id: WallClockId::default(),
             frontier_clocks: vec![LogicalClock {
-                id: ProbeId::new(2).unwrap(),
+                id: ProbeId::new(raw_main_probe_id).unwrap(),
                 epoch: ProbeEpoch(0),
                 ticks: ProbeTicks(0),
             }],
@@ -229,10 +234,15 @@ mod tests {
                 time_resolution: rep.time_resolution,
                 wall_clock_id: rep.wall_clock_id,
                 data: LogEntryData::FrontierClock(LogicalClock {
-                    id: ProbeId::new(2).unwrap(),
+                    id: main_probe_id,
                     epoch: ProbeEpoch(0),
                     ticks: ProbeTicks(0),
                 }),
+                clock: LogicalClock {
+                    id: main_probe_id,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
                 receive_time,
             },
             ReportLogEntry {
@@ -244,6 +254,11 @@ mod tests {
                 time_resolution: rep.time_resolution,
                 wall_clock_id: rep.wall_clock_id,
                 data: LogEntryData::Event(EventId::new(2).unwrap()),
+                clock: LogicalClock {
+                    id: main_probe_id,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
                 receive_time,
             },
             ReportLogEntry {
@@ -255,10 +270,15 @@ mod tests {
                 time_resolution: rep.time_resolution,
                 wall_clock_id: rep.wall_clock_id,
                 data: LogEntryData::TraceClock(LogicalClock {
-                    id: ProbeId::new(2).unwrap(),
+                    id: main_probe_id,
                     epoch: ProbeEpoch(1),
                     ticks: ProbeTicks(1),
                 }),
+                clock: LogicalClock {
+                    id: main_probe_id,
+                    epoch: ProbeEpoch(1),
+                    ticks: ProbeTicks(1),
+                },
                 receive_time,
             },
             ReportLogEntry {
@@ -274,6 +294,11 @@ mod tests {
                     epoch: ProbeEpoch(0),
                     ticks: ProbeTicks(0),
                 }),
+                clock: LogicalClock {
+                    id: main_probe_id,
+                    epoch: ProbeEpoch(1),
+                    ticks: ProbeTicks(1),
+                },
                 receive_time,
             },
         ];
@@ -288,7 +313,7 @@ mod tests {
         let (report, expected_entries) =
             report_and_matching_entries(raw_main_probe_id, session_id, receive_time);
         let mut entries = Vec::new();
-        add_log_report_to_entries(&report, session_id, receive_time, &mut entries);
+        add_log_report_to_entries(&report, session_id, receive_time, &mut entries).unwrap();
         assert_eq!(4, entries.len());
         for (idx, e) in entries.iter().enumerate() {
             assert_eq!(idx, e.sequence_index as usize);

@@ -548,7 +548,8 @@ fn initialize_collectors(
 fn report_to_file(out: &mut File, report: Report, session_id: SessionId) -> Result<(), Error> {
     let mut entries: Vec<ReportLogEntry> = Vec::new();
 
-    add_log_report_to_entries(&report, session_id, Utc::now(), &mut entries);
+    add_log_report_to_entries(&report, session_id, Utc::now(), &mut entries)
+        .map_err(Error::OutputWritingError)?;
     write_log_entries(out, &entries).map_err(Error::OutputWritingError)
 }
 

@@ -1088,6 +1088,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1103,6 +1108,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(1),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1114,6 +1124,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event1),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1125,6 +1140,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event1),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1140,6 +1160,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(2),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1155,6 +1180,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(3),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             // Probe 2
             ReportLogEntry {
@@ -1171,6 +1201,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1186,6 +1221,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(1),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1201,6 +1241,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1212,6 +1257,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event2),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1227,6 +1277,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(2),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1242,6 +1297,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1253,6 +1313,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event2),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1268,6 +1333,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(3),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(3),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1283,6 +1353,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(4),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(4),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1294,6 +1369,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event2),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(4),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1305,6 +1385,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event2),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(4),
+                },
             },
             // Probe 3
             ReportLogEntry {
@@ -1321,6 +1406,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1336,6 +1426,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(1),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1351,6 +1446,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(2),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1366,6 +1466,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(2),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             // Probe 4
             ReportLogEntry {
@@ -1382,6 +1487,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe4,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1393,6 +1503,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event4),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe4,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1404,6 +1519,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event4),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe4,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1415,36 +1535,41 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event4),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe4,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
         ]
     }
 
     const EXPECTED_GRAPH: &str = "\
-|   |   |   *   four @ four (1:4:1:1)
+|   |   |   *   four @ four (1:4:0:1:1)
 |   |   |   |
 |   +<--+   |   two merged a snapshot from three
 |   |   |   |
-|   |   |   *   four @ four (1:4:1:2)
+|   |   |   *   four @ four (1:4:0:1:2)
 |   |   |   |
-|   *   |   |   two @ two (1:2:1:3)
+|   *   |   |   two @ two (1:2:1:1:3)
 |   |   |   |
-|   |   |   *   four @ four (1:4:1:3)
+|   |   |   *   four @ four (1:4:0:1:3)
 |   |   |   |
 +-->+   |   |   two merged a snapshot from one
 |   |   |   |
-*   |   |   |   one @ one (1:1:1:2)
+*   |   |   |   one @ one (1:1:1:1:2)
 |   |   |   |
-|   *   |   |   two @ two (1:2:1:6)
+|   *   |   |   two @ two (1:2:2:1:6)
 |   |   |   |
-*   |   |   |   one @ one (1:1:1:3)
+*   |   |   |   one @ one (1:1:1:1:3)
 |   |   |   |
 |   +-->+   |   three merged a snapshot from two
 |   |   |   |
 +<--+   |   |   one merged a snapshot from two
 |   |   |   |
-|   *   |   |   two @ two (1:2:1:9)
+|   *   |   |   two @ two (1:2:4:1:9)
 |   |   |   |
-|   *   |   |   two @ two (1:2:1:10)
+|   *   |   |   two @ two (1:2:4:1:10)
 |   |   |   |
 ";
 

@@ -235,7 +235,9 @@ mod test {
 
     use chrono::Utc;
 
-    use modality_probe::{EventId, NanosecondResolution, ProbeId, WallClockId};
+    use modality_probe::{
+        EventId, LogicalClock, NanosecondResolution, ProbeEpoch, ProbeId, ProbeTicks, WallClockId,
+    };
     use modality_probe_collector_common::{
         LogEntryData, ReportLogEntry, SequenceNumber, SessionId,
     };
@@ -291,6 +293,11 @@ mod test {
             time_resolution: NanosecondResolution(0),
             wall_clock_id: WallClockId(0),
             receive_time: now,
+            clock: LogicalClock {
+                id: ProbeId::new(4).unwrap(),
+                epoch: ProbeEpoch(1),
+                ticks: ProbeTicks(1),
+            },
         };
 
         let comp_id = cfg.component_names.iter().next().map(|(id, _)| id).unwrap();
@@ -304,7 +311,7 @@ mod test {
         assert_eq!("", event_type_hint(&cfg, &row));
         assert_eq!("", event_payload(&cfg, &row));
         assert_eq!("", raw_event_payload(&cfg, &row));
-        assert_eq!("1:4:1:3", event_coordinate(&cfg, &row));
+        assert_eq!("1:4:65537:1:3", event_coordinate(&cfg, &row));
         // TODO(dan@auxon.io): #278
         // assert_eq!(event_clock_offset(&cfg, &row));
         assert_eq!("4", probe_id(&cfg, &row));
@@ -360,6 +367,11 @@ mod test {
             time_resolution: NanosecondResolution(0),
             wall_clock_id: WallClockId(0),
             receive_time: now,
+            clock: LogicalClock {
+                id: ProbeId::new(4).unwrap(),
+                epoch: ProbeEpoch(1),
+                ticks: ProbeTicks(1),
+            },
         };
         assert_eq!(
             format!("PRIORITY=6 TIMESTAMP={} HOSTNAME=four MSG=four", now),

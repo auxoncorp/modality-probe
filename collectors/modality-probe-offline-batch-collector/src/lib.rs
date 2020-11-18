@@ -204,12 +204,14 @@ impl<'a, I: Read, O: Write> OfflineBatchCollector<'a, I, O> {
                                     .entry(log_report.probe_id)
                                     .or_default();
                                 metrics.update(&log_report);
-                                common::add_log_report_to_entries(
+                                if let Err(e) = common::add_log_report_to_entries(
                                     &log_report,
                                     self.session_id,
                                     recv_time,
                                     &mut self.log_entries_buffer,
-                                );
+                                ) {
+                                    warn!("encountered a malformed report, discarding: {}", e);
+                                }
                             }
                             Err(e) => {
                                 self.metrics.reports_discarded =
