@@ -20,13 +20,9 @@ path = ".."
 members = ["."]
 
 [[bin]]
-name = "nativechunk_from_wire_bytes"
-path = "fuzz_targets/nativechunk_from_wire_bytes.rs"
+name = "try_report_from_wire_bytes"
+path = "fuzz_targets/try_report_from_wire_bytes.rs"
 
 [[bin]]
-name = "try_bulk_from_wire_bytes"
-path = "fuzz_targets/try_bulk_from_wire_bytes.rs"
-
-[[bin]]
-name = "bulk_from_wire_roundtrip"
-path = "fuzz_targets/bulk_from_wire_roundtrip.rs"
+name = "report_from_wire_roundtrip"
+path = "fuzz_targets/report_from_wire_roundtrip.rs"

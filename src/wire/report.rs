@@ -211,6 +211,13 @@ impl<T: AsRef<[u8]>> WireReport<T> {
         data[field::PERSISTENT_EPOCH_COUNTING] != 0
     }
 
+    /// Return the raw value `persistent_epoch_counting` field
+    #[inline]
+    pub fn raw_persistent_epoch_counting(&self) -> u8 {
+        let data = self.buffer.as_ref();
+        data[field::PERSISTENT_EPOCH_COUNTING]
+    }
+
     /// Return the `time_resolution` field
     #[inline]
     pub fn time_resolution(&self) -> NanosecondResolution {
@@ -284,6 +291,13 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireReport<T> {
     pub fn set_persistent_epoch_counting(&mut self, value: bool) {
         let data = self.buffer.as_mut();
         data[field::PERSISTENT_EPOCH_COUNTING] = u8::from(value);
+    }
+
+    /// Set the raw value of the `persistent_epoch_counting` field
+    #[inline]
+    pub fn set_raw_persistent_epoch_counting(&mut self, value: u8) {
+        let data = self.buffer.as_mut();
+        data[field::PERSISTENT_EPOCH_COUNTING] = value;
     }
 
     /// Set the `time_resolution` field
