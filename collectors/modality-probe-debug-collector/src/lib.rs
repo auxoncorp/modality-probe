@@ -303,7 +303,7 @@ impl Collector {
             let hist_addr = mem.read_word(addr + history_ptr_offset())?;
             // Read DynamicHistory fields
             let id_raw = mem.read_32(hist_addr + probe_id_offset())?;
-            let id = ProbeId::new(id_raw).ok_or_else(|| Error::InvalidProbeId)?;
+            let id = ProbeId::new(id_raw).ok_or(Error::InvalidProbeId)?;
             let time_res = mem.read_32(hist_addr + time_resolution_offset())?;
             // NOTE: probe-rs does have read_16
             let wall_clock_id = mem.read_32(hist_addr + wall_clock_id_offset())? as u16;
@@ -471,7 +471,7 @@ impl Collector {
             if let WholeEntry::Double(first, second) = entry {
                 if first.has_clock_bit_set() {
                     let id = ProbeId::new(first.interpret_as_logical_clock_probe_id())
-                        .ok_or_else(|| Error::InvalidClockProbeId)?;
+                        .ok_or(Error::InvalidClockProbeId)?;
                     let (epoch, ticks) = modality_probe::unpack_clock_word(second.raw());
                     Self::merge_clock(&mut self.clocks, LogicalClock { id, epoch, ticks })
                 }

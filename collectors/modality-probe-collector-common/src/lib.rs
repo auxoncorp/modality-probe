@@ -496,7 +496,7 @@ impl TryFrom<&[u8]> for Report {
                 if entry.has_clock_bit_set() {
                     probe_id = Some(
                         ProbeId::new(entry.interpret_as_logical_clock_probe_id())
-                            .ok_or_else(|| SerializationError::InvalidProbeId(entry))?,
+                            .ok_or(SerializationError::InvalidProbeId(entry))?,
                     );
                 }
             } else {
@@ -520,13 +520,13 @@ impl TryFrom<&[u8]> for Report {
                     if raw_entry.has_clock_bit_set() {
                         interpret_next_as = Next::Clock(
                             ProbeId::new(raw_entry.interpret_as_logical_clock_probe_id())
-                                .ok_or_else(|| SerializationError::InvalidProbeId(raw_entry))?,
+                                .ok_or(SerializationError::InvalidProbeId(raw_entry))?,
                         );
                     } else if raw_entry.has_event_with_payload_bit_set() {
                         interpret_next_as = Next::Payload(
                             raw_entry
                                 .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
+                                .ok_or(SerializationError::InvalidEventId(raw_entry))?,
                         );
                     } else if raw_entry.has_wall_clock_time_bits_set() {
                         if raw_entry.has_wall_clock_time_paired_bit_set() {
@@ -549,13 +549,13 @@ impl TryFrom<&[u8]> for Report {
                             pwct,
                             raw_entry
                                 .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
+                                .ok_or(SerializationError::InvalidEventId(raw_entry))?,
                         ));
                     } else {
                         owned_report.event_log.push(EventLogEntry::Event(
                             raw_entry
                                 .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
+                                .ok_or(SerializationError::InvalidEventId(raw_entry))?,
                         ));
                     }
                 }
@@ -597,14 +597,14 @@ impl TryFrom<&[u8]> for Report {
                 Next::PairedWallClockTimeLowBits(high_bits) => {
                     let low_bits = NanosecondsLowBits(raw.to_le_bytes());
                     let t = Nanoseconds::from_parts(low_bits, high_bits)
-                        .ok_or_else(|| SerializationError::InvalidTime((low_bits, high_bits)))?;
+                        .ok_or(SerializationError::InvalidTime((low_bits, high_bits)))?;
                     paired_wall_clock_time = Some(t);
                     interpret_next_as = Next::DontKnow;
                 }
                 Next::UnpairedWallClockTimeLowBits(high_bits) => {
                     let low_bits = NanosecondsLowBits(raw.to_le_bytes());
                     let t = Nanoseconds::from_parts(low_bits, high_bits)
-                        .ok_or_else(|| SerializationError::InvalidTime((low_bits, high_bits)))?;
+                        .ok_or(SerializationError::InvalidTime((low_bits, high_bits)))?;
                     owned_report.event_log.push(EventLogEntry::WallClockTime(t));
                     interpret_next_as = Next::DontKnow;
                 }
@@ -682,9 +682,8 @@ impl Report {
                             .to_le_bytes()
                             .into();
                         let low_bits = second.raw().to_le_bytes().into();
-                        let t = Nanoseconds::from_parts(low_bits, high_bits).ok_or_else(|| {
-                            SerializationError::InvalidTime((low_bits, high_bits))
-                        })?;
+                        let t = Nanoseconds::from_parts(low_bits, high_bits)
+                            .ok_or(SerializationError::InvalidTime((low_bits, high_bits)))?;
                         if first.has_wall_clock_time_paired_bit_set() {
                             paired_wall_clock_time = Some(t);
                         } else {
