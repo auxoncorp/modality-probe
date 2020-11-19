@@ -3,7 +3,6 @@ use libfuzzer_sys::fuzz_target;
 use modality_probe::wire::report::WireReport;
 
 fuzz_target!(|data: &[u8]| {
-
     if let Ok(r) = WireReport::new(data) {
         if let Ok(probe_id) = r.probe_id() {
             // Transcribe the decoded data to a report in a different buffer

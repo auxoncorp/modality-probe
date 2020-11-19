@@ -11,9 +11,13 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.3"
+arbitrary = { version="0.4.7", features=["derive"] }
 
 [dependencies.modality-probe]
 path = ".."
+
+[dependencies.fenced-ring-buffer]
+path = "../fenced-ring-buffer"
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -22,7 +26,17 @@ members = ["."]
 [[bin]]
 name = "try_report_from_wire_bytes"
 path = "fuzz_targets/try_report_from_wire_bytes.rs"
+test = false
+doc = false
 
 [[bin]]
 name = "report_from_wire_roundtrip"
 path = "fuzz_targets/report_from_wire_roundtrip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fenced_ring_buffer_operations"
+path = "fuzz_targets/fenced_ring_buffer_operations.rs"
+test = false
+doc = false
