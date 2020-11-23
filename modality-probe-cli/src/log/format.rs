@@ -251,32 +251,32 @@ mod test {
     use super::*;
 
     const EXPECTED_GRAPH: &str = "\
-|   |   |   *   event four occurred at probe four
-|   |   |   |
-|   +<--+   |   two merged a snapshot from three
-|   |   |   |
-|   |   |   *   event four occurred at probe four
-|   |   |   |
-|   *   |   |   event two occurred at probe two
-|   |   |   |
-|   |   |   *   event four occurred at probe four
-|   |   |   |
-+-->+   |   |   two merged a snapshot from one
-|   |   |   |
-*   |   |   |   event one occurred at probe one
-|   |   |   |
-|   *   |   |   event two occurred at probe two
-|   |   |   |
-*   |   |   |   event one occurred at probe one
-|   |   |   |
-|   +-->+   |   three merged a snapshot from two
-|   |   |   |
-+<--+   |   |   one merged a snapshot from two
-|   |   |   |
-|   *   |   |   event two occurred at probe two
-|   |   |   |
-|   *   |   |   event two occurred at probe two
-|   |   |   |
+|  |  |  *  event four occurred at probe four
+|  |  |  |
+|  +<-+  |  two merged a snapshot from three
+|  |  |  |
+|  |  |  *  event four occurred at probe four
+|  |  |  |
+|  *  |  |  event two occurred at probe two
+|  |  |  |
+|  |  |  *  event four occurred at probe four
+|  |  |  |
++->+  |  |  two merged a snapshot from one
+|  |  |  |
+*  |  |  |  event one occurred at probe one
+|  |  |  |
+|  *  |  |  event two occurred at probe two
+|  |  |  |
+*  |  |  |  event one occurred at probe one
+|  |  |  |
+|  +->+  |  three merged a snapshot from two
+|  |  |  |
++<-+  |  |  one merged a snapshot from two
+|  |  |  |
+|  *  |  |  event two occurred at probe two
+|  |  |  |
+|  *  |  |  event two occurred at probe two
+|  |  |  |
 ";
 
     #[test]
