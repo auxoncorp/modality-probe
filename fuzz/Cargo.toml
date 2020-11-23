@@ -40,3 +40,9 @@ name = "fenced_ring_buffer_operations"
 path = "fuzz_targets/fenced_ring_buffer_operations.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "probe_operations"
+path = "fuzz_targets/probe_operations.rs"
+test = false
+doc = false
