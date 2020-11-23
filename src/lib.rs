@@ -436,6 +436,11 @@ impl<'a> ModalityProbe<'a> {
         // Note: For future improvement, this step could be included in fixed-slice-vec as a variant
         // of the `embed` function
         let padding_offset = memory.as_ptr().align_offset(align_of::<Self>());
+
+        if memory.len() < padding_offset {
+            return Err(StorageSetupError::UnderMinimumAllowedSize);
+        }
+
         let (padding, aligned_memory) = memory.split_at_mut(padding_offset);
         let aligned_ptr = aligned_memory.as_ptr();
         for b in padding.iter_mut() {
