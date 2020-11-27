@@ -219,24 +219,69 @@ pub fn gradient_color_formatter(
 }
 
 pub const COMPLETE: &str = "digraph G \\{
-    node [ color = \"#ffffff\" style = filled ]
-    edge [ color = \"#ffffff\" ]
+    node [ 
+        color = \"#ffffff\" 
+        style = outline 
+        fontname = \"Tahoma\" 
+    ]
+    graph [
+        splines = ortho 
+        nodesep = \".7\"
+        pad=\"0.1\"
+    ]
+
     {{ for comp in components }}
     subgraph cluster_{ comp.cluster_idx } \\{
-        label = \"{ comp.name }\"
+        label = <<br /><font color=\"{ comp.name | gradient_color_formatter }\" point-size=\"30\"><b>{ comp.name }</b></font>>
+        fontsize = 30
         style = filled
+        penwidth = 6
         color = \"{ comp.name | gradient_color_formatter }\"
+        fillcolor = \"{ comp.name | gradient_color_formatter }12\"
+        fontname = \"Tahoma\"
+        margin = 20
+
         {{ for probe in comp.probes }}
         subgraph cluster_{ probe.cluster_idx } \\{
-            label = \"{ probe.name }\"
-            fontcolor = \"#ffffff\"
-            rank = same
+            fontname = \"Tahoma\" 
+            label = < <br /><font color=\"{ probe.name | discrete_color_formatter }\" point-size=\"20\"><b>{ probe.name }<br />{ probe.raw_id }<br /><font color=\"{ probe.name | discrete_color_formatter }\" point-size=\"14\">{ probe.meta.tags }</font></b></font> >
+            shape = box
             style = filled
+            penwidth = 4
             color = \"{ probe.name | discrete_color_formatter }\"
+            fillcolor = \"{ probe.name | discrete_color_formatter }50\"
+            fontsize = 15
+
             {{ for event in probe.events }}
+            
             {{ if event.is_known }}
             { event.meta.name }_{ event.probe_name }_{ event.seq }_{ event.seq_idx } [
-                label        = \"{ event.meta.name }\"
+                shape = box
+                style = filled
+                penwidth = 2
+                color = \"{ probe.name | discrete_color_formatter }\"
+                fillcolor = white 
+                tooltip = \"{{ if event.has_log_str }}MESSAGE: { event.log_str }{{ else }}DESCRIPTION: { event.meta.description }{{ endif }}\\nPATH: { event.meta.file }\"
+
+                label = < 
+                    <table border=\"0\" cellpadding=\"4\">
+                        <tr>
+                            <td sides=\"B\" border=\"2\" color=\"{ probe.name | discrete_color_formatter }\"><font color=\"{ probe.name | discrete_color_formatter }\"><b>{ event.meta.name }</b></font> </td>
+                        </tr>
+                        <tr> 
+                            <td align=\"left\"><font point-size=\"12\"><font color=\"{ probe.name | discrete_color_formatter }\"><b>ID&nbsp;:&nbsp;</b></font>{ event.raw_id }</font></td>
+                        </tr>
+                        {{ if event.has_payload }}
+                            <tr>
+                                <td align=\"left\"><font point-size=\"12\"><font color=\"{ probe.name | discrete_color_formatter }\"><b>Payload&nbsp;:&nbsp;</b></font>{ event.payload }</font></td>
+                            </tr>
+                        {{ endif }}
+                        <tr>
+                            <td align=\"left\"><font point-size=\"12\"><font color=\"{ probe.name | discrete_color_formatter }\"><b>Tags&nbsp;:&nbsp;</b></font>{ event.meta.tags }</font></td>
+                        </tr>
+                    </table>
+                >
+
                 {{ if event.has_log_str }}
                 message      = \"{ event.log_str }\"
                 {{ else }}
@@ -253,7 +298,23 @@ pub const COMPLETE: &str = "digraph G \\{
             ];
             {{ else }}
             UNKNOWN_EVENT_{ event.raw_id }_{ event.probe_name }_{ event.seq }_{ event.seq_idx } [
-                label        = \"{ event.raw_id }\"
+                shape = box
+                style = filled
+                penwidth = 2
+                color = \"{ probe.name | discrete_color_formatter }\"
+                fillcolor = white 
+                
+                label = < 
+                    <table border=\"0\" cellpadding=\"4\">
+                        <tr>
+                            <td sides=\"B\" border=\"2\" color=\"{ probe.name | discrete_color_formatter }\"><font color=\"{ probe.name | discrete_color_formatter }\"><b>{ event.raw_id }</b></font> </td>
+                        </tr>
+                        <tr> 
+                            <td align=\"left\"><font point-size=\"12\"><font color=\"{ probe.name | discrete_color_formatter }\"><b>PROBE ID&nbsp;:&nbsp;</b></font>{ event.raw_probe_id }</font></td>
+                        </tr>
+                    </table>
+                >
+
                 probe        = \"{ event.probe_name }\"
                 raw_event_id = { event.raw_id }
                 raw_probe_id = { event.raw_probe_id }
@@ -264,8 +325,12 @@ pub const COMPLETE: &str = "digraph G \\{
         {{ endfor }}
     }
     {{ endfor }}
-
+    
+    edge [ penwidth = 3 ]
+    
     {{ for edge in edges }}
+    edge [ color = \"{ edge.from.probe_name | discrete_color_formatter }\" ] 
+
     {{ if edge.from.is_known }}{ edge.from.meta.name }{{ else }}UNKNOWN_EVENT_{ edge.from.raw_id }{{ endif }}_{ edge.from.probe_name }_{ edge.from.seq }_{ edge.from.seq_idx } ->
     {{ if edge.to.is_known }}{ edge.to.meta.name }{{ else }}UNKNOWN_EVENT_{ edge.to.raw_id }{{ endif }}_{ edge.to.probe_name }_{ edge.to.seq }_{ edge.to.seq_idx };
     {{ endfor }}
