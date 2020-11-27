@@ -337,23 +337,60 @@ pub const COMPLETE: &str = "digraph G \\{
 }";
 
 pub const INTERACTIONS: &str = "digraph G \\{
-    node [ color = \"#ffffff\" style = filled ]
-    edge [ color = \"#ffffff\" ]
+    node [ 
+        color = \"#ffffff\" 
+        style = outline 
+        fontname = \"Tahoma\" 
+    ]
+    graph [
+        splines = ortho 
+        nodesep = \".7\"
+        pad=\"0.1\"
+    ]
+
+
     {{ for comp in components }}
     subgraph cluster_{ comp.cluster_idx } \\{
-        label = \"{ comp.name }\"
+        label = <<br /><font color=\"{ comp.name | gradient_color_formatter }\" point-size=\"30\"><b>{ comp.name }</b></font>>
+        fontsize = 30
         style = filled
+        penwidth = 6
         color = \"{ comp.name | gradient_color_formatter }\"
+        fillcolor = \"{ comp.name | gradient_color_formatter }12\"
+        fontname = \"Tahoma\"
+        margin = 20
+
+
         {{ for probe in comp.probes }}
         subgraph cluster_{ probe.cluster_idx } \\{
-            label = \"{ probe.name }\"
-            fontcolor = \"#ffffff\"
-            rank = same
+            fontname = \"Tahoma\" 
+            label = < <br /><font color=\"{ probe.name | discrete_color_formatter }\" point-size=\"20\"><b>{ probe.name }<br />{ probe.raw_id }<br /><font color=\"{ probe.name | discrete_color_formatter }\" point-size=\"14\">{ probe.meta.tags }</font></b></font> >
+            shape = box
             style = filled
+            penwidth = 4
             color = \"{ probe.name | discrete_color_formatter }\"
+            fillcolor = \"{ probe.name | discrete_color_formatter }50\"
+            fontsize = 15
+
             {{ for event in probe.events }}
             {{ if not event.is_known }}UNKNOWN_EVENT_{{ endif }}{ event.probe_name }_{ event.clock } [
-                label        = \"{ event.probe_name }({ event.clock })\"
+                shape = box
+                style = filled
+                penwidth = 2
+                color = \"{ probe.name | discrete_color_formatter }\"
+                fillcolor = white 
+
+                label = < 
+                    <table border=\"0\" cellpadding=\"4\">
+                        <tr>
+                            <td sides=\"B\" border=\"2\" color=\"{ probe.name | discrete_color_formatter }\"><font color=\"{ probe.name | discrete_color_formatter }\"><b>{ event.probe_name }({ event.clock })</b></font> </td>
+                        </tr>
+                        <tr> 
+                            <td align=\"left\"><font point-size=\"12\"><font color=\"{ probe.name | discrete_color_formatter }\"><b>PROBE ID&nbsp;:&nbsp;</b></font>event.raw_probe_id</font></td>
+                        </tr>
+                    </table>
+                >
+
                 raw_probe_id = { event.raw_probe_id }
             ];
             {{ endfor}}
@@ -362,7 +399,10 @@ pub const INTERACTIONS: &str = "digraph G \\{
     }
     {{ endfor }}
 
+    edge [ penwidth = 3 ]
+
     {{ for edge in edges }}
+    edge [ color = \"{ edge.from.probe_name | discrete_color_formatter }\" ] 
     {{ if not edge.from.is_known }}UNKNOWN_EVENT_{{ endif }}{ edge.from.probe_name }_{ edge.from.clock } -> {{ if not edge.to.is_known }}UNKNOWN_EVENT_{{ endif }}{ edge.to.probe_name }_{ edge.to.clock }
     {{ endfor }}
 }";
