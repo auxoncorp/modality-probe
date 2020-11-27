@@ -525,17 +525,43 @@ pub const STATES: &str = "digraph G \\{
     {{ endfor }}
 }";
 pub const TOPO: &str = "digraph G \\{
-    edge [ color = \"#ffffff\" ]
+    node [ 
+        color = \"#ffffff\" 
+        style = outline 
+        fontname = \"Tahoma\" 
+    ]
+    graph [
+        splines = ortho 
+        nodesep = \".7\"
+        pad=\"0.1\"
+    ]
+
     {{ for comp in components }}
     subgraph cluster_{ comp.cluster_idx } \\{
-        label = \"{ comp.name }\"
+        label = <<br /><font color=\"{ comp.name | gradient_color_formatter }\" point-size=\"30\"><b>{ comp.name }</b></font>>
+        fontsize = 30
         style = filled
+        penwidth = 6
         color = \"{ comp.name | gradient_color_formatter }\"
+        fillcolor = \"{ comp.name | gradient_color_formatter }12\"
+        fontname = \"Tahoma\"
+        margin = 20
+
         {{ for probe in comp.probes }}
         {{if not probe.is_known }}UNKNOWN_PROBE_{{ endif }}{ probe.name } [
+            fontname = \"Tahoma\" 
+            label = < <br /><font color=\"{ probe.name | discrete_color_formatter }\" point-size=\"20\"><b>{ probe.name }<br />{ probe.raw_id }<br /><font color=\"{ probe.name | discrete_color_formatter }\" point-size=\"14\">{ probe.meta.tags }</font></b></font> >
+            shape = box
+            style = filled
+            penwidth = 4
             color = \"{ probe.name | discrete_color_formatter }\"
-            style = \"filled\"
-            label = \"{ probe.name }\"
+            fillcolor = \"{ probe.name | discrete_color_formatter }50\"
+            fontsize = 15
+
+            {{ if probe.is_known }}
+            tooltip = \"DESCRIPTION: { probe.meta.description }\\nPATH: { probe.meta.file }\\nLINE: { probe.meta.line }\"
+            {{ endif }}
+
             raw_id = { probe.raw_id }
             {{ if probe.is_known }}
             description = \"{ probe.meta.description }\"
@@ -547,7 +573,10 @@ pub const TOPO: &str = "digraph G \\{
     }
     {{ endfor }}
 
+    edge [ penwidth = 3 ]
+
     {{ for edge in edges }}
+    edge [ color = \"{ edge.from.probe_name | discrete_color_formatter }\" ] 
     {{ if not edge.from.is_known }}UNKNOWN_PROBE_{{ endif }}{ edge.from.probe_name } -> {{ if not edge.to.is_known }}UNKNOWN_PROBE_{{ endif }}{ edge.to.probe_name }
     {{ endfor }}
 }";
