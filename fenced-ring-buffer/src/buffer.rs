@@ -143,15 +143,6 @@ where
             MaybeUninit::new(entry);
     }
 
-    /// asdfasd
-    pub fn safe_push(&mut self, entry: E) -> Option<WholeEntry<E>> {
-        if entry.is_prefix() {
-            None
-        } else {
-            self.push(entry)
-        }
-    }
-
     /// Write single entry to buffer
     pub fn push(&mut self, entry: E) -> Option<WholeEntry<E>> {
         // Overwrite when write sequence number is 1 buffer capacity ahead of overwrite
@@ -177,24 +168,13 @@ where
         possible_overwritten
     }
 
-    /// asdfasd
-    pub fn safe_push_double(&mut self, prefix: E, suffix: E) -> (Option<WholeEntry<E>>, Option<WholeEntry<E>>) {
-        if !prefix.is_prefix() {
-            (None, None)
-        } else if suffix.is_prefix() {
-            (None, None)
-        } else {
-            self.push_double(prefix, suffix)
-        }
-    }
-
-
     /// Write double entry in single borrow, returning overwritten entry
     pub fn push_double(
         &mut self,
         prefix: E,
         suffix: E,
     ) -> (Option<WholeEntry<E>>, Option<WholeEntry<E>>) {
+        debug_assert!(prefix.is_prefix());
         let first_overwritten = self.push(prefix);
         let second_overwritten = self.push(suffix);
         (first_overwritten, second_overwritten)

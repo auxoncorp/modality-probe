@@ -52,10 +52,14 @@ fn run(s: Script) {
     for op in s.ops.into_iter() {
         match op {
             Op::Push(x) => {
-                let _ = frb.safe_push(x);
+                if !x.is_prefix() {
+                    let _ = frb.push(x);
+                }
             }
             Op::PushDouble(x, y) => {
-                let _ = frb.safe_push_double(x, y);
+                if x.is_prefix() {
+                    let _ = frb.push_double(x, y);
+                }
             }
             Op::NumMissed => {
                 let _ = frb.num_missed();
@@ -69,7 +73,6 @@ fn run(s: Script) {
             Op::Iter => for _ in frb.iter() {},
             Op::Drain => for _ in frb.drain() {},
             Op::GetLinearSlices => {
-                // maybe try to use them?
                 let _ = frb.get_linear_slices();
             }
             Op::Len => {
@@ -85,7 +88,6 @@ fn run(s: Script) {
                 let _ = frb.capacity();
             }
             Op::GetSlice => {
-                // maybe try to use it?
                 let _ = frb.get_slice();
             }
         }
