@@ -210,7 +210,7 @@ impl<'a, I: Read, O: Write> OfflineBatchCollector<'a, I, O> {
                                     recv_time,
                                     &mut self.log_entries_buffer,
                                 ) {
-                                    warn!("encountered a malformed report, discarding: {}", e);
+                                    warn!("Encountered a malformed report, discarding: {}", e);
                                 }
                             }
                             Err(e) => {

@@ -1630,4 +1630,323 @@ pub(crate) mod test {
         print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();
         assert_eq!(EXPECTED_GRAPH, std::str::from_utf8(&out).unwrap());
     }
+
+    pub fn fanout_trace() -> Vec<ReportLogEntry> {
+        let now = Utc::now();
+        let probe1 = ProbeId::new(1).unwrap();
+        let event1 = EventId::new(1).unwrap();
+
+        let probe2 = ProbeId::new(2).unwrap();
+        let event2 = EventId::new(2).unwrap();
+
+        let probe3 = ProbeId::new(3).unwrap();
+        let event3 = EventId::new(3).unwrap();
+
+        vec![
+            // Probe 1
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 0,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 1,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 2,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::Event(event1),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 3,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::Event(event1),
+                receive_time: now,
+            },
+            // Probe 2
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 0,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 1,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 2,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 3,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::Event(event2),
+                receive_time: now,
+            },
+            // Probe 3
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 0,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 1,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::Event(event3),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 2,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::Event(event3),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 3,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::Event(event3),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 4,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 5,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+        ]
+    }
+
+    const EXPECTED_FANOUT: &str = "\
+|  |  *  three @ three (1:3:0:1:1)
+|  |  |
++->+  |  two merged a snapshot from one
+|  |  |
+|  |  *  three @ three (1:3:0:1:2)
+|  |  |
+|  *  |  two @ two (1:2:1:1:3)
+|  |  |
+|  |  *  three @ three (1:3:0:1:3)
+|  |  |
++---->+  three merged a snapshot from one
+|  |  |
+*  |  |  one @ one (1:1:1:1:2)
+|  |  |
+*  |  |  one @ one (1:1:1:1:3)
+|  |  |
+";
+
+    #[test]
+    fn fanout_graph() {
+        let trace = fanout_trace();
+        let cfg = graph::test::cfg();
+        let l = Log {
+            probe: None,
+            component: None,
+            component_path: vec![],
+            report: PathBuf::default(),
+            graph: true,
+            verbose: 0,
+            format: None,
+            radius: None,
+            from: None,
+            no_color: true,
+        };
+        {
+            let mut b = color::COLORIZE.write().unwrap();
+            *b = false;
+        }
+        let (probes, clock_rows) = sort_probes(&cfg, &l, trace).unwrap();
+        let mut out = Vec::new();
+        print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();
+        assert_eq!(EXPECTED_FANOUT, std::str::from_utf8(&out).unwrap());
+    }
 }
