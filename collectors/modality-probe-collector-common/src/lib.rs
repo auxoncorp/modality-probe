@@ -1,9 +1,4 @@
-use std::{
-    convert::{TryFrom, TryInto},
-    io,
-    iter::Peekable,
-    mem,
-};
+use std::{convert::TryFrom, io, iter::Peekable, mem};
 
 use chrono::prelude::*;
 use err_derive::Error;
@@ -116,6 +111,15 @@ pub enum EventLogEntry {
     WallClockTime(Nanoseconds),
 }
 
+impl EventLogEntry {
+    pub fn trace_clock(&self) -> Option<LogicalClock> {
+        match self {
+            EventLogEntry::TraceClock(lc) => Some(*lc),
+            _ => None,
+        }
+    }
+}
+
 pub mod serde_ns {
     use super::Nanoseconds;
     use serde::{de, Deserialize, Serialize};
@@ -181,6 +185,10 @@ pub struct ReportLogEntry {
     /// The probe that supplied this entry
     pub probe_id: ProbeId,
 
+    /// The logical clock at the time at the time that this entry was
+    /// was recorded.
+    pub clock: LogicalClock,
+
     /// Whether or not the probe which reported this event has a
     /// persistent epoch counter.
     pub persistent_epoch_counting: bool,
@@ -220,12 +228,11 @@ impl ReportLogEntry {
     }
 
     pub fn coordinate(&self) -> String {
-        // TODO(dan@auxon.io): Clocks not available here.
-        // https://github.com/auxoncorp/modality-probe/issues/278
         format!(
-            "{}:{}:{}:{}",
+            "{}:{}:{}:{}:{}",
             self.session_id.0,
             self.probe_id.get_raw(),
+            self.clock.pack().1,
             self.sequence_number.0,
             self.sequence_index
         )
@@ -267,62 +274,6 @@ impl From<EventLogEntry> for LogEntryData {
             EventLogEntry::TraceClockWithTime(t, lc) => LogEntryData::TraceClockWithTime(t, lc),
             EventLogEntry::WallClockTime(t) => LogEntryData::WallClockTime(t),
         }
-    }
-}
-
-/// A row in a collected trace.
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
-pub struct LogFileRow {
-    pub session_id: u32,
-    pub sequence_number: u64,
-    pub sequence_index: u32,
-    pub time_resolution: u32,
-    pub wall_clock_id: u16,
-    pub receive_time: DateTime<Utc>,
-    pub probe_id: u32,
-    pub fc_probe_id: Option<u32>,
-    pub fc_probe_epoch: Option<u16>,
-    pub fc_probe_clock: Option<u16>,
-    pub event_id: Option<u32>,
-    pub event_payload: Option<u32>,
-    pub tc_probe_id: Option<u32>,
-    pub tc_probe_epoch: Option<u16>,
-    pub tc_probe_clock: Option<u16>,
-}
-
-impl LogFileRow {
-    pub fn packed_tc_clock(&self) -> Option<u32> {
-        if self.tc_probe_epoch.is_some() && self.tc_probe_clock.is_some() {
-            Some(modality_probe::pack_clock_word(
-                ProbeEpoch::from(self.tc_probe_epoch.expect("just checked epoch presence")),
-                ProbeTicks::from(self.tc_probe_clock.expect("just checked clock presence")),
-            ))
-        } else {
-            None
-        }
-    }
-
-    pub fn packed_fc_clock(&self) -> Option<u32> {
-        if self.fc_probe_epoch.is_some() && self.fc_probe_clock.is_some() {
-            Some(modality_probe::pack_clock_word(
-                ProbeEpoch::from(self.fc_probe_epoch.expect("just checked epoch presence")),
-                ProbeTicks::from(self.fc_probe_clock.expect("just checked clock presence")),
-            ))
-        } else {
-            None
-        }
-    }
-
-    pub fn is_trace_clock(&self) -> bool {
-        self.tc_probe_id.is_some() && self.tc_probe_epoch.is_some() && self.tc_probe_clock.is_some()
-    }
-
-    pub fn is_frontier_clock(&self) -> bool {
-        self.fc_probe_id.is_some() && self.fc_probe_epoch.is_some() && self.fc_probe_clock.is_some()
-    }
-
-    pub fn is_event(&self) -> bool {
-        self.event_id.is_some()
     }
 }
 
@@ -427,59 +378,6 @@ where
     }
 }
 
-impl From<&ReportLogEntry> for LogFileRow {
-    fn from(e: &ReportLogEntry) -> LogFileRow {
-        LogFileRow {
-            session_id: e.session_id.0,
-            sequence_number: e.sequence_number.0,
-            sequence_index: e.sequence_index,
-            time_resolution: e.time_resolution.into(),
-            wall_clock_id: e.wall_clock_id.into(),
-            probe_id: e.probe_id.get_raw(),
-            fc_probe_id: match e.data {
-                LogEntryData::FrontierClock(lc) => Some(lc.id.get_raw()),
-                _ => None,
-            },
-            fc_probe_epoch: match e.data {
-                LogEntryData::FrontierClock(lc) => Some(lc.epoch.0),
-                _ => None,
-            },
-            fc_probe_clock: match e.data {
-                LogEntryData::FrontierClock(lc) => Some(lc.ticks.0),
-                _ => None,
-            },
-            event_id: match &e.data {
-                LogEntryData::Event(id) => Some(id.get_raw()),
-                LogEntryData::EventWithPayload(id, _) => Some(id.get_raw()),
-                LogEntryData::EventWithTime(_t, id) => Some(id.get_raw()),
-                LogEntryData::EventWithPayloadWithTime(_t, id, _) => Some(id.get_raw()),
-                _ => None,
-            },
-            event_payload: match &e.data {
-                LogEntryData::EventWithPayload(_id, payload) => Some(*payload),
-                LogEntryData::EventWithPayloadWithTime(_t, _id, payload) => Some(*payload),
-                _ => None,
-            },
-            tc_probe_id: match &e.data {
-                LogEntryData::TraceClock(lc) => Some(lc.id.get_raw()),
-                LogEntryData::TraceClockWithTime(_t, lc) => Some(lc.id.get_raw()),
-                _ => None,
-            },
-            tc_probe_epoch: match &e.data {
-                LogEntryData::TraceClock(lc) => Some(lc.epoch.0),
-                LogEntryData::TraceClockWithTime(_t, lc) => Some(lc.epoch.0),
-                _ => None,
-            },
-            tc_probe_clock: match &e.data {
-                LogEntryData::TraceClock(lc) => Some(lc.ticks.0),
-                LogEntryData::TraceClockWithTime(_t, lc) => Some(lc.ticks.0),
-                _ => None,
-            },
-            receive_time: e.receive_time,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Error)]
 pub enum Error {
     #[error(display = "{}", message)]
@@ -501,180 +399,35 @@ impl From<io::Error> for Error {
     }
 }
 
-impl TryFrom<&LogFileRow> for ReportLogEntry {
-    type Error = Error;
-
-    fn try_from(l: &LogFileRow) -> Result<ReportLogEntry, Self::Error> {
-        let session_id: SessionId = l.session_id.into();
-        let sequence_number: SequenceNumber = l.sequence_number.into();
-        let sequence_index: u32 = l.sequence_index;
-        let time_resolution = l.time_resolution.into();
-        let wall_clock_id = l.wall_clock_id.into();
-
-        let data = if let Some(fc_probe_id) = l.fc_probe_id {
-            match (l.fc_probe_epoch, l.fc_probe_clock) {
-                (Some(epoch), Some(clock)) => {
-                    LogEntryData::FrontierClock(
-                        LogicalClock {
-                            id: fc_probe_id.try_into().map_err(|_e|
-                                Error::InvalidContent {
-                                    session_id,
-                                    sequence_number,
-                                    sequence_index,
-                                    message: "When fc_probe_id is present, it must be a valid modality_probe::ProbeId",
-                                })?,
-                            epoch: epoch.into(),
-                            ticks: clock.into(),
-                        }
-                    )
-                }
-                (None, _) => {
-                    return Err(Error::InvalidContent {
-                        session_id,
-                        sequence_number,
-                        sequence_index,
-                        message: "When fc_probe_id is present, fc_probe_epoch must also be present",
-                    });
-                },
-                (_, None) => {
-                    return Err(Error::InvalidContent {
-                        session_id,
-                        sequence_number,
-                        sequence_index,
-                        message: "When fc_probe_id is present, fc_probe_clock must also be present",
-                    });
-                },
-            }
-        } else if let Some(event_id) = l.event_id {
-            if l.fc_probe_id.is_some() {
-                return Err(Error::InvalidContent {
-                    session_id,
-                    sequence_number,
-                    sequence_index,
-                    message: "When event_id is present, fc_probe_id must be empty",
-                });
-            } else if l.fc_probe_epoch.is_some() {
-                return Err(Error::InvalidContent {
-                    session_id,
-                    sequence_number,
-                    sequence_index,
-                    message: "When event_id is present, fc_probe_epoch must be empty",
-                });
-            } else if l.fc_probe_clock.is_some() {
-                return Err(Error::InvalidContent {
-                    session_id,
-                    sequence_number,
-                    sequence_index,
-                    message: "When event_id is present, fc_probe_clock must be empty",
-                });
-            } else if l.tc_probe_id.is_some() {
-                return Err(Error::InvalidContent {
-                    session_id,
-                    sequence_number,
-                    sequence_index,
-                    message: "When event_id is present, tc_probe_id must be empty",
-                });
-            } else if l.tc_probe_epoch.is_some() {
-                return Err(Error::InvalidContent {
-                    session_id,
-                    sequence_number,
-                    sequence_index,
-                    message: "When event_id is present, tc_probe_epoch must be empty",
-                });
-            } else if l.tc_probe_clock.is_some() {
-                return Err(Error::InvalidContent {
-                    session_id,
-                    sequence_number,
-                    sequence_index,
-                    message: "When event_id is present, tc_probe_clock must be empty",
-                });
-            }
-
-            let event_id = event_id.try_into().map_err(|_e| Error::InvalidContent {
-                session_id,
-                sequence_number,
-                sequence_index,
-                message: "Invalid event id",
-            })?;
-
-            if let Some(payload) = l.event_payload {
-                LogEntryData::EventWithPayload(event_id, payload)
-            } else {
-                LogEntryData::Event(event_id)
-            }
-        } else if let Some(tc_probe_id) = l.tc_probe_id {
-            match (l.tc_probe_epoch, l.tc_probe_clock) {
-                (Some(epoch), Some(clock)) => {
-                    LogEntryData::TraceClock(
-                        LogicalClock {
-                            id: tc_probe_id.try_into().map_err(|_e|
-                                Error::InvalidContent {
-                                    session_id,
-                                    sequence_number,
-                                    sequence_index,
-                                    message: "When tc_probe_id is present, it must be a valid modality_probe::ProbeId",
-                                })?,
-                            epoch: epoch.into(),
-                            ticks: clock.into(),
-                        }
-                    )
-                }
-                (None, _) => {
-                    return Err(Error::InvalidContent {
-                        session_id,
-                        sequence_number,
-                        sequence_index,
-                        message: "When tc_probe_id is present, tc_probe_epoch must also be present",
-                    });
-                },
-                (_, None) => {
-                    return Err(Error::InvalidContent {
-                        session_id,
-                        sequence_number,
-                        sequence_index,
-                        message: "When tc_probe_id is present, tc_probe_clock must also be present",
-                    });
-                },
-            }
-        } else {
-            return Err(Error::InvalidContent {
-                session_id,
-                sequence_number,
-                sequence_index,
-                message: "Either fc_probe_id, event_id, or tc_probe_id must be preset",
-            });
-        };
-
-        Ok(ReportLogEntry {
-            session_id,
-            sequence_number,
-            sequence_index,
-            persistent_epoch_counting: false,
-            time_resolution,
-            wall_clock_id,
-            probe_id: l.probe_id.try_into().map_err(|_e| Error::InvalidContent {
-                session_id,
-                sequence_number,
-                sequence_index,
-                message: "probe_id must be a valid modality_probe::ProbeId",
-            })?,
-            data,
-            receive_time: l.receive_time,
-        })
-    }
-}
-
 pub fn add_log_report_to_entries(
     log_report: &Report,
     session_id: SessionId,
     receive_time: DateTime<Utc>,
     log_entries_buffer: &mut Vec<ReportLogEntry>,
-) {
+) -> Result<(), Error> {
     let probe_id = log_report.probe_id;
     let sequence_number = log_report.seq_num;
     let time_resolution = log_report.time_resolution;
     let wall_clock_id = log_report.wall_clock_id;
     let mut sequence_index = 0;
+
+    if log_report.frontier_clocks.is_empty() {
+        return Err(Error::InvalidContent {
+            session_id,
+            sequence_number,
+            sequence_index: 0,
+            message: "missing self frontier clock",
+        });
+    }
+    let mut probe_clock = log_report.frontier_clocks[0];
+    if probe_clock.id != probe_id {
+        return Err(Error::InvalidContent {
+            session_id,
+            sequence_number,
+            sequence_index: 0,
+            message: "missing self frontier clock",
+        });
+    }
 
     for fc in &log_report.frontier_clocks {
         log_entries_buffer.push(ReportLogEntry {
@@ -686,12 +439,18 @@ pub fn add_log_report_to_entries(
             probe_id,
             persistent_epoch_counting: log_report.persistent_epoch_counting,
             data: LogEntryData::FrontierClock(*fc),
+            clock: probe_clock,
             receive_time,
         });
         sequence_index += 1;
     }
 
     for event in &log_report.event_log {
+        if let Some(lc) = event.trace_clock() {
+            if lc.id == log_report.probe_id {
+                probe_clock = lc;
+            }
+        }
         log_entries_buffer.push(ReportLogEntry {
             session_id,
             sequence_number,
@@ -701,10 +460,12 @@ pub fn add_log_report_to_entries(
             probe_id,
             persistent_epoch_counting: log_report.persistent_epoch_counting,
             data: LogEntryData::from(*event),
+            clock: probe_clock,
             receive_time,
         });
         sequence_index += 1;
     }
+    Ok(())
 }
 
 impl TryFrom<&[u8]> for Report {
@@ -735,7 +496,7 @@ impl TryFrom<&[u8]> for Report {
                 if entry.has_clock_bit_set() {
                     probe_id = Some(
                         ProbeId::new(entry.interpret_as_logical_clock_probe_id())
-                            .ok_or_else(|| SerializationError::InvalidProbeId(entry))?,
+                            .ok_or(SerializationError::InvalidProbeId(entry))?,
                     );
                 }
             } else {
@@ -759,13 +520,13 @@ impl TryFrom<&[u8]> for Report {
                     if raw_entry.has_clock_bit_set() {
                         interpret_next_as = Next::Clock(
                             ProbeId::new(raw_entry.interpret_as_logical_clock_probe_id())
-                                .ok_or_else(|| SerializationError::InvalidProbeId(raw_entry))?,
+                                .ok_or(SerializationError::InvalidProbeId(raw_entry))?,
                         );
                     } else if raw_entry.has_event_with_payload_bit_set() {
                         interpret_next_as = Next::Payload(
                             raw_entry
                                 .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
+                                .ok_or(SerializationError::InvalidEventId(raw_entry))?,
                         );
                     } else if raw_entry.has_wall_clock_time_bits_set() {
                         if raw_entry.has_wall_clock_time_paired_bit_set() {
@@ -788,13 +549,13 @@ impl TryFrom<&[u8]> for Report {
                             pwct,
                             raw_entry
                                 .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
+                                .ok_or(SerializationError::InvalidEventId(raw_entry))?,
                         ));
                     } else {
                         owned_report.event_log.push(EventLogEntry::Event(
                             raw_entry
                                 .interpret_as_event_id()
-                                .ok_or_else(|| SerializationError::InvalidEventId(raw_entry))?,
+                                .ok_or(SerializationError::InvalidEventId(raw_entry))?,
                         ));
                     }
                 }
@@ -836,14 +597,14 @@ impl TryFrom<&[u8]> for Report {
                 Next::PairedWallClockTimeLowBits(high_bits) => {
                     let low_bits = NanosecondsLowBits(raw.to_le_bytes());
                     let t = Nanoseconds::from_parts(low_bits, high_bits)
-                        .ok_or_else(|| SerializationError::InvalidTime((low_bits, high_bits)))?;
+                        .ok_or(SerializationError::InvalidTime((low_bits, high_bits)))?;
                     paired_wall_clock_time = Some(t);
                     interpret_next_as = Next::DontKnow;
                 }
                 Next::UnpairedWallClockTimeLowBits(high_bits) => {
                     let low_bits = NanosecondsLowBits(raw.to_le_bytes());
                     let t = Nanoseconds::from_parts(low_bits, high_bits)
-                        .ok_or_else(|| SerializationError::InvalidTime((low_bits, high_bits)))?;
+                        .ok_or(SerializationError::InvalidTime((low_bits, high_bits)))?;
                     owned_report.event_log.push(EventLogEntry::WallClockTime(t));
                     interpret_next_as = Next::DontKnow;
                 }
@@ -921,9 +682,8 @@ impl Report {
                             .to_le_bytes()
                             .into();
                         let low_bits = second.raw().to_le_bytes().into();
-                        let t = Nanoseconds::from_parts(low_bits, high_bits).ok_or_else(|| {
-                            SerializationError::InvalidTime((low_bits, high_bits))
-                        })?;
+                        let t = Nanoseconds::from_parts(low_bits, high_bits)
+                            .ok_or(SerializationError::InvalidTime((low_bits, high_bits)))?;
                         if first.has_wall_clock_time_paired_bit_set() {
                             paired_wall_clock_time = Some(t);
                         } else {
@@ -1257,6 +1017,7 @@ pub(crate) mod test {
             any::<bool>(),
             arb_time_resolution(),
             arb_wall_clock_id(),
+            arb_logical_clock(),
         )
             .prop_map(
                 |(
@@ -1269,6 +1030,7 @@ pub(crate) mod test {
                     persistent_epoch_counting,
                     time_resolution,
                     wall_clock_id,
+                    clock,
                 )| {
                     ReportLogEntry {
                         session_id,
@@ -1280,6 +1042,7 @@ pub(crate) mod test {
                         wall_clock_id,
                         data,
                         receive_time,
+                        clock,
                     }
                 },
             )

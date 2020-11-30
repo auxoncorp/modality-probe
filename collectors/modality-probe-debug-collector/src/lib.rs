@@ -303,7 +303,7 @@ impl Collector {
             let hist_addr = mem.read_word(addr + history_ptr_offset())?;
             // Read DynamicHistory fields
             let id_raw = mem.read_32(hist_addr + probe_id_offset())?;
-            let id = ProbeId::new(id_raw).ok_or_else(|| Error::InvalidProbeId)?;
+            let id = ProbeId::new(id_raw).ok_or(Error::InvalidProbeId)?;
             let time_res = mem.read_32(hist_addr + time_resolution_offset())?;
             // NOTE: probe-rs does have read_16
             let wall_clock_id = mem.read_32(hist_addr + wall_clock_id_offset())? as u16;
@@ -471,7 +471,7 @@ impl Collector {
             if let WholeEntry::Double(first, second) = entry {
                 if first.has_clock_bit_set() {
                     let id = ProbeId::new(first.interpret_as_logical_clock_probe_id())
-                        .ok_or_else(|| Error::InvalidClockProbeId)?;
+                        .ok_or(Error::InvalidClockProbeId)?;
                     let (epoch, ticks) = modality_probe::unpack_clock_word(second.raw());
                     Self::merge_clock(&mut self.clocks, LogicalClock { id, epoch, ticks })
                 }
@@ -548,7 +548,8 @@ fn initialize_collectors(
 fn report_to_file(out: &mut File, report: Report, session_id: SessionId) -> Result<(), Error> {
     let mut entries: Vec<ReportLogEntry> = Vec::new();
 
-    add_log_report_to_entries(&report, session_id, Utc::now(), &mut entries);
+    add_log_report_to_entries(&report, session_id, Utc::now(), &mut entries)
+        .map_err(Error::OutputWritingError)?;
     write_log_entries(out, &entries).map_err(Error::OutputWritingError)
 }
 

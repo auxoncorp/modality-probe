@@ -331,8 +331,6 @@ fn graph_to_tree<'a>(
 
 #[cfg(test)]
 pub(crate) mod test {
-    use std::convert::TryInto;
-
     use uuid::Uuid;
 
     use crate::meta::{Cfg, EventMeta, ProbeMeta};
@@ -464,7 +462,6 @@ pub(crate) mod test {
         let cfg = cfg();
         let diamond_log = modality_probe_graph::test_support::diamond()
             .into_iter()
-            .map(|e| (&e).try_into().unwrap())
             .peekable();
         let graph = super::log_to_graph(diamond_log, false).unwrap();
 
@@ -481,7 +478,6 @@ pub(crate) mod test {
         let cfg = cfg();
         let diamond_log = modality_probe_graph::test_support::diamond()
             .into_iter()
-            .map(|e| (&e).try_into().unwrap())
             .peekable();
         let graph = super::log_to_graph(diamond_log, false).unwrap();
 
@@ -498,7 +494,6 @@ pub(crate) mod test {
         let cfg = cfg();
         let diamond_log = modality_probe_graph::test_support::diamond()
             .into_iter()
-            .map(|e| (&e).try_into().unwrap())
             .peekable();
         let graph = super::log_to_graph(diamond_log, false).unwrap();
 
@@ -515,7 +510,6 @@ pub(crate) mod test {
         let cfg = cfg();
         let diamond_log = modality_probe_graph::test_support::diamond()
             .into_iter()
-            .map(|e| (&e).try_into().unwrap())
             .peekable();
         let graph = super::log_to_graph(diamond_log, false).unwrap();
 

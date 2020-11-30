@@ -24,8 +24,8 @@ mod radius;
 use radius::Radius;
 
 // 3 empty columns between each timeline.
-const COL_SPACE: &str = "   ";
-const COL_EDGE: &str = "---";
+const COL_SPACE: &str = "  ";
+const COL_EDGE: &str = "--";
 
 /// View the trace as a log.
 #[derive(Debug, PartialEq, StructOpt)]
@@ -260,17 +260,13 @@ fn print_as_graph<W: WriteIo>(
     l: &Log,
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Edges waiting to be drawn.
-    let mut pending_targets: HashMap<_, (usize, ProbeId)> = HashMap::new();
-    let mut pending_sources = HashMap::new();
-
     // Our “watch dog”. This ticks while the outer loop is
     // productive. If it stops ticking, we're done.
     let mut count = 0;
 
     // The timelines that are currently blocked and waiting the other
     // end of an egde to show up.
-    let mut blocked_tls: HashSet<ProbeId> = HashSet::new();
+    let mut blocked_tls: HashMap<ProbeId, HashSet<(ProbeId, LogicalClock)>> = HashMap::new();
 
     // How many timelines are there?
     let n_probes = probes.len();
@@ -287,7 +283,11 @@ fn print_as_graph<W: WriteIo>(
             if let Some(row) = log.pop() {
                 match row.data {
                     LogEntryData::Event(id) | LogEntryData::EventWithTime(.., id) => {
-                        if blocked_tls.get(probe_id).is_none() {
+                        let blocked = blocked_tls
+                            .get(probe_id)
+                            .map(|t| !t.is_empty())
+                            .unwrap_or(false);
+                        if !blocked {
                             let event_name = meta::get_event_meta(&cfg, &probe_id, &id)
                                 .map(|em| em.name.clone())
                                 .unwrap_or_else(|_| probe_id.get_raw().to_string());
@@ -334,7 +334,11 @@ fn print_as_graph<W: WriteIo>(
                     }
                     LogEntryData::EventWithPayload(id, pl)
                     | LogEntryData::EventWithPayloadWithTime(.., id, pl) => {
-                        if blocked_tls.get(probe_id).is_none() {
+                        let blocked = blocked_tls
+                            .get(probe_id)
+                            .map(|t| !t.is_empty())
+                            .unwrap_or(false);
+                        if !blocked {
                             let event_name = meta::get_event_meta(&cfg, &probe_id, &id)
                                 .map(|em| em.name.clone())
                                 .unwrap_or_else(|_| probe_id.get_raw().to_string());
@@ -392,8 +396,6 @@ fn print_as_graph<W: WriteIo>(
                                         Some(next_lc) => {
                                             if next_lc.id == *probe_id {
                                                 handle_source_edge(
-                                                    &pending_targets,
-                                                    &mut pending_sources,
                                                     cfg,
                                                     lc,
                                                     probe_id,
@@ -401,14 +403,13 @@ fn print_as_graph<W: WriteIo>(
                                                     &clock_rows,
                                                     &mut blocked_tls,
                                                     idx,
+                                                    &indices,
                                                     &mut stream,
                                                 )?;
                                             }
                                         }
                                         None => {
                                             handle_source_edge(
-                                                &pending_targets,
-                                                &mut pending_sources,
                                                 cfg,
                                                 lc,
                                                 probe_id,
@@ -416,6 +417,7 @@ fn print_as_graph<W: WriteIo>(
                                                 &clock_rows,
                                                 &mut blocked_tls,
                                                 idx,
+                                                &indices,
                                                 &mut stream,
                                             )?;
                                         }
@@ -423,8 +425,6 @@ fn print_as_graph<W: WriteIo>(
                                     log.push(next);
                                 } else {
                                     handle_source_edge(
-                                        &pending_targets,
-                                        &mut pending_sources,
                                         cfg,
                                         lc,
                                         probe_id,
@@ -432,6 +432,7 @@ fn print_as_graph<W: WriteIo>(
                                         &clock_rows,
                                         &mut blocked_tls,
                                         idx,
+                                        &indices,
                                         &mut stream,
                                     )?;
                                 }
@@ -443,34 +444,55 @@ fn print_as_graph<W: WriteIo>(
                                 .get(&lc.id.get_raw())
                                 .map(|pm| pm.name.clone())
                                 .unwrap_or_else(|| lc.id.get_raw().to_string());
-                            let from_idx = indices.get(&lc.id);
                             let to_name = cfg
                                 .probes
                                 .get(&probe_id.get_raw())
                                 .map(|pm| pm.name.clone())
                                 .unwrap_or_else(|| probe_id.get_raw().to_string());
-                            if let Some(source_idx) = pending_sources.get(&lc.next()) {
-                                print_edge_line(
-                                    *source_idx,
-                                    idx,
-                                    &from_name,
-                                    &to_name,
-                                    n_probes,
-                                    &mut stream,
-                                )?;
-                                print_info_row(n_probes, "", "", "", &mut stream)?;
-                                blocked_tls.remove(probe_id);
-                                blocked_tls.remove(&lc.id);
-                            // There is not a source waiting to be
-                            // matched with this target.
+                            let from_idx = indices.get(&lc.id);
+                            if let Some(mut neighbor) = blocked_tls.remove(&lc.id) {
+                                if neighbor.remove(&(*probe_id, lc)) {
+                                    print_edge_line(
+                                        *indices.get(&lc.id).unwrap(),
+                                        idx,
+                                        &from_name,
+                                        &to_name,
+                                        n_probes,
+                                        &mut stream,
+                                    )?;
+                                    print_info_row(n_probes, "", "", "", &mut stream)?;
+                                    blocked_tls.insert(lc.id, neighbor);
+                                } else {
+                                    let is_present = clock_rows.iter().any(|r| {
+                                        lc.id == r.probe_id
+                                            && r.data.trace_clock() == Some(lc.next())
+                                    });
+                                    if is_present {
+                                        let self_tl = blocked_tls
+                                            .entry(*probe_id)
+                                            .or_insert_with(HashSet::new);
+                                        self_tl.insert((lc.id, lc));
+                                    } else {
+                                        print_missing_edge_line(
+                                            from_idx,
+                                            &from_name,
+                                            idx,
+                                            &to_name,
+                                            n_probes,
+                                            l.probe.is_some(),
+                                            &mut stream,
+                                        )?;
+                                    }
+                                    blocked_tls.insert(lc.id, neighbor);
+                                }
                             } else {
                                 let is_present = clock_rows.iter().any(|r| {
-                                    let inner_lc = r.data.trace_clock().unwrap();
-                                    r.probe_id == inner_lc.id && lc.next() == inner_lc
+                                    lc.id == r.probe_id && r.data.trace_clock() == Some(lc.next())
                                 });
                                 if is_present {
-                                    pending_targets.insert(lc, (idx, *probe_id));
-                                    blocked_tls.insert(*probe_id);
+                                    let self_tl =
+                                        blocked_tls.entry(*probe_id).or_insert_with(HashSet::new);
+                                    self_tl.insert((lc.id, lc));
                                 } else {
                                     print_missing_edge_line(
                                         from_idx,
@@ -574,48 +596,58 @@ fn handle_graph_verbosity<W: WriteIo>(
 
 #[allow(clippy::too_many_arguments)]
 fn handle_source_edge<W: WriteIo>(
-    pending_targets: &HashMap<LogicalClock, (usize, ProbeId)>,
-    pending_sources: &mut HashMap<LogicalClock, usize>,
     cfg: &Cfg,
     lc: LogicalClock,
     probe_id: &ProbeId,
     n_probes: usize,
     clock_rows: &[ReportLogEntry],
-    blocked_tls: &mut HashSet<ProbeId>,
+    blocked_tls: &mut HashMap<ProbeId, HashSet<(ProbeId, LogicalClock)>>,
     idx: usize,
+    indices: &HashMap<ProbeId, usize>,
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some((target_idx, target_id)) = pending_targets.get(&lc.prev()) {
-        let from_name = cfg
-            .probes
-            .get(&probe_id.get_raw())
-            .map(|pm| pm.name.clone())
-            .unwrap_or_else(|| probe_id.get_raw().to_string());
-        let to_name = cfg
-            .probes
-            .get(&target_id.get_raw())
-            .map(|pm| pm.name.clone())
-            .unwrap_or_else(|| probe_id.get_raw().to_string());
-        print_edge_line(
-            idx,
-            *target_idx,
-            &from_name,
-            &to_name,
-            n_probes,
-            &mut stream,
-        )?;
-        print_info_row(n_probes, "", "", "", &mut stream)?;
-        blocked_tls.remove(probe_id);
-        blocked_tls.remove(&target_id);
-    } else {
-        let is_present = clock_rows
-            .iter()
-            .any(|r| r.probe_id != *probe_id && r.data.trace_clock().unwrap() == lc.prev());
-        if is_present {
-            pending_sources.insert(lc, idx);
-            blocked_tls.insert(*probe_id);
+    {
+        let all_targs = clock_rows.iter().filter(|r| {
+            let inner_lc = r.data.trace_clock().unwrap();
+            r.probe_id != inner_lc.id && inner_lc == lc.prev()
+        });
+        let self_tl = blocked_tls.entry(*probe_id).or_insert_with(HashSet::new);
+        for t in all_targs {
+            self_tl.insert((t.probe_id, t.data.trace_clock().unwrap()));
         }
     }
+    let mut self_tl = blocked_tls.remove(probe_id).unwrap();
+    let mut to_rm = Vec::new();
+    for (pid, c) in self_tl.iter() {
+        if let Some(neighbor) = blocked_tls.get_mut(pid) {
+            if neighbor.remove(&(*probe_id, *c)) {
+                let from_name = cfg
+                    .probes
+                    .get(&probe_id.get_raw())
+                    .map(|pm| pm.name.clone())
+                    .unwrap_or_else(|| probe_id.get_raw().to_string());
+                let to_name = cfg
+                    .probes
+                    .get(&pid.get_raw())
+                    .map(|pm| pm.name.clone())
+                    .unwrap_or_else(|| probe_id.get_raw().to_string());
+                print_edge_line(
+                    idx,
+                    *indices.get(&pid).unwrap(),
+                    &from_name,
+                    &to_name,
+                    n_probes,
+                    &mut stream,
+                )?;
+                print_info_row(n_probes, "", "", "", &mut stream)?;
+                to_rm.push((*pid, *c));
+            }
+        }
+    }
+    for c in to_rm {
+        self_tl.remove(&c);
+    }
+    blocked_tls.insert(*probe_id, self_tl);
     Ok(())
 }
 
@@ -1088,6 +1120,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1103,6 +1140,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(1),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1114,6 +1156,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event1),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1125,6 +1172,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event1),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1140,6 +1192,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(2),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1155,6 +1212,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(3),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             // Probe 2
             ReportLogEntry {
@@ -1171,6 +1233,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1186,6 +1253,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(1),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1201,6 +1273,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1212,6 +1289,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event2),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1227,6 +1309,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(2),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1242,6 +1329,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1253,6 +1345,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event2),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1268,6 +1365,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(3),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(3),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1283,6 +1385,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(4),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(4),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1294,6 +1401,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event2),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(4),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1305,6 +1417,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event2),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(4),
+                },
             },
             // Probe 3
             ReportLogEntry {
@@ -1321,6 +1438,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1336,6 +1458,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(1),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1351,6 +1478,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(2),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1366,6 +1498,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(2),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(2),
+                },
             },
             // Probe 4
             ReportLogEntry {
@@ -1382,6 +1519,11 @@ pub(crate) mod test {
                     ticks: ProbeTicks(0),
                 }),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe4,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1393,6 +1535,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event4),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe4,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1404,6 +1551,11 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event4),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe4,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
             ReportLogEntry {
                 session_id: SessionId(1),
@@ -1415,37 +1567,42 @@ pub(crate) mod test {
                 wall_clock_id: WallClockId::default(),
                 data: LogEntryData::Event(event4),
                 receive_time: now,
+                clock: LogicalClock {
+                    id: probe4,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
             },
         ]
     }
 
     const EXPECTED_GRAPH: &str = "\
-|   |   |   *   four @ four (1:4:1:1)
-|   |   |   |
-|   +<--+   |   two merged a snapshot from three
-|   |   |   |
-|   |   |   *   four @ four (1:4:1:2)
-|   |   |   |
-|   *   |   |   two @ two (1:2:1:3)
-|   |   |   |
-|   |   |   *   four @ four (1:4:1:3)
-|   |   |   |
-+-->+   |   |   two merged a snapshot from one
-|   |   |   |
-*   |   |   |   one @ one (1:1:1:2)
-|   |   |   |
-|   *   |   |   two @ two (1:2:1:6)
-|   |   |   |
-*   |   |   |   one @ one (1:1:1:3)
-|   |   |   |
-|   +-->+   |   three merged a snapshot from two
-|   |   |   |
-+<--+   |   |   one merged a snapshot from two
-|   |   |   |
-|   *   |   |   two @ two (1:2:1:9)
-|   |   |   |
-|   *   |   |   two @ two (1:2:1:10)
-|   |   |   |
+|  |  |  *  four @ four (1:4:0:1:1)
+|  |  |  |
+|  +<-+  |  two merged a snapshot from three
+|  |  |  |
+|  |  |  *  four @ four (1:4:0:1:2)
+|  |  |  |
+|  *  |  |  two @ two (1:2:1:1:3)
+|  |  |  |
+|  |  |  *  four @ four (1:4:0:1:3)
+|  |  |  |
++->+  |  |  two merged a snapshot from one
+|  |  |  |
+*  |  |  |  one @ one (1:1:1:1:2)
+|  |  |  |
+|  *  |  |  two @ two (1:2:2:1:6)
+|  |  |  |
+*  |  |  |  one @ one (1:1:1:1:3)
+|  |  |  |
+|  +->+  |  three merged a snapshot from two
+|  |  |  |
++<-+  |  |  one merged a snapshot from two
+|  |  |  |
+|  *  |  |  two @ two (1:2:4:1:9)
+|  |  |  |
+|  *  |  |  two @ two (1:2:4:1:10)
+|  |  |  |
 ";
 
     #[test]
@@ -1472,5 +1629,324 @@ pub(crate) mod test {
         let mut out = Vec::new();
         print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();
         assert_eq!(EXPECTED_GRAPH, std::str::from_utf8(&out).unwrap());
+    }
+
+    pub fn fanout_trace() -> Vec<ReportLogEntry> {
+        let now = Utc::now();
+        let probe1 = ProbeId::new(1).unwrap();
+        let event1 = EventId::new(1).unwrap();
+
+        let probe2 = ProbeId::new(2).unwrap();
+        let event2 = EventId::new(2).unwrap();
+
+        let probe3 = ProbeId::new(3).unwrap();
+        let event3 = EventId::new(3).unwrap();
+
+        vec![
+            // Probe 1
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 0,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 1,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 2,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::Event(event1),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 3,
+                probe_id: probe1,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::Event(event1),
+                receive_time: now,
+            },
+            // Probe 2
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 0,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 1,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 2,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 3,
+                probe_id: probe2,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe2,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::Event(event2),
+                receive_time: now,
+            },
+            // Probe 3
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 0,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 1,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::Event(event3),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 2,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::Event(event3),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 3,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                },
+                data: LogEntryData::Event(event3),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 4,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                }),
+                receive_time: now,
+            },
+            ReportLogEntry {
+                session_id: SessionId(1),
+                sequence_number: SequenceNumber(1),
+                sequence_index: 5,
+                probe_id: probe3,
+                persistent_epoch_counting: false,
+                time_resolution: NanosecondResolution::UNSPECIFIED,
+                wall_clock_id: WallClockId::default(),
+                clock: LogicalClock {
+                    id: probe3,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(1),
+                },
+                data: LogEntryData::TraceClock(LogicalClock {
+                    id: probe1,
+                    epoch: ProbeEpoch(0),
+                    ticks: ProbeTicks(0),
+                }),
+                receive_time: now,
+            },
+        ]
+    }
+
+    const EXPECTED_FANOUT: &str = "\
+|  |  *  three @ three (1:3:0:1:1)
+|  |  |
++->+  |  two merged a snapshot from one
+|  |  |
+|  |  *  three @ three (1:3:0:1:2)
+|  |  |
+|  *  |  two @ two (1:2:1:1:3)
+|  |  |
+|  |  *  three @ three (1:3:0:1:3)
+|  |  |
++---->+  three merged a snapshot from one
+|  |  |
+*  |  |  one @ one (1:1:1:1:2)
+|  |  |
+*  |  |  one @ one (1:1:1:1:3)
+|  |  |
+";
+
+    #[test]
+    fn fanout_graph() {
+        let trace = fanout_trace();
+        let cfg = graph::test::cfg();
+        let l = Log {
+            probe: None,
+            component: None,
+            component_path: vec![],
+            report: PathBuf::default(),
+            graph: true,
+            verbose: 0,
+            format: None,
+            radius: None,
+            from: None,
+            no_color: true,
+        };
+        {
+            let mut b = color::COLORIZE.write().unwrap();
+            *b = false;
+        }
+        let (probes, clock_rows) = sort_probes(&cfg, &l, trace).unwrap();
+        let mut out = Vec::new();
+        print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();
+        assert_eq!(EXPECTED_FANOUT, std::str::from_utf8(&out).unwrap());
     }
 }

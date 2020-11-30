@@ -363,16 +363,16 @@ mod test {
     use super::*;
 
     const EXPECTED_GRAPH: &str = "\
-*   |   one @ one (1:1:1:2)
-|   |
-*   |   one @ one (1:1:1:3)
-|   |
-+<--+   one merged a snapshot from two
-|   |
-|   *   two @ two (1:2:1:9)
-|   |
-|   *   two @ two (1:2:1:10)
-|   |
+*  |  one @ one (1:1:1:1:2)
+|  |
+*  |  one @ one (1:1:1:1:3)
+|  |
++<-+  one merged a snapshot from two
+|  |
+|  *  two @ two (1:2:4:1:9)
+|  |
+|  *  two @ two (1:2:4:1:10)
+|  |
 ";
 
     proptest! {
