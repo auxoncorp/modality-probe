@@ -13,6 +13,7 @@ use modality_probe::{EventId, LogicalClock, ProbeId};
 use modality_probe_collector_common::{json, LogEntryData, ReportLogEntry};
 
 use crate::{
+    description_format::DescriptionFormat,
     hopefully, hopefully_ok,
     meta::{self, Cfg},
 };
@@ -339,9 +340,12 @@ fn print_as_graph<W: WriteIo>(
                             .map(|t| !t.is_empty())
                             .unwrap_or(false);
                         if !blocked {
-                            let event_name = meta::get_event_meta(&cfg, &probe_id, &id)
+                            let event_meta = meta::get_event_meta(&cfg, &probe_id, &id);
+                            let event_name = event_meta
+                                .as_ref()
                                 .map(|em| em.name.clone())
                                 .unwrap_or_else(|_| probe_id.get_raw().to_string());
+                            let description = event_meta.map(|em| em.description.clone()).ok();
                             let probe_name = cfg
                                 .probes
                                 .get(&probe_id.get_raw())
@@ -355,17 +359,28 @@ fn print_as_graph<W: WriteIo>(
                                     &mut stream,
                                 )?;
                             } else {
-                                print_event_row(
-                                    &format!(
+                                let event_msg = if let Some(msg) = description.and_then(|d| {
+                                    if d.contains_formatting() {
+                                        d.format_payload(&pl).ok()
+                                    } else {
+                                        None
+                                    }
+                                }) {
+                                    format!(
+                                        "{} {}: {}",
+                                        color::colorize_probe(idx, &probe_name.to_string()),
+                                        color::colorize_coord(&row.coordinate()),
+                                        color::white(&msg),
+                                    )
+                                } else {
+                                    format!(
                                         "{} {} {}",
                                         color::white(&event_name),
                                         color::colorize_probe(idx, &format!("@ {}", probe_name)),
                                         color::colorize_coord(&row.coordinate())
-                                    ),
-                                    idx,
-                                    n_probes,
-                                    &mut stream,
-                                )?;
+                                    )
+                                };
+                                print_event_row(&event_msg, idx, n_probes, &mut stream)?;
 
                                 handle_graph_verbosity(
                                     l,
@@ -980,19 +995,44 @@ fn print_event_info(
     } else {
         let event_meta = meta::get_event_meta(&cfg, &ev.probe_id, eid);
         let probe_meta = cfg.probes.get(&ev.probe_id.get_raw());
+        let pname = probe_meta
+            .map(|pm| pm.name.clone())
+            .unwrap_or_else(|| ev.probe_id.get_raw().to_string());
         let ename = event_meta
             .as_ref()
             .map(|em| em.name.clone())
             .unwrap_or_else(|_| eid.get_raw().to_string());
-        let pname = probe_meta
-            .map(|pm| pm.name.clone())
-            .unwrap_or_else(|| ev.probe_id.get_raw().to_string());
-        println!(
-            "{} {} {}",
-            ename,
-            color::colorize_probe(idx, &format!("@ {}", pname)),
-            color::colorize_coord(&ev.coordinate())
-        );
+        if let Some(pl) = payload {
+            if let Some(msg) = event_meta.as_ref().ok().and_then(|e| {
+                if e.description.contains_formatting() {
+                    e.description.format_payload(&pl).ok()
+                } else {
+                    None
+                }
+            }) {
+                println!(
+                    "{} {}: {}",
+                    color::colorize_probe(idx, &pname.to_string()),
+                    color::colorize_coord(&ev.coordinate()),
+                    color::white(&msg)
+                );
+            } else {
+                println!(
+                    "{} {} {}",
+                    ename,
+                    color::colorize_probe(idx, &pname.to_string()),
+                    color::colorize_coord(&ev.coordinate())
+                );
+            }
+        } else {
+            println!(
+                "{} {} {}",
+                ename,
+                color::colorize_probe(idx, &pname.to_string()),
+                color::colorize_coord(&ev.coordinate())
+            );
+        }
+
         if l.verbose != 0 && event_meta.is_ok() {
             let emeta = event_meta.expect("just checked that event meta is_ok");
             println!(
