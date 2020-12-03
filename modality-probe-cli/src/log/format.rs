@@ -329,7 +329,7 @@ mod test {
 
     #[test]
     fn graph_interp() {
-        let trace = log::test::trace();
+        let trace = log::graph::test::trace();
         let cfg = graph::test::cfg();
         let l = Log {
             probe: None,
@@ -349,7 +349,7 @@ mod test {
         }
         let (probes, clock_rows) = log::sort_probes(&cfg, &l, trace).unwrap();
         let mut out = Vec::new();
-        log::print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();
+        log::graph::print_as_graph(probes, clock_rows, &cfg, &l, &mut out).unwrap();
         assert_eq!(EXPECTED_GRAPH, std::str::from_utf8(&out).unwrap());
     }
 
