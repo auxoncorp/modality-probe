@@ -55,9 +55,6 @@ jobs:
           command: install
           args: cargo-fuzz
 
-      - name: Test
-        run: ./test.sh
-
       - name: Run cargo fmt
         uses: actions-rs/cargo@v1
         with:
@@ -79,6 +76,9 @@ jobs:
         run: |
           cd modality-probe-capi
           cargo clippy --all
+
+      - name: Test
+        run: ./test.sh
 
       - name: Run cargo fmt (Rust example)
         run: |
