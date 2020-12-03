@@ -372,7 +372,7 @@ fn print_event_info(
             }) {
                 println!(
                     "{} {}: {}",
-                    color::colorize_probe(idx, &pname.to_string()),
+                    color::colorize_probe(idx, &pname),
                     color::colorize_coord(&ev.coordinate()),
                     color::white(&msg)
                 );
@@ -380,7 +380,7 @@ fn print_event_info(
                 println!(
                     "{} {} {}",
                     ename,
-                    color::colorize_probe(idx, &pname.to_string()),
+                    color::colorize_probe(idx, &pname),
                     color::colorize_coord(&ev.coordinate())
                 );
             }
@@ -388,7 +388,7 @@ fn print_event_info(
             println!(
                 "{} {} {}",
                 ename,
-                color::colorize_probe(idx, &pname.to_string()),
+                color::colorize_probe(idx, &pname),
                 color::colorize_coord(&ev.coordinate())
             );
         }
