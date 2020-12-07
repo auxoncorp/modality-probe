@@ -25,6 +25,8 @@ OUTPUT_DIR="${OUTPUT_DIR:=target/package/tarball}"
 
 LLVM_STRIP=`find $(rustc --print sysroot) -name llvm-strip`
 
+CRATE_VERSION=$(awk -F ' = ' '$1 ~ /version/ { gsub(/[\"]/, "", $2); printf("%s",$2) }' "$WORKSPACE_ROOT/Cargo.toml")
+
 # Cleanup
 (
     cd "$WORKSPACE_ROOT"
@@ -115,6 +117,13 @@ LLVM_STRIP=`find $(rustc --print sysroot) -name llvm-strip`
         fi
 
         chmod 644 "$OUTPUT_DIR/$PACKAGE_NAME/lib/$triple/"*
+
+        (
+            cd "$OUTPUT_DIR/$PACKAGE_NAME/lib/$triple/"
+            if [ -f "libmodality_probe.so" ]; then
+                ln -s libmodality_probe.so libmodality_probe.so.0
+            fi
+        )
     done
 )
 
@@ -185,6 +194,18 @@ LLVM_STRIP=`find $(rustc --print sysroot) -name llvm-strip`
     mv modality-probe-offline-batch-collector.bash "$comp_dir/"
 
     chmod 644 "$comp_dir/"*
+)
+
+# Copy CMake scripts
+(
+    cd "$WORKSPACE_ROOT"
+    cp -a "package/cmake" "$OUTPUT_DIR/$PACKAGE_NAME/"
+)
+
+# Version
+(
+    cd "$WORKSPACE_ROOT"
+    echo "$CRATE_VERSION" > "$OUTPUT_DIR/$PACKAGE_NAME/VERSION"
 )
 
 # Tar it up
