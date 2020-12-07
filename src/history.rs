@@ -573,6 +573,13 @@ impl<'a> DynamicHistory<'a> {
                             // Safe to unwrap because entry was written into the log as a clock probe id
                             let id =
                                 ProbeId::new(first.interpret_as_logical_clock_probe_id()).unwrap();
+
+                            // Ensure we have enough room for the interaction clock following
+                            // a self clock
+                            if (id == self.probe_id) && (n_copied + 4 > n_entries_possible) {
+                                break;
+                            }
+
                             let (epoch, ticks) = crate::unpack_clock_word(second.raw());
                             if Self::merge_clocks(clocks, LogicalClock { id, epoch, ticks })
                                 .is_err()

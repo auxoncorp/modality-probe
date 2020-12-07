@@ -346,7 +346,7 @@ fn report_missed_log_items() -> Result<(), ModalityProbeError> {
 
 proptest! {
     #[test]
-    fn reports_never_end_between_multi_log_items(
+    fn reports_never_fragment_multi_log_items(
         num_events in 1_usize..256_usize,
         num_events_with_payload in 1_usize..256_usize,
         report_buffer_space in 0_usize..256_usize,
@@ -443,6 +443,71 @@ proptest! {
         // Last two-item entry must never be a paired wall clock time entry
         if second_to_last_item.has_wall_clock_time_bits_set() {
             prop_assert!(!second_to_last_item.has_wall_clock_time_paired_bit_set());
+        }
+    }
+}
+
+proptest! {
+    #[test]
+    fn reports_never_fragment_clock_list(num_snapshots in 1_usize..256_usize, report_buffer_size in 0_usize..256_usize) {
+        let snap_probe_id = 1;
+        let mut snap_storage = [MaybeUninit::new(0u8); 1024];
+        let snap_probe = ModalityProbe::try_initialize_at(
+            &mut snap_storage,
+            snap_probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
+
+        let probe_id = 2;
+        let mut storage = [MaybeUninit::new(0u8); 512];
+        let probe = ModalityProbe::try_initialize_at(
+            &mut storage,
+            probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
+
+        for _ in 0..num_snapshots {
+            let snap = snap_probe.produce_snapshot();
+
+            probe.merge_snapshot(&snap).unwrap();
+        }
+
+        let min_report_size =
+            wire::WireReport::<&[u8]>::header_len() + (3 * mem::size_of::<LogicalClock>());
+        let mut report_dest = vec![0u8; min_report_size + report_buffer_size];
+
+        let bytes_written = probe.report(&mut report_dest).unwrap().unwrap();
+        let log_report = wire::WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
+
+        prop_assert!(log_report.n_clocks() > 0);
+        prop_assert!(log_report.n_log_entries() > 0);
+
+        let offset = log_report.n_clocks() as usize * mem::size_of::<LogicalClock>();
+        let log_bytes = &log_report.payload()[offset..];
+        prop_assert_eq!(log_bytes.len() % mem::size_of::<log::LogEntry>(), 0);
+
+        let tail_index = log_report.n_log_entries() as usize * mem::size_of::<log::LogEntry>();
+        let tail_index = tail_index - mem::size_of::<log::LogEntry>();
+        let second_to_last_item = u32::from_le_bytes([
+            log_bytes[tail_index - 4],
+            log_bytes[tail_index - 3],
+            log_bytes[tail_index - 2],
+            log_bytes[tail_index - 1],
+        ]);
+        let second_to_last_item = unsafe { log::LogEntry::new_unchecked(second_to_last_item) };
+
+        if second_to_last_item.has_clock_bit_set() {
+            // The first clock is always the self-clock, followed by an interaction clock
+            prop_assert_eq!(
+                second_to_last_item.interpret_as_logical_clock_probe_id(),
+                snap_probe_id
+            );
         }
     }
 }
