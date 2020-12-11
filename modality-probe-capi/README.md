@@ -483,6 +483,39 @@ $ cargo test
 
 See [probe.h](./include/probe.h) for details.
 
+## CMake
+
+The release package provides a find script and a set of CLI helper functions
+for CMake integrations under the `cmake/` directory.
+
+Add the following to your `CMakeLists.txt`:
+
+```cmake
+list(APPEND CMAKE_MODULE_PATH "/path/to/modality-probe/cmake")
+
+# Provides ModalityProbe::LibModalityProbe target
+find_package(ModalityProbe REQUIRED)
+
+# Provides CLI invocation targets
+include(ModalityProbeCli)
+
+modality_probe_generate_manifest(
+    TARGET example
+    DEPENDS src/main.c
+    COMPONENT_NAME "example-component"
+    OUTPUT_PATH "example-component"
+    EXCLUDES "build/"
+    FILE_EXTENSIONS "c" "cpp"
+    SOURCE_PATH ".")
+
+modality_probe_generate_header(
+    TARGET example
+    OUTPUT_FILE "include/component_definitions.h"
+    COMPONENT_PATH "example-component")
+
+target_link_libraries(example PRIVATE ModalityProbe::LibModalityProbe)
+```
+
 ## License
 
 See [LICENSE](../LICENSE) for more details.
