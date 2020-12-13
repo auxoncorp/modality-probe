@@ -3,7 +3,8 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 use core::mem::MaybeUninit;
 pub use modality_probe_capi_impl::{
-    next_sequence_id_fn, CausalSnapshot, ModalityProbe, ModalityProbeError, ModalityProbeInstant,
+    next_sequence_id_fn, CausalSnapshot, InstanceIdGen, ModalityProbe, ModalityProbeError,
+    ModalityProbeInstant,
 };
 
 #[no_mangle]
@@ -464,6 +465,21 @@ pub extern "C" fn modality_probe_merge_snapshot_bytes_with_time(
 #[no_mangle]
 pub extern "C" fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> ModalityProbeInstant {
     unsafe { modality_probe_capi_impl::modality_probe_now(probe) }
+}
+
+#[no_mangle]
+pub extern "C" fn modality_probe_instance_id_gen_initialize(
+    gen: *mut InstanceIdGen,
+) -> ModalityProbeError {
+    unsafe { modality_probe_capi_impl::modality_probe_instance_id_gen_initialize(gen) }
+}
+
+#[no_mangle]
+pub extern "C" fn modality_probe_instance_id_gen_next(
+    gen: *mut InstanceIdGen,
+    instance_id: *mut usize,
+) -> ModalityProbeError {
+    unsafe { modality_probe_capi_impl::modality_probe_instance_id_gen_next(gen, instance_id) }
 }
 
 #[cfg(not(test))]

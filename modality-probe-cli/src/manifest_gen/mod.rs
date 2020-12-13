@@ -54,7 +54,7 @@ pub struct ManifestGen {
     /// This can be either `<inclusive_start>..<exclusive_end>`
     /// or `<inclusive_start>..=<inclusive_end>`.
     ///
-    /// The range values are unsigned 32-bit integers and must be non-zero.
+    /// The range values are unsigned 24-bit integers and must be non-zero.
     #[structopt(long, parse(try_from_str = NonZeroIdRange::from_str))]
     pub probe_id_range: Option<NonZeroIdRange>,
 
@@ -135,8 +135,8 @@ pub fn run(opt: ManifestGen, internal_events: Option<Vec<Event>>) {
     let probe_id_range = opt.probe_id_range.unwrap_or_else(|| {
         NonZeroIdRange::new(
             NonZeroU32::new(1).unwrap(),
-            NonZeroU32::new(modality_probe::ProbeId::MAX_ID)
-                .unwrap_or_exit("Can't make a NonZeroU32 from ProbeId::MAX_ID"),
+            NonZeroU32::new(modality_probe::GeneratedId::MAX_ID)
+                .unwrap_or_exit("Can't make a NonZeroU32 from GeneratedId::MAX_ID"),
         )
         .unwrap_or_exit("Can't make a NonZeroIdRange from the given inclusive start and end values")
     });

@@ -1,8 +1,12 @@
 //! Identifiers critical to the Modality probe system
 
-use crate::{InvalidEventId, InvalidProbeId};
+use crate::{InvalidEventId, InvalidGeneratedId, InvalidInstanceId, InvalidProbeId};
 use core::convert::{TryFrom, TryInto};
 use core::num::NonZeroU32;
+use static_assertions::{assert_eq_align, assert_eq_size};
+
+assert_eq_size!(u32, ProbeId);
+assert_eq_align!(u32, ProbeId);
 
 /// Ought to uniquely identify a probe for where events occur within a system under test.
 ///
@@ -10,6 +14,8 @@ use core::num::NonZeroU32;
 ///
 /// Must be backed by a value greater than 0 and less than or equal to
 /// ProbeId::MAX_ID.
+///
+/// A ProbeId is composed of a runtime InstanceId and a build-time GeneratedId.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 #[cfg_attr(
@@ -24,10 +30,13 @@ impl ProbeId {
     /// The largest permissible backing id value
     pub const MAX_ID: u32 = 0b0011_1111_1111_1111_1111_1111_1111_1111;
 
-    /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
+    /// Createa ProbeId from a raw primitive
+    ///
+    /// raw_id is composed of a GeneratedId and an InstanceId.
+    /// It must be greater than 0 and less than 0b0100_0000_0000_0000_0000_0000_0000_0000
     #[inline]
     pub const fn new(raw_id: u32) -> Option<Self> {
-        if raw_id > Self::MAX_ID {
+        if raw_id > Self::MAX_ID || (raw_id & GeneratedId::MAX_ID) == 0 {
             return None;
         }
         match NonZeroU32::new(raw_id) {
@@ -36,24 +45,60 @@ impl ProbeId {
         }
     }
 
+    /// Createa ProbeId from a raw primitive
+    ///
+    /// raw_id is composed of a GeneratedId and an InstanceId
+    ///
     /// # Safety
     ///
-    /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
+    /// raw_id must be greater than 0 and less than 0b0100_0000_0000_0000_0000_0000_0000_0000
     pub const unsafe fn new_unchecked(raw_id: u32) -> Self {
         Self(NonZeroU32::new_unchecked(raw_id))
+    }
+
+    /// Create a ProbeId from GeneratedId and InstanceId parts
+    #[inline]
+    pub fn from_parts(generated_id: GeneratedId, instance_id: InstanceId) -> Self {
+        let raw = generated_id.get_raw() | (instance_id.get() as u32) << InstanceId::FIELD_OFFSET;
+        Self::new(raw).expect("Can't create a ProbeId using an invalid GeneratedId")
     }
 
     /// Get the underlying value with Rust's assurances
     /// of non-zero-ness.
     #[inline]
-    pub fn get(self) -> NonZeroU32 {
+    pub const fn get(self) -> NonZeroU32 {
         self.0
     }
 
     /// Get the underlying value as a convenient primitive
     #[inline]
-    pub fn get_raw(self) -> u32 {
+    pub const fn get_raw(self) -> u32 {
         self.0.get()
+    }
+
+    /// Get the InstanceId portion of the ProbeID
+    #[inline]
+    pub const fn instance_id(self) -> InstanceId {
+        let raw = (self.get_raw() >> InstanceId::FIELD_OFFSET) & InstanceId::MAX_ID as u32;
+        InstanceId(raw as u8)
+    }
+
+    /// Get the GeneratedId portion of the ProbeID
+    #[inline]
+    pub const fn generated_id(self) -> Option<GeneratedId> {
+        GeneratedId::new(self.get_raw() & GeneratedId::MAX_ID)
+    }
+
+    /// Get the GeneratedId portion of the ProbeID without checks
+    ///
+    /// # Safety
+    ///
+    /// The GeneratedId portion of the ProbeId must be greater than zero
+    #[inline]
+    pub const unsafe fn generated_id_unchecked(self) -> GeneratedId {
+        GeneratedId(NonZeroU32::new_unchecked(
+            self.get_raw() & GeneratedId::MAX_ID,
+        ))
     }
 }
 
@@ -68,6 +113,104 @@ impl From<ProbeId> for u32 {
     #[inline]
     fn from(t: ProbeId) -> Self {
         t.0.get()
+    }
+}
+
+/// Part of the ProbeId, a generated non-zero 24-bit identifier.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+#[cfg_attr(
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
+pub struct GeneratedId(NonZeroU32);
+
+impl GeneratedId {
+    /// The largest permissible backing id value
+    pub const MAX_ID: u32 = 0b0000_0000_1111_1111_1111_1111_1111_1111;
+    /// The bit width of a GeneratedId
+    pub const FIELD_WIDTH: usize = 24;
+    /// The bit offset of a GeneratedId within a ProbeId
+    pub const FIELD_OFFSET: usize = 0;
+
+    /// Create a new GeneratedId, raw_id must be less than Self::MAX_ID
+    #[inline]
+    pub const fn new(raw_id: u32) -> Option<Self> {
+        if raw_id > Self::MAX_ID {
+            return None;
+        }
+        match NonZeroU32::new(raw_id) {
+            Some(id) => Some(Self(id)),
+            None => None,
+        }
+    }
+
+    /// Get the underlying value with Rust's assurances
+    /// of non-zero-ness.
+    #[inline]
+    pub const fn get(self) -> NonZeroU32 {
+        self.0
+    }
+
+    /// Get the underlying value as a convenient primitive
+    #[inline]
+    pub const fn get_raw(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl From<GeneratedId> for NonZeroU32 {
+    #[inline]
+    fn from(id: GeneratedId) -> Self {
+        id.0
+    }
+}
+
+impl From<GeneratedId> for u32 {
+    #[inline]
+    fn from(id: GeneratedId) -> Self {
+        id.0.get()
+    }
+}
+
+/// Part of the ProbeId, a 6-bit runtime identifier user-supplied at probe initialization
+/// used to indicate a particular instance of a probe.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+#[cfg_attr(
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
+pub struct InstanceId(u8);
+
+impl InstanceId {
+    /// The largest permissible backing id value
+    pub const MAX_ID: u8 = 0b0011_1111;
+    /// The bit width of an InstanceId
+    pub const FIELD_WIDTH: usize = 6;
+    /// The bit offset of an InstanceId within a ProbeId
+    pub const FIELD_OFFSET: usize = 24;
+
+    /// Create a new InstanceId, raw_id must be less than Self::MAX_ID
+    pub const fn new(raw_id: u8) -> Option<Self> {
+        if raw_id > Self::MAX_ID {
+            None
+        } else {
+            Some(Self(raw_id))
+        }
+    }
+
+    /// Get the underlying value
+    #[inline]
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
+impl From<InstanceId> for u8 {
+    #[inline]
+    fn from(id: InstanceId) -> Self {
+        id.get()
     }
 }
 
@@ -158,6 +301,21 @@ fallible_sizing_try_from_impl!(i64, ProbeId, InvalidProbeId, InvalidProbeId);
 fallible_sizing_try_from_impl!(i128, ProbeId, InvalidProbeId, InvalidProbeId);
 fallible_sizing_try_from_impl!(isize, ProbeId, InvalidProbeId, InvalidProbeId);
 
+infallible_sizing_try_from_impl!(u8, InstanceId, InvalidInstanceId, InvalidInstanceId);
+
+infallible_sizing_try_from_impl!(u8, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+infallible_sizing_try_from_impl!(u16, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+infallible_sizing_try_from_impl!(u32, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+fallible_sizing_try_from_impl!(u64, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+fallible_sizing_try_from_impl!(u128, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+fallible_sizing_try_from_impl!(usize, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+fallible_sizing_try_from_impl!(i8, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+fallible_sizing_try_from_impl!(i16, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+fallible_sizing_try_from_impl!(i32, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+fallible_sizing_try_from_impl!(i64, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+fallible_sizing_try_from_impl!(i128, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+fallible_sizing_try_from_impl!(isize, GeneratedId, InvalidGeneratedId, InvalidGeneratedId);
+
 infallible_sizing_try_from_impl_with_internal!(u8, EventId, InvalidEventId, InvalidEventId);
 infallible_sizing_try_from_impl_with_internal!(u16, EventId, InvalidEventId, InvalidEventId);
 infallible_sizing_try_from_impl_with_internal!(u32, EventId, InvalidEventId, InvalidEventId);
@@ -170,6 +328,9 @@ fallible_sizing_try_from_impl_with_internal!(i32, EventId, InvalidEventId, Inval
 fallible_sizing_try_from_impl_with_internal!(i64, EventId, InvalidEventId, InvalidEventId);
 fallible_sizing_try_from_impl_with_internal!(i128, EventId, InvalidEventId, InvalidEventId);
 fallible_sizing_try_from_impl_with_internal!(isize, EventId, InvalidEventId, InvalidEventId);
+
+assert_eq_size!(u32, EventId);
+assert_eq_align!(u32, EventId);
 
 /// Uniquely identify an event or kind of event.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -261,9 +422,12 @@ impl EventId {
     /// raw_id must be greater than EventId::MAX_USER_ID and
     /// less than or equal to EventId::MAX_INTERNAL_ID
     #[inline]
-    pub fn new_internal(raw_id: u32) -> Option<Self> {
+    pub const fn new_internal(raw_id: u32) -> Option<Self> {
         if raw_id > Self::MAX_USER_ID && raw_id <= Self::MAX_INTERNAL_ID {
-            NonZeroU32::new(raw_id).map(Self)
+            match NonZeroU32::new(raw_id) {
+                Some(id) => Some(Self(id)),
+                None => None,
+            }
         } else {
             None
         }
@@ -272,7 +436,7 @@ impl EventId {
     /// Get the underlying value with Rust's assurances
     /// of non-zero-ness.
     #[inline]
-    pub fn get(self) -> NonZeroU32 {
+    pub const fn get(self) -> NonZeroU32 {
         self.0
     }
 
@@ -285,7 +449,7 @@ impl EventId {
     /// Is this id part of the set of IDs reserved for internal
     /// protocol use?
     #[inline]
-    pub fn is_internal(self) -> bool {
+    pub const fn is_internal(self) -> bool {
         self.get_raw() > Self::MAX_USER_ID && self.get_raw() <= Self::MAX_INTERNAL_ID
     }
 }
@@ -422,6 +586,7 @@ pub(crate) mod id_tests {
     #[test]
     fn new_ids_cannot_have_zero_values() {
         assert!(ProbeId::new(0).is_none());
+        assert!(GeneratedId::new(0).is_none());
         assert!(EventId::new(0).is_none());
         assert!(EventId::new_internal(0).is_none());
     }
@@ -429,6 +594,9 @@ pub(crate) mod id_tests {
     #[test]
     fn boundary_values() {
         assert!(ProbeId::new(ProbeId::MAX_ID).is_some());
+        assert!(GeneratedId::new(GeneratedId::MAX_ID).is_some());
+        assert!(InstanceId::new(InstanceId::MAX_ID).is_some());
+
         assert!(EventId::new(EventId::MAX_USER_ID).is_some());
         assert!(EventId::new_internal(EventId::MAX_INTERNAL_ID).is_some());
 
@@ -444,6 +612,18 @@ pub(crate) mod id_tests {
 
     prop_compose! {
         pub(crate) fn gen_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> ProbeId {
+            raw_id.try_into().unwrap()
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn gen_generated_id()(raw_id in 1..=GeneratedId::MAX_ID) -> GeneratedId {
+            raw_id.try_into().unwrap()
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn gen_instance_id()(raw_id in 0..=InstanceId::MAX_ID) -> InstanceId {
             raw_id.try_into().unwrap()
         }
     }
@@ -521,6 +701,21 @@ pub(crate) mod id_tests {
         fn invalid_event_ids_are_rejected(raw_id in gen_raw_invalid_event_id()) {
             assert_eq!(None, EventId::new(raw_id));
             assert_eq!(None, EventId::new_internal(raw_id));
+        }
+
+        #[test]
+        fn round_trip_composite_probe_id(gend_id in gen_generated_id(), inst_id in gen_instance_id()) {
+            prop_assert_eq!(Some(gend_id), GeneratedId::new(gend_id.get_raw()));
+            prop_assert_eq!(Some(inst_id), InstanceId::new(inst_id.get()));
+            let probe_id = ProbeId::from_parts(gend_id, inst_id);
+            prop_assert_eq!(probe_id.generated_id(), Some(gend_id));
+            prop_assert_eq!(unsafe { probe_id.generated_id_unchecked() }, gend_id);
+            prop_assert_eq!(probe_id.instance_id(), inst_id);
+            prop_assert_eq!(probe_id.get_raw() & GeneratedId::MAX_ID, gend_id.get_raw());
+            prop_assert_eq!((probe_id.get_raw() >> GeneratedId::FIELD_WIDTH) as u8 & InstanceId::MAX_ID, inst_id.get());
+            prop_assert_eq!((probe_id.get_raw() >> InstanceId::FIELD_OFFSET) as u8 & InstanceId::MAX_ID, inst_id.get());
+            prop_assert_eq!(probe_id.get_raw(), gend_id.get_raw() | ((inst_id.get() as u32) << GeneratedId::FIELD_WIDTH));
+            prop_assert_eq!(probe_id.get_raw(), gend_id.get_raw() | ((inst_id.get() as u32) << InstanceId::FIELD_OFFSET));
         }
     }
 }

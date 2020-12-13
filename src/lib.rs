@@ -21,6 +21,7 @@ use static_assertions::{assert_cfg, const_assert};
 pub use error::*;
 use history::DynamicHistory;
 pub use id::*;
+pub use instance_id_gen::*;
 #[cfg(feature = "std")]
 pub use prop::*;
 pub use restart_counter::{
@@ -32,6 +33,7 @@ pub use time::{NanosecondResolution, Nanoseconds, WallClockId};
 mod error;
 mod history;
 mod id;
+mod instance_id_gen;
 pub mod log;
 mod macros;
 mod restart_counter;

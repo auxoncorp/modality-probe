@@ -421,6 +421,35 @@ bool test_persistent_restart_sequence_id(void) {
     return passed;
 }
 
+static modality_probe_instance_id_gen g_instance_id_gen_b = MODALITY_PROBE_INSTANCE_ID_GEN_INIT;
+bool test_instance_id_gen(void) {
+    bool passed = true;
+
+    modality_probe_instance_id_gen g_instance_id_gen_a;
+    modality_probe_error result = modality_probe_instance_id_gen_initialize(&g_instance_id_gen_a);
+    ERROR_CHECK(result, passed);
+
+    modality_probe_instance_id_gen *generators[3] = {&g_instance_id_gen_a, &g_instance_id_gen_b, NULL};
+
+    modality_probe_instance_id_gen **p;
+    for(p = generators; *p != NULL; p ++) {
+        size_t i;
+        for(i = 0; i < 1024; i += 1) {
+            modality_probe_instance_id id = 0;
+            result = modality_probe_instance_id_gen_next(*p, &id);
+            if(i <= 0x3F /* InstanceId::MAX_ID */) {
+                ERROR_CHECK(result, passed);
+                assert(id == (modality_probe_instance_id) i);
+            } else {
+                assert(result == MODALITY_PROBE_ERROR_EXCEEDED_MAXIMUM_INSTANCE_IDS);
+                assert(id == 0);
+            }
+        }
+    }
+
+    return passed;
+}
+
 void run_test(bool (test)(void), const char *name, bool *passed) {
     if (!test()) {
         *passed = false;
@@ -438,6 +467,7 @@ int main(void) {
     run_test(test_merge, "test_merge", &passed);
     run_test(test_now, "test_now", &passed);
     run_test(test_persistent_restart_sequence_id, "test_persistent_restart_sequence_id", &passed);
+    run_test(test_instance_id_gen, "test_instance_id_gen", &passed);
     if (!passed) {
         fprintf(stderr, "FAILED c test suite\n");
         exit(1);

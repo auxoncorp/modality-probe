@@ -3,8 +3,13 @@
 use core::mem::MaybeUninit;
 use modality_probe::*;
 pub use modality_probe::{
-    next_sequence_id_fn, CausalSnapshot, ModalityProbe, ModalityProbeInstant,
+    next_sequence_id_fn, CausalSnapshot, InstanceIdGen, ModalityProbe, ModalityProbeInstant,
 };
+use static_assertions::{assert_eq_align, assert_eq_size, const_assert};
+
+assert_eq_size!(usize, InstanceIdGen);
+assert_eq_align!(usize, InstanceIdGen);
+const_assert!((InstanceId::MAX_ID as usize) < core::usize::MAX);
 
 pub type ModalityProbeError = usize;
 /// Everything went fine
@@ -24,7 +29,7 @@ pub const MODALITY_PROBE_ERROR_EXCEEDED_MAXIMUM_ADDRESSABLE_SIZE: ModalityProbeE
 /// of direct neighbors attempting to communicate with it.
 /// Detected during merging.
 pub const MODALITY_PROBE_ERROR_EXCEEDED_AVAILABLE_CLOCKS: ModalityProbeError = 6;
-/// The the external history source buffer we attempted to merge
+/// The external history source buffer we attempted to merge
 /// was insufficiently sized for a valid causal snapshot.
 /// Detected during merging.
 pub const MODALITY_PROBE_ERROR_INSUFFICIENT_SOURCE_BYTES: ModalityProbeError = 7;
@@ -37,6 +42,8 @@ pub const MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS: ModalityProbe
 pub const MODALITY_PROBE_ERROR_RESTART_PERSISTENCE_SEQUENCE_ID_UNAVAILABLE: ModalityProbeError = 9;
 /// A wall clock time outside of the allowed range was provided.
 pub const MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME: ModalityProbeError = 10;
+/// The instance id generator reached the maximum number of instance ids available
+pub const MODALITY_PROBE_ERROR_EXCEEDED_MAXIMUM_INSTANCE_IDS: ModalityProbeError = 11;
 
 /// # Safety
 ///
@@ -550,6 +557,52 @@ pub unsafe fn modality_probe_now(probe: *mut ModalityProbe<'static>) -> Modality
     probe.now()
 }
 
+/// Initialize an InstanceIdGen, the generated values start at zero and stop at InstanceId::MAX_ID
+///
+/// # Safety
+///
+/// The InstanceIdGen instance pointer must be non-null.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_instance_id_gen_initialize(
+    gen: *mut InstanceIdGen,
+) -> ModalityProbeError {
+    if gen.is_null() {
+        MODALITY_PROBE_ERROR_NULL_POINTER
+    } else {
+        // InstanceIdGen is a transparent AtomicUsize
+        *gen = InstanceIdGen::new();
+        MODALITY_PROBE_ERROR_OK
+    }
+}
+
+/// Get the next available InstanceId
+///
+/// # Safety
+///
+/// The InstanceIdGen instance pointer must be non-null and point
+/// to an initialized instance.
+#[cfg_attr(feature = "no_mangle", no_mangle)]
+pub unsafe fn modality_probe_instance_id_gen_next(
+    gen: *mut InstanceIdGen,
+    instance_id: *mut usize,
+) -> ModalityProbeError {
+    let gen = match gen.as_ref() {
+        Some(g) => g,
+        None => return MODALITY_PROBE_ERROR_NULL_POINTER,
+    };
+    if instance_id.is_null() {
+        return MODALITY_PROBE_ERROR_NULL_POINTER;
+    }
+    match gen.next() {
+        Some(id) => {
+            let raw = id.get() as usize;
+            *instance_id = raw;
+            MODALITY_PROBE_ERROR_OK
+        }
+        None => MODALITY_PROBE_ERROR_EXCEEDED_MAXIMUM_INSTANCE_IDS,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -676,5 +729,33 @@ mod tests {
         let snap_c = stack_snapshot(probe);
         assert!(snap_b < snap_c);
         assert!(!(snap_c < snap_b));
+    }
+
+    #[test]
+    fn instance_id_gen() {
+        let mut instance_id: usize = 0;
+        let err =
+            unsafe { modality_probe_instance_id_gen_next(core::ptr::null_mut(), &mut instance_id) };
+        assert_eq!(err, MODALITY_PROBE_ERROR_NULL_POINTER);
+
+        let gen: usize = 0;
+        let mut gen = unsafe { core::mem::transmute(gen) };
+        let err = unsafe { modality_probe_instance_id_gen_initialize(&mut gen) };
+        assert_eq!(err, MODALITY_PROBE_ERROR_OK);
+
+        let err = unsafe { modality_probe_instance_id_gen_next(&mut gen, core::ptr::null_mut()) };
+        assert_eq!(err, MODALITY_PROBE_ERROR_NULL_POINTER);
+
+        for i in 0..=core::u8::MAX {
+            let mut instance_id: usize = 0;
+            let err = unsafe { modality_probe_instance_id_gen_next(&mut gen, &mut instance_id) };
+            if i <= InstanceId::MAX_ID {
+                assert_eq!(err, MODALITY_PROBE_ERROR_OK);
+                assert_eq!(i as usize, instance_id);
+            } else {
+                assert_eq!(err, MODALITY_PROBE_ERROR_EXCEEDED_MAXIMUM_INSTANCE_IDS);
+                assert_eq!(0, instance_id);
+            }
+        }
     }
 }

@@ -1,7 +1,7 @@
 use crossbeam::{crossbeam_channel, thread};
 use log::{info, trace};
 use modality_probe::{
-    expect, initialize_at, record, record_w_i8, CausalSnapshot, ModalityProbe,
+    expect, initialize_at, record, record_w_i8, CausalSnapshot, InstanceIdGen, ModalityProbe,
     NanosecondResolution, Probe, RestartCounterProvider, WallClockId,
 };
 use rand::{thread_rng, Rng};
@@ -16,6 +16,9 @@ const REPORT_SIZE: usize = 1024;
 const COLLECTOR_ADDR: &str = "127.0.0.1:2718";
 const WALL_CLOCK_ID: WallClockId = WallClockId::LOCAL_ONLY;
 const TIME_RESOLUTION: NanosecondResolution = NanosecondResolution::UNSPECIFIED;
+
+// Multi-instance probes can use InstanceIdGen to generate InstanceIds
+static INSTANCE_ID_GEN: InstanceIdGen = InstanceIdGen::new();
 
 fn main() {
     // Default to info level if not set
@@ -122,10 +125,14 @@ fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
 fn measurement_consumer_thread(rx: crossbeam_channel::Receiver<Measurement>) {
     info!("Sensor measurement consumer thread starting");
 
+    let instance_id = INSTANCE_ID_GEN.next().expect("Exhausted InstanceId space");
+    assert_eq!(instance_id.get(), 0, "The first instance id starts at zero");
+
     let mut storage = [std::mem::MaybeUninit::new(0u8); PROBE_SIZE];
     let probe = initialize_at!(
         &mut storage,
-        CONSUMER_PROBE,
+        // For worker thread / replicate probes, use the multi-instance syntax
+        CONSUMER_PROBE(instance_id),
         TIME_RESOLUTION,
         WALL_CLOCK_ID,
         RestartCounterProvider::NoRestartTracking,

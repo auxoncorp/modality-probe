@@ -109,6 +109,25 @@ typedef size_t (*modality_probe_next_sequence_id_fn)(
         void *user_state,
         uint16_t *out_sequence_id);
 
+/*
+ * Initialize a new InstanceId generator.
+ */
+#define MODALITY_PROBE_INSTANCE_ID_GEN_INIT (0)
+
+/*
+ * Thread-safe Modality probe InstanceId generator, values start at zero and stop at InstanceId::MAX_ID.
+ *
+ * Use `MODALITY_PROBE_INSTANCE_ID_GEN_INIT` or `modality_probe_instance_id_gen_initialize()` to initialize.
+ */
+typedef size_t modality_probe_instance_id_gen;
+
+/*
+ * Modality probe InstanceId.
+ * Part of the ProbeId, a 6-bit runtime identifier user-supplied at probe initialization
+ * used to indicate a particular instance of a probe.
+ */
+typedef size_t modality_probe_instance_id;
+
 typedef enum {
     /*
      * Everything is okay
@@ -162,6 +181,10 @@ typedef enum {
      * A wall clock time outside of the allowed range was provided.
      */
     MODALITY_PROBE_ERROR_INVALID_WALL_CLOCK_TIME = 10,
+    /*
+     * The instance id generator reached the maximum number of instance ids available.
+     */
+    MODALITY_PROBE_ERROR_EXCEEDED_MAXIMUM_INSTANCE_IDS = 11,
 } modality_probe_error;
 
 /*
@@ -703,6 +726,19 @@ size_t modality_probe_merge_snapshot_bytes_with_time(
  */
 modality_probe_instant modality_probe_now(
         modality_probe *probe);
+
+/*
+ * Initialize an InstanceIdGen, the generated values start at zero and stop at InstanceId::MAX_ID.
+ */
+size_t modality_probe_instance_id_gen_initialize(
+        modality_probe_instance_id_gen *gen);
+
+/*
+ * Get the next available InstanceId.
+ */
+size_t modality_probe_instance_id_gen_next(
+        modality_probe_instance_id_gen *gen,
+        modality_probe_instance_id *instance_id);
 
 #ifdef __cplusplus
 } // extern "C"

@@ -5,7 +5,7 @@ use crate::{
     lang::Lang,
     probes::{Probe, Probes},
 };
-use modality_probe::{EventId, ProbeId};
+use modality_probe::{EventId, InstanceId, ProbeId};
 use sha3::{Digest, Sha3_256};
 use std::fs::File;
 use std::io;
@@ -90,19 +90,52 @@ impl ConstGenerator for Probe {
     fn generate_const_definition(&self, lang: Lang, rust_u32_types: bool) -> String {
         let definition_name = self.definition_name();
         let primitive_value = self.primitive_value();
+        if ProbeId::new(primitive_value).is_none() {
+            exit_error!(
+                "header-gen",
+                "Encountered an invalid ProbeId {} in the component",
+                primitive_value
+            );
+        }
         match lang {
-            Lang::C => format!("#define {} ({}UL)", definition_name, primitive_value),
+            Lang::C => {
+                if self.tags.contains("MULTI_INSTANCE") {
+                    format!(
+                        "#define {}(instance_id) ({}UL | ((uint32_t) (instance_id & 0x{:X}) << {}))",
+                        definition_name,
+                        primitive_value,
+                        InstanceId::MAX_ID,
+                        InstanceId::FIELD_OFFSET
+                    )
+                } else {
+                    format!("#define {} ({}UL)", definition_name, primitive_value)
+                }
+            }
             Lang::Rust => {
                 if rust_u32_types {
-                    format!("pub const {}: u32 = {};", definition_name, primitive_value)
-                } else {
-                    if ProbeId::new(primitive_value).is_none() {
-                        exit_error!(
-                            "header-gen",
-                            "Encountered an invalid ProbeId {} in the component",
-                            primitive_value
-                        );
+                    if self.tags.contains("MULTI_INSTANCE") {
+                        format!(
+                            "pub const fn {}(instance_id: InstanceId) -> u32 {{\n\
+                             \x20   {}_u32 | ((instance_id.get() as u32) << InstanceId::FIELD_OFFSET)\n\
+                             }}",
+                            definition_name, primitive_value
+                        )
+                    } else {
+                        format!("pub const {}: u32 = {};", definition_name, primitive_value)
                     }
+                } else if self.tags.contains("MULTI_INSTANCE") {
+                    format!(
+                            "#[allow(non_snake_case)]\n\
+                            pub const fn {}(instance_id: InstanceId) -> ProbeId {{\n\
+                            \x20   unsafe {{\n\
+                            \x20       ProbeId::new_unchecked(\n\
+                            \x20           {}_u32 | ((instance_id.get() as u32) << InstanceId::FIELD_OFFSET),\n\
+                            \x20       )\n\
+                            \x20   }}\n\
+                            }}",
+                            definition_name, primitive_value
+                        )
+                } else {
                     format!(
                         "pub const {}: ProbeId = unsafe {{ ProbeId::new_unchecked({}) }};",
                         definition_name, primitive_value
@@ -150,19 +183,19 @@ impl ConstGenerator for Event {
     fn generate_const_definition(&self, lang: Lang, rust_u32_types: bool) -> String {
         let definition_name = self.definition_name();
         let primitive_value = self.primitive_value();
+        if EventId::new(primitive_value).is_none() {
+            exit_error!(
+                "header-gen",
+                "Encountered an invalid EventId {} in the component",
+                primitive_value
+            );
+        }
         match lang {
             Lang::C => format!("#define {} ({}UL)", definition_name, primitive_value),
             Lang::Rust => {
                 if rust_u32_types {
                     format!("pub const {}: u32 = {};", definition_name, primitive_value)
                 } else {
-                    if EventId::new(primitive_value).is_none() {
-                        exit_error!(
-                            "header-gen",
-                            "Encountered an invalid EventId {} in the component",
-                            primitive_value
-                        );
-                    }
                     format!(
                         "pub const {}: EventId = unsafe {{ EventId::new_unchecked({}) }};",
                         definition_name, primitive_value
@@ -297,6 +330,8 @@ pub fn generate_output<W: io::Write>(
     }
     writeln!(w, " */")?;
 
+    let contains_multi_instance = probes.iter().any(|p| p.tags.contains("MULTI_INSTANCE"));
+
     if opt.lang == Lang::C {
         writeln!(w)?;
         writeln!(
@@ -314,7 +349,13 @@ pub fn generate_output<W: io::Write>(
         writeln!(w, "extern \"C\" {{")?;
         writeln!(w, "#endif")?;
     } else if !opt.rust_u32_types {
-        writeln!(w, "use modality_probe::{{EventId, ProbeId}};")?;
+        if contains_multi_instance {
+            writeln!(w, "use modality_probe::{{EventId, InstanceId, ProbeId}};")?;
+        } else {
+            writeln!(w, "use modality_probe::{{EventId, ProbeId}};")?;
+        }
+    } else if contains_multi_instance {
+        writeln!(w, "use modality_probe::InstanceId;")?;
     }
 
     writeln!(w)?;

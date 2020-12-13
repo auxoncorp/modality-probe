@@ -38,6 +38,38 @@ impl fmt::Display for InvalidProbeId {
     }
 }
 
+/// Error that indicates an invalid instance id portion of the probe id was detected.
+///
+///
+/// Instance ids must be less than InstanceId::MAX_ID
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InvalidInstanceId;
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidInstanceId {}
+
+impl fmt::Display for InvalidInstanceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Invalid InstanceId portion of a Probe Id")
+    }
+}
+
+/// Error that indicates an invalid generated id portion of the probe id was detected.
+///
+///
+/// Generated ids must be greater than 0 and less than GeneratedId::MAX_ID
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InvalidGeneratedId;
+
+#[cfg(feature = "std")]
+impl std::error::Error for InvalidGeneratedId {}
+
+impl fmt::Display for InvalidGeneratedId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Invalid GeneratedId portion of a Probe Id")
+    }
+}
+
 /// Error that indicates an invalid wall clock time was detected.
 ///
 /// Wall clock time must not be greater than Nanoseconds::MAX

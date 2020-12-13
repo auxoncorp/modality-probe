@@ -498,12 +498,12 @@ impl Invocations {
         loop {
             let next_id = gen.hashed_id(probe_name);
 
-            let id_already_taken = existing_probe_ids.iter().any(|&id| id == next_id.get());
-            let is_valid_probe_id = modality_probe::ProbeId::new(next_id.get()).is_some();
+            let id_already_taken = existing_probe_ids.iter().any(|&id| id == next_id.get_raw());
+            let is_valid_probe_id = modality_probe::ProbeId::new(next_id.get_raw()).is_some();
 
             if !id_already_taken && is_valid_probe_id {
-                existing_probe_ids.push(next_id.get());
-                return ProbeId(next_id.get());
+                existing_probe_ids.push(next_id.get_raw());
+                return ProbeId(next_id.get_raw());
             }
 
             // Escape hatch
@@ -777,7 +777,7 @@ mod tests {
         };
         let probe_id_range = NonZeroIdRange::new(
             NonZeroU32::new(1).unwrap(),
-            NonZeroU32::new(modality_probe::ProbeId::MAX_ID).unwrap(),
+            NonZeroU32::new(modality_probe::GeneratedId::MAX_ID).unwrap(),
         )
         .unwrap();
         let probe_id_gen = IdGen::new(probe_id_range);
@@ -830,7 +830,7 @@ mod tests {
         };
         let probe_id_range = NonZeroIdRange::new(
             NonZeroU32::new(1).unwrap(),
-            NonZeroU32::new(modality_probe::ProbeId::MAX_ID).unwrap(),
+            NonZeroU32::new(modality_probe::GeneratedId::MAX_ID).unwrap(),
         )
         .unwrap();
         let probe_id_gen = IdGen::new(probe_id_range);

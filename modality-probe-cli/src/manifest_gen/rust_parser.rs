@@ -871,9 +871,8 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         tag(";")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
     let (args, _storage) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    let (args, full_name) =
+    let (args, mut full_name) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-
     let (args, _time_res) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let (args, _wall_clock_id) =
@@ -887,6 +886,13 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
             take_until(")")(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
         let (_args, _) = tag(")")(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
         rest_string(token).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
+    };
+    let (is_function_like, full_name) = match (full_name.find('('), full_name.rfind(')')) {
+        (Some(lp_idx), Some(rp_idx)) => {
+            full_name.replace_range(lp_idx..=rp_idx, "");
+            (true, full_name.to_string())
+        }
+        _ => (false, full_name),
     };
     let name =
         reduce_namespace(&full_name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
@@ -908,13 +914,18 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     }
     let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
-    let tags = tags_pos
+    let mut tags = tags_pos
         .map(|index| tags_and_desc.remove(index))
         .map(|s| s.replace("tags=", ""));
-    if let Some(t) = &tags {
+    if let Some(t) = &mut tags {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
+        if is_function_like && !t.contains("MULTI_INSTANCE") {
+            t.insert_str(0, "MULTI_INSTANCE;");
+        }
+    } else if is_function_like {
+        tags = Some(String::from("MULTI_INSTANCE"));
     }
     let description = tags_and_desc.pop();
     Ok((
@@ -1181,6 +1192,23 @@ mod tests {
         RestartCounterProvider::NoRestartTracking, // comments
         " desc ", /* Order of tags and docs doesn't matter */
         tags!("thing1", "thing2", "my::namespace", "tag with spaces"))?; //docs
+
+    let probe = modality_probe::initialize_at!(
+        &mut storage_bytes,
+        my_ids::MY_PROBE(my_instance_id),
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
+        RestartCounterProvider::NoRestartTracking,
+        tags!("my tag", "more-tags"),
+        "desc")?;
+
+    let probe = try_initialize_at!(
+        &mut storage_bytes,
+        MY_PROBE(instance_gen.next()),
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
+        &mut my_tracker,
+        "desc")?;
 "#;
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
@@ -1333,6 +1361,18 @@ mod tests {
                     name: "PROBE_ID_F".to_string(),
                     location: (1207, 30, 31).into(),
                     tags: Some("thing1;thing2;my::namespace;tag with spaces".to_string()),
+                    description: Some("desc".to_string()),
+                },
+                ProbeMetadata {
+                    name: "MY_PROBE".to_string(),
+                    location: (1563, 38, 33).into(),
+                    tags: Some("MULTI_INSTANCE;my tag;more-tags".to_string()),
+                    description: Some("desc".to_string()),
+                },
+                ProbeMetadata {
+                    name: "MY_PROBE".to_string(),
+                    location: (1851, 47, 17).into(),
+                    tags: Some("MULTI_INSTANCE".to_string()),
                     description: Some("desc".to_string()),
                 },
             ])

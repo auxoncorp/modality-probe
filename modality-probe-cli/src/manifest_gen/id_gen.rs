@@ -1,12 +1,13 @@
 use crate::{error::GracefulExit, exit_error};
 use core::num::NonZeroU32;
+use modality_probe::GeneratedId;
 use sha3::{Digest, Sha3_256};
 use std::convert::TryInto;
 use std::hash::Hash;
 use std::str::FromStr;
 use uuid::Uuid;
 
-/// Inclusive non-zero ID (u32) range
+/// Inclusive non-zero ID (u24) range
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct NonZeroIdRange {
     inclusive_start: NonZeroU32,
@@ -15,7 +16,10 @@ pub struct NonZeroIdRange {
 
 impl NonZeroIdRange {
     pub fn new(inclusive_start: NonZeroU32, inclusive_end: NonZeroU32) -> Option<Self> {
-        if inclusive_start.get() > inclusive_end.get() {
+        if (inclusive_start.get() > inclusive_end.get())
+            || (inclusive_start.get() > GeneratedId::MAX_ID)
+            || (inclusive_end.get() > GeneratedId::MAX_ID)
+        {
             None
         } else {
             Some(NonZeroIdRange {
@@ -48,12 +52,12 @@ impl IdGen {
         self.uuid = Uuid::new_v4();
     }
 
-    pub fn hashed_id(&mut self, token: &str) -> NonZeroU32 {
+    pub fn hashed_id(&mut self, token: &str) -> GeneratedId {
         let mut max_tries = std::u16::MAX;
         loop {
             let hash = self.token_hash(token);
-            if let Some(non_zero_hash) = NonZeroU32::new(hash) {
-                if self.id_range.contains(non_zero_hash) {
+            if let Some(non_zero_hash) = GeneratedId::new(hash) {
+                if self.id_range.contains(non_zero_hash.get()) {
                     return non_zero_hash;
                 }
             }
@@ -139,7 +143,7 @@ mod test {
     use proptest::prelude::*;
 
     prop_compose! {
-        fn gen_non_zero_id()(raw_id in 1..=std::u32::MAX) -> NonZeroU32 {
+        fn gen_non_zero_id()(raw_id in 1..=GeneratedId::MAX_ID) -> NonZeroU32 {
             NonZeroU32::new(raw_id).unwrap()
         }
     }
@@ -192,8 +196,8 @@ mod test {
             };
 
             let r = NonZeroIdRange::new(inc_start, inc_end).unwrap();
-            assert!(r.contains(inc_start));
-            assert!(r.contains(inc_end));
+            prop_assert!(r.contains(inc_start));
+            prop_assert!(r.contains(inc_end));
         }
     }
 
@@ -208,7 +212,7 @@ mod test {
 
             let mut gen = IdGen::new(r);
             let id = gen.hashed_id("MY_PROBE_ID");
-            assert!(r.contains(id));
+            prop_assert!(r.contains(id.get()));
         }
     }
 }

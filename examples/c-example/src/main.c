@@ -55,6 +55,9 @@ static uint8_t g_consumer_probe_buffer[PROBE_SIZE];
 /* Simple 1-element deep pretend queue */
 static measurement_s *g_measurement_queue = NULL;
 
+/* Multi-instance probes can use InstanceIdGen to generate InstanceIds */
+static modality_probe_instance_id_gen g_instance_id_gen = MODALITY_PROBE_INSTANCE_ID_GEN_INIT;
+
 static void send_report(modality_probe * const probe)
 {
     size_t report_size;
@@ -179,10 +182,18 @@ static void init_consumer(void)
 
     printf("Sensor measurement consumer starting\n");
 
+    modality_probe_instance_id instance_id;
+    err = modality_probe_instance_id_gen_next(&g_instance_id_gen, &instance_id);
+    assert(err == MODALITY_PROBE_ERROR_OK);
+
+    /* The first instance starts at zero */
+    assert(instance_id == 0);
+
     err = MODALITY_PROBE_INIT(
             &g_consumer_probe_buffer[0],
             sizeof(g_consumer_probe_buffer),
-            CONSUMER_PROBE,
+            /* For worker thread / replicate probes, use the multi-instance syntax */
+            CONSUMER_PROBE(instance_id),
             MODALITY_PROBE_TIME_RESOLUTION_UNSPECIFIED,
             MODALITY_PROBE_WALL_CLOCK_ID_LOCAL_ONLY,
             NULL,

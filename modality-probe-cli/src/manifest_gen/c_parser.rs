@@ -460,8 +460,15 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
     let (args, _storage_size) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
-    let (args, name) =
+    let (args, mut name) =
         variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (is_function_like, name) = match (name.find('('), name.rfind(')')) {
+        (Some(lp_idx), Some(rp_idx)) => {
+            name.replace_range(lp_idx..=rp_idx, "");
+            (true, name.to_string())
+        }
+        _ => (false, name),
+    };
     if !probe_name_valid(&name) {
         return Err(make_failure(input, Error::Syntax(pos.into())));
     }
@@ -490,13 +497,18 @@ fn parse_init_call_exp(input: Span) -> ParserResult<Span, ProbeMetadata> {
         *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
     }
     let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
-    let tags = tags_pos
+    let mut tags = tags_pos
         .map(|index| tags_and_desc.remove(index))
         .map(|s| s.replace("tags=", ""));
-    if let Some(t) = &tags {
+    if let Some(t) = &mut tags {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
         }
+        if is_function_like && !t.contains("MULTI_INSTANCE") {
+            t.insert_str(0, "MULTI_INSTANCE;");
+        }
+    } else if is_function_like {
+        tags = Some(String::from("MULTI_INSTANCE"));
     }
     let description = tags_and_desc.pop();
     Ok((
@@ -764,6 +776,30 @@ mod tests {
     assert(err == MODALITY_PROBE_ERROR_OK);
 
     MODALITY_PROBE_INIT(storage, size, ID_BAR, 0, 0, NULL, NULL, t, MODALITY_TAGS(my tag));
+
+    modality_probe_error result = MODALITY_PROBE_INIT(
+        destination,
+        DEFAULT_PROBE_SIZE,
+        MY_PROBE(modality_probe_instance_id_next(&provider)),
+        0,
+        0,
+        NULL,
+        NULL,
+        &probe,
+        MODALITY_TAGS(my-tags, more tags),
+        "Description");
+    assert(err == MODALITY_PROBE_ERROR_OK);
+
+    modality_probe_error result = MODALITY_PROBE_INIT(
+        destination,
+        DEFAULT_PROBE_SIZE,
+        MY_PROBE(my_instance_id),
+        0,
+        0,
+        NULL,
+        NULL,
+        &probe);
+    assert(err == MODALITY_PROBE_ERROR_OK);
 "#;
 
     const MIXED_EVENT_RECORDING_INPUT: &'static str = r#"
@@ -899,6 +935,18 @@ mod tests {
                     tags: Some("my tag".to_string()),
                     description: None,
                 },
+                ProbeMetadata {
+                    name: "MY_PROBE".to_string(),
+                    location: (1445, 51, 35).into(),
+                    tags: Some("MULTI_INSTANCE;my-tags;more tags".to_string()),
+                    description: Some("Description".to_string()),
+                },
+                ProbeMetadata {
+                    name: "MY_PROBE".to_string(),
+                    location: (1789, 64, 35).into(),
+                    tags: Some("MULTI_INSTANCE".to_string()),
+                    description: None,
+                }
             ])
         );
     }
