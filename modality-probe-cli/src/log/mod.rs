@@ -7,19 +7,19 @@ use std::{
 
 use structopt::StructOpt;
 
-use modality_probe::{EventId, ProbeId};
+use modality_probe::{EventId, LogicalClock, ProbeId};
 use modality_probe_collector_common::{json, LogEntryData, ReportLogEntry};
 
 use crate::{
     description_format::DescriptionFormat,
     hopefully, hopefully_ok,
-    meta::{self, Cfg},
+    meta::{self, Cfg, MetaMeter},
 };
 
-mod color;
-mod format;
-mod graph;
-mod radius;
+pub mod color;
+pub mod format;
+pub mod graph;
+pub mod radius;
 
 use radius::Radius;
 
@@ -67,17 +67,14 @@ pub struct Log {
     /// |    %ep    | Event payload      |
     /// |    %er    | Raw event payload  |
     /// |    %ec    | Event coordinate   |
-    /// |    %eo    | Event clock offset |
     /// |    %pi    | Probe id           |
     /// |    %pn    | Probe name         |
-    /// |    %pc    | Probe clock        |
     /// |    %pd    | Probe description  |
     /// |    %pf    | Probe file         |
     /// |    %pl    | Probe line         |
     /// |    %pt    | Probe tags         |
     /// |    %ci    | Component id       |
     /// |    %cn    | Component name     |
-    /// |    %rt    | Receive time       |
     ///
     /// NOTE: If an identifier is used in the string and that field is not
     /// available on the event, it will be replaced by an empty string.
@@ -131,7 +128,10 @@ pub fn run(mut l: Log) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-type SortedProbes = (BTreeMap<ProbeId, Vec<ReportLogEntry>>, Vec<ReportLogEntry>);
+type SortedProbes = (
+    BTreeMap<ProbeId, Vec<ReportLogEntry>>,
+    Vec<(ProbeId, LogicalClock)>,
+);
 
 fn sort_probes(
     cfg: &Cfg,
@@ -235,8 +235,8 @@ fn sort_probes(
         plog.sort_by_key(|p| std::cmp::Reverse((p.sequence_number, p.sequence_index)));
         for r in plog.iter() {
             match r.data {
-                LogEntryData::TraceClock(_) => clock_rows.push(r.clone()),
-                LogEntryData::TraceClockWithTime(_, _) => clock_rows.push(r.clone()),
+                LogEntryData::TraceClock(clock) => clock_rows.push((r.probe_id, clock)),
+                LogEntryData::TraceClockWithTime(_, clock) => clock_rows.push((r.probe_id, clock)),
                 _ => (),
             }
         }
@@ -252,7 +252,7 @@ fn sort_probes(
 fn print_as_log(
     mut probes: BTreeMap<ProbeId, Vec<ReportLogEntry>>,
     l: &Log,
-    cfg: &Cfg,
+    cfg: &dyn MetaMeter,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut count = 0;
     let indices = probes
@@ -268,19 +268,25 @@ fn print_as_log(
                 if let Some(row) = log.pop() {
                     match row.data {
                         LogEntryData::Event(id) | LogEntryData::EventWithTime(.., id) => {
-                            print_event_info(idx, row, &id, None, l, &cfg)?;
+                            print_event_info(idx, probe_id, &row.coordinate(), &id, None, l, cfg)?;
                             count += 1;
                         }
                         LogEntryData::EventWithPayload(id, pl)
                         | LogEntryData::EventWithPayloadWithTime(.., id, pl) => {
-                            print_event_info(idx, row, &id, Some(pl), l, &cfg)?;
+                            print_event_info(
+                                idx,
+                                probe_id,
+                                &row.coordinate(),
+                                &id,
+                                Some(pl),
+                                l,
+                                cfg,
+                            )?;
                             count += 1;
                         }
                         LogEntryData::TraceClock(lc) | LogEntryData::TraceClockWithTime(.., lc) => {
                             let probe_name = cfg
-                                .probes
-                                .get(&row.probe_id.get_raw())
-                                .map(|p| p.name.clone())
+                                .probe_name(probe_id)
                                 .unwrap_or_else(|| row.probe_id.get_raw().to_string());
                             if lc.id == *probe_id {
                                 if !seen_self_clock {
@@ -303,10 +309,8 @@ fn print_as_log(
                                 }
                             } else {
                                 let remote_probe_name = cfg
-                                    .probes
-                                    .get(&lc.id.get_raw())
-                                    .map(|p| p.name.clone())
-                                    .unwrap_or_else(|| row.probe_id.get_raw().to_string());
+                                    .probe_name(&lc.id)
+                                    .unwrap_or_else(|| lc.id.get_raw().to_string());
                                 let remote_probe_idx = indices.get(&lc.id);
                                 println!(
                                     "Snapshot Merge @ {} ({}), from={} clock=({}, {})",
@@ -342,38 +346,52 @@ fn print_as_log(
     Ok(())
 }
 
-fn print_event_info(
+pub fn print_event_info(
     idx: usize,
-    ev: ReportLogEntry,
+    probe_id: &ProbeId,
+    coord: &str,
     eid: &EventId,
     payload: Option<u32>,
     l: &Log,
-    cfg: &Cfg,
+    cfg: &dyn MetaMeter,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(ref fmt) = l.format {
-        println!("{}", format::format(cfg, &ev, fmt));
+        println!(
+            "{}",
+            format::format(
+                cfg,
+                format::Context {
+                    probe_id: *probe_id,
+                    event_id: *eid,
+                    user_coordinate: coord.to_string(),
+                    payload
+                },
+                fmt
+            )
+        );
     } else {
-        let event_meta = meta::get_event_meta(&cfg, &ev.probe_id, eid);
-        let probe_meta = cfg.probes.get(&ev.probe_id.get_raw());
-        let pname = probe_meta
-            .map(|pm| pm.name.clone())
-            .unwrap_or_else(|| ev.probe_id.get_raw().to_string());
-        let ename = event_meta
-            .as_ref()
-            .map(|em| em.name.clone())
-            .unwrap_or_else(|_| eid.get_raw().to_string());
+        let pname = cfg
+            .probe_name(&probe_id)
+            .unwrap_or_else(|| probe_id.get_raw().to_string());
+        let ename = cfg
+            .event_name(&probe_id, eid)
+            .unwrap_or_else(|| probe_id.get_raw().to_string());
         if let Some(pl) = payload {
-            if let Some(msg) = event_meta.as_ref().ok().and_then(|e| {
-                if e.description.contains_formatting() {
-                    e.description.format_payload(&pl).ok()
-                } else {
-                    None
-                }
-            }) {
+            if let Some(msg) = cfg
+                .event_description(&probe_id, eid)
+                .map(|desc| {
+                    if desc.contains_formatting() {
+                        desc.format_payload(&pl).ok()
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+            {
                 println!(
                     "{} {}: {}",
                     color::colorize_probe(idx, &pname),
-                    color::colorize_coord(&ev.coordinate()),
+                    color::colorize_coord(coord),
                     color::white(&msg)
                 );
             } else {
@@ -381,7 +399,7 @@ fn print_event_info(
                     "{} {} {}",
                     ename,
                     color::colorize_probe(idx, &pname),
-                    color::colorize_coord(&ev.coordinate())
+                    color::colorize_coord(coord)
                 );
             }
         } else {
@@ -389,30 +407,30 @@ fn print_event_info(
                 "{} {} {}",
                 ename,
                 color::colorize_probe(idx, &pname),
-                color::colorize_coord(&ev.coordinate())
+                color::colorize_coord(coord)
             );
         }
 
-        if l.verbose != 0 && event_meta.is_ok() {
-            let emeta = event_meta.expect("just checked that event meta is_ok");
-            println!(
-                "    {}",
-                color::colorize_info(
-                    "description",
-                    if !emeta.description.is_empty() {
-                        &emeta.description
-                    } else {
-                        "None"
-                    }
-                )
-            );
+        if l.verbose != 0 {
+            if let Some(desc) = cfg.event_description(&probe_id, eid) {
+                println!(
+                    "    {}",
+                    color::colorize_info(
+                        "description",
+                        if !desc.is_empty() { &desc } else { "None" }
+                    )
+                );
+            }
             println!(
                 "    {}",
                 color::colorize_info(
                     "payload",
-                    if let Some(ref p) =
-                        meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), payload)?
-                    {
+                    if let Some(ref p) = meta::parsed_payload(
+                        cfg.event_type_hint(&probe_id, eid)
+                            .as_ref()
+                            .map(|s| s.as_ref()),
+                        payload
+                    )? {
                         p
                     } else {
                         "None"
@@ -421,57 +439,58 @@ fn print_event_info(
             );
             println!(
                 "    {}",
-                color::colorize_info("tags", &emeta.tags.replace(";", ", "))
+                color::colorize_info(
+                    "tags",
+                    &cfg.event_tags(&probe_id, eid)
+                        .map(|tags| tags.join(", "))
+                        .unwrap_or_else(|| "None".to_string())
+                )
             );
-            println!(
-                "    {}",
-                match (emeta.file.is_empty(), emeta.line.is_empty()) {
+            if cfg.event_file(&probe_id, eid).is_some() && cfg.event_line(&probe_id, eid).is_some()
+            {
+                let file = cfg.event_file(&probe_id, eid).unwrap();
+                let line = cfg.event_line(&probe_id, eid).unwrap();
+                let out = match (file.is_empty(), line.is_empty()) {
                     (false, false) => {
-                        color::colorize_info(
-                            "source",
-                            &format!("\"{}#L{}\"", emeta.file, emeta.line),
-                        )
+                        color::colorize_info("source", &format!("\"{}#L{}\"", file, line))
                     }
-                    (true, false) => {
-                        color::colorize_info("source", &format!("\"{}\"", emeta.file))
-                    }
-                    _ => {
-                        color::colorize_info("source", "None")
-                    }
-                }
-            );
-        }
-        if l.verbose > 1 && probe_meta.is_some() {
-            let pmeta = probe_meta.expect("just checked that probe meta is_some");
-            println!(
-                "    {}",
-                color::colorize_info("probe tags", &pmeta.tags.replace(";", ", "))
-            );
-            println!(
-                "    {}",
-                match (pmeta.file.is_empty(), pmeta.line.is_empty()) {
-                    (false, false) => {
-                        color::colorize_info(
-                            "probe source",
-                            &format!("\"{}#L{}\"", pmeta.file, pmeta.line),
-                        )
-                    }
-                    (false, true) => {
-                        color::colorize_info("probe source", &format!("\"{}\"", pmeta.file))
-                    }
-                    _ => color::colorize_info("probe source", "None"),
-                }
-            );
-            let comp_name_or_id =
-                if let Some(n) = cfg.component_names.get(&pmeta.component_id.to_string()) {
-                    n.to_string()
-                } else {
-                    pmeta.component_id.to_string()
+                    (true, false) => color::colorize_info("source", &format!("\"{}\"", file)),
+                    _ => color::colorize_info("source", "None"),
                 };
+                println!("    {}", out);
+            }
+        }
+        if l.verbose > 1 {
             println!(
                 "    {}",
-                color::colorize_info("component", &comp_name_or_id)
+                color::colorize_info(
+                    "probe tags",
+                    &cfg.probe_tags(&probe_id)
+                        .map(|tags| tags.join(", "))
+                        .unwrap_or_else(String::new)
+                )
             );
+            if cfg.probe_file(&probe_id).is_some() && cfg.probe_line(&probe_id).is_some() {
+                let file = cfg.probe_file(&probe_id).unwrap();
+                let line = cfg.probe_line(&probe_id).unwrap();
+                let out = match (file.is_empty(), line.is_empty()) {
+                    (false, false) => {
+                        color::colorize_info("probe source", &format!("\"{}#L{}\"", file, line))
+                    }
+                    (false, true) => color::colorize_info("probe source", &format!("\"{}\"", file)),
+                    _ => color::colorize_info("probe source", "None"),
+                };
+                println!("    {}", out);
+            }
+            if let Some(comp_name_or_id) = cfg
+                .probe_component_name(&probe_id)
+                .or_else(|| cfg.probe_component_id(&probe_id).map(|id| id.to_string()))
+            {
+                println!(
+                    "    {}",
+                    color::colorize_info("component", &comp_name_or_id)
+                );
+            }
         }
         if l.verbose != 0 {
             println!();

@@ -11,7 +11,7 @@ lazy_static! {
 
 const PROBE_SET: [Color; 12] = colorous::SET3;
 
-pub(crate) fn colorize_probe(idx: usize, content: &str) -> String {
+pub fn colorize_probe(idx: usize, content: &str) -> String {
     if COLORIZE.read().map(|b| *b).unwrap_or(false) {
         let c = PROBE_SET[idx % PROBE_SET.len()];
         content.truecolor(c.r, c.g, c.b).to_string()
@@ -20,7 +20,7 @@ pub(crate) fn colorize_probe(idx: usize, content: &str) -> String {
     }
 }
 
-pub(crate) fn colorize_info(key: &str, val: &str) -> String {
+pub fn colorize_info(key: &str, val: &str) -> String {
     if key.is_empty() {
         return String::new();
     }
@@ -31,7 +31,7 @@ pub(crate) fn colorize_info(key: &str, val: &str) -> String {
     }
 }
 
-pub(crate) fn colorize_merge(from: &str, from_idx: usize, to: &str, to_idx: usize) -> String {
+pub fn colorize_merge(from: &str, from_idx: usize, to: &str, to_idx: usize) -> String {
     if COLORIZE.read().map(|b| *b).unwrap_or(false) {
         let from_color = PROBE_SET[from_idx % PROBE_SET.len()];
         let to_color = PROBE_SET[to_idx % PROBE_SET.len()];
@@ -45,7 +45,7 @@ pub(crate) fn colorize_merge(from: &str, from_idx: usize, to: &str, to_idx: usiz
     }
 }
 
-pub(crate) fn colorize_coord(coord: &str) -> String {
+pub fn colorize_coord(coord: &str) -> String {
     if COLORIZE.read().map(|b| *b).unwrap_or(false) {
         format!("{}{}{}", "(".white(), coord.yellow(), ")".white())
     } else {
@@ -53,7 +53,7 @@ pub(crate) fn colorize_coord(coord: &str) -> String {
     }
 }
 
-pub(crate) fn white(content: &str) -> String {
+pub fn white(content: &str) -> String {
     if COLORIZE.read().map(|b| *b).unwrap_or(false) {
         content.white().to_string()
     } else {

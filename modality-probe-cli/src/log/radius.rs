@@ -13,10 +13,10 @@ use super::SortedProbes;
 
 #[derive(PartialEq, Debug)]
 pub struct Radius {
-    distance: usize,
-    probe_id: ProbeId,
-    seq: SequenceNumber,
-    seq_index: u32,
+    pub distance: usize,
+    pub probe_id: ProbeId,
+    pub seq: SequenceNumber,
+    pub seq_index: u32,
 }
 
 impl TryFrom<(&usize, &str)> for Radius {
@@ -143,7 +143,13 @@ pub fn truncate_to_radius(probes: SortedProbes, radius: Radius) -> SortedProbes 
         plog.sort_by_key(|p| std::cmp::Reverse((p.sequence_number, p.sequence_index)));
     }
 
-    (new_probes, clock_rows)
+    (
+        new_probes,
+        clock_rows
+            .into_iter()
+            .map(|row| (row.probe_id, row.data.trace_clock().unwrap()))
+            .collect(),
+    )
 }
 
 fn drain_truncated_log(
@@ -177,16 +183,13 @@ fn drain_truncated_log(
                         if let Some(sender) = probes
                             .1
                             .iter()
-                            .find(|clock_row| {
-                                clock_row.probe_id == lc.id
-                                    && clock_row.data.trace_clock() == Some(lc)
-                            })
-                            .map(|row| row.probe_id)
+                            .find(|(originator, clock)| originator == &lc.id && clock == &lc)
+                            .map(|(originator, _)| originator)
                         {
                             handle_snap_merge(
                                 lc,
                                 d,
-                                sender,
+                                *sender,
                                 probes,
                                 new_probes,
                                 included_rows,
@@ -200,17 +203,15 @@ fn drain_truncated_log(
                                     let receivers = probes
                                         .1
                                         .iter()
-                                        .filter(|clock_row| {
-                                            clock_row.probe_id != row.probe_id
-                                                && clock_row.data.trace_clock().unwrap()
-                                                    == lc.prev()
+                                        .filter(|(originator, clock)| {
+                                            originator != &row.probe_id && clock == &lc.prev()
                                         })
-                                        .map(|clock_row| clock_row.probe_id);
+                                        .map(|(originator, _)| originator);
                                     for receiver in receivers {
                                         handle_snap_produce(
                                             lc,
                                             d,
-                                            receiver,
+                                            *receiver,
                                             probes,
                                             new_probes,
                                             included_rows,
@@ -218,41 +219,40 @@ fn drain_truncated_log(
                                         );
                                     }
                                 }
-                            }
-                            let receivers = probes
-                                .1
-                                .iter()
-                                .filter(|clock_row| {
-                                    clock_row.probe_id != row.probe_id
-                                        && clock_row.data.trace_clock().unwrap() == lc.prev()
-                                })
-                                .map(|clock_row| clock_row.probe_id);
-                            for receiver in receivers {
-                                handle_snap_produce(
-                                    lc,
-                                    d,
-                                    receiver,
-                                    probes,
-                                    new_probes,
-                                    included_rows,
-                                    clock_rows,
-                                );
+                            } else {
+                                let receivers = probes
+                                    .1
+                                    .iter()
+                                    .filter(|(originator, clock)| {
+                                        originator != &row.probe_id && clock == &lc.prev()
+                                    })
+                                    .map(|(originator, _)| originator);
+                                for receiver in receivers {
+                                    handle_snap_produce(
+                                        lc,
+                                        d,
+                                        *receiver,
+                                        probes,
+                                        new_probes,
+                                        included_rows,
+                                        clock_rows,
+                                    );
+                                }
                             }
                             log.push(next);
                         } else {
                             let receivers = probes
                                 .1
                                 .iter()
-                                .filter(|clock_row| {
-                                    clock_row.probe_id != row.probe_id
-                                        && clock_row.data.trace_clock().unwrap() == lc.prev()
+                                .filter(|(originator, clock)| {
+                                    originator != &row.probe_id && clock == &lc.prev()
                                 })
-                                .map(|clock_row| clock_row.probe_id);
+                                .map(|(originator, _)| originator);
                             for receiver in receivers {
                                 handle_snap_produce(
                                     lc,
                                     d,
-                                    receiver,
+                                    *receiver,
                                     probes,
                                     new_probes,
                                     included_rows,
@@ -312,13 +312,13 @@ fn handle_snap_produce(
 fn handle_snap_merge(
     clock: LogicalClock,
     dist: i64,
-    receiver: ProbeId,
+    sender: ProbeId,
     probes: &SortedProbes,
     new_probes: &mut BTreeMap<ProbeId, Vec<ReportLogEntry>>,
     included_rows: &mut HashSet<(ProbeId, SequenceNumber, u32)>,
     clock_rows: &mut Vec<ReportLogEntry>,
 ) {
-    if let Some(neighbor) = probes.0.get(&receiver) {
+    if let Some(neighbor) = probes.0.get(&sender) {
         if let Some(end) = neighbor
             .iter()
             .position(|row| row.data.trace_clock() == Some(clock.next()))

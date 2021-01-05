@@ -1022,7 +1022,7 @@ fn reduce_namespace(s: &str) -> Result<String, ()> {
         match split.last() {
             None => Err(()),
             Some(last) => {
-                if *last == "" {
+                if last.is_empty() {
                     Err(())
                 } else {
                     Ok((*last).to_string())

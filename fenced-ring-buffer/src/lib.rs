@@ -156,7 +156,8 @@ pub trait Entry: Copy + PartialEq {
     fn is_prefix(&self) -> bool;
 }
 
-/// An entry or double entry that has just been overwritten
+/// An entry or double entry that has just been overwritten.
+#[cfg_attr(target_pointer_width = "32", repr(align(32)))]
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum WholeEntry<E>
 where

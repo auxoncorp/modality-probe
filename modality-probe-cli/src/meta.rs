@@ -32,6 +32,129 @@ pub struct ProbeMeta {
     pub line: String,
 }
 
+/// Something that can mete out probe, component, and event metadata
+/// on demand.
+pub trait MetaMeter {
+    fn probe_component_id(&self, id: &ProbeId) -> Option<Uuid>;
+    fn probe_component_name(&self, id: &ProbeId) -> Option<String>;
+    fn probe_tags(&self, id: &ProbeId) -> Option<Vec<String>>;
+    fn probe_name(&self, id: &ProbeId) -> Option<String>;
+    fn probe_description(&self, id: &ProbeId) -> Option<String>;
+    fn probe_file(&self, id: &ProbeId) -> Option<String>;
+    fn probe_line(&self, id: &ProbeId) -> Option<String>;
+
+    fn event_tags(&self, probe: &ProbeId, id: &EventId) -> Option<Vec<String>>;
+    fn event_type_hint(&self, probe: &ProbeId, id: &EventId) -> Option<String>;
+    fn event_name(&self, probe: &ProbeId, id: &EventId) -> Option<String>;
+    fn event_description(&self, probe: &ProbeId, id: &EventId) -> Option<String>;
+    fn event_file(&self, probe: &ProbeId, id: &EventId) -> Option<String>;
+    fn event_line(&self, probe: &ProbeId, id: &EventId) -> Option<String>;
+}
+
+impl MetaMeter for Cfg {
+    fn probe_component_name(&self, id: &ProbeId) -> Option<String> {
+        self.probes_to_components
+            .get(&id.get_raw())
+            .map(|id| self.component_names.get(&id.to_string()).cloned())
+            .flatten()
+    }
+
+    fn probe_component_id(&self, id: &ProbeId) -> Option<Uuid> {
+        self.probes.get(&id.get_raw()).map(|p| p.component_id)
+    }
+
+    fn probe_tags(&self, id: &ProbeId) -> Option<Vec<String>> {
+        self.probes
+            .get(&id.get_raw())
+            .map(|p| p.tags.split(';').map(|t| t.to_string()).collect())
+    }
+
+    fn probe_name(&self, id: &ProbeId) -> Option<String> {
+        self.probes.get(&id.get_raw()).map(|p| p.name.clone())
+    }
+
+    fn probe_description(&self, id: &ProbeId) -> Option<String> {
+        self.probes
+            .get(&id.get_raw())
+            .map(|p| p.description.clone())
+    }
+
+    fn probe_file(&self, id: &ProbeId) -> Option<String> {
+        self.probes.get(&id.get_raw()).map(|p| p.file.clone())
+    }
+
+    fn probe_line(&self, id: &ProbeId) -> Option<String> {
+        self.probes.get(&id.get_raw()).map(|p| p.line.clone())
+    }
+
+    fn event_tags(&self, probe: &ProbeId, id: &EventId) -> Option<Vec<String>> {
+        self.probes_to_components
+            .get(&probe.get_raw())
+            .map(|comp| {
+                self.events
+                    .get(&(*comp, id.get_raw()))
+                    .map(|e| e.tags.split(';').map(|t| t.to_string()).collect())
+            })
+            .flatten()
+    }
+
+    fn event_type_hint(&self, probe: &ProbeId, id: &EventId) -> Option<String> {
+        self.probes_to_components
+            .get(&probe.get_raw())
+            .map(|comp| {
+                self.events
+                    .get(&(*comp, id.get_raw()))
+                    .map(|e| e.type_hint.as_ref().map(|th| th.to_string()))
+                    .flatten()
+            })
+            .flatten()
+    }
+
+    fn event_name(&self, probe: &ProbeId, id: &EventId) -> Option<String> {
+        self.probes_to_components
+            .get(&probe.get_raw())
+            .map(|comp| {
+                self.events
+                    .get(&(*comp, id.get_raw()))
+                    .map(|p| p.name.clone())
+            })
+            .flatten()
+    }
+
+    fn event_description(&self, probe: &ProbeId, id: &EventId) -> Option<String> {
+        self.probes_to_components
+            .get(&probe.get_raw())
+            .map(|comp| {
+                self.events
+                    .get(&(*comp, id.get_raw()))
+                    .map(|p| p.description.clone())
+            })
+            .flatten()
+    }
+
+    fn event_file(&self, probe: &ProbeId, id: &EventId) -> Option<String> {
+        self.probes_to_components
+            .get(&probe.get_raw())
+            .map(|comp| {
+                self.events
+                    .get(&(*comp, id.get_raw()))
+                    .map(|p| p.file.clone())
+            })
+            .flatten()
+    }
+
+    fn event_line(&self, probe: &ProbeId, id: &EventId) -> Option<String> {
+        self.probes_to_components
+            .get(&probe.get_raw())
+            .map(|comp| {
+                self.events
+                    .get(&(*comp, id.get_raw()))
+                    .map(|p| p.line.clone())
+            })
+            .flatten()
+    }
+}
+
 #[derive(Debug)]
 pub struct Cfg {
     pub probes: HashMap<u32, ProbeMeta>,
