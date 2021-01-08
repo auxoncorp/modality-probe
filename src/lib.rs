@@ -253,6 +253,57 @@ impl LogicalClock {
     }
 }
 
+/// A trait for a clock which can be incremented or decremented.
+pub trait TickableClock {
+    /// The concrete type produced by `prev` or `next`.
+    type Adjacent: TickableClock;
+
+    /// The probe that recorded this clock.
+    fn probe_id(&self) -> ProbeId;
+
+    /// Produce the clock preceding `self`.
+    fn prev(&self) -> Self::Adjacent;
+
+    /// Produce the clock following `self`.
+    fn next(&self) -> Self::Adjacent;
+
+    /// Produce a tuple containing the probe id and a packed version
+    /// of the clock.
+    fn pack(&self) -> (ProbeId, u64);
+}
+
+impl TickableClock for LogicalClock {
+    type Adjacent = Self;
+
+    fn probe_id(&self) -> ProbeId {
+        self.id
+    }
+
+    fn next(&self) -> LogicalClock {
+        let mut new = *self;
+        new.increment();
+        new
+    }
+
+    fn prev(&self) -> LogicalClock {
+        let (new_clock, overflow) = self.ticks.0.overflowing_sub(1);
+        let (epoch, ticks) = if overflow {
+            (self.epoch.0.saturating_sub(1), 0)
+        } else {
+            (self.epoch.0, new_clock)
+        };
+        LogicalClock {
+            id: self.id,
+            epoch: ProbeEpoch(epoch),
+            ticks: ProbeTicks(ticks),
+        }
+    }
+
+    fn pack(&self) -> (ProbeId, u64) {
+        (self.id, pack_clock_word(self.epoch, self.ticks) as u64)
+    }
+}
+
 /// Interface for the core (post-initialization) operations of `ModalityProbe`
 pub trait Probe {
     /// Record a timestamp into the log.

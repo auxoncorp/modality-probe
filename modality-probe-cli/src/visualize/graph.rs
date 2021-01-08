@@ -46,7 +46,7 @@ where
 }
 
 impl NodeAndEdgeLists<GraphEvent> {
-    pub fn as_complete<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+    pub fn as_complete(&self) -> NodeAndEdgeLists<&GraphEvent> {
         NodeAndEdgeLists {
             nodes: self.nodes.iter().collect(),
             edges: self.edges.iter().map(|(s, t)| (s, t)).collect(),
@@ -55,7 +55,7 @@ impl NodeAndEdgeLists<GraphEvent> {
 
     /// Pare down a complete graph into only trace clocks, which is to
     /// say, only the interactions between probes.
-    pub fn as_interactions<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+    pub fn as_interactions(&self) -> NodeAndEdgeLists<&GraphEvent> {
         let mut node_set = HashSet::new();
         let mut edge_set = HashSet::new();
         self.filter(
@@ -68,7 +68,7 @@ impl NodeAndEdgeLists<GraphEvent> {
     }
 
     /// Pare down a complete graph into the event transitions.
-    pub fn as_states<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+    pub fn as_states(&self) -> NodeAndEdgeLists<&GraphEvent> {
         let mut node_set = HashSet::new();
         let mut edge_set = HashSet::new();
         self.filter(
@@ -79,7 +79,7 @@ impl NodeAndEdgeLists<GraphEvent> {
 
     /// Pare down a complete graph into just the probes and their
     /// communication topology.
-    pub fn as_topology<'a>(&'a self) -> NodeAndEdgeLists<&'a GraphEvent> {
+    pub fn as_topology(&self) -> NodeAndEdgeLists<&GraphEvent> {
         let mut node_set = HashSet::new();
         let mut edge_set = HashSet::new();
         self.filter(
@@ -88,14 +88,14 @@ impl NodeAndEdgeLists<GraphEvent> {
         )
     }
 
-    fn filter<'a, NF, EF>(
-        &'a self,
+    fn filter<NF, EF>(
+        &self,
         mut node_filter: NF,
         mut edge_filter: EF,
-    ) -> NodeAndEdgeLists<&'a GraphEvent>
+    ) -> NodeAndEdgeLists<&GraphEvent>
     where
-        NF: FnMut(&'a GraphEvent) -> bool,
-        EF: FnMut(&'a GraphEvent, &'a GraphEvent) -> bool,
+        NF: FnMut(&GraphEvent) -> bool,
+        EF: FnMut(&GraphEvent, &GraphEvent) -> bool,
     {
         let nodes = self.nodes.iter().filter(|n| node_filter(n)).collect();
 
@@ -338,7 +338,7 @@ pub(crate) mod test {
     use super::super::templates;
 
     pub(crate) fn cfg() -> Cfg {
-        let a_uuid = Uuid::new_v4();
+        let a_uuid = Uuid::parse_str("146dd760-fc41-4418-bc59-e1320fb7f43d").unwrap();
         Cfg {
             probes: vec![
                 (

@@ -791,8 +791,8 @@ impl<'a> DynamicHistory<'a> {
     }
 
     #[inline]
-    pub(crate) fn merge_clocks<'c>(
-        clocks: &mut FixedSliceVec<'c, LogicalClock>,
+    pub(crate) fn merge_clocks(
+        clocks: &mut FixedSliceVec<LogicalClock>,
         ext_clock: LogicalClock,
     ) -> Result<(), StorageError<LogicalClock>> {
         let mut existed = false;

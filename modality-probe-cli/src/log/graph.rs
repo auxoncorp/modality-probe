@@ -4,14 +4,15 @@ use std::{
     io::Write as WriteIo,
 };
 
-use modality_probe::{EventId, LogicalClock, ProbeId};
+use modality_probe::{EventId, LogicalClock, ProbeId, TickableClock};
 use modality_probe_collector_common::{LogEntryData, ReportLogEntry};
 
 use crate::{
     description_format::DescriptionFormat,
     hopefully,
-    log::{color, format, Cfg, Log},
+    log::{color, format, Log},
     meta,
+    meta::MetaMeter,
 };
 
 // 2 empty columns between each timeline.
@@ -20,8 +21,8 @@ const COL_EDGE: &str = "--";
 
 pub(super) fn print_as_graph<W: WriteIo>(
     mut probes: BTreeMap<ProbeId, Vec<ReportLogEntry>>,
-    clock_rows: Vec<ReportLogEntry>,
-    cfg: &Cfg,
+    clock_rows: Vec<(ProbeId, LogicalClock)>,
+    cfg: &dyn MetaMeter,
     l: &Log,
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -53,17 +54,24 @@ pub(super) fn print_as_graph<W: WriteIo>(
                             .map(|t| !t.is_empty())
                             .unwrap_or(false);
                         if !blocked {
-                            let event_name = meta::get_event_meta(&cfg, &probe_id, &id)
-                                .map(|em| em.name.clone())
-                                .unwrap_or_else(|_| probe_id.get_raw().to_string());
+                            let event_name = cfg
+                                .event_name(&probe_id, &id)
+                                .unwrap_or_else(|| probe_id.get_raw().to_string());
                             let probe_name = cfg
-                                .probes
-                                .get(&probe_id.get_raw())
-                                .map(|pm| pm.name.clone())
+                                .probe_name(&probe_id)
                                 .unwrap_or_else(|| probe_id.get_raw().to_string());
                             if let Some(ref fmt) = l.format {
                                 print_event_row(
-                                    &format::format(cfg, &row, fmt),
+                                    &format::format(
+                                        cfg,
+                                        format::Context {
+                                            probe_id: *probe_id,
+                                            event_id: id,
+                                            user_coordinate: row.coordinate(),
+                                            payload: None,
+                                        },
+                                        fmt,
+                                    ),
                                     idx,
                                     n_probes,
                                     &mut stream,
@@ -104,20 +112,25 @@ pub(super) fn print_as_graph<W: WriteIo>(
                             .map(|t| !t.is_empty())
                             .unwrap_or(false);
                         if !blocked {
-                            let event_meta = meta::get_event_meta(&cfg, &probe_id, &id);
-                            let event_name = event_meta
-                                .as_ref()
-                                .map(|em| em.name.clone())
-                                .unwrap_or_else(|_| probe_id.get_raw().to_string());
-                            let description = event_meta.map(|em| em.description.clone()).ok();
+                            let event_name = cfg
+                                .event_name(&probe_id, &id)
+                                .unwrap_or_else(|| probe_id.get_raw().to_string());
+                            let description = cfg.event_description(&probe_id, &id);
                             let probe_name = cfg
-                                .probes
-                                .get(&probe_id.get_raw())
-                                .map(|pm| pm.name.clone())
+                                .probe_name(&probe_id)
                                 .unwrap_or_else(|| probe_id.get_raw().to_string());
                             if let Some(ref fmt) = l.format {
                                 print_event_row(
-                                    &format::format(cfg, &row, fmt),
+                                    &format::format(
+                                        cfg,
+                                        format::Context {
+                                            probe_id: *probe_id,
+                                            event_id: id,
+                                            user_coordinate: row.coordinate(),
+                                            payload: Some(pl),
+                                        },
+                                        fmt,
+                                    ),
                                     idx,
                                     n_probes,
                                     &mut stream,
@@ -219,14 +232,10 @@ pub(super) fn print_as_graph<W: WriteIo>(
                         // This is a foreign clock: `lc.id != probe_id`.
                         } else {
                             let from_name = cfg
-                                .probes
-                                .get(&lc.id.get_raw())
-                                .map(|pm| pm.name.clone())
+                                .probe_name(&lc.id)
                                 .unwrap_or_else(|| lc.id.get_raw().to_string());
                             let to_name = cfg
-                                .probes
-                                .get(&probe_id.get_raw())
-                                .map(|pm| pm.name.clone())
+                                .probe_name(&probe_id)
                                 .unwrap_or_else(|| probe_id.get_raw().to_string());
                             let from_idx = indices.get(&lc.id);
                             if let Some(mut neighbor) = blocked_tls.remove(&lc.id) {
@@ -242,10 +251,10 @@ pub(super) fn print_as_graph<W: WriteIo>(
                                     print_info_row(n_probes, "", "", "", &mut stream)?;
                                     blocked_tls.insert(lc.id, neighbor);
                                 } else {
-                                    let is_present = clock_rows.iter().any(|r| {
-                                        lc.id == r.probe_id
-                                            && r.data.trace_clock() == Some(lc.next())
-                                    });
+                                    let is_present =
+                                        clock_rows.iter().any(|(originator, clock)| {
+                                            lc.id == *originator && clock == &lc.next()
+                                        });
                                     if is_present {
                                         let self_tl = blocked_tls
                                             .entry(*probe_id)
@@ -265,9 +274,9 @@ pub(super) fn print_as_graph<W: WriteIo>(
                                     blocked_tls.insert(lc.id, neighbor);
                                 }
                             } else {
-                                let is_present = clock_rows.iter().any(|r| {
-                                    lc.id == r.probe_id && r.data.trace_clock() == Some(lc.next())
-                                });
+                                let is_present = clock_rows
+                                    .iter()
+                                    .any(|(_, clock)| lc.id == clock.id && clock == &lc.next());
                                 if is_present {
                                     let self_tl =
                                         blocked_tls.entry(*probe_id).or_insert_with(HashSet::new);
@@ -299,100 +308,106 @@ pub(super) fn print_as_graph<W: WriteIo>(
     Ok(())
 }
 
-fn handle_graph_verbosity<W: WriteIo>(
+pub fn handle_graph_verbosity<W: WriteIo>(
     l: &Log,
     probe_id: &ProbeId,
     eid: &EventId,
     n_probes: usize,
     pl: Option<u32>,
-    cfg: &Cfg,
+    cfg: &dyn MetaMeter,
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let event_meta = meta::get_event_meta(&cfg, &probe_id, &eid);
-    let probe_meta = cfg.probes.get(&probe_id.get_raw());
-    if l.verbose != 0 && event_meta.is_ok() {
-        let emeta = event_meta.expect("just checked that event meta is_some");
-        print_info_row(
-            n_probes,
-            "description",
-            &emeta.description,
-            "    ",
-            &mut stream,
-        )?;
+    if l.verbose != 0 {
+        if let Some(desc) = cfg.event_description(probe_id, eid) {
+            print_info_row(n_probes, "description", &desc, "    ", &mut stream)?;
+        }
         // TODO(dan@auxon.io): Interpolate log-style payload / string
         // combos here if they're present.
         // https://github.com/auxoncorp/modality-probe/issues/281
-        if let Some(pp) = meta::parsed_payload(emeta.type_hint.as_ref().map(|s| s.as_ref()), pl)? {
+        if let Some(pp) = cfg
+            .event_type_hint(probe_id, eid)
+            .and_then(|th| meta::parsed_payload(Some(&th), pl).ok().flatten())
+        {
             print_info_row(n_probes, "payload", &pp, "    ", &mut stream)?;
         }
-        print_info_row(
-            n_probes,
-            "tags",
-            &emeta.tags.replace(";", ", "),
-            "    ",
-            &mut stream,
-        )?;
-        if !emeta.file.is_empty() && !emeta.line.is_empty() {
+        if let Some(tags) = cfg.event_tags(probe_id, eid) {
+            print_info_row(n_probes, "tags", &tags.join(", "), "    ", &mut stream)?;
+        }
+        if cfg.event_file(probe_id, eid).is_some() && cfg.event_line(probe_id, eid).is_some() {
+            let file = cfg.event_file(probe_id, eid).unwrap();
+            let line = cfg.event_line(probe_id, eid).unwrap();
             print_info_row(
                 n_probes,
-                "source",
-                &format!("\"{}#L{}\"", emeta.file, emeta.line),
+                "event source",
+                &match (file.is_empty(), line.is_empty()) {
+                    (false, false) => format!("\"{}#L{}\"", file, line),
+                    (false, true) => format!("\"{}\"", file),
+                    _ => "None".to_string(),
+                },
                 "    ",
                 &mut stream,
             )?;
         }
-    }
-    if l.verbose > 1 && probe_meta.is_some() {
-        let pmeta = probe_meta.expect("just checked that probe meta is_some");
-        print_info_row(
-            n_probes,
-            "probe tags",
-            &pmeta.tags.replace(";", ", "),
-            "    ",
-            &mut stream,
-        )?;
-        print_info_row(
-            n_probes,
-            "probe source",
-            &match (pmeta.file.is_empty(), pmeta.line.is_empty()) {
-                (false, false) => format!("\"{}#L{}\"", pmeta.file, pmeta.line),
-                (false, true) => format!("\"{}\"", pmeta.file),
-                _ => "None".to_string(),
-            },
-            "    ",
-            &mut stream,
-        )?;
-        let comp_name_or_id =
-            if let Some(n) = cfg.component_names.get(&pmeta.component_id.to_string()) {
-                n.to_string()
-            } else {
-                pmeta.component_id.to_string()
-            };
-        print_info_row(n_probes, "component", &comp_name_or_id, "    ", &mut stream)?;
+        if l.verbose > 1 {
+            if let Some(tags) = cfg.probe_tags(probe_id) {
+                print_info_row(
+                    n_probes,
+                    "probe tags",
+                    &tags.join(", "),
+                    "    ",
+                    &mut stream,
+                )?;
+            }
+
+            if cfg.probe_file(probe_id).is_some() && cfg.probe_line(probe_id).is_some() {
+                let file = cfg.probe_file(probe_id).unwrap();
+                let line = cfg.probe_line(probe_id).unwrap();
+                print_info_row(
+                    n_probes,
+                    "probe source",
+                    &match (file.is_empty(), line.is_empty()) {
+                        (false, false) => format!("\"{}#L{}\"", file, line),
+                        (false, true) => format!("\"{}\"", file),
+                        _ => "None".to_string(),
+                    },
+                    "    ",
+                    &mut stream,
+                )?;
+            }
+            if let Some(comp_name_or_id) = cfg
+                .probe_component_name(probe_id)
+                .or_else(|| cfg.probe_component_id(probe_id).map(|id| id.to_string()))
+            {
+                print_info_row(n_probes, "component", &comp_name_or_id, "    ", &mut stream)?;
+            }
+        }
     }
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_source_edge<W: WriteIo>(
-    cfg: &Cfg,
-    lc: LogicalClock,
+pub fn handle_source_edge<W, C>(
+    cfg: &dyn MetaMeter,
+    lc: C,
     probe_id: &ProbeId,
     n_probes: usize,
-    clock_rows: &[ReportLogEntry],
-    blocked_tls: &mut HashMap<ProbeId, HashSet<(ProbeId, LogicalClock)>>,
+    clock_rows: &[(ProbeId, C)],
+    blocked_tls: &mut HashMap<ProbeId, HashSet<(ProbeId, C)>>,
     idx: usize,
     indices: &HashMap<ProbeId, usize>,
     mut stream: W,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    W: WriteIo,
+    C: Eq + std::hash::Hash + TickableClock + Copy,
+{
     {
-        let all_targs = clock_rows.iter().filter(|r| {
-            let inner_lc = r.data.trace_clock().unwrap();
-            r.probe_id != inner_lc.id && inner_lc == lc.prev()
+        let all_targs = clock_rows.iter().filter(|(originator, clock)| {
+            originator != &clock.probe_id() && clock.pack() == lc.prev().pack()
         });
         let self_tl = blocked_tls.entry(*probe_id).or_insert_with(HashSet::new);
-        for t in all_targs {
-            self_tl.insert((t.probe_id, t.data.trace_clock().unwrap()));
+        for (originator, clock) in all_targs {
+            self_tl.insert((*originator, *clock));
         }
     }
     let mut self_tl = blocked_tls.remove(probe_id).unwrap();
@@ -401,15 +416,11 @@ fn handle_source_edge<W: WriteIo>(
         if let Some(neighbor) = blocked_tls.get_mut(pid) {
             if neighbor.remove(&(*probe_id, *c)) {
                 let from_name = cfg
-                    .probes
-                    .get(&probe_id.get_raw())
-                    .map(|pm| pm.name.clone())
+                    .probe_name(probe_id)
                     .unwrap_or_else(|| probe_id.get_raw().to_string());
                 let to_name = cfg
-                    .probes
-                    .get(&pid.get_raw())
-                    .map(|pm| pm.name.clone())
-                    .unwrap_or_else(|| probe_id.get_raw().to_string());
+                    .probe_name(pid)
+                    .unwrap_or_else(|| pid.get_raw().to_string());
                 print_edge_line(
                     idx,
                     *indices.get(&pid).unwrap(),
@@ -430,7 +441,7 @@ fn handle_source_edge<W: WriteIo>(
     Ok(())
 }
 
-fn print_event_row<W: WriteIo>(
+pub fn print_event_row<W: WriteIo>(
     name: &str,
     idx: usize,
     n_probe: usize,
@@ -455,7 +466,7 @@ fn print_event_row<W: WriteIo>(
     Ok(())
 }
 
-fn print_info_row<W: WriteIo>(
+pub fn print_info_row<W: WriteIo>(
     n_probe: usize,
     key: &str,
     info: &str,
@@ -486,7 +497,7 @@ fn print_info_row<W: WriteIo>(
     Ok(())
 }
 
-fn print_edge_line<W: WriteIo>(
+pub fn print_edge_line<W: WriteIo>(
     from: usize,
     to: usize,
     from_pname: &str,
@@ -587,7 +598,7 @@ fn print_edge_line<W: WriteIo>(
     Ok(())
 }
 
-fn print_missing_edge_line<W: WriteIo>(
+pub fn print_missing_edge_line<W: WriteIo>(
     from_idx: Option<&usize>,
     from_name: &str,
     to_idx: usize,
