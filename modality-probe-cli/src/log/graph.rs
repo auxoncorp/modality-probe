@@ -90,7 +90,7 @@ pub(super) fn print_as_graph<W: WriteIo>(
                                 )?;
 
                                 handle_graph_verbosity(
-                                    l,
+                                    l.verbose,
                                     probe_id,
                                     &id,
                                     n_probes,
@@ -160,7 +160,7 @@ pub(super) fn print_as_graph<W: WriteIo>(
                                 print_event_row(&event_msg, idx, n_probes, &mut stream)?;
 
                                 handle_graph_verbosity(
-                                    l,
+                                    l.verbose,
                                     probe_id,
                                     &id,
                                     n_probes,
@@ -309,7 +309,7 @@ pub(super) fn print_as_graph<W: WriteIo>(
 }
 
 pub fn handle_graph_verbosity<W: WriteIo>(
-    l: &Log,
+    verbosity: u8,
     probe_id: &ProbeId,
     eid: &EventId,
     n_probes: usize,
@@ -317,7 +317,7 @@ pub fn handle_graph_verbosity<W: WriteIo>(
     cfg: &dyn MetaMeter,
     mut stream: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if l.verbose != 0 {
+    if verbosity != 0 {
         if let Some(desc) = cfg.event_description(probe_id, eid) {
             print_info_row(n_probes, "description", &desc, "    ", &mut stream)?;
         }
@@ -348,7 +348,7 @@ pub fn handle_graph_verbosity<W: WriteIo>(
                 &mut stream,
             )?;
         }
-        if l.verbose > 1 {
+        if verbosity > 1 {
             if let Some(tags) = cfg.probe_tags(probe_id) {
                 print_info_row(
                     n_probes,

@@ -268,7 +268,16 @@ fn print_as_log(
                 if let Some(row) = log.pop() {
                     match row.data {
                         LogEntryData::Event(id) | LogEntryData::EventWithTime(.., id) => {
-                            print_event_info(idx, probe_id, &row.coordinate(), &id, None, l, cfg)?;
+                            print_event_info(
+                                idx,
+                                probe_id,
+                                &row.coordinate(),
+                                &id,
+                                None,
+                                &l.format,
+                                l.verbose,
+                                cfg,
+                            )?;
                             count += 1;
                         }
                         LogEntryData::EventWithPayload(id, pl)
@@ -279,7 +288,8 @@ fn print_as_log(
                                 &row.coordinate(),
                                 &id,
                                 Some(pl),
-                                l,
+                                &l.format,
+                                l.verbose,
                                 cfg,
                             )?;
                             count += 1;
@@ -346,16 +356,18 @@ fn print_as_log(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn print_event_info(
     idx: usize,
     probe_id: &ProbeId,
     coord: &str,
     eid: &EventId,
     payload: Option<u32>,
-    l: &Log,
+    format: &Option<String>,
+    verbosity: u8,
     cfg: &dyn MetaMeter,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if let Some(ref fmt) = l.format {
+    if let Some(ref fmt) = format {
         println!(
             "{}",
             format::format(
@@ -411,7 +423,7 @@ pub fn print_event_info(
             );
         }
 
-        if l.verbose != 0 {
+        if verbosity != 0 {
             if let Some(desc) = cfg.event_description(&probe_id, eid) {
                 println!(
                     "    {}",
@@ -460,7 +472,7 @@ pub fn print_event_info(
                 println!("    {}", out);
             }
         }
-        if l.verbose > 1 {
+        if verbosity > 1 {
             println!(
                 "    {}",
                 color::colorize_info(
@@ -492,7 +504,7 @@ pub fn print_event_info(
                 );
             }
         }
-        if l.verbose != 0 {
+        if verbosity != 0 {
             println!();
         }
     }
