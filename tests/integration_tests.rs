@@ -281,6 +281,81 @@ fn report_buffer_too_small_error() -> Result<(), ModalityProbeError> {
         raw_event,
         EventId::EVENT_INSUFFICIENT_REPORT_BUFFER_SIZE.get_raw()
     );
+    Ok(())
+}
+
+#[test]
+fn report_can_end_in_local_clock_from_snapshot_produce() -> Result<(), ModalityProbeError> {
+    let mut storage = [MaybeUninit::new(0u8); 512];
+    let probe = ModalityProbe::try_initialize_at(
+        &mut storage,
+        1,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
+        RestartCounterProvider::NoRestartTracking,
+    )?;
+    let _snap = probe.produce_snapshot();
+    // Room for the zero-clock, the initialized event, and the
+    // produced snapshot.
+    let mut report_dest = vec![0u8; wire::WireReport::<&[u8]>::buffer_len(1, 5)];
+    let bytes_written = probe.report(&mut report_dest)?.unwrap();
+    // We should have written the frontier clock, the initialized
+    // event, and the pair for the produced snapshot.
+    assert_eq!(
+        bytes_written.get(),
+        wire::WireReport::<&[u8]>::buffer_len(1, 5)
+    );
+
+    Ok(())
+}
+
+#[test]
+fn report_does_not_split_interactions() -> Result<(), ModalityProbeError> {
+    let mut storage1 = [MaybeUninit::new(0u8); 512];
+    let probe1 = ModalityProbe::try_initialize_at(
+        &mut storage1,
+        1,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
+        RestartCounterProvider::NoRestartTracking,
+    )?;
+
+    let mut storage2 = [MaybeUninit::new(0u8); 512];
+    let probe2 = ModalityProbe::try_initialize_at(
+        &mut storage2,
+        2,
+        NanosecondResolution::UNSPECIFIED,
+        WallClockId::local_only(),
+        RestartCounterProvider::NoRestartTracking,
+    )?;
+
+    // Produce a snap from probe 1 and merge it into probe 2's
+    // timeline.
+    let snap = probe1.produce_snapshot();
+    probe2.merge_snapshot(&snap)?;
+
+    // Cut a report from probe2 that has room for one of the clock
+    // entries but not the other.
+    let mut report_dest = vec![0u8; wire::WireReport::<&[u8]>::buffer_len(1, 4)];
+    let bytes_written = probe2.report(&mut report_dest)?.unwrap();
+    assert_eq!(
+        bytes_written.get(),
+        wire::WireReport::<&[u8]>::buffer_len(1, 3)
+    );
+
+    // Cut another report from probe 2 and this time it should include
+    // the interaction left behind, and the
+    // PROBE_PRODUCED_EXTERNAL_REPORT event.
+    let mut new_report_dest = vec![0u8; wire::WireReport::<&[u8]>::buffer_len(1, 5)];
+    let bytes_written = probe2.report(&mut new_report_dest)?.unwrap();
+    assert_eq!(
+        bytes_written.get(),
+        wire::WireReport::<&[u8]>::buffer_len(1, 5)
+    );
+
+    // And that should be everything except that tricky
+    // PROBE_PRODUCED_EXTERNAL_REPORT.
+    assert!(probe2.report(&mut new_report_dest)?.is_none());
 
     Ok(())
 }
@@ -447,6 +522,7 @@ proptest! {
     }
 }
 
+#[rustfmt::skip]
 proptest! {
     #[test]
     fn reports_never_fragment_clock_list(num_snapshots in 1_usize..256_usize, report_buffer_size in 0_usize..256_usize) {
@@ -479,7 +555,7 @@ proptest! {
         }
 
         let min_report_size =
-            wire::WireReport::<&[u8]>::header_len() + (3 * mem::size_of::<LogicalClock>());
+            wire::WireReport::<&[u8]>::buffer_len(2, 5);
         let mut report_dest = vec![0u8; min_report_size + report_buffer_size];
 
         let bytes_written = probe.report(&mut report_dest).unwrap().unwrap();
@@ -506,7 +582,15 @@ proptest! {
             // The first clock is always the self-clock, followed by an interaction clock
             prop_assert_eq!(
                 second_to_last_item.interpret_as_logical_clock_probe_id(),
-                snap_probe_id
+                // In the case where a report buffer is big enough to even one
+                // interaction set, the first expression of this conjunction
+                // is still accidentally true—it's the initial self clock @
+                // 0. In that case it should == probe_id not snap_probe_id.
+                if log_report.n_log_entries() == 3 {
+                    probe_id
+                } else {
+                    snap_probe_id
+                }
             );
         }
     }
