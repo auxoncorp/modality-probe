@@ -501,8 +501,9 @@ impl<'a> DynamicHistory<'a> {
         report.set_time_resolution(self.time_resolution);
         report.set_wall_clock_id(self.wall_clock_id);
 
-        // We can't store at least the frontier clocks and a single two-word item
-        if report.as_ref().len() < WireReport::<&[u8]>::buffer_len(self.clocks.len(), 2) {
+        // We can't store at least the frontier clocks and a pair of
+        // two-word items.
+        if report.as_ref().len() < WireReport::<&[u8]>::buffer_len(self.clocks.len(), 4) {
             report.set_seq_num(self.report_seq_num);
             report.set_n_clocks(0);
             report.set_n_log_entries(1);
@@ -550,8 +551,8 @@ impl<'a> DynamicHistory<'a> {
             let n_entries_possible = log_region.len() / size_of::<LogEntry>();
             // We peek the next entry so that we never throw away an item we don't have space for,
             // since the size of the next entry isn't known until it is peeked
-            while let Some(peeked) = self.log.peek() {
-                match peeked {
+            while let Some(entry) = self.log.peek() {
+                match entry {
                     WholeEntry::Double(first, second) => {
                         if n_copied > n_entries_possible - 2 {
                             // Not enough space for the double-item entry, break
@@ -574,9 +575,28 @@ impl<'a> DynamicHistory<'a> {
                             let id =
                                 ProbeId::new(first.interpret_as_logical_clock_probe_id()).unwrap();
 
+                            let self_probe_id = self.probe_id;
+                            let next_entry_is_foreign_clock = self
+                                .log
+                                // two back to cover the whole clock
+                                // we're currently peeking into.
+                                .peek_at(2)
+                                .map(|e| match e {
+                                    WholeEntry::Double(first, _) if first.has_clock_bit_set() => {
+                                        ProbeId::new(first.interpret_as_logical_clock_probe_id())
+                                            .unwrap()
+                                            != self_probe_id
+                                    }
+                                    _ => false,
+                                })
+                                .unwrap_or(false);
+
                             // Ensure we have enough room for the interaction clock following
                             // a self clock
-                            if (id == self.probe_id) && (n_copied + 4 > n_entries_possible) {
+                            if id == self_probe_id
+                                && next_entry_is_foreign_clock
+                                && (n_copied + 4 > n_entries_possible)
+                            {
                                 break;
                             }
 
@@ -606,9 +626,8 @@ impl<'a> DynamicHistory<'a> {
                         n_copied += 1;
                     }
                 }
-                // We have already included this entry in the report, so it is safe to pop from the log
                 let consumed_entry = self.log.pop();
-                debug_assert_eq!(consumed_entry, Some(peeked));
+                debug_assert_eq!(consumed_entry, Some(entry));
             }
 
             report.set_n_log_entries(n_copied as u32);

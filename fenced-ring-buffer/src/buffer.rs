@@ -199,6 +199,18 @@ where
         }
     }
 
+    /// Read the ith entry forward from the current read cursor, where
+    /// peek_at(0) == peek().
+    pub fn peek_at(&self, i: u64) -> Option<WholeEntry<E>> {
+        let read_seqn = max(self.read_seqn, self.overwrite_seqn);
+        let seqn = read_seqn + i;
+        if seqn >= self.write_seqn {
+            None
+        } else {
+            self.read_at(seqn)
+        }
+    }
+
     /// Read the entry at tail, or the oldest entry present in the buffer if
     /// tail has already been overwritten, move the tail to point to the
     /// entry after the one that was popped. Returns None if the tail is
