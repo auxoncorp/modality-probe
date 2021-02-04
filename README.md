@@ -135,7 +135,23 @@ expect!(
     PRODUCER_TX_STATUS_OK,
     tx_status.is_ok(),
     "Measurement producer send result status",
-    tags!("producer", "SEVERITY_10")
+    tags!("producer"),
+    severity!(10),
+);
+```
+
+### Recording Failures
+
+Failures are special events that get tagged as failures to
+denote "something bad happened".
+
+```rust
+failure!(
+    probe,
+    BAD_THING_HAPPENED,
+    tags!("problem"),
+    severity!(5),
+    "A bad thing happened",
 );
 ```
 

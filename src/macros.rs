@@ -8,10 +8,16 @@ macro_rules! tags {
     ($tag:tt, $($more_tags:tt)+) => {};
 }
 
+/// No-op macro used to specify a severity level on failures or expectations.
+#[macro_export]
+macro_rules! severity {
+    ($tag:expr) => {};
+}
+
 /// Convenience macro that calls
 /// [ModalityProbe::initialize_at](struct.ModalityProbe.html#method.initialize_at).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! initialize_at {
@@ -29,7 +35,7 @@ macro_rules! initialize_at {
 /// Convenience macro that calls
 /// [ModalityProbe::try_initialize_at](struct.ModalityProbe.html#method.try_initialize_at).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! try_initialize_at {
@@ -47,7 +53,7 @@ macro_rules! try_initialize_at {
 /// Convenience macro that calls
 /// [ModalityProbe::new_with_storage](struct.ModalityProbe.html#method.new_with_storage).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! new_with_storage {
@@ -65,7 +71,7 @@ macro_rules! new_with_storage {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event](struct.ModalityProbe.html#method.record_event).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! record {
@@ -83,7 +89,7 @@ macro_rules! record {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event](struct.ModalityProbe.html#method.try_record_event).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! try_record {
@@ -101,7 +107,7 @@ macro_rules! try_record {
 /// Convenience macro that calls
 /// [ModalityProbe::record_time](struct.ModalityProbe.html#method.record_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! record_time {
@@ -119,7 +125,7 @@ macro_rules! record_time {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_time](struct.ModalityProbe.html#method.try_record_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! try_record_time {
@@ -137,7 +143,7 @@ macro_rules! try_record_time {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_time](struct.ModalityProbe.html#method.record_event_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! record_w_time {
@@ -155,7 +161,7 @@ macro_rules! record_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_time](struct.ModalityProbe.html#method.try_record_event_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export]
 macro_rules! try_record_w_time {
@@ -173,7 +179,7 @@ macro_rules! try_record_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -195,7 +201,7 @@ macro_rules! record_w_i8 {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload_with_time](struct.ModalityProbe.html#method.record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i8_w_time {
@@ -213,7 +219,7 @@ macro_rules! record_w_i8_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -235,7 +241,7 @@ macro_rules! record_w_u8 {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload_with_time](struct.ModalityProbe.html#method.record_event_with_payload_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u8_w_time {
@@ -253,7 +259,7 @@ macro_rules! record_w_u8_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -275,7 +281,7 @@ macro_rules! record_w_i16 {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload_with_time](struct.ModalityProbe.html#method.record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i16_w_time {
@@ -293,7 +299,7 @@ macro_rules! record_w_i16_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -315,7 +321,7 @@ macro_rules! record_w_u16 {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload_with_time](struct.ModalityProbe.html#method.record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u16_w_time {
@@ -333,7 +339,7 @@ macro_rules! record_w_u16_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -355,7 +361,7 @@ macro_rules! record_w_i32 {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload_with_time](struct.ModalityProbe.html#method.record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_i32_w_time {
@@ -373,7 +379,7 @@ macro_rules! record_w_i32_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -395,7 +401,7 @@ macro_rules! record_w_u32 {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload_with_time](struct.ModalityProbe.html#method.record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_u32_w_time {
@@ -413,7 +419,7 @@ macro_rules! record_w_u32_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -435,7 +441,7 @@ macro_rules! record_w_bool {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload_with_time](struct.ModalityProbe.html#method.record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_bool_w_time {
@@ -453,7 +459,7 @@ macro_rules! record_w_bool_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -475,7 +481,7 @@ macro_rules! record_w_f32 {
 /// Convenience macro that calls
 /// [ModalityProbe::record_event_with_payload_with_time](struct.ModalityProbe.html#method.record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! record_w_f32_w_time {
@@ -493,7 +499,7 @@ macro_rules! record_w_f32_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -515,7 +521,7 @@ macro_rules! try_record_w_i8 {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload_with_time](struct.ModalityProbe.html#method.try_record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i8_w_time {
@@ -533,7 +539,7 @@ macro_rules! try_record_w_i8_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -555,7 +561,7 @@ macro_rules! try_record_w_u8 {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload_with_time](struct.ModalityProbe.html#method.try_record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u8_w_time {
@@ -573,7 +579,7 @@ macro_rules! try_record_w_u8_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -595,7 +601,7 @@ macro_rules! try_record_w_i16 {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload_with_time](struct.ModalityProbe.html#method.try_record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i16_w_time {
@@ -613,7 +619,7 @@ macro_rules! try_record_w_i16_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -635,7 +641,7 @@ macro_rules! try_record_w_u16 {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload_with_time](struct.ModalityProbe.html#method.try_record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u16_w_time {
@@ -653,7 +659,7 @@ macro_rules! try_record_w_u16_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -675,7 +681,7 @@ macro_rules! try_record_w_i32 {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload_with_time](struct.ModalityProbe.html#method.try_record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_i32_w_time {
@@ -693,7 +699,7 @@ macro_rules! try_record_w_i32_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -715,7 +721,7 @@ macro_rules! try_record_w_u32 {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload_with_time](struct.ModalityProbe.html#method.try_record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_u32_w_time {
@@ -733,7 +739,7 @@ macro_rules! try_record_w_u32_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -755,7 +761,7 @@ macro_rules! try_record_w_bool {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload_with_time](struct.ModalityProbe.html#method.try_record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_bool_w_time {
@@ -773,7 +779,7 @@ macro_rules! try_record_w_bool_w_time {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -795,7 +801,7 @@ macro_rules! try_record_w_f32 {
 /// Convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload_with_time](struct.ModalityProbe.html#method.try_record_event_with_payload_with_time).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description and tag arguments are only used
 /// by the CLI and compile away.
 #[macro_export(local_inner_macros)]
 macro_rules! try_record_w_f32_w_time {
@@ -810,10 +816,10 @@ macro_rules! try_record_w_f32_w_time {
     }};
 }
 
-/// Convenience macro that calls
+/// Expectation expression recording convenience macro that calls
 /// [ModalityProbe::record_event_with_payload](struct.ModalityProbe.html#method.record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description, severity and tags arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -824,18 +830,21 @@ macro_rules! expect {
     ($probe:expr, $event:expr, $expression:expr) => {{
         __record_with!($probe, $event, $expression)
     }};
-    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:expr) => {{
+    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags_or_severity:expr) => {{
         __record_with!($probe, $event, $expression)
     }};
-    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
+    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr) => {{
+        __record_with!($probe, $event, $expression)
+    }};
+    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr, $desc_or_tags_or_severity_2:expr) => {{
         __record_with!($probe, $event, $expression)
     }};
 }
 
-/// Convenience macro that calls
+/// Expectation expression recording convenience macro that calls
 /// [ModalityProbe::try_record_event_with_payload](struct.ModalityProbe.html#method.try_record_event_with_payload).
 ///
-/// The optional description and tags string arguments are only used
+/// The optional description, severity and tags arguments are only used
 /// by the CLI and compile away.
 ///
 /// Event with payload descriptions may additionally use a single
@@ -846,12 +855,57 @@ macro_rules! try_expect {
     ($probe:expr, $event:expr, $expression:expr) => {{
         __try_record_with!($probe, $event, $expression)
     }};
-    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:expr) => {{
+    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags_or_severity:expr) => {{
         __try_record_with!($probe, $event, $expression)
     }};
-    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags:expr, $tags_or_desc:expr) => {{
+    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr) => {{
         __try_record_with!($probe, $event, $expression)
     }};
+    ($probe:expr, $event:expr, $expression:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr, $desc_or_tags_or_severity_2:expr) => {{
+        __try_record_with!($probe, $event, $expression)
+    }};
+}
+
+/// Failure recording convenience macro that calls
+/// [ModalityProbe::record_event](struct.ModalityProbe.html#method.record_event).
+///
+/// The optional description and tag arguments are only used
+/// by the CLI and compile away.
+#[macro_export]
+macro_rules! failure {
+    ($probe:expr, $event:expr) => {
+        $probe.record_event($event)
+    };
+    ($probe:expr, $event:expr, $desc_or_tags_or_severity:expr) => {
+        $probe.record_event($event)
+    };
+    ($probe:expr, $event:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr) => {
+        $probe.record_event($event)
+    };
+    ($probe:expr, $event:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr, $desc_or_tags_or_severity_2:expr) => {
+        $probe.record_event($event)
+    };
+}
+
+/// Failure recording convenience macro that calls
+/// [ModalityProbe::try_record_event](struct.ModalityProbe.html#method.try_record_event).
+///
+/// The optional description and tag arguments are only used
+/// by the CLI and compile away.
+#[macro_export]
+macro_rules! try_failure {
+    ($probe:expr, $event:expr) => {
+        $probe.try_record_event($event)
+    };
+    ($probe:expr, $event:expr, $desc_or_tags_or_severity:expr) => {
+        $probe.try_record_event($event)
+    };
+    ($probe:expr, $event:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr) => {
+        $probe.try_record_event($event)
+    };
+    ($probe:expr, $event:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr, $desc_or_tags_or_severity_2:expr) => {
+        $probe.try_record_event($event)
+    };
 }
 
 #[doc(hidden)]
@@ -1135,8 +1189,16 @@ mod tests {
             probe,
             EventId::new(EVENT_D).unwrap(),
             "s1" != "s2",
-            tags!("SEVERITY_1"),
+            tags!("tag-a"),
             "desc"
+        );
+        expect!(
+            probe,
+            EventId::new(EVENT_D).unwrap(),
+            "s1" != "s2",
+            tags!("tag-a"),
+            "desc",
+            severity!(1)
         );
 
         try_expect!(probe, EVENT_D, true == true).unwrap();
@@ -1144,6 +1206,36 @@ mod tests {
         let a = 1;
         let b = 2;
         try_expect!(probe, EVENT_D, a != b, "desc", tags!("my expect tag")).unwrap();
+        try_expect!(
+            probe,
+            EVENT_D,
+            a != b,
+            "desc",
+            severity!(2),
+            tags!("my expect tag")
+        )
+        .unwrap();
+
+        failure!(probe, EventId::new(EVENT_D).unwrap());
+        failure!(probe, EventId::new(EVENT_D).unwrap(), "desc");
+        failure!(
+            probe,
+            EventId::new(EVENT_D).unwrap(),
+            tags!("tag-a"),
+            "desc"
+        );
+        failure!(
+            probe,
+            EventId::new(EVENT_D).unwrap(),
+            tags!("tag-a"),
+            severity!(4),
+            "desc"
+        );
+
+        try_failure!(probe, EVENT_D).unwrap();
+        try_failure!(probe, EVENT_D, "desc").unwrap();
+        try_failure!(probe, EVENT_D, "desc", tags!("my tag")).unwrap();
+        try_failure!(probe, EVENT_D, severity!(3), "desc", tags!("my tag")).unwrap();
     }
 
     #[test]

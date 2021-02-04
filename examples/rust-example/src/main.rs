@@ -106,7 +106,8 @@ fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
         PRODUCER_MEASUREMENT_SENT,
         tx_status.is_ok(),
         "Measurement producer sent a measurement",
-        tags!("producer", "transmit", "SEVERITY_10")
+        tags!("producer", "transmit"),
+        severity!(10)
     );
 
     record!(

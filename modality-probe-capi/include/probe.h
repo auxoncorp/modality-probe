@@ -182,6 +182,23 @@ typedef enum {
 #define MODALITY_TAGS(...)
 
 /*
+ * Modality probe severity level specifying macro.
+ *
+ * This is a no-op macro used to expose metadata to the CLI tooling.
+ *
+ * The levels are aligned with the FMEA severity ratings, going
+ * from one to ten, with one indicating negligible or nonexistent harm,
+ * and ten indicating a safety or regulatory hazard.
+ *
+ * Example use:
+ * ```c
+ * MODALITY_SEVERITY(1)
+ * ```
+ *
+ */
+#define MODALITY_SEVERITY(level)
+
+/*
  * Modality probe instance initializer macro.
  *
  * Used to expose probe information to the CLI tooling.
@@ -351,6 +368,7 @@ typedef enum {
  *
  * The trailing variadic macro arguments accept (in any order):
  * - Tags: MODALITY_TAGS(<tag>[,<tag>])
+ * - Severity level: MODALITY_SEVERITY(<level>)
  * - A string for the event description
  *
  * Event with payload descriptions may additionally use a single
@@ -363,6 +381,24 @@ typedef enum {
             probe, \
             event, \
             (expr)) : MODALITY_PROBE_ERROR_OK)
+
+/*
+ * Modality probe failure event recording macro.
+ *
+ * Used to expose failure event recording information to the CLI tooling.
+ *
+ * Expands to call `modality_probe_record(probe, event)`.
+ *
+ * The trailing variadic macro arguments accept (in any order):
+ * - Tags: MODALITY_TAGS(<tag>[,<tag>])
+ * - Severity level: MODALITY_SEVERITY(<level>)
+ * - A string for the event description
+ *
+ */
+#define MODALITY_PROBE_FAILURE(probe, event, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event(\
+            probe, \
+            event) : MODALITY_PROBE_ERROR_OK)
 
 /*
  * Create a Modality probe instance. probe_id must be non-zero.

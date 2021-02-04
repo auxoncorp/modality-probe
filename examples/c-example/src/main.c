@@ -158,7 +158,8 @@ static void run_producer(void)
             g_producer_probe,
             PRODUCER_SAMPLE_DELTA_OK,
             (sample - g_producer_measurement.m) <= 2,
-            MODALITY_TAGS("producer", "SEVERITY_10"),
+            MODALITY_TAGS("producer"),
+            MODALITY_SEVERITY(10),
             "Measurement delta within ok range");
     assert(err == MODALITY_PROBE_ERROR_OK);
 

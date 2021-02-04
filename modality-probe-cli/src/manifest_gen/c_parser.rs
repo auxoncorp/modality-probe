@@ -8,6 +8,7 @@ use crate::manifest_gen::{
     source_location::SourceLocation,
     type_hint::TypeHint,
 };
+use crate::warn;
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take, take_till1, take_until},
@@ -43,6 +44,8 @@ pub enum Error {
     TypeHintNameNotUpperCase(SourceLocation),
     PayloadArgumentSpansManyLines(SourceLocation),
     EmptyTags(SourceLocation),
+    EmptySeverity(SourceLocation),
+    SeverityNotNumeric(SourceLocation),
 }
 
 impl Error {
@@ -54,6 +57,8 @@ impl Error {
             Error::TypeHintNameNotUpperCase(l) => l,
             Error::PayloadArgumentSpansManyLines(l) => l,
             Error::EmptyTags(l) => l,
+            Error::EmptySeverity(l) => l,
+            Error::SeverityNotNumeric(l) => l,
         }
     }
 }
@@ -124,10 +129,15 @@ fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
     let (input, _) = comments_and_spacing(input)?;
     let expect_tag = format!("{}_EXPECT", prefix);
     let (input, found_expect) = peek(opt(tag(expect_tag.as_str())))(input)?;
+    let failure_tag = format!("{}_FAILURE", prefix);
+    let (input, found_failure) = peek(opt(tag(failure_tag.as_str())))(input)?;
     let with_time_tag = format!("{}_RECORD_W_TIME", prefix);
     let (input, found_with_time) = peek(opt(tag(with_time_tag.as_str())))(input)?;
     if found_expect.is_some() {
         let (input, metadata) = expect_call_exp(input)?;
+        Ok((input, metadata))
+    } else if found_failure.is_some() {
+        let (input, metadata) = failure_call_exp(input)?;
         Ok((input, metadata))
     } else if found_with_time.is_some() {
         let (input, metadata) = event_with_time(input)?;
@@ -225,18 +235,28 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     iter.for_each(|s| arg_vec.push(s));
     let (_args, _) = iter.finish()?;
     match arg_vec.len() {
-        1..=3 => (), // At least an expression, maybe tags and description
+        1..=4 => (), // At least an expression, maybe tags, description, severity
         _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
     }
     let expr = arg_vec.remove(0).trim().to_string();
     let mut tags_and_desc = arg_vec;
     for s in tags_and_desc.iter_mut() {
-        *s = truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+        if !s.contains("SEVERITY") {
+            *s =
+                truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+        }
     }
     let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
     let mut tags = tags_pos
         .map(|index| tags_and_desc.swap_remove(index))
         .map(|s| s.replace("tags=", ""));
+    let severity_pos = tags_and_desc.iter().position(|s| s.contains("SEVERITY"));
+    let severity = severity_pos.map(|index| tags_and_desc.swap_remove(index));
+    match (&mut tags, severity) {
+        (Some(t), Some(s)) => t.insert_str(0, &format!("{};", s)),
+        (None, Some(s)) => tags = Some(s),
+        _ => (),
+    }
     if let Some(t) = &mut tags {
         if t.is_empty() {
             return Err(make_failure(input, Error::EmptyTags(pos.into())));
@@ -254,6 +274,76 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
             name,
             probe_instance,
             payload: Some((TypeHint::U32, expr).into()),
+            description,
+            tags,
+            location: pos.into(),
+        },
+    ))
+}
+
+fn failure_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let prefix = input.extra.as_ref().unwrap().prefix;
+    let tag_string = format!("{}_FAILURE", prefix);
+    let (input, pos) = position(input)?;
+    let (input, _) = tag(tag_string.as_str())(input)?;
+    let (input, _) = opt(line_ending)(input)?;
+    let (input, _) = multispace0(input)?;
+    let (input, _) = tag("(")(input)?;
+    let (input, args) = take_until(");")(input)
+        .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (input, _) =
+        tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (args, probe_instance) = variable_call_exp_arg(args)?;
+    let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
+    let (args, name) = if expect_tags_or_desc {
+        variable_call_exp_arg(args)?
+    } else {
+        rest_string(args)?
+    };
+    if !event_name_valid(&name) {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut tags_and_desc: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| tags_and_desc.push(s));
+    let (_args, _) = iter.finish()?;
+    if tags_and_desc.len() > 3 {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    for s in tags_and_desc.iter_mut() {
+        if !s.contains("SEVERITY") {
+            *s =
+                truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+        }
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let mut tags = tags_pos
+        .map(|index| tags_and_desc.remove(index))
+        .map(|s| s.replace("tags=", ""));
+    let severity_pos = tags_and_desc.iter().position(|s| s.contains("SEVERITY"));
+    let severity = severity_pos.map(|index| tags_and_desc.swap_remove(index));
+    match (&mut tags, severity) {
+        (Some(t), Some(s)) => t.insert_str(0, &format!("{};", s)),
+        (None, Some(s)) => tags = Some(s),
+        _ => (),
+    }
+    if let Some(t) = &mut tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+        if !t.contains("FAILURE") {
+            t.insert_str(0, "FAILURE;");
+        }
+    } else {
+        tags = Some(String::from("FAILURE"));
+    }
+    let description = tags_and_desc.pop();
+    Ok((
+        input,
+        EventMetadata {
+            name,
+            probe_instance,
+            payload: None,
             description,
             tags,
             location: pos.into(),
@@ -425,9 +515,12 @@ fn multi_variable_call_exp_arg_literal(input: Span) -> ParserResult<Span, String
         ));
     }
     let (input, expect_tags) = peek(opt(tag("MODALITY_TAGS")))(input)?;
+    let (input, expect_severity) = peek(opt(tag("MODALITY_SEVERITY")))(input)?;
     let expect_another = peek(variable_call_exp_arg_literal)(input).is_ok();
     let (input, arg) = if expect_tags.is_some() {
         modality_tags(input)?
+    } else if expect_severity.is_some() {
+        modality_severity_as_tag(input)?
     } else if expect_another {
         variable_call_exp_arg_literal(input)?
     } else {
@@ -539,6 +632,36 @@ fn modality_tags(input: Span) -> ParserResult<Span, String> {
     Ok((input, tags))
 }
 
+fn modality_severity_as_tag(input: Span) -> ParserResult<Span, String> {
+    let (input, _) = comments_and_spacing(input)?;
+    let (input, pos) = position(input)?;
+    let (input, _) = tag("MODALITY_SEVERITY")(input)?;
+    let (input, level) = delimited(char('('), is_not(")"), char(')'))(input)
+        .map_err(|e| convert_error(e, Error::EmptySeverity(pos.into())))?;
+    let (input, _) = opt(tag(","))(input)?;
+    let level_num = level
+        .fragment()
+        .parse::<u8>()
+        .map_err(|_| make_failure(input, Error::SeverityNotNumeric(pos.into())))?;
+    let clamped_level_num = if level_num < 1 {
+        warn!(
+            "manifest-gen",
+            "Clamping invalid severity level {} to 1", level_num
+        );
+        1
+    } else if level_num > 10 {
+        warn!(
+            "manifest-gen",
+            "Clamping invalid severity level {} to 10", level_num
+        );
+        10
+    } else {
+        level_num
+    };
+    let severity_tag = format!("SEVERITY_{}", clamped_level_num);
+    Ok((input, severity_tag))
+}
+
 fn comments_and_spacing(input: Span) -> ParserResult<Span, ()> {
     let (input, _) = opt(line_ending)(input)?;
     let (input, _) = multispace0(input)?;
@@ -625,6 +748,14 @@ impl fmt::Display for Error {
             Error::EmptyTags(_) => write!(
                 f,
                 "Enountered an empty tags statement while parsing a record event call-site",
+            ),
+            Error::EmptySeverity(_) => write!(
+                f,
+                "Enountered an empty severity level statement while parsing a record event call-site",
+            ),
+            Error::SeverityNotNumeric(_) => write!(
+                f,
+                "Enountered an invalid non-numeric severity level statement while parsing a record event call-site",
             ),
         }
     }
@@ -823,11 +954,13 @@ mod tests {
             probe,
             EVENT_H,
             1 == 0, /* Arbitrary expression, evaluates to 0 (failure) or 1 (success) */
-            MODALITY_TAGS(SEVERITY_1, another tag),
+            MODALITY_TAGS(another tag),
+            MODALITY_SEVERITY(1),
             "Some description");
     assert(err == MODALITY_PROBE_ERROR_OK);
 
-    MODALITY_PROBE_EXPECT(probe, EVENT_I, *foo != (1 + bar), MODALITY_TAGS(EXPECTATION, SEVERITY_2, network));
+    MODALITY_PROBE_EXPECT(probe, EVENT_I, *foo != (1 + bar), MODALITY_SEVERITY(2),
+        MODALITY_TAGS(EXPECTATION, network));
 
     /* Special "EXPECTATION" tag is inserted"
     MODALITY_PROBE_EXPECT(probe, EVENT_J, 0 == 0);
@@ -848,6 +981,17 @@ mod tests {
             "Description");
 
     MODALITY_PROBE_RECORD_W_BOOL_W_TIME(g_probe, EVENT_M, true, 1);
+
+    err = MODALITY_PROBE_FAILURE(probe, EVENT_N);
+    err = MODALITY_PROBE_FAILURE(probe, EVENT_O,
+        "desc",
+        MODALITY_TAGS("tag-a"));
+    err = MODALITY_PROBE_FAILURE(
+        probe,
+        EVENT_P,
+        MODALITY_SEVERITY(5),
+        MODALITY_TAGS("tag-a"),
+        "desc");
 "#;
 
     #[test]
@@ -1011,8 +1155,8 @@ mod tests {
                     probe_instance: "probe".to_string(),
                     payload: Some((TypeHint::U32, "*foo != (1 + bar)").into()),
                     description: None,
-                    tags: Some("EXPECTATION;SEVERITY_2;network".to_string()),
-                    location: (1909, 62, 5).into(),
+                    tags: Some("SEVERITY_2;EXPECTATION;network".to_string()),
+                    location: (1931, 63, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_J".to_string(),
@@ -1020,7 +1164,7 @@ mod tests {
                     payload: Some((TypeHint::U32, "0 == 0").into()),
                     description: None,
                     tags: Some("EXPECTATION".to_string()),
-                    location: (2067, 65, 5).into(),
+                    location: (2107, 67, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_K".to_string(),
@@ -1028,7 +1172,7 @@ mod tests {
                     payload: None,
                     description: Some("Description".to_string()),
                     tags: Some("network;file-system;other-tags".to_string()),
-                    location: (2125, 67, 11).into(),
+                    location: (2165, 69, 11).into(),
                 },
                 EventMetadata {
                     name: "EVENT_L".to_string(),
@@ -1036,7 +1180,7 @@ mod tests {
                     payload: Some((TypeHint::I8, "status").into()),
                     description: Some("Description".to_string()),
                     tags: Some("network;file-system;other-tags".to_string()),
-                    location: (2308, 74, 5).into(),
+                    location: (2348, 76, 5).into(),
                 },
                 EventMetadata {
                     name: "EVENT_M".to_string(),
@@ -1044,7 +1188,31 @@ mod tests {
                     payload: Some((TypeHint::Bool, "true").into()),
                     description: None,
                     tags: None,
-                    location: (2516, 82, 5).into(),
+                    location: (2556, 84, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_N".to_string(),
+                    probe_instance: "probe".to_string(),
+                    payload: None,
+                    description: None,
+                    tags: Some("FAILURE".to_string()),
+                    location: (2631, 86, 11).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_O".to_string(),
+                    probe_instance: "probe".to_string(),
+                    payload: None,
+                    description: Some("desc".to_string()),
+                    tags: Some("FAILURE;tag-a".to_string()),
+                    location: (2681, 87, 11).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_P".to_string(),
+                    probe_instance: "probe".to_string(),
+                    payload: None,
+                    description: Some("desc".to_string()),
+                    tags: Some("FAILURE;SEVERITY_5;tag-a".to_string()),
+                    location: (2779, 90, 11).into(),
                 },
             ])
         );
@@ -1136,5 +1304,26 @@ assert(err == MODALITY_PROBE_ERROR_OK);
         let input = r#"MODALITY_PROBE_RECORD_W_U32(probe, EVENT_A, 123, "desc", MODALITY_TAGS());"#;
         let tokens = parser.parse_event_md(input);
         assert_eq!(tokens, Err(Error::EmptyTags((57, 1, 58).into())));
+    }
+
+    #[test]
+    fn severity_clamps() {
+        let input = Span::new_extra("MODALITY_SEVERITY(0)", None);
+        let (_, output) = modality_severity_as_tag(input).unwrap();
+        assert_eq!(output, "SEVERITY_1".to_string());
+        let input = Span::new_extra("MODALITY_SEVERITY(11)", None);
+        let (_, output) = modality_severity_as_tag(input).unwrap();
+        assert_eq!(output, "SEVERITY_10".to_string());
+        let input = Span::new_extra("MODALITY_SEVERITY(5)", None);
+        let (_, output) = modality_severity_as_tag(input).unwrap();
+        assert_eq!(output, "SEVERITY_5".to_string());
+    }
+
+    #[test]
+    fn empty_severity_errors() {
+        let parser = CParser::default();
+        let input = r#"MODALITY_PROBE_FAILURE(probe, EVENT_A, MODALITY_SEVERITY());"#;
+        let tokens = parser.parse_event_md(input);
+        assert_eq!(tokens, Err(Error::EmptySeverity((39, 1, 40).into())));
     }
 }

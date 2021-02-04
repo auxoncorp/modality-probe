@@ -137,8 +137,23 @@ err = MODALITY_PROBE_EXPECT(
         g_producer_probe,
         PRODUCER_SAMPLE_DELTA_OK,
         (sample - g_producer_measurement.m) <= 2,
-        MODALITY_TAGS("producer", "SEVERITY_10"),
+        MODALITY_TAGS("producer"),
+        MODALITY_SEVERITY(10),
         "Measurement delta within ok range");
+```
+
+### Recording Failures
+
+Failures are special events that get tagged as failures to
+denote "something bad happened".
+
+```rust
+err = MODALITY_PROBE_FAILURE(
+        g_producer_probe,
+        BAD_THING_HAPPENED,
+        MODALITY_TAGS("problem"),
+        MODALITY_SEVERITY(5),
+        "A bad thing happened");
 ```
 
 ### Recording Wall Clock Time

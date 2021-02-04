@@ -132,7 +132,9 @@ bool test_event_recording(void) {
     ERROR_CHECK(result, passed);
     result = MODALITY_PROBE_RECORD_W_F32(t, EVENT_A, 1.23f, "my docs");
     ERROR_CHECK(result, passed);
-    result = MODALITY_PROBE_EXPECT(t, EVENT_A, 1 == 0, "my docs", MODALITY_TAGS("SEVERITY_10"));
+    result = MODALITY_PROBE_EXPECT(t, EVENT_A, 1 == 0, "my docs", MODALITY_TAGS("tag-a"), MODALITY_SEVERITY(10));
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_FAILURE(t, EVENT_A, "my docs", MODALITY_TAGS("tag-a"), MODALITY_SEVERITY(10));
     ERROR_CHECK(result, passed);
     modality_probe_causal_snapshot snap_b;
     result = modality_probe_produce_snapshot(t, &snap_b);
@@ -163,8 +165,6 @@ bool test_event_recording(void) {
     result = MODALITY_PROBE_RECORD_W_BOOL_W_TIME(t, EVENT_A, true, 1, "my docs");
     ERROR_CHECK(result, passed);
     result = MODALITY_PROBE_RECORD_W_F32_W_TIME(t, EVENT_A, 1.23f, 1, "my docs");
-    ERROR_CHECK(result, passed);
-    result = MODALITY_PROBE_EXPECT(t, EVENT_A, 1 == 0, "my docs", MODALITY_TAGS("SEVERITY_10"));
     ERROR_CHECK(result, passed);
     result = modality_probe_produce_snapshot_with_time(t, 1, &snap_b);
     ERROR_CHECK(result, passed);
