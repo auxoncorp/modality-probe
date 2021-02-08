@@ -1261,4 +1261,57 @@ pub(crate) mod test {
             }
         }
     }
+
+    #[test]
+    fn buddy_entries_are_retained() {
+        const EVENTS_PER_REPORT: usize = 27;
+        let mut report_buffer = vec![0u8; 1400];
+        let mut storage = vec![MaybeUninit::new(0u8); 2048];
+        let probe_id = ProbeId::new(1).unwrap();
+        let probe = ModalityProbe::initialize_at(
+            &mut storage,
+            probe_id,
+            NanosecondResolution::UNSPECIFIED,
+            WallClockId::local_only(),
+            RestartCounterProvider::NoRestartTracking,
+        )
+        .unwrap();
+        let event = EventId::new(99999).unwrap();
+        let mut cnt = 0;
+        for _ in 0..10 {
+            for _ in 0..EVENTS_PER_REPORT {
+                probe.record_event_with_payload_with_time(
+                    event,
+                    cnt,
+                    Nanoseconds::new(10 + cnt as u64).unwrap(),
+                );
+                cnt += 1;
+            }
+            let report_size = probe.report(&mut report_buffer).unwrap();
+            let report_size = report_size.unwrap();
+            let report = Report::try_from(&report_buffer[..report_size.get()]).unwrap();
+            let mut report_entry_idx = 0;
+            let mut last_t = 10;
+            let mut last_p = 0;
+            for e in report.event_log.iter() {
+                match e {
+                    EventLogEntry::TraceClock(lc) => assert_eq!(lc.id, probe_id),
+                    EventLogEntry::EventWithPayloadWithTime(t, e, p) => {
+                        assert_eq!(*e, event, "{:?}", e);
+                        assert_eq!(t.get(), *p as u64 + 10, "{:?}", e);
+                        if report_entry_idx != 0 {
+                            assert_eq!(t.get(), last_t + 1);
+                            assert_eq!(*p, last_p + 1);
+                        }
+                        report_entry_idx += 1;
+                        last_t = t.get();
+                        last_p = *p;
+                    }
+                    EventLogEntry::Event(id) => assert_ne!(*id, event, "{:?}", e),
+                    EventLogEntry::EventWithPayload(id, _p) => assert_ne!(*id, event, "{:?}", e),
+                    other @ _ => panic!("{:?}", other),
+                }
+            }
+        }
+    }
 }

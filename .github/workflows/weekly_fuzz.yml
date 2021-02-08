@@ -57,6 +57,13 @@ jobs:
           command: install
           args: cargo-fuzz
 
+      - name: Run tests with extended proptest configs
+        if: steps.check_sha.outputs.cache-hit != 'true'
+        env:
+            PROPTEST_CASES: 100000
+            MODALITY_CLIENT_TIMEOUT: 60
+        run: ./test.sh
+
       - name: Run fuzz tests (30 minutes per fuzz target)
         if: steps.check_sha.outputs.cache-hit != 'true'
         run: |

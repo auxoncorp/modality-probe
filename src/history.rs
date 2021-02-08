@@ -295,6 +295,7 @@ impl<'a> DynamicHistory<'a> {
                 && overwritten
                     .first_entry()
                     .has_wall_clock_time_paired_bit_set()
+                && log_was_full
             {
                 // The buddy entry is either already pop'd in second_overwritten
                 // or the next tail entry in the log
@@ -302,10 +303,8 @@ impl<'a> DynamicHistory<'a> {
                     let buddy_entry = self.log.pop();
 
                     if let Some(e) = buddy_entry {
-                        if log_was_full {
-                            self.missed_log_entry_count =
-                                self.missed_log_entry_count.saturating_add(e.size().into());
-                        }
+                        self.missed_log_entry_count =
+                            self.missed_log_entry_count.saturating_add(e.size().into());
                     }
 
                     self.merge_overwritten_clock(buddy_entry);
@@ -323,15 +322,14 @@ impl<'a> DynamicHistory<'a> {
                 && overwritten
                     .first_entry()
                     .has_wall_clock_time_paired_bit_set()
+                && log_was_full
             {
                 // The buddy entry is the next tail entry in the log
                 let buddy_entry = self.log.pop();
 
                 if let Some(e) = buddy_entry {
-                    if log_was_full {
-                        self.missed_log_entry_count =
-                            self.missed_log_entry_count.saturating_add(e.size().into());
-                    }
+                    self.missed_log_entry_count =
+                        self.missed_log_entry_count.saturating_add(e.size().into());
                 }
 
                 self.merge_overwritten_clock(buddy_entry);
