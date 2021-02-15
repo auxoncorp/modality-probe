@@ -418,10 +418,8 @@ pub unsafe fn modality_probe_merge_snapshot(
     if ProbeId::new(snapshot.clock.id.get_raw()).is_none() {
         MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS
     } else {
-        match probe.merge_snapshot(snapshot) {
-            Ok(_) => MODALITY_PROBE_ERROR_OK,
-            Err(e) => merge_error_to_modality_probe_error(e),
-        }
+        probe.merge_snapshot(snapshot);
+        MODALITY_PROBE_ERROR_OK
     }
 }
 
@@ -451,10 +449,8 @@ pub unsafe fn modality_probe_merge_snapshot_with_time(
     if ProbeId::new(snapshot.clock.id.get_raw()).is_none() {
         MODALITY_PROBE_ERROR_INVALID_EXTERNAL_HISTORY_SEMANTICS
     } else {
-        match probe.merge_snapshot_with_time(snapshot, time) {
-            Ok(_) => MODALITY_PROBE_ERROR_OK,
-            Err(e) => merge_error_to_modality_probe_error(e),
-        }
+        probe.merge_snapshot_with_time(snapshot, time);
+        MODALITY_PROBE_ERROR_OK
     }
 }
 

@@ -151,9 +151,7 @@ fn measurement_consumer_thread(rx: crossbeam_channel::Receiver<Measurement>) {
         trace!("Consumer now {:?}", instant);
 
         // Merge the snapshot from the producer's probe with our (the consumer) probe
-        probe
-            .merge_snapshot(&measurement.snapshot)
-            .expect("Could not merge snapshot");
+        probe.merge_snapshot(&measurement.snapshot);
 
         record_w_i8!(
             probe,

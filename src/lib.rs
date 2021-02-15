@@ -374,15 +374,11 @@ pub trait Probe {
 
     /// Consume a causal history summary structure provided
     /// by some other probe via `produce_snapshot`.
-    fn merge_snapshot(&mut self, external_history: &CausalSnapshot) -> Result<(), MergeError>;
+    fn merge_snapshot(&mut self, external_history: &CausalSnapshot);
 
     /// Consume a causal history summary structure with time provided
     /// by some other probe via `produce_snapshot`.
-    fn merge_snapshot_with_time(
-        &mut self,
-        external_history: &CausalSnapshot,
-        time: Nanoseconds,
-    ) -> Result<(), MergeError>;
+    fn merge_snapshot_with_time(&mut self, external_history: &CausalSnapshot, time: Nanoseconds);
 
     /// Consume a causal history summary blob provided
     /// by some other probe via `produce_snapshot_bytes`.
@@ -749,8 +745,8 @@ impl<'a> Probe for ModalityProbe<'a> {
     }
 
     #[inline]
-    fn merge_snapshot(&mut self, external_history: &CausalSnapshot) -> Result<(), MergeError> {
-        self.history.merge_snapshot(external_history)
+    fn merge_snapshot(&mut self, external_history: &CausalSnapshot) {
+        self.history.merge_snapshot(external_history);
     }
 
     #[inline]
@@ -759,13 +755,9 @@ impl<'a> Probe for ModalityProbe<'a> {
     }
 
     #[inline]
-    fn merge_snapshot_with_time(
-        &mut self,
-        external_history: &CausalSnapshot,
-        time: Nanoseconds,
-    ) -> Result<(), MergeError> {
+    fn merge_snapshot_with_time(&mut self, external_history: &CausalSnapshot, time: Nanoseconds) {
         self.history
-            .merge_snapshot_with_time(external_history, time)
+            .merge_snapshot_with_time(external_history, time);
     }
 
     #[inline]

@@ -85,7 +85,7 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
         WallClockId::local_only(),
         RestartCounterProvider::NoRestartTracking,
     )?;
-    assert!(probe_bar.merge_snapshot(&snap_foo_a).is_ok());
+    probe_bar.merge_snapshot(&snap_foo_a);
     let snap_bar_b = probe_bar.produce_snapshot();
 
     let snap_foo_c = probe_foo.produce_snapshot();
@@ -93,10 +93,10 @@ fn round_trip_merge_snapshot() -> Result<(), ModalityProbeError> {
     assert!(snap_foo_a < snap_foo_c);
     assert_eq!(None, snap_bar_b.partial_cmp(&snap_foo_c));
 
-    assert!(probe_bar.merge_snapshot(&snap_foo_c).is_ok());
+    probe_bar.merge_snapshot(&snap_foo_c);
     let _snap_bar_d = probe_bar.produce_snapshot();
 
-    assert!(probe_bar.merge_snapshot(&snap_foo_c).is_ok());
+    probe_bar.merge_snapshot(&snap_foo_c);
 
     Ok(())
 }
@@ -332,7 +332,7 @@ fn report_does_not_split_interactions() -> Result<(), ModalityProbeError> {
     // Produce a snap from probe 1 and merge it into probe 2's
     // timeline.
     let snap = probe1.produce_snapshot();
-    probe2.merge_snapshot(&snap)?;
+    probe2.merge_snapshot(&snap);
 
     // Cut a report from probe2 that has room for one of the clock
     // entries but not the other.
@@ -551,7 +551,7 @@ proptest! {
         for _ in 0..num_snapshots {
             let snap = snap_probe.produce_snapshot();
 
-            probe.merge_snapshot(&snap).unwrap();
+            probe.merge_snapshot(&snap);
         }
 
         let min_report_size =

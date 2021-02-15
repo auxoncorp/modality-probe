@@ -1144,7 +1144,7 @@ pub(crate) mod test {
 
         let snap = p1.produce_snapshot();
         p2.record_event(EventId::new(2).unwrap());
-        p2.merge_snapshot(&snap).unwrap();
+        p2.merge_snapshot(&snap);
         let n_bytes = p1.report(&mut report_dest).unwrap().unwrap();
         let o_report = Report::try_from(&report_dest[..n_bytes.get()]).unwrap();
         assert_eq!(

@@ -705,16 +705,13 @@ impl<'a> DynamicHistory<'a> {
     }
 
     #[inline]
-    pub(crate) fn merge_snapshot(
-        &mut self,
-        external_history: &CausalSnapshot,
-    ) -> Result<(), MergeError> {
+    pub(crate) fn merge_snapshot(&mut self, external_history: &CausalSnapshot) {
         self.merge_internal(
             external_history.clock.id,
             external_history.clock.epoch,
             external_history.clock.ticks,
             None,
-        )
+        );
     }
 
     #[inline]
@@ -725,7 +722,8 @@ impl<'a> DynamicHistory<'a> {
             external_history.clock.epoch,
             external_history.clock.ticks,
             None,
-        )
+        );
+        Ok(())
     }
 
     #[inline]
@@ -733,13 +731,13 @@ impl<'a> DynamicHistory<'a> {
         &mut self,
         external_history: &CausalSnapshot,
         time: Nanoseconds,
-    ) -> Result<(), MergeError> {
+    ) {
         self.merge_internal(
             external_history.clock.id,
             external_history.clock.epoch,
             external_history.clock.ticks,
             Some(time),
-        )
+        );
     }
 
     #[inline]
@@ -754,7 +752,8 @@ impl<'a> DynamicHistory<'a> {
             external_history.clock.epoch,
             external_history.clock.ticks,
             Some(time),
-        )
+        );
+        Ok(())
     }
 
     // NOTE: if paired_wall_clock_time is provided (via a snapshot merge/produce_with_time),
@@ -766,13 +765,13 @@ impl<'a> DynamicHistory<'a> {
         external_epoch: ProbeEpoch,
         external_clock: ProbeTicks,
         paired_wall_clock_time: Option<Nanoseconds>,
-    ) -> Result<(), MergeError> {
+    ) {
         if external_id == self.probe_id {
             // Quietly ignore self-snapshots in order to reduce complexity
             // around divergence between the self-clock and the frontier set
             // and to allow self-clocks in the log to remain the canonical
             // logical-segment transition point.
-            return Ok(());
+            return;
         }
         self.increment_local_clock();
         if let Some(t) = paired_wall_clock_time {
@@ -786,7 +785,6 @@ impl<'a> DynamicHistory<'a> {
                 ticks: external_clock,
             },
         ]);
-        Ok(())
     }
 
     // NOTE: if there was an associated paired wall clock time entry
@@ -1296,7 +1294,7 @@ mod test {
                 reserved_0: [0, 0],
                 reserved_1: [0, 0],
             };
-            h.merge_snapshot(&remote_snap).unwrap();
+            h.merge_snapshot(&remote_snap);
             assert_eq!(
                 h.now(),
                 ModalityProbeInstant {
@@ -1401,7 +1399,7 @@ mod test {
                 reserved_0: [0, 0],
                 reserved_1: [0, 0],
             };
-            h.merge_snapshot(&remote_snap).unwrap();
+            h.merge_snapshot(&remote_snap);
             assert_eq!(
                 h.now(),
                 ModalityProbeInstant {

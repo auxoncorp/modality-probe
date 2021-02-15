@@ -1,6 +1,6 @@
 [package]
 name = "modality-probe"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
     "Russell Mull <russell@auxon.io>",
