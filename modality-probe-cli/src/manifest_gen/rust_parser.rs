@@ -232,6 +232,7 @@ fn expect_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         if !t.contains("EXPECTATION") {
             t.insert_str(0, "EXPECTATION;");
         }
+        *t = remove_double_quotes(t);
     } else {
         tags = Some(String::from("EXPECTATION"));
     }
@@ -322,6 +323,7 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         if !t.contains("EXPECTATION") {
             t.insert_str(0, "EXPECTATION;");
         }
+        *t = remove_double_quotes(t);
     } else {
         tags = Some(String::from("EXPECTATION"));
     }
@@ -403,6 +405,7 @@ fn failure_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         if !t.contains("FAILURE") {
             t.insert_str(0, "FAILURE;");
         }
+        *t = remove_double_quotes(t);
     } else {
         tags = Some(String::from("FAILURE"));
     }
@@ -489,6 +492,7 @@ fn failure_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         if !t.contains("FAILURE") {
             t.insert_str(0, "FAILURE;");
         }
+        *t = remove_double_quotes(t);
     } else {
         tags = Some(String::from("FAILURE"));
     }
