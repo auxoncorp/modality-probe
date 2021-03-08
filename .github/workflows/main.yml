@@ -15,19 +15,26 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v2
 
+      - name: Find needed nightly toolchain version
+        id: rust_nightly_version
+        run: |
+          OUT=$(cat modality-probe-capi/rust-toolchain)
+          echo "$OUT"
+          echo "##[set-output name=toolchain;]$OUT"
+
+      - name: Install needed nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          components: rustfmt, clippy
+          toolchain: ${{ steps.rust_nightly_version.outputs.toolchain }}
+          override: true
+
       - name: Install stable toolchain
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
           toolchain: stable
-          override: true
-          components: rustfmt, clippy
-
-      - name: Install nightly toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly-2020-10-07
           override: true
           components: rustfmt, clippy
 
