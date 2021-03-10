@@ -98,10 +98,11 @@ jobs:
 
       - name: Prepare Artifacts
         run: |
+          ls -l target/package/tarball/
           ARTIFACT_NAME=modality-probe_$(git describe --always).tar.gz
           ARTIFACT_PATH=target/package/tarball/${ARTIFACT_NAME}
-          echo ::set-env name=ARTIFACT_NAME::${ARTIFACT_NAME}
-          echo ::set-env name=ARTIFACT_PATH::${ARTIFACT_PATH}
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+          echo "ARTIFACT_PATH=${ARTIFACT_PATH}" >> $GITHUB_ENV
 
       - name: Create Release
         id: create_release
