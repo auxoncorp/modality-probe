@@ -166,12 +166,16 @@ bool test_event_recording(void) {
     ERROR_CHECK(result, passed);
     result = MODALITY_PROBE_RECORD_W_F32_W_TIME(t, EVENT_A, 1.23f, 1, "my docs");
     ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_EXPECT_W_TIME(t, EVENT_A, 1 == 0, 1, "my docs", MODALITY_TAGS("tag-a"), MODALITY_SEVERITY(10));
+    ERROR_CHECK(result, passed);
+    result = MODALITY_PROBE_FAILURE_W_TIME(t, EVENT_A, 1, "my docs", MODALITY_TAGS("tag-a"), MODALITY_SEVERITY(10));
+    ERROR_CHECK(result, passed);
     result = modality_probe_produce_snapshot_with_time(t, 1, &snap_b);
     ERROR_CHECK(result, passed);
     result = modality_probe_merge_snapshot_with_time(t, &snap_b, 1);
     ERROR_CHECK(result, passed);
 
-    free(t);
+    free(destination);
     return passed;
 }
 

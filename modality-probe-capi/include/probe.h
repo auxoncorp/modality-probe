@@ -383,11 +383,35 @@ typedef enum {
             (expr)) : MODALITY_PROBE_ERROR_OK)
 
 /*
+ * Modality probe expectation expression event with time recording macro.
+ *
+ * Used to expose expectation event recording information to the CLI tooling.
+ *
+ * Expands to call `modality_probe_record_event_with_payload_u32_with_time(probe, event, expression_outcome, time_ns)`.
+ *
+ * The trailing variadic macro arguments accept (in any order):
+ * - Tags: MODALITY_TAGS(<tag>[,<tag>])
+ * - Severity level: MODALITY_SEVERITY(<level>)
+ * - A string for the event description
+ *
+ * Event with payload descriptions may additionally use a single
+ * format specifier token (`{}`) to have the payload value formatted
+ * in the description when displayed.
+ *
+ */
+#define MODALITY_PROBE_EXPECT_W_TIME(probe, event, expr, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_payload_u32_with_time(\
+            probe, \
+            event, \
+            (expr), \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
+
+/*
  * Modality probe failure event recording macro.
  *
  * Used to expose failure event recording information to the CLI tooling.
  *
- * Expands to call `modality_probe_record(probe, event)`.
+ * Expands to call `modality_probe_record_event(probe, event)`.
  *
  * The trailing variadic macro arguments accept (in any order):
  * - Tags: MODALITY_TAGS(<tag>[,<tag>])
@@ -399,6 +423,25 @@ typedef enum {
     ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event(\
             probe, \
             event) : MODALITY_PROBE_ERROR_OK)
+
+/*
+ * Modality probe failure event with time recording macro.
+ *
+ * Used to expose failure event recording information to the CLI tooling.
+ *
+ * Expands to call `modality_probe_record_event_with_time(probe, event, time_ns)`.
+ *
+ * The trailing variadic macro arguments accept (in any order):
+ * - Tags: MODALITY_TAGS(<tag>[,<tag>])
+ * - Severity level: MODALITY_SEVERITY(<level>)
+ * - A string for the event description
+ *
+ */
+#define MODALITY_PROBE_FAILURE_W_TIME(probe, event, time_ns, ...) \
+    ((MODALITY_PROBE_MACROS_ENABLED) ? modality_probe_record_event_with_time(\
+            probe, \
+            event, \
+            time_ns) : MODALITY_PROBE_ERROR_OK)
 
 /*
  * Create a Modality probe instance. probe_id must be non-zero.

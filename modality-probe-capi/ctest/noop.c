@@ -114,10 +114,14 @@ int main(void) {
     assert(err == MODALITY_PROBE_ERROR_OK);
     err = MODALITY_PROBE_EXPECT(g_probe, EVENT_A, 1 == 0, MODALITY_SEVERITY(2));
     assert(err == MODALITY_PROBE_ERROR_OK);
+    err = MODALITY_PROBE_EXPECT_W_TIME(g_probe, EVENT_A, 1 == 0, 1);
+    assert(err == MODALITY_PROBE_ERROR_OK);
 
     err = MODALITY_PROBE_FAILURE(g_probe, EVENT_A);
     assert(err == MODALITY_PROBE_ERROR_OK);
     err = MODALITY_PROBE_FAILURE(g_probe, EVENT_A, MODALITY_SEVERITY(3));
+    assert(err == MODALITY_PROBE_ERROR_OK);
+    err = MODALITY_PROBE_FAILURE_W_TIME(g_probe, EVENT_A, 1);
     assert(err == MODALITY_PROBE_ERROR_OK);
 
     return 0;
