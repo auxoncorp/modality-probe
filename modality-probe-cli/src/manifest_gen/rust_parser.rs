@@ -151,11 +151,19 @@ fn parse_record_event_call_exp(input: Span) -> ParserResult<Span, EventMetadata>
             Ok((input, metadata))
         }
     } else {
+        let (input, found_expect_w_time) = peek(opt(tag("expect_w_time")))(input)?;
         let (input, found_expect) = peek(opt(tag("expect")))(input)?;
+        let (input, found_failure_w_time) = peek(opt(tag("failure_w_time")))(input)?;
         let (input, found_failure) = peek(opt(tag("failure")))(input)?;
         let (input, found_with_time) = peek(opt(tag("record_w_time")))(input)?;
-        if found_expect.is_some() {
+        if found_expect_w_time.is_some() {
+            let (input, metadata) = expect_w_time_call_exp(input)?;
+            Ok((input, metadata))
+        } else if found_expect.is_some() {
             let (input, metadata) = expect_call_exp(input)?;
+            Ok((input, metadata))
+        } else if found_failure_w_time.is_some() {
+            let (input, metadata) = failure_w_time_call_exp(input)?;
             Ok((input, metadata))
         } else if found_failure.is_some() {
             let (input, metadata) = failure_call_exp(input)?;
@@ -341,6 +349,98 @@ fn expect_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     ))
 }
 
+fn expect_w_time_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let (input, pos) = position(input)?;
+    let (input, _) = tag("expect_w_time!(")(input)?;
+    let (input, _) = opt(line_ending)(input)?;
+    let (input, _) = multispace0(input)?;
+    let (input, args) = take_until(");")(input)
+        .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (input, _) =
+        tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (args, probe_instance) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let (args, full_name) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let arg = Span::new_extra(&full_name, input.extra);
+    let (_, name) = alt((
+        reduced_event_id_exp_alt_a,
+        reduced_event_id_exp_alt_b,
+        reduced_event_id_exp_alt_c,
+    ))(arg)
+    .map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    if !event_name_valid(&name) {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut arg_vec: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| {
+        if !s.is_empty() {
+            arg_vec.push(s)
+        }
+    });
+    let (_args, _) = iter.finish()?;
+    let arg = arg_vec.remove(0);
+    let _time = arg_vec.remove(0);
+    let arg = Span::new_extra(&arg, input.extra);
+    let (_, expr) =
+        rest_literal(arg).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    if expr.is_empty() {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut tags_and_desc: Vec<String> = arg_vec
+        .iter()
+        .filter(|s| !s.is_empty())
+        .map(|s| (*s).to_string())
+        .collect();
+    match tags_and_desc.len() {
+        0..=3 => (), // Maybe tags, severity and description
+        _ => return Err(make_failure(input, Error::Syntax(pos.into()))),
+    }
+    for s in tags_and_desc.iter_mut() {
+        if !s.contains("SEVERITY") {
+            *s =
+                truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+        }
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let mut tags = tags_pos
+        .map(|index| tags_and_desc.swap_remove(index))
+        .map(|s| s.replace("tags=", ""));
+    let severity_pos = tags_and_desc.iter().position(|s| s.contains("SEVERITY"));
+    let severity = severity_pos.map(|index| tags_and_desc.swap_remove(index));
+    match (&mut tags, severity) {
+        (Some(t), Some(s)) => t.insert_str(0, &format!("{};", s)),
+        (None, Some(s)) => tags = Some(s),
+        _ => (),
+    }
+    if let Some(t) = &mut tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+        if !t.contains("EXPECTATION") {
+            t.insert_str(0, "EXPECTATION;");
+        }
+        *t = remove_double_quotes(t);
+    } else {
+        tags = Some(String::from("EXPECTATION"));
+    }
+    let description = tags_and_desc.pop();
+    Ok((
+        input,
+        EventMetadata {
+            name,
+            probe_instance,
+            payload: Some((TypeHint::U32, expr).into()),
+            description,
+            tags,
+            location: pos.into(),
+        },
+    ))
+}
+
 fn failure_try_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
     let (input, pos) = position(input)?;
     let (input, _) = tag("try_failure!")(input)?;
@@ -468,6 +568,94 @@ fn failure_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
         .filter(|s| !s.is_empty())
         .map(|s| (*s).to_string())
         .collect();
+    for s in tags_and_desc.iter_mut() {
+        if !s.contains("SEVERITY") {
+            *s =
+                truncate_and_trim(s).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+        }
+    }
+    let tags_pos = tags_and_desc.iter().position(|s| s.contains("tags="));
+    let mut tags = tags_pos
+        .map(|index| tags_and_desc.swap_remove(index))
+        .map(|s| s.replace("tags=", ""));
+    let severity_pos = tags_and_desc.iter().position(|s| s.contains("SEVERITY"));
+    let severity = severity_pos.map(|index| tags_and_desc.swap_remove(index));
+    match (&mut tags, severity) {
+        (Some(t), Some(s)) => t.insert_str(0, &format!("{};", s)),
+        (None, Some(s)) => tags = Some(s),
+        _ => (),
+    }
+    if let Some(t) = &mut tags {
+        if t.is_empty() {
+            return Err(make_failure(input, Error::EmptyTags(pos.into())));
+        }
+        if !t.contains("FAILURE") {
+            t.insert_str(0, "FAILURE;");
+        }
+        *t = remove_double_quotes(t);
+    } else {
+        tags = Some(String::from("FAILURE"));
+    }
+    let description = tags_and_desc.pop();
+    Ok((
+        input,
+        EventMetadata {
+            name,
+            probe_instance,
+            payload: None,
+            description,
+            tags,
+            location: pos.into(),
+        },
+    ))
+}
+
+fn failure_w_time_call_exp(input: Span) -> ParserResult<Span, EventMetadata> {
+    let (input, pos) = position(input)?;
+    let (input, _) = tag("failure_w_time!(")(input)?;
+    let (input, _) = opt(line_ending)(input)?;
+    let (input, _) = multispace0(input)?;
+    let (input, args) = take_until(");")(input)
+        .map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (input, _) =
+        tag(");")(input).map_err(|e| convert_error(e, Error::MissingSemicolon(pos.into())))?;
+    let (args, probe_instance) =
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+    let expect_tags_or_desc = peek(variable_call_exp_arg)(args).is_ok();
+    let (args, full_name) = if expect_tags_or_desc {
+        variable_call_exp_arg(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
+    } else {
+        let (args, name_token) =
+            take_until(")")(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+        let (_args, _) = tag(")")(args).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?;
+        rest_string(name_token).map_err(|e| convert_error(e, Error::Syntax(pos.into())))?
+    };
+    let arg = Span::new_extra(&full_name, input.extra);
+    let (_, name) = alt((
+        reduced_event_id_exp_alt_a,
+        reduced_event_id_exp_alt_b,
+        reduced_event_id_exp_alt_c,
+    ))(arg)
+    .map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    let name =
+        reduce_namespace(&name).map_err(|_| make_failure(input, Error::Syntax(pos.into())))?;
+    if !event_name_valid(&name) {
+        return Err(make_failure(input, Error::Syntax(pos.into())));
+    }
+    let mut arg_vec: Vec<String> = Vec::new();
+    let mut iter = iterator(args, multi_variable_call_exp_arg_literal);
+    iter.for_each(|s| {
+        if !s.is_empty() {
+            arg_vec.push(s)
+        }
+    });
+    let (_args, _) = iter.finish()?;
+    let mut tags_and_desc: Vec<String> = arg_vec
+        .iter()
+        .filter(|s| !s.is_empty())
+        .map(|s| (*s).to_string())
+        .collect();
+    let _time = tags_and_desc.remove(0);
     for s in tags_and_desc.iter_mut() {
         if !s.contains("SEVERITY") {
             *s =
@@ -1524,6 +1712,23 @@ mod tests {
     try_failure!(probe, EVENT_P);
     try_failure!(probe, EVENT_P, tags!("tag-a"));
     try_failure!(probe, EVENT_P, tags!("tag-a"), severity!(4), "desc");
+    failure_w_time!(
+            probe,
+            EventId::new(EVENT_D).unwrap(),
+            Nanoseconds::new(3).unwrap(),
+            severity!(4),
+            tags!("some-tag"),
+            "desc"
+    );
+    expect_w_time!(
+            probe,
+            EventId::new(EVENT_D).unwrap(),
+            s1 != s2,
+            Nanoseconds::new(3).unwrap(),
+            tags!("tag-a"),
+            "desc",
+            severity!(1)
+    );
 "#;
 
     #[test]
@@ -1795,6 +2000,22 @@ mod tests {
                     description: Some("desc".to_string()),
                     tags: Some("FAILURE;SEVERITY_4;tag-a".to_string()),
                     location: (2882, 115, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_D".to_string(),
+                    probe_instance: "probe".to_string(),
+                    payload: None,
+                    description: Some("desc".to_string()),
+                    tags: Some("FAILURE;SEVERITY_4;some-tag".to_string()),
+                    location: (2954, 116, 5).into(),
+                },
+                EventMetadata {
+                    name: "EVENT_D".to_string(),
+                    probe_instance: "probe".to_string(),
+                    payload: Some((TypeHint::U32, "s1 != s2").into()),
+                    description: Some("desc".to_string()),
+                    tags: Some("EXPECTATION;SEVERITY_1;tag-a".to_string()),
+                    location: (3163, 124, 5).into(),
                 },
             ])
         );

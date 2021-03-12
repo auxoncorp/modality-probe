@@ -866,6 +866,48 @@ macro_rules! try_expect {
     }};
 }
 
+/// Expectation expression recording with time convenience macro that calls
+/// [ModalityProbe::record_event_with_payload_with_time](struct.ModalityProbe.html#method.record_event_with_payload_with_time).
+///
+/// The optional description and tag arguments are only used
+/// by the CLI and compile away.
+#[macro_export(local_inner_macros)]
+macro_rules! expect_w_time {
+    ($probe:expr, $event:expr, $expression:expr, $time:expr) => {{
+        __record_with_time!($probe, $event, $expression, $time)
+    }};
+    ($probe:expr, $event:expr, $expression:expr, $time:expr, $desc_or_tags_or_severity:expr) => {{
+        __record_with_time!($probe, $event, $expression, $time)
+    }};
+    ($probe:expr, $event:expr, $expression:expr, $time:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr) => {{
+        __record_with_time!($probe, $event, $expression, $time)
+    }};
+    ($probe:expr, $event:expr, $expression:expr, $time:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr, $desc_or_tags_or_severity_2:expr) => {{
+        __record_with_time!($probe, $event, $expression, $time)
+    }};
+}
+
+/// Expectation expression recording with time convenience macro that calls
+/// [ModalityProbe::try_record_event_with_payload_with_time](struct.ModalityProbe.html#method.try_record_event_with_payload_with_time).
+///
+/// The optional description and tag arguments are only used
+/// by the CLI and compile away.
+#[macro_export(local_inner_macros)]
+macro_rules! try_expect_w_time {
+    ($probe:expr, $event:expr, $expression:expr, $time:expr) => {{
+        __try_record_with_time!($probe, $event, $expression, $time)
+    }};
+    ($probe:expr, $event:expr, $expression:expr, $time:expr, $desc_or_tags_or_severity:expr) => {{
+        __try_record_with_time!($probe, $event, $expression, $time)
+    }};
+    ($probe:expr, $event:expr, $expression:expr, $time:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr) => {{
+        __try_record_with_time!($probe, $event, $expression, $time)
+    }};
+    ($probe:expr, $event:expr, $expression:expr, $time:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr, $desc_or_tags_or_severity_2:expr) => {{
+        __try_record_with_time!($probe, $event, $expression, $time)
+    }};
+}
+
 /// Failure recording convenience macro that calls
 /// [ModalityProbe::record_event](struct.ModalityProbe.html#method.record_event).
 ///
@@ -905,6 +947,48 @@ macro_rules! try_failure {
     };
     ($probe:expr, $event:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr, $desc_or_tags_or_severity_2:expr) => {
         $probe.try_record_event($event)
+    };
+}
+
+/// Failure recording with time convenience macro that calls
+/// [ModalityProbe::record_event_with_time](struct.ModalityProbe.html#method.record_event_with_time).
+///
+/// The optional description and tag arguments are only used
+/// by the CLI and compile away.
+#[macro_export]
+macro_rules! failure_w_time {
+    ($probe:expr, $event:expr, $time:expr) => {
+        $probe.record_event_with_time($event, $time)
+    };
+    ($probe:expr, $event:expr, $time:expr, $desc_or_tags_or_severity:expr) => {
+        $probe.record_event_with_time($event, $time)
+    };
+    ($probe:expr, $event:expr, $time:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr) => {
+        $probe.record_event_with_time($event, $time)
+    };
+    ($probe:expr, $event:expr, $time:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr, $desc_or_tags_or_severity_2:expr) => {
+        $probe.record_event_with_time($event, $time)
+    };
+}
+
+/// Failure recording with time convenience macro that calls
+/// [ModalityProbe::try_record_event_with_time](struct.ModalityProbe.html#method.try_record_event_with_time).
+///
+/// The optional description and tag arguments are only used
+/// by the CLI and compile away.
+#[macro_export]
+macro_rules! try_failure_w_time {
+    ($probe:expr, $event:expr, $time:expr) => {
+        $probe.try_record_event_with_time($event, $time)
+    };
+    ($probe:expr, $event:expr, $time:expr, $desc_or_tags_or_severity:expr) => {
+        $probe.try_record_event_with_time($event, $time)
+    };
+    ($probe:expr, $event:expr, $time:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr) => {
+        $probe.try_record_event_with_time($event, $time)
+    };
+    ($probe:expr, $event:expr, $time:expr, $desc_or_tags_or_severity_0:expr, $desc_or_tags_or_severity_1:expr, $desc_or_tags_or_severity_2:expr) => {
+        $probe.try_record_event_with_time($event, $time)
     };
 }
 
@@ -1200,6 +1284,15 @@ mod tests {
             "desc",
             severity!(1)
         );
+        expect_w_time!(
+            probe,
+            EventId::new(EVENT_D).unwrap(),
+            "s1" != "s2",
+            Nanoseconds::new(3).unwrap(),
+            tags!("tag-a"),
+            "desc",
+            severity!(1)
+        );
 
         try_expect!(probe, EVENT_D, true == true).unwrap();
         try_expect!(probe, EVENT_D, 1 == (2 - 1), "desc").unwrap();
@@ -1210,6 +1303,16 @@ mod tests {
             probe,
             EVENT_D,
             a != b,
+            "desc",
+            severity!(2),
+            tags!("my expect tag")
+        )
+        .unwrap();
+        try_expect_w_time!(
+            probe,
+            EVENT_D,
+            a != b,
+            TIME,
             "desc",
             severity!(2),
             tags!("my expect tag")
@@ -1231,11 +1334,20 @@ mod tests {
             severity!(4),
             "desc"
         );
+        failure_w_time!(
+            probe,
+            EventId::new(EVENT_D).unwrap(),
+            Nanoseconds::new(3).unwrap(),
+            severity!(4),
+            tags!("some-tag"),
+            "desc"
+        );
 
         try_failure!(probe, EVENT_D).unwrap();
         try_failure!(probe, EVENT_D, "desc").unwrap();
         try_failure!(probe, EVENT_D, "desc", tags!("my tag")).unwrap();
         try_failure!(probe, EVENT_D, severity!(3), "desc", tags!("my tag")).unwrap();
+        try_failure_w_time!(probe, EVENT_D, TIME, severity!(3), "desc", tags!("my tag")).unwrap();
     }
 
     #[test]
