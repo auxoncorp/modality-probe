@@ -5,7 +5,7 @@ on: [pull_request]
 jobs:
   linux:
     name: Tarball
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     steps:
       - name: Install system packages
         run: sudo apt-get install -y help2man gzip libusb-1.0-0-dev musl-tools
