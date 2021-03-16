@@ -86,7 +86,7 @@ fn measurement_producer_thread(tx: crossbeam_channel::Sender<Measurement>) {
     trace!("Producer now {:?}", instant);
 
     let mut rng = thread_rng();
-    let m: i8 = 1 + rng.gen_range(-1, 2);
+    let m: i8 = 1 + rng.gen_range(-1..2);
 
     record_w_i8!(
         probe,
