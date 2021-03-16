@@ -35,5 +35,5 @@ cargo test --workspace
 
 # This is just to make sure that the fuzz tests actually /can/ build and run
 for target in `cargo fuzz list`; do
-     RUSTUP_TOOLCHAIN=nightly cargo fuzz run $target -- -max_total_time=1s
+     RUSTUP_TOOLCHAIN=nightly-2020-10-07 cargo fuzz run $target -- -max_total_time=1s
 done

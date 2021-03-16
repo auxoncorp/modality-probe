@@ -9,7 +9,7 @@ default = []
 test_support = ["chrono"]
 
 [dependencies]
-err-derive = "0.2.4"
+err-derive = "0.3"
 chrono = {optional = true, version = "0.4"}
 
 modality-probe = { path = "../" }
