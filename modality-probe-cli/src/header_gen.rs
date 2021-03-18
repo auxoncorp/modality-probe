@@ -7,7 +7,7 @@ use crate::{
 };
 use modality_probe::{EventId, ProbeId};
 use sha3::{Digest, Sha3_256};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -382,7 +382,26 @@ pub fn run(opt: HeaderGen, internal_events: Option<Vec<Event>>) {
     let internal_event_ids: Vec<u32> = internal_events.iter().map(|event| event.id.0).collect();
 
     let io_out: Box<dyn io::Write> = if let Some(p) = &opt.output_path {
-        Box::new(File::create(p).unwrap())
+        if let Some(parent) = p.parent() {
+            if let Err(e) = fs::create_dir_all(parent) {
+                exit_error!(
+                    "header-gen",
+                    "Can't create output file parent directory components for {}. {:?}",
+                    p.display(),
+                    e
+                );
+            }
+        }
+        let f = File::create(p);
+        if let Err(e) = f {
+            exit_error!(
+                "header-gen",
+                "Can't create output file {}. {:?}",
+                p.display(),
+                e
+            );
+        }
+        Box::new(f.unwrap())
     } else {
         Box::new(io::stdout())
     };

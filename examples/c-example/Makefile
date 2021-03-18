@@ -48,7 +48,6 @@ gen-manifest:
 		.
 
 gen-header:
-	@mkdir -p include
 	@../../target/debug/modality-probe \
 		header-gen \
 		--lang C \
