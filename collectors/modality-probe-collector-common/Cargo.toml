@@ -16,4 +16,4 @@ fenced-ring-buffer = { path = "../../fenced-ring-buffer" }
 
 [dev-dependencies]
 proptest = { version = "1.0", default-features = false, features = ["std"]}
-pretty_assertions = "0.6"
+pretty_assertions = "0.7"

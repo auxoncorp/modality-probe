@@ -43,5 +43,5 @@ lazy_static = "1.4.0"
 proc-graph = "0.1.0"
 proptest = { version = "1.0", default-features = false, features = ["std"]}
 tempfile = "3"
-pretty_assertions = "0.6"
+pretty_assertions = "0.7"
 modality-probe = { path = "../../" }

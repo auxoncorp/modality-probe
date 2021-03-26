@@ -81,7 +81,7 @@ features = ["curly"]
 nix = "0.20.0"
 
 [dev-dependencies]
-pretty_assertions = "0.6"
+pretty_assertions = "0.7"
 tempfile = "3.1"
 proptest = { version = "1.0", default-features = false, features = ["std"]}
 modality-probe-graph = { path = "../modality-probe-graph", features = ["test_support"] }

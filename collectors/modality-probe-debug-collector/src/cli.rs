@@ -130,12 +130,12 @@ pub(crate) fn config_from_options(options: Opts) -> Result<Config, CliError> {
         return Err(CliError::MissingElfFileError);
     }
 
-    let interval = parse_duration::parse(&options.interval_duration)
+    let interval = humantime::parse_duration(&options.interval_duration)
         .map_err(|_e| CliError::InvalidDuration(options.interval_duration.to_string()))?;
 
     let init_timeout = if let Some(timeout) = options.init_timeout.as_ref() {
         Some(
-            parse_duration::parse(timeout)
+            humantime::parse_duration(timeout)
                 .map_err(|_e| CliError::InvalidDuration(timeout.to_string()))?,
         )
     } else {

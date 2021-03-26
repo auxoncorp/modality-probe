@@ -21,14 +21,14 @@ path = "src/lib.rs"
 goblin = "0.2.3"
 chrono = { version = "0.4", features = ["serde"] }
 structopt = "0.3"
-parse_duration = "2.1.0"
+humantime = "2.1"
 probe-rs = "0.8"
 maplit = "1.0.2"
 tempfile = "3.1.0"
 err-derive = "0.3"
 ctrlc = "3.1.6"
 crossbeam-channel = "0.4.3"
-pretty_assertions = "0.6"
+pretty_assertions = "0.7"
 
 fenced-ring-buffer = { path = "../../fenced-ring-buffer", features = ["std"] }
 modality-probe = { path = "../..", features = ["debug-collector-access"] }
