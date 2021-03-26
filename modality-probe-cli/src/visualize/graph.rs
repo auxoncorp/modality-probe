@@ -470,7 +470,7 @@ pub(crate) mod test {
             .as_complete()
             .dot(&cfg, "complete", templates::COMPLETE)
             .unwrap();
-        assert!(dot.contains("one_one_1_1 ->\n    two_two_1_3"), dot);
+        assert!(dot.contains("one_one_1_1 ->\n    two_two_1_3"), "{}", dot);
     }
 
     #[test]
@@ -486,7 +486,7 @@ pub(crate) mod test {
             .as_interactions()
             .dot(&cfg, "interactions", templates::INTERACTIONS)
             .unwrap();
-        assert!(dot.contains("one_0 -> two_1"), dot);
+        assert!(dot.contains("one_0 -> two_1"), "{}", dot);
     }
 
     #[test]
@@ -502,7 +502,7 @@ pub(crate) mod test {
             .as_states()
             .dot(&cfg, "states", templates::STATES)
             .unwrap();
-        assert!(dot.contains("one_AT_one ->\n    two_AT_two"), dot);
+        assert!(dot.contains("one_AT_one ->\n    two_AT_two"), "{}", dot);
     }
 
     #[test]
@@ -518,6 +518,6 @@ pub(crate) mod test {
             .as_topology()
             .dot(&cfg, "topo", templates::TOPO)
             .unwrap();
-        assert!(dot.contains("one -> two"), dot);
+        assert!(dot.contains("one -> two"), "{}", dot);
     }
 }

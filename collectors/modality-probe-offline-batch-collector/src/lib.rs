@@ -129,7 +129,7 @@ impl<'a, I: Read, O: Write> OfflineBatchCollector<'a, I, O> {
                 let slice = &bytes[idx..];
                 if slice.len() >= self.fingerprint_len {
                     fingerprint_offsets_checked += 1;
-                    let r = WireReport::new_unchecked(&slice[..]);
+                    let r = WireReport::new_unchecked(slice);
                     if r.check_fingerprint().is_ok() {
                         fingerprint_offset = Some(idx);
                         debug!(
@@ -188,7 +188,7 @@ impl<'a, I: Read, O: Write> OfflineBatchCollector<'a, I, O> {
                 Some(fingerprint_offset) => {
                     bytes_consumed += fingerprint_offset;
                     let slice = &bytes[fingerprint_offset..];
-                    let r = WireReport::new_unchecked(&slice[..]);
+                    let r = WireReport::new_unchecked(slice);
                     if r.check_len().is_ok() && r.check_payload_len().is_ok() {
                         let payload_len = r.payload_len();
                         let report_size = self.header_len + payload_len;

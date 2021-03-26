@@ -3,7 +3,7 @@ use std::convert::TryFrom;
 use std::fs::File;
 use std::io::prelude::*;
 use std::net::SocketAddrV4;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
 use goblin::elf::Elf;
@@ -193,7 +193,7 @@ fn parse_probe_address(input: &str, use_64_bit: bool) -> Result<Option<ProbeAddr
 }
 
 /// Open elf file for parsing
-fn open_elf<'a>(path: &PathBuf, elf_buf: &'a mut Vec<u8>) -> Result<Elf<'a>, CliError> {
+fn open_elf<'a>(path: &Path, elf_buf: &'a mut Vec<u8>) -> Result<Elf<'a>, CliError> {
     let mut file = File::open(path).map_err(|_e| CliError::ElfFileError)?;
     file.read_to_end(elf_buf)
         .map_err(|_e| CliError::ElfFileError)?;

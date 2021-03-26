@@ -34,7 +34,7 @@ pub fn read_log_entries<R: Read>(r: &mut R) -> Result<Vec<ReportLogEntry>, Error
             Err(e) => Err(Error::Serialization(format!("unable to read log: {}", e))),
         })
         .collect();
-    Ok(entries?)
+    entries
 }
 
 #[cfg(test)]

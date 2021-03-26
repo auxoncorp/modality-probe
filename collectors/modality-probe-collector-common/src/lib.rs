@@ -30,9 +30,9 @@ macro_rules! newtype {
             }
         }
 
-        impl Into<$t> for &$name {
-            fn into(self) -> $t {
-                self.0
+        impl From<&$name> for $t {
+            fn from(val: &$name) -> $t {
+                val.0
             }
         }
     };

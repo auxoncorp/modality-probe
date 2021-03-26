@@ -52,20 +52,20 @@ impl Word {
     }
 }
 
-impl Into<usize> for Word {
-    fn into(self) -> usize {
-        match self {
-            Self::U32(n) => n as usize,
-            Self::U64(n) => n as usize,
+impl From<Word> for usize {
+    fn from(w: Word) -> Self {
+        match w {
+            Word::U32(n) => n as usize,
+            Word::U64(n) => n as usize,
         }
     }
 }
 
-impl Into<u64> for Word {
-    fn into(self) -> u64 {
-        match self {
-            Self::U32(n) => n as u64,
-            Self::U64(n) => n,
+impl From<Word> for u64 {
+    fn from(w: Word) -> Self {
+        match w {
+            Word::U32(n) => n as u64,
+            Word::U64(n) => n,
         }
     }
 }
