@@ -17,7 +17,6 @@ use crate::{
 
 // 2 empty columns between each timeline.
 const COL_SPACE: &str = "  ";
-const COL_EDGE: &str = "--";
 
 pub(super) fn print_as_graph<W: WriteIo>(
     mut probes: BTreeMap<ProbeId, Vec<ReportLogEntry>>,
@@ -456,7 +455,7 @@ pub fn print_event_row<W: WriteIo>(
             )?;
         } else {
             hopefully!(
-                write!(s, "{}{}", color::colorize_probe(i, "|"), COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(i, "║"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         }
@@ -479,12 +478,12 @@ pub fn print_info_row<W: WriteIo>(
         // don't include the column spacing.
         if i == n_probe.saturating_sub(1) && info.is_empty() {
             hopefully!(
-                write!(s, "{}", color::colorize_probe(i, "|")),
+                write!(s, "{}", color::colorize_probe(i, "║")),
                 "Internal error formatting graph"
             )?;
         } else {
             hopefully!(
-                write!(s, "{}{}", color::colorize_probe(i, "|"), COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(i, "║"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         }
@@ -516,9 +515,9 @@ pub fn print_edge_line<W: WriteIo>(
                 write!(
                     s,
                     "{}{}{}",
-                    color::colorize_probe(from, "+"),
-                    color::colorize_probe(from, &COL_EDGE[1..]),
-                    color::colorize_probe(from, ">")
+                    color::colorize_probe(from, "╚"),
+                    color::colorize_probe(from, "═"),
+                    color::colorize_probe(to, "»")
                 ),
                 "Internal error formatting graph"
             )?;
@@ -528,21 +527,21 @@ pub fn print_edge_line<W: WriteIo>(
                 write!(
                     s,
                     "{}{}",
-                    color::colorize_probe(from, "+"),
-                    color::colorize_probe(from, COL_EDGE)
+                    color::colorize_probe(from, "╚"),
+                    color::colorize_probe(from, "══")
                 ),
                 "Internal error formatting graph"
             )?;
         // This timeline is the source (right-to-left).
         } else if i == from {
             hopefully!(
-                write!(s, "{}{}", color::colorize_probe(from, "+"), COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(from, "╝"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         // This timeline is the target (in left-to-right).
         } else if l_to_r && i == to {
             hopefully!(
-                write!(s, "+{}", COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(to, "╗"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         // This timeline is the target (in right-to-left).
@@ -550,9 +549,10 @@ pub fn print_edge_line<W: WriteIo>(
             hopefully!(
                 write!(
                     s,
-                    "+{}{}",
-                    color::colorize_probe(from, "<"),
-                    color::colorize_probe(from, &COL_EDGE[1..])
+                    "{}{}{}",
+                    color::colorize_probe(to, "╔"),
+                    color::colorize_probe(to, "«"),
+                    color::colorize_probe(from, "═")
                 ),
                 "Internal error formatting graph"
             )?;
@@ -562,8 +562,8 @@ pub fn print_edge_line<W: WriteIo>(
                 write!(
                     s,
                     "{}{}",
-                    color::colorize_probe(from, COL_EDGE),
-                    color::colorize_probe(from, ">")
+                    color::colorize_probe(from, "══"),
+                    color::colorize_probe(to, "»")
                 ),
                 "Internal error formatting graph"
             )?;
@@ -574,14 +574,14 @@ pub fn print_edge_line<W: WriteIo>(
                 write!(
                     s,
                     "{}{}",
-                    color::colorize_probe(from, "-"),
-                    color::colorize_probe(from, COL_EDGE)
+                    color::colorize_probe(from, "═"),
+                    color::colorize_probe(from, "══")
                 ),
                 "Internal error formatting graph"
             )?;
         } else {
             hopefully!(
-                write!(s, "{}{}", color::colorize_probe(i, "|"), COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(i, "║"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         }
@@ -618,11 +618,11 @@ pub fn print_missing_edge_line<W: WriteIo>(
             hopefully!(
                 write!(
                     s,
-                    "+{}{}",
+                    "╔{}{}",
                     if let Some(fi) = from_idx {
-                        color::colorize_probe(*fi, "<-").to_string()
+                        color::colorize_probe(*fi, "«").to_string()
                     } else {
-                        "<-".to_string()
+                        "«".to_string()
                     },
                     &COL_SPACE[2..]
                 ),
@@ -630,7 +630,7 @@ pub fn print_missing_edge_line<W: WriteIo>(
             )?;
         } else {
             hopefully!(
-                write!(s, "{}{}", color::colorize_probe(i, "|"), COL_SPACE),
+                write!(s, "{}{}", color::colorize_probe(i, "║"), COL_SPACE),
                 "Internal error formatting graph"
             )?;
         }
@@ -1163,32 +1163,32 @@ pub(crate) mod test {
     }
 
     const EXPECTED_GRAPH: &str = "\
-|  |  |  *  four @ four (1:4:0:1:1)
-|  |  |  |
-|  +<-+  |  two merged a snapshot from three
-|  |  |  |
-|  |  |  *  four @ four (1:4:0:1:2)
-|  |  |  |
-|  *  |  |  two @ two (1:2:1:1:3)
-|  |  |  |
-|  |  |  *  four @ four (1:4:0:1:3)
-|  |  |  |
-+->+  |  |  two merged a snapshot from one
-|  |  |  |
-*  |  |  |  one @ one (1:1:1:1:2)
-|  |  |  |
-|  *  |  |  two @ two (1:2:2:1:6)
-|  |  |  |
-*  |  |  |  one @ one (1:1:1:1:3)
-|  |  |  |
-|  +->+  |  three merged a snapshot from two
-|  |  |  |
-+<-+  |  |  one merged a snapshot from two
-|  |  |  |
-|  *  |  |  two @ two (1:2:4:1:9)
-|  |  |  |
-|  *  |  |  two @ two (1:2:4:1:10)
-|  |  |  |
+║  ║  ║  *  four @ four (1:4:0:1:1)
+║  ║  ║  ║
+║  ╔«═╝  ║  two merged a snapshot from three
+║  ║  ║  ║
+║  ║  ║  *  four @ four (1:4:0:1:2)
+║  ║  ║  ║
+║  *  ║  ║  two @ two (1:2:1:1:3)
+║  ║  ║  ║
+║  ║  ║  *  four @ four (1:4:0:1:3)
+║  ║  ║  ║
+╚═»╗  ║  ║  two merged a snapshot from one
+║  ║  ║  ║
+*  ║  ║  ║  one @ one (1:1:1:1:2)
+║  ║  ║  ║
+║  *  ║  ║  two @ two (1:2:2:1:6)
+║  ║  ║  ║
+*  ║  ║  ║  one @ one (1:1:1:1:3)
+║  ║  ║  ║
+║  ╚═»╗  ║  three merged a snapshot from two
+║  ║  ║  ║
+╔«═╝  ║  ║  one merged a snapshot from two
+║  ║  ║  ║
+║  *  ║  ║  two @ two (1:2:4:1:9)
+║  ║  ║  ║
+║  *  ║  ║  two @ two (1:2:4:1:10)
+║  ║  ║  ║
 ";
 
     #[test]
@@ -1492,22 +1492,22 @@ pub(crate) mod test {
     }
 
     const EXPECTED_FANOUT: &str = "\
-|  |  *  three @ three (1:3:0:1:1)
-|  |  |
-+->+  |  two merged a snapshot from one
-|  |  |
-|  |  *  three @ three (1:3:0:1:2)
-|  |  |
-|  *  |  two @ two (1:2:1:1:3)
-|  |  |
-|  |  *  three @ three (1:3:0:1:3)
-|  |  |
-+---->+  three merged a snapshot from one
-|  |  |
-*  |  |  one @ one (1:1:1:1:2)
-|  |  |
-*  |  |  one @ one (1:1:1:1:3)
-|  |  |
+║  ║  *  three @ three (1:3:0:1:1)
+║  ║  ║
+╚═»╗  ║  two merged a snapshot from one
+║  ║  ║
+║  ║  *  three @ three (1:3:0:1:2)
+║  ║  ║
+║  *  ║  two @ two (1:2:1:1:3)
+║  ║  ║
+║  ║  *  three @ three (1:3:0:1:3)
+║  ║  ║
+╚════»╗  three merged a snapshot from one
+║  ║  ║
+*  ║  ║  one @ one (1:1:1:1:2)
+║  ║  ║
+*  ║  ║  one @ one (1:1:1:1:3)
+║  ║  ║
 ";
 
     #[test]
