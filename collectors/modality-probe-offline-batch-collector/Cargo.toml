@@ -22,7 +22,7 @@ path = "src/lib.rs"
 structopt = "0.3"
 env_logger = "0.7.1"
 log = "0.4"
-buf_redux = { version = "0.8", features = ["slice-deque"] }
+buf_redux = { version = "0.8", default-features = false }
 chrono = { version = "0.4", features = ["serde"] }
 modality-probe = { path = "../../", features = ["std"] }
 modality-probe-collector-common = { path = "../modality-probe-collector-common" }

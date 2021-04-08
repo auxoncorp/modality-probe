@@ -91,7 +91,7 @@ impl<'a, I: Read, O: Write> OfflineBatchCollector<'a, I, O> {
             metrics: ReportMetrics::default(),
             session_id,
             eof_reached: false,
-            reader: BufReader::with_capacity_ringbuf(8192, reader),
+            reader: BufReader::with_capacity(8192, reader),
             log_output_writer,
         }
     }
@@ -230,6 +230,7 @@ impl<'a, I: Read, O: Write> OfflineBatchCollector<'a, I, O> {
                             warn!("Error writing log entries: {}", e);
                         }
                         self.log_output_writer.flush()?;
+                        self.reader.make_room();
                     } else {
                         // Need more data to fullfill the report, check if any is available
                         // or if we're at the EOF
