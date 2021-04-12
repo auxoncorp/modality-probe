@@ -18,6 +18,8 @@ pub struct Component {
     pub code_hash: Option<ComponentHash>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "serde_hex")]
     pub instrumentation_hash: Option<ComponentHash>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 impl Component {

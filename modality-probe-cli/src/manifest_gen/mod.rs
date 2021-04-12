@@ -168,6 +168,7 @@ pub fn run(opt: ManifestGen, internal_events: Option<Vec<Event>>) {
             id: ComponentUuid::new(),
             code_hash: Some(invocations.code_hash()),
             instrumentation_hash: Some(instrumentation_hash),
+            tags: Default::default(),
         }
     };
 
