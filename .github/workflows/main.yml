@@ -7,10 +7,8 @@ jobs:
     name: Linux
     runs-on: ubuntu-20.04
     steps:
-      - name: Install libusb
-        run: sudo apt-get install -y libusb-1.0-0-dev
-      - name: install dot
-        run: sudo apt-get install -y graphviz
+      - name: Install system packages
+        run: sudo apt-get install -y libusb-1.0-0-dev graphviz clang llvm
 
       - name: Checkout sources
         uses: actions/checkout@v2

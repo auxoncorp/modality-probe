@@ -1,3 +1,4 @@
 test-static
 test-dyn
 test-noop
+test-asan

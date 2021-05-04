@@ -24,7 +24,7 @@ jobs:
 
       - name: Install system dependencies
         if: steps.check_sha.outputs.cache-hit != 'true'
-        run: sudo apt-get install -y libusb-1.0-0-dev graphviz
+        run: sudo apt-get install -y libusb-1.0-0-dev graphviz clang llvm
 
       - name: Checkout sources
         if: steps.check_sha.outputs.cache-hit != 'true'

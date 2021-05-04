@@ -368,6 +368,7 @@ bool test_now(void) {
 
     free(destination_a);
     free(destination_b);
+    free(log_storage);
     return passed;
 }
 
