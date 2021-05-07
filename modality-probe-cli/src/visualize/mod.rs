@@ -2,7 +2,7 @@
 
 use std::{fs::File, path::PathBuf, str::FromStr};
 
-use structopt::StructOpt;
+use structopt::{clap, StructOpt};
 
 use modality_probe_collector_common::json;
 
@@ -14,6 +14,12 @@ mod templates;
 /// Visualize a textual representation of a causal graph using the
 /// collected trace file as input.
 #[derive(Debug, PartialEq, StructOpt)]
+#[structopt(template = crate::opts::CLI_TEMPLATE)]
+#[structopt(setting = structopt::clap::AppSettings::DisableVersion)]
+#[structopt(setting = clap::AppSettings::DisableHelpSubcommand)]
+#[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
+#[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
+#[structopt(setting = clap::AppSettings::ColoredHelp)]
 pub struct Visualize {
     /// Generate the graph showing only the causal relationships,
     /// eliding the events in between.

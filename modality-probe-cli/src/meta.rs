@@ -212,8 +212,8 @@ pub fn assemble_components(
     add_internal_events(&mut events);
 
     Ok(Cfg {
-        events,
         probes,
+        events,
         probes_to_components,
         component_names,
     })

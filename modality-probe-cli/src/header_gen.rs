@@ -11,9 +11,15 @@ use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use structopt::StructOpt;
+use structopt::{clap, StructOpt};
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, StructOpt)]
+#[structopt(template = crate::opts::CLI_TEMPLATE)]
+#[structopt(setting = structopt::clap::AppSettings::DisableVersion)]
+#[structopt(setting = clap::AppSettings::DisableHelpSubcommand)]
+#[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
+#[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
+#[structopt(setting = clap::AppSettings::ColoredHelp)]
 pub struct HeaderGen {
     /// The language to output the source in. Either `c' or `rust'.
     #[structopt(short, long, parse(try_from_str), default_value = "C")]

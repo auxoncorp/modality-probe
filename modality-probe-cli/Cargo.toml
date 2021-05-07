@@ -28,7 +28,7 @@ path = "src/lib.rs"
 
 [dependencies]
 csv = "1.1"
-structopt = "0.3"
+structopt = { version = "0.3", features = ["color"] }
 walkdir = "2.3"
 nom_locate = "2.0"
 toml = "0.5"

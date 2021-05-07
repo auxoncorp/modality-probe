@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
 };
 
-use structopt::StructOpt;
+use structopt::{clap, StructOpt};
 
 use modality_probe::{EventId, LogicalClock, ProbeId};
 use modality_probe_collector_common::{json, LogEntryData, ReportLogEntry};
@@ -25,6 +25,12 @@ use radius::Radius;
 
 /// View the trace as a log.
 #[derive(Debug, PartialEq, StructOpt)]
+#[structopt(template = crate::opts::CLI_TEMPLATE)]
+#[structopt(setting = structopt::clap::AppSettings::DisableVersion)]
+#[structopt(setting = clap::AppSettings::DisableHelpSubcommand)]
+#[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
+#[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
+#[structopt(setting = clap::AppSettings::ColoredHelp)]
 pub struct Log {
     /// The probe to target. If no probe is given, the log from all
     /// probes is interleaved.

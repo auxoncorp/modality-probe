@@ -26,6 +26,7 @@ impl ProbeId {
 
     /// raw_id must be greater than 0 and less than 0b1000_0000_0000_0000_0000_0000_0000_0000
     #[inline]
+    #[allow(clippy::manual_map)]
     pub const fn new(raw_id: u32) -> Option<Self> {
         if raw_id > Self::MAX_ID {
             return None;
@@ -240,6 +241,7 @@ impl EventId {
 
     /// raw_id must be greater than 0 and less than EventId::MAX_USER_ID
     #[inline]
+    #[allow(clippy::manual_map)]
     pub const fn new(raw_id: u32) -> Option<Self> {
         if raw_id > Self::MAX_USER_ID {
             return None;

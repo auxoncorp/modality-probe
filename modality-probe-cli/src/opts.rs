@@ -1,20 +1,31 @@
 use crate::{header_gen::HeaderGen, log::Log, manifest_gen::ManifestGen, visualize::Visualize};
-use structopt::StructOpt;
+use structopt::{clap, StructOpt};
+
+pub(crate) const CLI_TEMPLATE: &str = "\
+            {about}\n\n\
+            USAGE:\n    {usage}\n\
+            \n\
+            {all-args}\
+        ";
 
 #[derive(Debug, PartialEq, StructOpt)]
-#[structopt(
-    name = "modality-probe",
-    about = "Modality probe command line interface"
-)]
+#[structopt(name = "modality-probe", about = "The Modality Probe CLI", template = CLI_TEMPLATE)]
+#[structopt(setting = clap::AppSettings::DisableVersion)]
+#[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
+#[structopt(setting = clap::AppSettings::DisableHelpSubcommand)]
+#[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
+#[structopt(setting = clap::AppSettings::ColoredHelp)]
 pub enum Opts {
     /// Generate component, event and probe manifest files from probe macro invocations
     ManifestGen(ManifestGen),
 
     /// Generate Rust/C header files with event/probe id constants
     HeaderGen(HeaderGen),
+
     /// Inspect a trace in the terminal as a log or an ASCII-based
     /// graph.
     Log(Log),
+
     /// Visualize a collected trace as a Graphviz dot file.
     Visualize(Visualize),
 }

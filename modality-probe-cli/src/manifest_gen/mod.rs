@@ -12,7 +12,7 @@ use invocations::{Config, Invocations};
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
-use structopt::StructOpt;
+use structopt::{clap, StructOpt};
 
 pub mod c_parser;
 pub mod event_metadata;
@@ -28,6 +28,12 @@ pub mod source_location;
 pub mod type_hint;
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, StructOpt)]
+#[structopt(template = crate::opts::CLI_TEMPLATE)]
+#[structopt(setting = structopt::clap::AppSettings::DisableVersion)]
+#[structopt(setting = clap::AppSettings::DisableHelpSubcommand)]
+#[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
+#[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
+#[structopt(setting = clap::AppSettings::ColoredHelp)]
 pub struct ManifestGen {
     /// Language (C or Rust), if not specified then guess based on file extensions
     #[structopt(short, long, parse(try_from_str))]
