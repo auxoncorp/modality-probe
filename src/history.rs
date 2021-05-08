@@ -1024,7 +1024,7 @@ mod test {
         #[cfg(target_pointer_width = "64")]
         const EXPECTED_LOG_CAPACITY: usize = 196;
         #[cfg(target_pointer_width = "32")]
-        const EXPECTED_LOG_CAPACITY: usize = 205;
+        const EXPECTED_LOG_CAPACITY: usize = 204;
         assert_eq!(h.log.capacity(), EXPECTED_LOG_CAPACITY);
         assert_eq!(h.log.len(), 3);
 
@@ -1062,13 +1062,13 @@ mod test {
         #[cfg(target_pointer_width = "64")]
         assert_eq!(bytes_written.get(), 57);
         #[cfg(target_pointer_width = "32")]
-        assert_eq!(bytes_written.get(), 61);
+        assert_eq!(bytes_written.get(), 57);
         let log_report = WireReport::new(&report_dest[..bytes_written.get()]).unwrap();
         assert_eq!(log_report.n_clocks() as usize, h.clocks.len());
         #[cfg(target_pointer_width = "64")]
         assert_eq!(log_report.n_log_entries(), 4);
         #[cfg(target_pointer_width = "32")]
-        assert_eq!(log_report.n_log_entries(), 5);
+        assert_eq!(log_report.n_log_entries(), 4);
         reported_log_entries += log_report.n_log_entries() as usize;
 
         assert_eq!(reported_log_entries, EXPECTED_LOG_ENTRIES);
