@@ -1,3 +1,5 @@
+#![deny(warnings, clippy::all)]
+
 use modality_probe_cli::{
     error::GracefulExit, header_gen, log, manifest_gen, opts::Opts, visualize,
 };

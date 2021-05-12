@@ -41,6 +41,7 @@ probe-utils:
 gen-manifest:
 	@../../target/debug/modality-probe \
 		manifest-gen \
+		--verbose \
 		--lang C \
 		--file-extension="c" \
 		--component-name "example-component" \

@@ -20,6 +20,7 @@ use structopt::{clap, StructOpt};
 #[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
 #[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
 #[structopt(setting = clap::AppSettings::ColoredHelp)]
+#[structopt(help_message = "Prints help information. Use --help for more details.")]
 pub struct HeaderGen {
     /// The language to output the source in. Either `c' or `rust'.
     #[structopt(short, long, parse(try_from_str), default_value = "C")]
@@ -372,7 +373,7 @@ pub fn generate_output<W: io::Write>(
 
     if let Some(p) = &opt.output_path {
         println!(
-            "Generated definitions for component {} in {}",
+            "Generated definitions for component '{}' in {}",
             component.name,
             p.display(),
         );
