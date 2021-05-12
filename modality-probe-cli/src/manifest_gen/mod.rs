@@ -34,7 +34,12 @@ pub mod type_hint;
 #[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
 #[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
 #[structopt(setting = clap::AppSettings::ColoredHelp)]
+#[structopt(help_message = "Prints help information. Use --help for more details.")]
 pub struct ManifestGen {
+    /// Provide (more) verbose output.
+    #[structopt(short, long)]
+    pub verbose: bool,
+
     /// Language (C or Rust), if not specified then guess based on file extensions
     #[structopt(short, long, parse(try_from_str))]
     pub lang: Option<Lang>,
@@ -80,6 +85,7 @@ pub struct ManifestGen {
 impl Default for ManifestGen {
     fn default() -> Self {
         ManifestGen {
+            verbose: false,
             lang: None,
             file_extensions: None,
             exclude_patterns: None,
@@ -125,6 +131,7 @@ pub fn run(opt: ManifestGen, internal_events: Option<Vec<Event>>) {
     events.validate_unique_names();
 
     let config = Config {
+        verbose: opt.verbose,
         lang: opt.lang,
         file_extensions: opt.file_extensions,
         exclude_patterns: opt.exclude_patterns,
@@ -196,7 +203,7 @@ pub fn run(opt: ManifestGen, internal_events: Option<Vec<Event>>) {
     probes.write_csv(&probes_manifest_path);
 
     println!(
-        "Updated component {} in {}",
+        "Updated component '{}' in {}",
         component_manifest.name,
         component_manifest_path.display()
     );

@@ -45,6 +45,7 @@ pub enum EventCheckError {
 }
 
 pub struct Invocations {
+    verbose: bool,
     internal_events: Vec<Event>,
     probes: Vec<InSourceProbe>,
     events: Vec<InSourceEvent>,
@@ -55,6 +56,7 @@ impl Default for Invocations {
     fn default() -> Self {
         let config = Config::default();
         Invocations {
+            verbose: config.verbose,
             internal_events: config.internal_events,
             probes: Default::default(),
             events: Default::default(),
@@ -64,6 +66,7 @@ impl Default for Invocations {
 }
 
 pub struct Config<'cfg> {
+    pub verbose: bool,
     pub lang: Option<Lang>,
     pub c_parser: CParser<'cfg>,
     pub rust_parser: RustParser<'cfg>,
@@ -75,6 +78,7 @@ pub struct Config<'cfg> {
 impl<'cfg> Default for Config<'cfg> {
     fn default() -> Self {
         Config {
+            verbose: false,
             lang: None,
             c_parser: CParser::default(),
             rust_parser: RustParser::default(),
@@ -198,6 +202,7 @@ impl Invocations {
 
         let code_hash_bytes: [u8; 32] = *(code_hasher.finalize().as_ref());
         Ok(Invocations {
+            verbose: config.verbose,
             internal_events: config.internal_events,
             probes,
             events,
@@ -307,12 +312,14 @@ impl Invocations {
 
             if mf_probes.probes.iter().find(|t| src_probe.eq(t)).is_none() {
                 let probe = src_probe.to_probe(next_probe_id);
-                println!(
-                    "Adding probe {}, ID {} to {}",
-                    probe.name,
-                    probe.id.0,
-                    mf_path.display(),
-                );
+                if self.verbose {
+                    println!(
+                        "Adding probe {}, ID {} to {}",
+                        probe.name,
+                        probe.id.0,
+                        mf_path.display(),
+                    );
+                }
                 mf_probes.probes.push(probe);
             }
         });
@@ -452,12 +459,14 @@ impl Invocations {
         self.events.iter().for_each(|src_event| {
             if mf_events.events.iter().find(|e| src_event.eq(e)).is_none() {
                 let event = src_event.to_event(EventId(next_available_event_id));
-                println!(
-                    "Adding event {}, ID {} to {}",
-                    event.name,
-                    event.id.0,
-                    mf_path.display(),
-                );
+                if self.verbose {
+                    println!(
+                        "Adding event {}, ID {} to {}",
+                        event.name,
+                        event.id.0,
+                        mf_path.display(),
+                    );
+                }
                 mf_events.events.push(event);
                 next_available_event_id += 1;
             }

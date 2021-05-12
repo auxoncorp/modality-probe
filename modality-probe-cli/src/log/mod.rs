@@ -31,6 +31,7 @@ use radius::Radius;
 #[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
 #[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
 #[structopt(setting = clap::AppSettings::ColoredHelp)]
+#[structopt(help_message = "Prints help information. Use --help for more details.")]
 pub struct Log {
     /// The probe to target. If no probe is given, the log from all
     /// probes is interleaved.

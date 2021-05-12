@@ -1,3 +1,5 @@
+#![deny(warnings, clippy::all)]
+
 pub mod component;
 pub mod description_format;
 pub mod error;

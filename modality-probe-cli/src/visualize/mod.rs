@@ -20,6 +20,7 @@ mod templates;
 #[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
 #[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
 #[structopt(setting = clap::AppSettings::ColoredHelp)]
+#[structopt(help_message = "Prints help information. Use --help for more details.")]
 pub struct Visualize {
     /// Generate the graph showing only the causal relationships,
     /// eliding the events in between.

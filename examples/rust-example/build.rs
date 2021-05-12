@@ -21,6 +21,7 @@ fn main() {
     let status = Command::new(&cli)
         .args(&[
             "manifest-gen",
+            "--verbose",
             "--lang",
             "rust",
             "--file-extension",

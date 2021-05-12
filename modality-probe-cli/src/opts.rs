@@ -14,6 +14,7 @@ pub(crate) const CLI_TEMPLATE: &str = "\
 #[structopt(setting = clap::AppSettings::DisableHelpSubcommand)]
 #[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
 #[structopt(setting = clap::AppSettings::ColoredHelp)]
+#[structopt(help_message = "Prints help information. Use --help for more details.")]
 pub enum Opts {
     /// Generate component, event and probe manifest files from probe macro invocations
     ManifestGen(ManifestGen),
@@ -44,6 +45,7 @@ mod test {
         assert_eq!(
             Opts::from_iter(["modality-probe", "manifest-gen", "/path",].iter()),
             Opts::ManifestGen(ManifestGen {
+                verbose: false,
                 lang: None,
                 file_extensions: None,
                 exclude_patterns: None,
@@ -60,6 +62,7 @@ mod test {
                 [
                     "modality-probe",
                     "manifest-gen",
+                    "-v",
                     "--lang",
                     "c",
                     "--event-id-offset",
@@ -79,6 +82,7 @@ mod test {
                 .iter()
             ),
             Opts::ManifestGen(ManifestGen {
+                verbose: true,
                 lang: Some(Lang::C),
                 event_id_offset: Some(10),
                 file_extensions: Some(vec!["c".to_string(), "cpp".to_string()]),
