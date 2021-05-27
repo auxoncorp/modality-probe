@@ -68,9 +68,7 @@ version = "0.8"
 features = ["serde", "v4"]
 
 [dependencies.dynfmt]
-# See: https://github.com/jan-auer/dynfmt/pull/3
-git = "https://github.com/ZackPierce/dynfmt.git"
-branch = "use_maintained_error_lib"
+version = "0.1.5"
 default-features = false
 features = ["curly"]
 
