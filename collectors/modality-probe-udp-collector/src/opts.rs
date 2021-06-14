@@ -2,9 +2,17 @@ use crate::Config;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::PathBuf;
 #[cfg(feature = "cli")]
-use structopt::StructOpt;
+use structopt::{clap, StructOpt};
 
 pub const DEFAULT_PORT: u16 = 2718;
+
+#[cfg(feature = "cli")]
+const CLI_TEMPLATE: &str = "\
+            {about}\n\n\
+            USAGE:\n    {usage}\n\
+            \n\
+            {all-args}\
+        ";
 
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "cli", derive(StructOpt))]
@@ -12,7 +20,14 @@ pub const DEFAULT_PORT: u16 = 2718;
     feature = "cli",
     structopt(
         name = "modality-probe-udp-collector",
-        about = "Server that receives modality-probe reports via UDP and logs to file"
+        about = "Server that receives modality-probe reports via UDP and logs to file",
+        template = CLI_TEMPLATE,
+        setting = clap::AppSettings::DisableVersion,
+        setting = clap::AppSettings::DeriveDisplayOrder,
+        setting = clap::AppSettings::DisableHelpSubcommand,
+        setting = clap::AppSettings::UnifiedHelpMessage,
+        setting = clap::AppSettings::ColoredHelp,
+        help_message = "Prints help information. Use --help for more details."
     )
 )]
 pub struct Opts {

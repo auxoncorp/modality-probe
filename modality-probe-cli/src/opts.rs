@@ -10,6 +10,7 @@ pub(crate) const CLI_TEMPLATE: &str = "\
 
 #[derive(Debug, PartialEq, StructOpt)]
 #[structopt(name = "modality-probe", about = "The Modality Probe CLI", template = CLI_TEMPLATE)]
+#[structopt(setting = clap::AppSettings::DisableVersion)]
 #[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
 #[structopt(setting = clap::AppSettings::DisableHelpSubcommand)]
 #[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]

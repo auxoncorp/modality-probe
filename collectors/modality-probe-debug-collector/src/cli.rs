@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::net::SocketAddrV4;
 use std::path::{Path, PathBuf};
-use structopt::StructOpt;
+use structopt::{clap, StructOpt};
 
 use goblin::elf::Elf;
 
@@ -26,11 +26,25 @@ pub enum CliError {
     SymbolNotFound(String),
 }
 
+const CLI_TEMPLATE: &str = "\
+            {about}\n\n\
+            USAGE:\n    {usage}\n\
+            \n\
+            {all-args}\
+        ";
+
 #[derive(Debug, Default, StructOpt)]
 #[structopt(
     name = "modality-probe-debug-collector",
-    about = "Periodically collects logs from microcontrollers over debug interfaces; outputs them to a file."
+    about = "Periodically collects logs from microcontrollers over debug interfaces; outputs them to a file.",
+    template = CLI_TEMPLATE
 )]
+#[structopt(setting = clap::AppSettings::DisableVersion)]
+#[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
+#[structopt(setting = clap::AppSettings::DisableHelpSubcommand)]
+#[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
+#[structopt(setting = clap::AppSettings::ColoredHelp)]
+#[structopt(help_message = "Prints help information. Use --help for more details.")]
 pub struct Opts {
     /// Session id to associate with the collected trace data
     #[structopt(short = "s", long = "session-id", default_value = "0")]

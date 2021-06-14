@@ -4,7 +4,7 @@ on: [pull_request]
 
 jobs:
   linux:
-    name: Tarball
+    name: Tarball (Linux)
     runs-on: ubuntu-20.04
     steps:
       - name: Install system packages
