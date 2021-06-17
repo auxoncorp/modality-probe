@@ -19,7 +19,7 @@ name = "modality_probe_offline_batch_collector"
 path = "src/lib.rs"
 
 [dependencies]
-structopt = "0.3"
+structopt = { version = "0.3", features = ["color"] }
 env_logger = "0.7.1"
 log = "0.4"
 buf_redux = { version = "0.8", default-features = false }

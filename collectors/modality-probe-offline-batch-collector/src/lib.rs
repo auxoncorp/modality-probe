@@ -13,13 +13,27 @@ use modality_probe::{wire::WireReport, ProbeId};
 use modality_probe_collector_common::{
     self as common, json, Report, ReportLogEntry, SequenceNumber, SessionId,
 };
-use structopt::StructOpt;
+use structopt::{clap, StructOpt};
+
+const CLI_TEMPLATE: &str = "\
+            {about}\n\n\
+            USAGE:\n    {usage}\n\
+            \n\
+            {all-args}\
+        ";
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, StructOpt)]
 #[structopt(
     name = "modality-probe-offline-batch-collector",
-    about = "Utility to convert modality-probe binary reports into log files"
+    about = "Utility to convert modality-probe binary reports into log files",
+    template = CLI_TEMPLATE
 )]
+#[structopt(setting = clap::AppSettings::DisableVersion)]
+#[structopt(setting = clap::AppSettings::DeriveDisplayOrder)]
+#[structopt(setting = clap::AppSettings::DisableHelpSubcommand)]
+#[structopt(setting = clap::AppSettings::UnifiedHelpMessage)]
+#[structopt(setting = clap::AppSettings::ColoredHelp)]
+#[structopt(help_message = "Prints help information. Use --help for more details.")]
 pub struct Opts {
     /// Read binary probe report data from a file (instead of stdin)
     #[structopt(short = "i", long, parse(from_os_str))]

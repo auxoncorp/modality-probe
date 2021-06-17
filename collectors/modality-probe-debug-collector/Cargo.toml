@@ -20,7 +20,7 @@ path = "src/lib.rs"
 [dependencies]
 goblin = "0.2.3"
 chrono = { version = "0.4", features = ["serde"] }
-structopt = "0.3"
+structopt = { version = "0.3", features = ["color"] }
 humantime = "2.1"
 probe-rs = "0.8"
 maplit = "1.0.2"

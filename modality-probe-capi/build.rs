@@ -1,6 +1,10 @@
 use std::env;
 use std::path::PathBuf;
 
+// Our top-level package version comes from the VERSION text file at the root
+// of our repo, we don't use this crate's version
+const PACKAGE_VERSION: &str = include_str!("../VERSION");
+
 fn main() {
     // NOTE: use the desired shared object name here, not the crate name,
     // we do this so we don't have to run `patchelf --set-soname ...` afterwards
@@ -11,9 +15,11 @@ fn main() {
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let env = env::var("CARGO_CFG_TARGET_ENV").unwrap();
 
-    let major = env::var("CARGO_PKG_VERSION_MAJOR").unwrap();
-    let minor = env::var("CARGO_PKG_VERSION_MINOR").unwrap();
-    let micro = env::var("CARGO_PKG_VERSION_PATCH").unwrap();
+    let version_parts: Vec<&str> = PACKAGE_VERSION.trim().split('.').collect();
+    assert_eq!(version_parts.len(), 3);
+    let major = version_parts[0];
+    let minor = version_parts[1];
+    let micro = version_parts[2];
 
     let prefix: PathBuf = env::var_os("CARGO_C_PREFIX")
         .unwrap_or_else(|| "/usr/local".into())

@@ -2,14 +2,12 @@
 #
 # Build dependencies:
 # * tar
+# * help2man
+# * gzip
 # * rustup component add llvm-tools-preview
 # * cargo install cross
 
 set -ex
-
-PACKAGE_NAME="modality-probe_$(git describe --always)"
-
-TARBALL_FILE="${PACKAGE_NAME}.tar.gz"
 
 LIBRARY_TARGET_TRIPLES=(
 "thumbv7em-none-eabi"
@@ -25,7 +23,28 @@ OUTPUT_DIR="${OUTPUT_DIR:=target/package/tarball}"
 
 LLVM_STRIP=`find $(rustc --print sysroot) -name llvm-strip`
 
-CRATE_VERSION=$(awk -F ' = ' '$1 ~ /version/ { gsub(/[\"]/, "", $2); printf("%s",$2) }' "$WORKSPACE_ROOT/Cargo.toml")
+VERSION=`cat $WORKSPACE_ROOT/VERSION`
+SHORTVERSION=${VERSION%.*}
+MAJVERSION=${SHORTVERSION%.*}
+PACKAGE_VERSION="$VERSION"
+
+if [ ! -x $LLVM_STRIP ] || [ -z $LLVM_STRIP ]; then
+    echo "Can't find llvm-strip"
+    exit 1
+fi
+
+# Nightly builds get a build number in the version
+if [[ -n "$GITHUB_RUN_NUMBER" && -n "$GITHUB_WORKFLOW" ]]; then
+    if [ "$GITHUB_WORKFLOW" == "Nightly Build" ]; then
+        # See semver section 10 about build metadata
+        PACKAGE_VERSION+="+$GITHUB_RUN_NUMBER"
+    fi
+fi
+
+PACKAGE_NAME="modality-probe_$PACKAGE_VERSION"
+PACKAGE_PATH="$OUTPUT_DIR/$PACKAGE_NAME"
+
+TARBALL_FILE="${PACKAGE_NAME}.tar.gz"
 
 # Cleanup
 (
@@ -68,29 +87,25 @@ CRATE_VERSION=$(awk -F ' = ' '$1 ~ /version/ { gsub(/[\"]/, "", $2); printf("%s"
     PKG_CONFIG_ALLOW_CROSS=1 cargo build --release --target "$BINARY_TARGET_TRIPLE" \
         -p modality-probe-debug-collector --bin modality-probe-debug-collector
 
-    $LLVM_STRIP --strip-unneeded --strip-debug \
-        "target/$BINARY_TARGET_TRIPLE/release/modality-probe"
-
-    $LLVM_STRIP --strip-unneeded --strip-debug \
-        "target/$BINARY_TARGET_TRIPLE/release/modality-probe-udp-collector"
-
-    $LLVM_STRIP --strip-unneeded --strip-debug \
-        "target/$BINARY_TARGET_TRIPLE/release/modality-probe-debug-collector"
-
-    $LLVM_STRIP --strip-unneeded --strip-debug \
-        "target/$BINARY_TARGET_TRIPLE/release/modality-probe-offline-batch-collector"
-
-    mkdir -p "$OUTPUT_DIR/$PACKAGE_NAME/bin"
+    mkdir -p "$PACKAGE_PATH/bin"
     cp -a "target/$BINARY_TARGET_TRIPLE/release/modality-probe" \
-        "$OUTPUT_DIR/$PACKAGE_NAME/bin/"
+        "$PACKAGE_PATH/bin/"
     cp -a "target/$BINARY_TARGET_TRIPLE/release/modality-probe-udp-collector" \
-        "$OUTPUT_DIR/$PACKAGE_NAME/bin/"
+        "$PACKAGE_PATH/bin/"
     cp -a "target/$BINARY_TARGET_TRIPLE/release/modality-probe-debug-collector" \
-        "$OUTPUT_DIR/$PACKAGE_NAME/bin/"
+        "$PACKAGE_PATH/bin/"
     cp -a "target/$BINARY_TARGET_TRIPLE/release/modality-probe-offline-batch-collector" \
-        "$OUTPUT_DIR/$PACKAGE_NAME/bin/"
+        "$PACKAGE_PATH/bin/"
 
-    chmod 755 "$OUTPUT_DIR/$PACKAGE_NAME/bin/"*
+    $LLVM_STRIP --strip-unneeded --strip-debug "$PACKAGE_PATH/bin/modality-probe"
+
+    $LLVM_STRIP --strip-unneeded --strip-debug "$PACKAGE_PATH/bin/modality-probe-udp-collector"
+
+    $LLVM_STRIP --strip-unneeded --strip-debug "$PACKAGE_PATH/bin/modality-probe-debug-collector"
+
+    $LLVM_STRIP --strip-unneeded --strip-debug "$PACKAGE_PATH/bin/modality-probe-offline-batch-collector"
+
+    chmod 755 "$PACKAGE_PATH/bin/"*
 )
 
 # Build the libraries
@@ -100,30 +115,29 @@ CRATE_VERSION=$(awk -F ' = ' '$1 ~ /version/ { gsub(/[\"]/, "", $2); printf("%s"
     toolchain=`cat modality-probe-capi/rust-toolchain`
 
     for triple in "${LIBRARY_TARGET_TRIPLES[@]}"; do
-        mkdir -p "$OUTPUT_DIR/$PACKAGE_NAME/lib/$triple"
+        arch_lib_path="$PACKAGE_PATH"/lib/"$triple"
+        build_path=target/"$triple"/release
+
+        mkdir -p "$arch_lib_path"
 
         RUSTUP_TOOLCHAIN="$toolchain" cross build \
             --manifest-path "modality-probe-capi/Cargo.toml" \
             --release --target "$triple"
 
-        $LLVM_STRIP --strip-debug "target/$triple/release/libmodality_probe.a"
-        cp -a "target/$triple/release/libmodality_probe.a" \
-            "$OUTPUT_DIR/$PACKAGE_NAME/lib/$triple/"
+        cp "$build_path"/libmodality_probe.a "$arch_lib_path"/libmodality_probe.a
+        $LLVM_STRIP --strip-debug "$arch_lib_path"/libmodality_probe.a
 
-        if [ -f "target/$triple/release/libmodality_probe.so" ]; then
-            $LLVM_STRIP --strip-unneeded --strip-debug "target/$triple/release/libmodality_probe.so"
-            cp -a "target/$triple/release/libmodality_probe.so" \
-                "$OUTPUT_DIR/$PACKAGE_NAME/lib/$triple/"
+        if [ -f "$build_path"/libmodality_probe.so ]; then
+            cp "$build_path"/libmodality_probe.so "$arch_lib_path"/libmodality_probe.so."$VERSION"
+            $LLVM_STRIP --strip-unneeded --strip-debug "$arch_lib_path"/libmodality_probe.so."$VERSION"
+            (
+                cd "$arch_lib_path"
+                ln -sf libmodality_probe.so."$VERSION" libmodality_probe.so."$MAJVERSION"
+                ln -sf libmodality_probe.so."$MAJVERSION" libmodality_probe.so
+            )
         fi
 
-        chmod 644 "$OUTPUT_DIR/$PACKAGE_NAME/lib/$triple/"*
-
-        (
-            cd "$OUTPUT_DIR/$PACKAGE_NAME/lib/$triple/"
-            if [ -f "libmodality_probe.so" ]; then
-                ln -s libmodality_probe.so libmodality_probe.so.0
-            fi
-        )
+        chmod 644 "$arch_lib_path/"*
     done
 )
 
@@ -131,37 +145,37 @@ CRATE_VERSION=$(awk -F ' = ' '$1 ~ /version/ { gsub(/[\"]/, "", $2); printf("%s"
 (
     cd "$WORKSPACE_ROOT"
 
-    mkdir -p "$OUTPUT_DIR/$PACKAGE_NAME/include/modality"
-    cp -a "modality-probe-capi/include/probe.h" "$OUTPUT_DIR/$PACKAGE_NAME/include/modality/"
+    mkdir -p "$PACKAGE_PATH/include/modality"
+    cp -a "modality-probe-capi/include/probe.h" "$PACKAGE_PATH/include/modality/"
 
-    chmod 644 "$OUTPUT_DIR/$PACKAGE_NAME/include/modality/"*
+    chmod 644 "$PACKAGE_PATH/include/modality/"*
 )
 
 # Copy license/docs
 (
     cd "$WORKSPACE_ROOT"
 
-    mkdir -p "$OUTPUT_DIR/$PACKAGE_NAME/doc"
-    cp -a LICENSE "$OUTPUT_DIR/$PACKAGE_NAME/doc/"
-    cp -a CHANGELOG.md "$OUTPUT_DIR/$PACKAGE_NAME/doc/"
+    mkdir -p "$PACKAGE_PATH/doc"
+    cp -a LICENSE "$PACKAGE_PATH/doc/"
+    cp -a CHANGELOG.md "$PACKAGE_PATH/doc/"
 
-    chmod 644 "$OUTPUT_DIR/$PACKAGE_NAME/doc/"*
+    chmod 644 "$PACKAGE_PATH/doc/"*
 )
 
 # Build the man pages
 (
     cd "$WORKSPACE_ROOT"
 
-    man_dir="$OUTPUT_DIR/$PACKAGE_NAME/man1"
+    man_dir="$PACKAGE_PATH/man1"
     mkdir -p "$man_dir"
 
-    help2man --no-info "target/release/modality-probe" \
+    help2man --version-string="$VERSION" --no-info "target/release/modality-probe" \
         > "$man_dir/modality-probe.1"
-    help2man --no-info "target/release/modality-probe-udp-collector" \
+    help2man --version-string="$VERSION" --no-info "target/release/modality-probe-udp-collector" \
         > "$man_dir/modality-probe-udp-collector.1"
-    help2man --no-info "target/release/modality-probe-debug-collector" \
+    help2man --version-string="$VERSION" --no-info "target/release/modality-probe-debug-collector" \
         > "$man_dir/modality-probe-debug-collector.1"
-    help2man --no-info "target/release/modality-probe-offline-batch-collector" \
+    help2man --version-string="$VERSION" --no-info "target/release/modality-probe-offline-batch-collector" \
         > "$man_dir/modality-probe-offline-batch-collector.1"
 
     gzip --no-name --best "$man_dir/modality-probe.1"
@@ -176,7 +190,7 @@ CRATE_VERSION=$(awk -F ' = ' '$1 ~ /version/ { gsub(/[\"]/, "", $2); printf("%s"
 (
     cd "$WORKSPACE_ROOT"
 
-    comp_dir="$OUTPUT_DIR/$PACKAGE_NAME/completions"
+    comp_dir="$PACKAGE_PATH/completions"
     mkdir -p "$comp_dir"
 
     cargo run --release \
@@ -199,13 +213,13 @@ CRATE_VERSION=$(awk -F ' = ' '$1 ~ /version/ { gsub(/[\"]/, "", $2); printf("%s"
 # Copy CMake scripts
 (
     cd "$WORKSPACE_ROOT"
-    cp -a "package/cmake" "$OUTPUT_DIR/$PACKAGE_NAME/"
+    cp -a "package/cmake" "$PACKAGE_PATH/"
 )
 
 # Version
 (
     cd "$WORKSPACE_ROOT"
-    echo "$CRATE_VERSION" > "$OUTPUT_DIR/$PACKAGE_NAME/VERSION"
+    echo "$VERSION" > "$PACKAGE_PATH/VERSION"
 )
 
 # Tar it up
