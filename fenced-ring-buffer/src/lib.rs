@@ -56,11 +56,10 @@ impl SeqNum {
             self.low = new_low;
             fence(Ordering::Release);
             self.high = new_high;
-            fence(Ordering::Release);
         } else {
             self.low = new_low;
-            fence(Ordering::Release);
         }
+        fence(Ordering::Release);
     }
 }
 
