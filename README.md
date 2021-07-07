@@ -2,10 +2,12 @@
 
 Embedded-friendly causal event tracing.
 
+### Note: See [Modality Documentation](https://docs.auxon.io/modality/) for the full range of Modality's functionality.
+
 ## Overview
 
-`modality-probe` is an open source part of Auxon’s Modality™
-continuous verification & validation platform. Its role is to record
+`modality-probe` is an open source part of [Auxon](https://auxon.io)’s [Modality](https://docs.auxon.io/modality/)
+continuous verification and validation platform. Its role is to record
 events and track their causal relationships between the different
 parts of your system. Why? Because being able to stitch together a
 causal history of a system, particularly a system _under test_,
@@ -13,6 +15,8 @@ provides a high-resolution lens into _what happened_. This history can
 then be used for testing, debugging, understanding emergent scenarios,
 and more.
 
+
+### Environment
 While `modality-probe` is written in Rust, it targets C environments,
 particularly those of the embedded variety. The library used for
 recording events and exchanging causality data does not depend on any
@@ -21,23 +25,31 @@ environments.
 
 ### This Repository
 
-* [C API](./modality-probe-capi): Interact with a Modality probe from C.
-* [CLI](./modality-probe-cli): The CLI used for code generation for
+- [C API](./modality-probe-capi): Interact with a Modality probe from C.
+- [CLI](./modality-probe-cli): The CLI used for code generation for
   probes and the visualization of a trace.
-* [UDP Collector](./collectors/modality-probe-udp-collector): A
+- [UDP Collector](./collectors/modality-probe-udp-collector): A
   UDP-based service that collects probes' outgoing reports.
-* [Debug Collector](./collectors/modality-probe-debug-collector): A
+- [Debug Collector](./collectors/modality-probe-debug-collector): A
   collector that uses JTAG to retrieve data from the probes' logs.
-* [Batch
-  Collector](./collectors/modality-probe-offline-batch-collector): A
+- [Batch Collector](./collectors/modality-probe-offline-batch-collector): A
   utility for converting batches of binary report blobs into log
   files.
+
+
+### Open-source `modality-probe` vs. Commercial [Modality](https://docs.auxon.io/modality/)
+This `modality-probe` repository represents a subset of Modality's toolset.
+- Instrumentation for probes and events are the same in `modality-probe` and Modality.
+-  Modality adds [mutators](https://docs.auxon.io/modality/reference/glossary.html#mutator), allowing you to precisely manipulate system state.
+- `modality-probe` produces trace reports and sends them to [UDP Collector](./collectors/modality-probe-udp-collector), [Debug Collector](./collectors/modality-probe-debug-collector), and [Batch Collector](./collectors/modality-probe-offline-batch-collector) to produce log files. Modality has a unified daemon which collects trace reports into a database.
+- `modality-probe` inspects trace data with `modality-probe log`, whereas Modality adds advanced metrics for risk analysis and a robust trace query language.
+
 
 ## Getting Started
 
 ### Dependencies
 
-* [Rust Toolchain](https://rustup.rs)
+- [Rust Toolchain](https://rustup.rs)
 
 ### Building
 
@@ -60,12 +72,12 @@ $ cargo build --release
 ## Usage
 
 In the following sections we'll be using excerpts from the
-[examples](./examples/rust-example). You can actually run the complete
-example using Cargo from inside that directory.
+[C examples](./examples/c-example). You can actually run the
+complete example from inside that directory.
 
 ```shell
-$ cd examples/rust-example
-$ cargo test
+$ cd examples/c-example
+$ make test
 ```
 
 The probe API consists of five behaviors: initialization, event
@@ -79,17 +91,19 @@ Step one is to initialize your probe. Modality probes are _not_
 thread-safe on their own, so it is recommended that you use a new
 probe for each thread.
 
-```rust
-let mut storage = [0u8; PROBE_SIZE];
-let probe = initialize_at!(
-    &mut storage,
-    PRODUCER_PROBE,
-    NanosecondResolution::UNSPECIFIED,
-    WallClockId::local_only(),
-    RestartCounterProvider::NoRestartTracking,
-    tags!("rust-example", "measurement", "producer"),
-    "Measurement producer probe"
-)?;
+```c
+err = MODALITY_PROBE_INIT(
+        &g_producer_probe_buffer[0],
+        sizeof(g_producer_probe_buffer),
+        PRODUCER_PROBE,
+        MODALITY_PROBE_TIME_RESOLUTION_UNSPECIFIED,
+        MODALITY_PROBE_WALL_CLOCK_ID_LOCAL_ONLY,
+        NULL,
+        NULL,
+        &g_producer_probe,
+        MODALITY_TAGS("c-example", "measurement", "producer"),
+        "Measurement producer probe");
+assert(err == MODALITY_PROBE_ERROR_OK);
 ```
 
 ### Recording Events
@@ -98,29 +112,27 @@ Step two is to start recording events. The `record!` callsite
 takes a probe, an event _name_, a description of the event, and any
 tags you want to associate with this event.
 
-```rust
-record!(
-    probe,
-    PRODUCER_STARTED,
-    "Measurement producer thread started",
-    tags!("producer")
-);
+```c
+err = MODALITY_PROBE_RECORD(
+        g_producer_probe,
+        PRODUCER_STARTED,
+        MODALITY_TAGS("producer"),
+        "Measurement producer started");
+assert(err == MODALITY_PROBE_ERROR_OK);
 ```
 
 Events can also be recorded with payloads up to 4 bytes in size.
 
-```rust
-let mut m: i8 = 1;
-let delta: i8 = rng.gen_range(-1, 2);
-m = m.wrapping_add(delta);
+```c
+const int8_t sample = g_producer_measurement.m + (int8_t) (-1 + (rand() % 4));
 
-record_w_i8!(
-    probe,
-    PRODUCER_MEASUREMENT_SAMPLED,
-    m,
-    tags!("producer", "measurement sample"),
-    "Measurement producer sampled a value for transmission"
-);
+err = MODALITY_PROBE_RECORD_W_I8(
+        g_producer_probe,
+        PRODUCER_MEASUREMENT_SAMPLED,
+        sample,
+        MODALITY_TAGS("producer", "measurement sample"),
+        "Measurement producer sampled a value for transmission");
+assert(err == MODALITY_PROBE_ERROR_OK);
 ```
 
 ### Recording Expectations
@@ -129,15 +141,14 @@ Expectations are special events that get tagged as expectations and
 also include a binary payload denoting whether or not the expectation
 passed or failed.
 
-```rust
-expect!(
-    probe,
-    PRODUCER_TX_STATUS_OK,
-    tx_status.is_ok(),
-    "Measurement producer send result status",
-    tags!("producer"),
-    severity!(10),
-);
+```c
+err = MODALITY_PROBE_EXPECT(
+        g_producer_probe,
+        PRODUCER_SAMPLE_DELTA_OK,
+        (sample - g_producer_measurement.m) <= 2,
+        MODALITY_TAGS("producer"),
+        MODALITY_SEVERITY(10),
+        "Measurement delta within ok range");
 ```
 
 ### Recording Failures
@@ -145,14 +156,13 @@ expect!(
 Failures are special events that get tagged as failures to
 denote "something bad happened".
 
-```rust
-failure!(
-    probe,
-    BAD_THING_HAPPENED,
-    tags!("problem"),
-    severity!(5),
-    "A bad thing happened",
-);
+```c
+err = MODALITY_PROBE_FAILURE(
+        g_producer_probe,
+        BAD_THING_HAPPENED,
+        MODALITY_TAGS("problem"),
+        MODALITY_SEVERITY(5),
+        "A bad thing happened");
 ```
 
 ### Recording Wall Clock Time
@@ -164,43 +174,46 @@ A probe that uses wall clock time can identify the time domain it's operating
 in via a `WallClockId`. All probes in the same time domain should
 use the same wall clock identifier.
 
-Probes should use a consistent monotonic clock-source for all the time-related measurements
-at a given probe (don't mix and match clock-sources for a probe).
+Probes should use a consistent monotonic clock-source for all the time-related
+measurements at a given probe (don't mix and match clock-sources for a probe).
 
-```rust
-probe.record_time(Nanoseconds::new(1)?);
+```c
+uint64_t time_ns = 1;
 
-record_w_time!(
-    probe,
-    PRODUCER_STARTED,
-    Nanoseconds::new(2)?,
-    "Measurement producer thread started",
-    tags!("producer")
-);
+err = modality_probe_record_time(probe, time_ns);
+assert(err == MODALITY_PROBE_ERROR_OK);
 
-record_w_i8_w_time!(
-    probe,
-    PRODUCER_MEASUREMENT_SAMPLED,
-    m,
-    Nanoseconds::new(3)?,
-    tags!("producer", "measurement sample"),
-    "Measurement producer sampled a value for transmission"
-);
+err = MODALITY_PROBE_RECORD_W_TIME(
+        g_producer_probe,
+        PRODUCER_STARTED,
+        time_ns,
+        MODALITY_TAGS("producer"),
+        "Measurement producer started");
+assert(err == MODALITY_PROBE_ERROR_OK);
+
+err = MODALITY_PROBE_RECORD_W_I8_W_TIME(
+        g_producer_probe,
+        PRODUCER_MEASUREMENT_SAMPLED,
+        sample,
+        time_ns,
+        MODALITY_TAGS("producer", "measurement sample"),
+        "Measurement producer sampled a value for transmission");
+assert(err == MODALITY_PROBE_ERROR_OK);
 ```
 
 ### Tracking Interactions
 
 To connect two probe's causal history, they must exchange
-_snapshots_. A snapshot contains the sender's current logical clock
+*snapshots*. A snapshot contains the sender's current logical clock
 and it can be merged into the receiver's log, creating a causal
 relationship between the two probes.
 
 To produce a snapshot, use `produce_snapshot`:
 
-```rust
-let snapshot = probe.produce_snapshot();
-let measurement = Measurement { m, snapshot };
-tx.send(measurement);
+```c
+err = modality_probe_produce_snapshot(
+        g_producer_probe,
+        &g_producer_measurement.snapshot);
 ```
 
 It should then be sent in-band if possible to the receiver. When
@@ -208,13 +221,17 @@ snapshots are sent out of band, the veracity of the causal
 relationships Modality Probe is meant to capture erodes—the exchanges
 tell us only that two components are related, but not necessarily how.
 
-To merge an incoming snapshot use `merge_snapshot`.
+To merge an incoming snapshot use `merge_snapshot`. Snapshots should
+be merged before any other message handling occurs.
 
-```rust
-probe.merge_snapshot(&measurement.snapshot)?;
+```c
+err = modality_probe_merge_snapshot(
+        g_consumer_probe,
+        &measurement.snapshot);
+assert(err == MODALITY_PROBE_ERROR_OK);
 ```
 
-### Generating Manifests & Headers
+### Generating Manifests and Headers
 
 In the samples above, a macro is used to initialize a probe and to
 record events. Modality Probe's CLI has a subcommand that explores
@@ -237,11 +254,11 @@ $ cd modality-probe-cli
 $ cargo install --path .
 $ cd ../
 $ modality-probe manifest-gen \
-    --lang rust \
-    --file-extension rs \
+    --lang c \
+    --file-extension c \
     --component-name example-component \
     --output-path example-component \
-    examples/rust-example
+    examples/c-example
 ```
 
 Next, we'll want to generate the source code that gives those symbols
@@ -250,40 +267,15 @@ their definitions. To do that, we'll use `header-gen`:
 
 ```shell
 $ modality-probe header-gen \
-    --lang rust \
-    --output-path examples/rust-example/src/component_definitions.rs \
+    --lang c \
+    --output-path examples/c-example/include/component_definitions.h \
     example-component
 ```
 
-NOTE: It can be helpful to have the manifest & header generation tools run as
+NOTE: It can be helpful to have the manifest and header generation tools run as
 part of your regular build process to automatically pick up changes to
 your instrumentation or alert you to potential issues in your instrumentation.
-To do this you can include this process in your crate's `build.rs` file.
 
-```rust
-use modality_probe_cli::{header_gen, lang::Lang, manifest_gen};
-
-fn main() {
-    // Use the CLI to generate component manifests
-    let manifest_gen_opts = manifest_gen::ManifestGen {
-        lang: Some(Lang::Rust),
-        component_name: "example-component".into(),
-        output_path: "example-component".into(),
-        source_path: "src".into(),
-        ..Default::default()
-    };
-    manifest_gen::run(manifest_gen_opts, None);
-
-    // Use the CLI to generate Rust definitions from the component manifests
-    let header_gen_opts = header_gen::HeaderGen {
-        lang: Lang::Rust,
-        output_path: Some("src/component_definitions.rs".into()),
-        component_path: "example-component".into(),
-        ..Default::default()
-    };
-    header_gen::run(header_gen_opts, None);
-}
-```
 
 ### Setting up a Collector
 
@@ -315,17 +307,29 @@ that it can be deployed in. There are generally two ways to get trace data
 out of the system.
 
 The first is to use an I/O interface on your device and use the `report` API to
-send data to a waiting collector, like in this UDP oriented example below:
+send data to a waiting collector, like in this UDP-oriented example below:
 
-```rust
-fn send_report<'a>(socket: &UdpSocket, probe: &mut ModalityProbe<'a>, report_buffer: &mut [u8]) {
-    let n_report_bytes = probe
-        .report(report_buffer)
-        .expect("Could not produce a report");
-    if let Some(nonzero_report_size) = n_report_bytes {
-        socket
-            .send_to(&report_buffer[..nonzero_report_size.get()], COLLECTOR_ADDR)
-            .expect("Could not send_to");
+```c
+static void send_report(modality_probe * const probe)
+{
+    size_t report_size;
+    const size_t err = modality_probe_report(
+            probe,
+            &g_report_buffer[0],
+            sizeof(g_report_buffer),
+            &report_size);
+    assert(err == MODALITY_PROBE_ERROR_OK);
+
+    if(report_size != 0)
+    {
+        const ssize_t status = sendto(
+                g_report_socket,
+                &g_report_buffer[0],
+                report_size,
+                0,
+                (const struct sockaddr*) &g_collector_addr,
+                sizeof(g_collector_addr));
+        assert(status != -1);
     }
 }
 ```
@@ -349,15 +353,14 @@ Using the configuration:
 Then, in another terminal, navigate to the Rust example and run it.
 
 ```shell
-$ cd examples/rust-example
-$ cargo run
-    Finished dev [unoptimized + debuginfo] target(s) in 0.01s
-     Running `target/debug/rust-example`
-[2020-09-14T15:07:27Z INFO  rust_example] Modality probe reports will be sent to 127.0.0.1:2718
-[2020-09-14T15:07:27Z INFO  rust_example] Sensor measurement producer thread starting
-[2020-09-14T15:07:27Z INFO  rust_example] Sensor measurement consumer thread starting
-[2020-09-14T15:07:27Z INFO  rust_example] Consumer recvd 2
-[2020-09-14T15:07:27Z INFO  rust_example] All done
+$ cd examples/c-examples
+$ make run
+Modality probe reports will be sent to 127.0.0.1:2718
+Sensor measurement producer starting
+Sensor measurement consumer starting
+Consumer recvd -1
+Shutting down
+All done
 ```
 
 The `/home/me/src/modality-probe/session_0_log_entries.jsonl` file,
@@ -367,16 +370,16 @@ this:
 
 ```shell
 $ head session_0_log_entries.jsonl
-{"session_id":1,"sequence_number":0,"sequence_index":0,"probe_id":518608598,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":518608598,"epoch":0,"ticks":0}},"receive_time":"2020-09-14T15:08:56.214254306Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":1,"probe_id":518608598,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-14T15:08:56.214254306Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":2,"probe_id":518608598,"persistent_epoch_counting":false,"data":{"Event":1},"receive_time":"2020-09-14T15:08:56.214254306Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":3,"probe_id":518608598,"persistent_epoch_counting":false,"data":{"EventWithPayload":[2,1]},"receive_time":"2020-09-14T15:08:56.214254306Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":4,"probe_id":518608598,"persistent_epoch_counting":false,"data":{"TraceClock":{"id":518608598,"epoch":1,"ticks":1}},"receive_time":"2020-09-14T15:08:56.214254306Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":5,"probe_id":518608598,"persistent_epoch_counting":false,"data":{"EventWithPayload":[3,1]},"receive_time":"2020-09-14T15:08:56.214254306Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":6,"probe_id":518608598,"persistent_epoch_counting":false,"data":{"Event":4},"receive_time":"2020-09-14T15:08:56.214254306Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":0,"probe_id":606771187,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":606771187,"epoch":0,"ticks":0}},"receive_time":"2020-09-14T15:08:56.215111896Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":1,"probe_id":606771187,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-14T15:08:56.215111896Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":2,"probe_id":606771187,"persistent_epoch_counting":false,"data":{"Event":5},"receive_time":"2020-09-14T15:08:56.215111896Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":0,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":697885215,"epoch":0,"ticks":0}},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":1,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":2,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":1},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":3,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"EventWithPayload":[3,1]},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":4,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"TraceClock":{"id":697885215,"epoch":1,"ticks":1}},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":5,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"EventWithPayload":[4,1]},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":6,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":5},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":7,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":2},"receive_time":"2020-09-14T15:10:35.938584823Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":0,"probe_id":354168348,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":354168348,"epoch":0,"ticks":0}},"receive_time":"2020-09-14T15:10:35.939494439Z"}
+{"session_id":1,"sequence_number":0,"sequence_index":1,"probe_id":354168348,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-14T15:10:35.939494439Z"}
 ```
 
 ### Inspecting a Trace from Your Terminal
@@ -401,9 +404,9 @@ CONSUMER_STARTED @ CONSUMER_PROBE (1:30020207:0:3)
     description: "Measurement consumer thread started"
     payload: None
     tags: consumer
-    source: "rust-example/src/main.rs#L141"
-    probe tags: rust-example, measurement, consumer
-    probe source: "rust-example/src/main.rs#L129"
+    event source: "c-example/src/main.rs#L196"
+    probe tags: c-example, measurement, consumer
+    probe source: "c-example/src/main.rs#L186"
     component: example-component
 
 Clock Tick @ PRODUCER_PROBE (1:837318897:0:1) clock=(0, 0)
@@ -412,13 +415,13 @@ PRODUCER_STARTED @ PRODUCER_PROBE (1:837318897:0:3)
     description: "Measurement producer thread started"
     payload: None
     tags: producer
-    source: "rust-example/src/main.rs#L77"
-    probe tags: rust-example, measurement, producer
-    probe source: "rust-example/src/main.rs#L65"
+    event source: "c-example/src/main.rs#L102"
+    probe tags: c-example, measurement, producer
+    probe source: "c-example/src/main.rs#L92"
     component: example-component
 ```
 
-Alternatively, you can pass `--graph` to `log` and it will _graph_ the
+Alternatively, you can pass `--graph` to `log` and it will *graph* the
 interactions and events across all of the probes. It should look
 something like this:
 
@@ -426,26 +429,26 @@ something like this:
 *   |   CONSUMER_STARTED @ CONSUMER_PROBE (1:30020207:0:3)
 |   |       description: "Measurement consumer thread started"
 |   |       tags: consumer
-|   |       source: "rust-example/src/main.rs#L141"
-|   |       probe_tags: rust-example, measurement, consumer
-|   |       probe source: "rust-example/src/main.rs#L129"
+|   |       event source: "c-example/src/main.rs#L196"
+|   |       probe tags: c-example, measurement, consumer
+|   |       probe source: "c-example/src/main.rs#L186"
 |   |       component: example-component
 |   |
 |   *   PRODUCER_STARTED @ PRODUCER_PROBE (1:837318897:0:3)
 |   |       description: "Measurement producer thread started"
 |   |       tags: producer
-|   |       source: "rust-example/src/main.rs#L77"
-|   |       probe_tags: rust-example, measurement, producer
-|   |       probe source: "rust-example/src/main.rs#L65"
+|   |       event source: "c-example/src/main.rs#L102"
+|   |       probe tags: c-example, measurement, producer
+|   |       probe source: "c-example/src/main.rs#L92"
 |   |       component: example-component
 |   |
 |   *   PRODUCER_MEASUREMENT_SAMPLED @ PRODUCER_PROBE (1:837318897:0:4)
 |   |       description: "Measurement producer sampled a value for transmission"
 |   |       payload: 1
 |   |       tags: producer, measurement sample
-|   |       source: "rust-example/src/main.rs#L91"
-|   |       probe_tags: rust-example, measurement, producer
-|   |       probe source: "rust-example/src/main.rs#L65"
+|   |       event source: "c-example/src/main.rs#L144"
+|   |       probe tags: c-example, measurement, producer
+|   |       probe source: "c-example/src/main.rs#L92"
 |   |       component: example-component
 |   |
 +<--+   CONSUMER_PROBE merged a snapshot from PRODUCER_PROBE
@@ -476,20 +479,27 @@ to the probe's clock. This can then be included in your logging as a
 breadcrumb for finding a specific event in a trace. That might look
 something like this:
 
-```rust
-let instant = probe.now();
-log::info!("Producer now {:?}", instant);
+```c
+const modality_probe_instant now = modality_probe_now(g_producer_probe);
+syslog(
+        LOG_INFO,
+        "Producer now "
+        "(id: %" PRIu32 ", epoch: %" PRIu16 ", ticks: %" PRIu16 ", event_count: %" PRIu32 ")\n",
+        now.clock.id,
+        now.clock.epoch,
+        now.clock.ticks,
+        now.event_count);
 ```
 
 This will place a Modality causal-coordinate into your log message, so
 that later in offline processing any given log message can be
 correlated with a specific location in the Modality probe's logical
 timeline. You can now stitch together the causal history of your
-typical device logging along side Modality's events & expectations.
+typical device logging along side Modality's events and expectations.
 
-## Running the tests
+## Running the Tests
 
-To run the Rust unit & property-based test suites you need to run:
+To run the tests, use:
 
 ```shell
 $ cargo test --features std
@@ -506,11 +516,51 @@ $ rustup target add thumbv7em-none-eabihf
 $ ./test.sh
 ```
 
+## API
+
+See the Tracing section of the [Modality Instrumentation SDK](https://docs.auxon.io/modality/reference/c-api.html) for detailed documentation. 
+Note that the Mutation section of the [Instrumentation SDK](https://docs.auxon.io/modality/reference/c-api.html) reflects functionality exclusive to commercial Modality. 
+
+See the comments in [probe.h](./modality-probe-capi/include/probe.h) for local documentation.
+
+## CMake
+
+The release package provides a find script and a set of CLI helper functions
+for CMake integrations under the `cmake/` directory.
+
+Add the following to your `CMakeLists.txt`:
+
+```cmake
+list(APPEND CMAKE_MODULE_PATH "/path/to/modality-probe/cmake")
+
+# Provides ModalityProbe::LibModalityProbe target
+find_package(ModalityProbe REQUIRED)
+
+# Provides CLI invocation targets
+include(ModalityProbeCli)
+
+modality_probe_generate_manifest(
+    TARGET example
+    DEPENDS src/main.c
+    COMPONENT_NAME "example-component"
+    OUTPUT_PATH "example-component"
+    EXCLUDES "build/"
+    FILE_EXTENSIONS "c" "cpp"
+    SOURCE_PATH ".")
+
+modality_probe_generate_header(
+    TARGET example
+    OUTPUT_FILE "include/component_definitions.h"
+    COMPONENT_PATH "example-component")
+
+target_link_libraries(example PRIVATE ModalityProbe::LibModalityProbe)
+```
+
 ## License
 
 See [LICENSE](./LICENSE) for more details.
 
-Copyright 2020 Auxon Corporation
+Copyright 2020 [Auxon Corporation](https://auxon.io)
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
