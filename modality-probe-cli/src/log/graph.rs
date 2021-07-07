@@ -248,7 +248,6 @@ pub(super) fn print_as_graph<W: WriteIo>(
                                         &mut stream,
                                     )?;
                                     print_info_row(n_probes, "", "", "", &mut stream)?;
-                                    blocked_tls.insert(lc.id, neighbor);
                                 } else {
                                     let is_present =
                                         clock_rows.iter().any(|(originator, clock)| {
@@ -270,8 +269,8 @@ pub(super) fn print_as_graph<W: WriteIo>(
                                             &mut stream,
                                         )?;
                                     }
-                                    blocked_tls.insert(lc.id, neighbor);
                                 }
+                                blocked_tls.insert(lc.id, neighbor);
                             } else {
                                 let is_present = clock_rows
                                     .iter()

@@ -310,7 +310,7 @@ impl Invocations {
                 &mut existing_probe_ids,
             );
 
-            if mf_probes.probes.iter().find(|t| src_probe.eq(t)).is_none() {
+            if !mf_probes.probes.iter().any(|t| src_probe.eq(t)) {
                 let probe = src_probe.to_probe(next_probe_id);
                 if self.verbose {
                     println!(
@@ -325,16 +325,12 @@ impl Invocations {
         });
 
         mf_probes.probes.iter().for_each(|mf_probe| {
-            let missing_probe = self
-                .probes
-                .iter()
-                .find(|t| {
-                    mf_probe
-                        .name
-                        .as_str()
-                        .eq_ignore_ascii_case(&t.canonical_name())
-                })
-                .is_none();
+            let missing_probe = !self.probes.iter().any(|t| {
+                mf_probe
+                    .name
+                    .as_str()
+                    .eq_ignore_ascii_case(&t.canonical_name())
+            });
             if missing_probe {
                 warn!(
                     "manifest-gen",
@@ -438,12 +434,7 @@ impl Invocations {
             .iter()
             .rev()
             .for_each(|internal_event| {
-                if mf_events
-                    .events
-                    .iter()
-                    .find(|e| internal_event.eq(e))
-                    .is_none()
-                {
+                if !mf_events.events.iter().any(|e| internal_event.eq(e)) {
                     mf_events.events.insert(0, internal_event.clone());
                 }
             });
@@ -457,7 +448,7 @@ impl Invocations {
             };
 
         self.events.iter().for_each(|src_event| {
-            if mf_events.events.iter().find(|e| src_event.eq(e)).is_none() {
+            if !mf_events.events.iter().any(|e| src_event.eq(e)) {
                 let event = src_event.to_event(EventId(next_available_event_id));
                 if self.verbose {
                     println!(
@@ -477,16 +468,12 @@ impl Invocations {
             .iter()
             .filter(|mf_event| !internal_events.contains(&mf_event.id.0))
             .for_each(|mf_event| {
-                let missing_event = self
-                    .events
-                    .iter()
-                    .find(|e| {
-                        mf_event
-                            .name
-                            .as_str()
-                            .eq_ignore_ascii_case(&e.canonical_name())
-                    })
-                    .is_none();
+                let missing_event = !self.events.iter().any(|e| {
+                    mf_event
+                        .name
+                        .as_str()
+                        .eq_ignore_ascii_case(&e.canonical_name())
+                });
                 if missing_event {
                     warn!(
                         "manifest-gen",

@@ -245,7 +245,7 @@ impl LogicalClock {
 
     /// Put the clock into a byte array, probe id first, where the two
     /// u32's are unpacked as little endian bytes.
-    pub fn to_le_bytes(&self) -> [u8; 8] {
+    pub fn to_le_bytes(self) -> [u8; 8] {
         let mut out = [0; 8];
         out[..4].copy_from_slice(&self.id.get_raw().to_le_bytes());
         out[4..].copy_from_slice(&pack_clock_word(self.epoch, self.ticks).to_le_bytes());
