@@ -168,7 +168,7 @@ use the same wall clock identifier.
 Probes should use a consistent monotonic clock-source for all the time-related measurements
 at a given probe (don't mix and match clock-sources for a probe).
 
-```rust
+```c
 uint64_t time_ns = 1;
 
 err = modality_probe_record_time(probe, time_ns);
@@ -221,7 +221,7 @@ err = modality_probe_merge_snapshot(
 assert(err == MODALITY_PROBE_ERROR_OK);
 ```
 
-### Generating Manifests & Headers
+### Generating Manifests and Headers
 
 In the samples above, a macro is used to initialize a probe and to
 record events. Modality Probe's CLI has a subcommand that explores
@@ -256,14 +256,13 @@ we discussed in the code snippet examples in the previous section
 their definitions. To do that, we'll use `header-gen`:
 
 ```shell
-$ mkdir -p ../examples/c-example/include
 $ modality-probe header-gen \
     --lang c \
-    --output-path ../examples/c-example/include/component_definitions.h \
+    --output-path examples/c-example/include/component_definitions.h \
     example-component
 ```
 
-NOTE: It can be helpful to have the manifest & header generation tools run as
+NOTE: It can be helpful to have the manifest and header generation tools run as
 part of your regular build process to automatatically pick up changes to
 your instrumentation or alert you to potential issues in your instrumentation.
 
@@ -394,9 +393,9 @@ CONSUMER_STARTED @ CONSUMER_PROBE (1:30020207:0:3)
     description: "Measurement consumer thread started"
     payload: None
     tags: consumer
-    source: "rust-example/src/main.rs#L141"
-    probe tags: rust-example, measurement, consumer
-    probe source: "rust-example/src/main.rs#L129"
+    event source: "c-example/src/main.rs#L196"
+    probe tags: c-example, measurement, consumer
+    probe source: "c-example/src/main.rs#L186"
     component: example-component
 
 Clock Tick @ PRODUCER_PROBE (1:837318897:0:1) clock=(0, 0)
@@ -405,9 +404,9 @@ PRODUCER_STARTED @ PRODUCER_PROBE (1:837318897:0:3)
     description: "Measurement producer thread started"
     payload: None
     tags: producer
-    source: "rust-example/src/main.rs#L77"
-    probe tags: rust-example, measurement, producer
-    probe source: "rust-example/src/main.rs#L65"
+    event source: "c-example/src/main.rs#L102"
+    probe tags: c-example, measurement, producer
+    probe source: "c-example/src/main.rs#L92"
     component: example-component
 ```
 
@@ -419,26 +418,26 @@ something like this:
 *   |   CONSUMER_STARTED @ CONSUMER_PROBE (1:30020207:0:3)
 |   |       description: "Measurement consumer thread started"
 |   |       tags: consumer
-|   |       source: "rust-example/src/main.rs#L141"
-|   |       probe_tags: rust-example, measurement, consumer
-|   |       probe source: "rust-example/src/main.rs#L129"
+|   |       event source: "c-example/src/main.rs#L196"
+|   |       probe tags: c-example, measurement, consumer
+|   |       probe source: "c-example/src/main.rs#L186"
 |   |       component: example-component
 |   |
 |   *   PRODUCER_STARTED @ PRODUCER_PROBE (1:837318897:0:3)
 |   |       description: "Measurement producer thread started"
 |   |       tags: producer
-|   |       source: "rust-example/src/main.rs#L77"
-|   |       probe_tags: rust-example, measurement, producer
-|   |       probe source: "rust-example/src/main.rs#L65"
+|   |       event source: "c-example/src/main.rs#L102"
+|   |       probe tags: c-example, measurement, producer
+|   |       probe source: "c-example/src/main.rs#L92"
 |   |       component: example-component
 |   |
 |   *   PRODUCER_MEASUREMENT_SAMPLED @ PRODUCER_PROBE (1:837318897:0:4)
 |   |       description: "Measurement producer sampled a value for transmission"
 |   |       payload: 1
 |   |       tags: producer, measurement sample
-|   |       source: "rust-example/src/main.rs#L91"
-|   |       probe_tags: rust-example, measurement, producer
-|   |       probe source: "rust-example/src/main.rs#L65"
+|   |       event source: "c-example/src/main.rs#L144"
+|   |       probe tags: c-example, measurement, producer
+|   |       probe source: "c-example/src/main.rs#L92"
 |   |       component: example-component
 |   |
 +<--+   CONSUMER_PROBE merged a snapshot from PRODUCER_PROBE
@@ -484,7 +483,7 @@ This will place a Modality causal-coordinate into your log message, so
 that later in offline processing any given log message can be
 correlated with a specific location in the Modality probe's logical
 timeline. You can now stitch together the causal history of your
-typical device logging along side Modality's events & expectations.
+typical device logging along side Modality's events and expectations.
 
 ## Running the Tests
 
