@@ -21,7 +21,7 @@ use static_assertions::{assert_cfg, const_assert};
 pub use error::*;
 use history::DynamicHistory;
 pub use id::*;
-#[cfg(feature = "std")]
+#[cfg(feature = "test_support")]
 pub use prop::*;
 pub use restart_counter::{
     next_sequence_id_fn, CRestartCounterProvider, RestartCounter, RestartCounterProvider,
@@ -776,8 +776,8 @@ impl<'a> Probe for ModalityProbe<'a> {
 }
 
 /// This module contains a proptest `Arbitrary` implementation for
-/// ProbeEpoch and ProbeTicks. It is only present if the `"std"` feature is set.
-#[cfg(feature = "std")]
+/// ProbeEpoch and ProbeTicks. It is only present if the `"test_support"` feature is set.
+#[cfg(feature = "test_support")]
 pub mod prop {
     use super::*;
     use proptest::arbitrary::Arbitrary;
@@ -877,48 +877,6 @@ pub mod prop {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::prelude::*;
-
-    #[test]
-    fn logical_clock_ordering() {
-        let lc =
-            |id: ProbeId, epoch: ProbeEpoch, ticks: ProbeTicks| LogicalClock { id, epoch, ticks };
-
-        let probe_a = ProbeId::new(1).unwrap();
-        let probe_b = ProbeId::new(2).unwrap();
-
-        // Clocks from different probes are not comparable
-        proptest!(
-            ProptestConfig::default(),
-            |(epoch_a: ProbeEpoch, ticks_a: ProbeTicks, epoch_b: ProbeEpoch, ticks_b: ProbeTicks)| {
-                prop_assert_eq!(lc(probe_a, epoch_a, ticks_a).partial_cmp(&lc(probe_b, epoch_b, ticks_b)),
-                                None);
-            }
-        );
-
-        // From the same probe, epoch takes precedence
-        proptest!(
-            ProptestConfig::default(),
-            |(epoch_a1: ProbeEpoch, epoch_a2: ProbeEpoch, ticks_a1: ProbeTicks, ticks_a2: ProbeTicks)| {
-                let cmp_res = lc(probe_a, epoch_a1, ticks_a1).partial_cmp(&lc(probe_a, epoch_a2, ticks_a2));
-                if epoch_a1 == epoch_a2 {
-                    prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
-                } else {
-                   prop_assert_eq!(cmp_res, epoch_a1.partial_cmp(&epoch_a2));
-                }
-
-            }
-        );
-
-        // Focused test for equal epochs
-        proptest!(
-            ProptestConfig::default(),
-            |(epoch_a: ProbeEpoch, ticks_a1: ProbeTicks, ticks_a2: ProbeTicks)| {
-                let cmp_res = lc(probe_a, epoch_a, ticks_a1).partial_cmp(&lc(probe_a, epoch_a, ticks_a2));
-                prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
-            }
-        );
-    }
 
     fn oc_cmp_eq(ordering: Ordering, left: (u16, u16), right: (u16, u16)) {
         assert_eq!(
@@ -1051,5 +1009,52 @@ mod tests {
         );
         // Make sure that the original clock remains untouched.
         assert_eq!(init, l);
+    }
+}
+
+#[cfg(all(test, feature = "test_support"))]
+mod advanced_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    #[test]
+    fn logical_clock_ordering() {
+        let lc =
+            |id: ProbeId, epoch: ProbeEpoch, ticks: ProbeTicks| LogicalClock { id, epoch, ticks };
+
+        let probe_a = ProbeId::new(1).unwrap();
+        let probe_b = ProbeId::new(2).unwrap();
+
+        // Clocks from different probes are not comparable
+        proptest!(
+            ProptestConfig::default(),
+            |(epoch_a: ProbeEpoch, ticks_a: ProbeTicks, epoch_b: ProbeEpoch, ticks_b: ProbeTicks)| {
+                prop_assert_eq!(lc(probe_a, epoch_a, ticks_a).partial_cmp(&lc(probe_b, epoch_b, ticks_b)),
+                                None);
+            }
+        );
+
+        // From the same probe, epoch takes precedence
+        proptest!(
+            ProptestConfig::default(),
+            |(epoch_a1: ProbeEpoch, epoch_a2: ProbeEpoch, ticks_a1: ProbeTicks, ticks_a2: ProbeTicks)| {
+                let cmp_res = lc(probe_a, epoch_a1, ticks_a1).partial_cmp(&lc(probe_a, epoch_a2, ticks_a2));
+                if epoch_a1 == epoch_a2 {
+                    prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
+                } else {
+                   prop_assert_eq!(cmp_res, epoch_a1.partial_cmp(&epoch_a2));
+                }
+
+            }
+        );
+
+        // Focused test for equal epochs
+        proptest!(
+            ProptestConfig::default(),
+            |(epoch_a: ProbeEpoch, ticks_a1: ProbeTicks, ticks_a2: ProbeTicks)| {
+                let cmp_res = lc(probe_a, epoch_a, ticks_a1).partial_cmp(&lc(probe_a, epoch_a, ticks_a2));
+                prop_assert_eq!(cmp_res, ticks_a1.partial_cmp(&ticks_a2));
+            }
+        );
     }
 }

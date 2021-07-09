@@ -9,8 +9,8 @@
 /// This can represent approximately 73 years.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 #[cfg_attr(
-feature = "std",
-derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
 )]
 #[repr(transparent)]
 pub struct Nanoseconds(u64);
@@ -18,8 +18,8 @@ pub struct Nanoseconds(u64);
 /// Nanosecond time resolution
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 #[cfg_attr(
-feature = "std",
-derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
 )]
 #[repr(transparent)]
 pub struct NanosecondResolution(pub u32);
@@ -27,8 +27,8 @@ pub struct NanosecondResolution(pub u32);
 /// Nanosecond high bits
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 #[cfg_attr(
-feature = "std",
-derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
 )]
 #[repr(transparent)]
 pub struct NanosecondsHighBits(pub [u8; 4]);
@@ -36,8 +36,8 @@ pub struct NanosecondsHighBits(pub [u8; 4]);
 /// Nanosecond low bits
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
 #[cfg_attr(
-feature = "std",
-derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
 )]
 #[repr(transparent)]
 pub struct NanosecondsLowBits(pub [u8; 4]);
@@ -45,8 +45,8 @@ pub struct NanosecondsLowBits(pub [u8; 4]);
 /// Wall clock identifier, indicates the time domain
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 #[cfg_attr(
-feature = "std",
-derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
 )]
 #[repr(transparent)]
 pub struct WallClockId(pub u16);
@@ -237,7 +237,6 @@ impl From<WallClockId> for u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proptest::prelude::*;
 
     #[test]
     fn const_helpers() {
@@ -276,10 +275,16 @@ mod tests {
             Nanoseconds::from_parts_truncate(low_bits, high_bits)
         );
     }
+}
+
+#[cfg(all(test, feature = "test_support"))]
+mod advanced_tests {
+    use super::*;
+    use proptest::prelude::*;
 
     proptest! {
         #[test]
-        fn round_trip_time(raw_time_in in 0_u64..=Nanoseconds::MAX.0) {
+        fn round_trip_time(raw_time_in in 0_u64..=Nanoseconds::MAX.get()) {
             let t = Nanoseconds::new(raw_time_in).unwrap();
             prop_assert_eq!(t.get(), raw_time_in);
             let (low_bits, high_bits) = t.split();

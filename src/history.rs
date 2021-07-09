@@ -1040,7 +1040,8 @@ mod test {
         // Drain into a buffer that is ~1/4 of the log buffer capacity
         let report_buffer_size =
             WireReport::<&[u8]>::buffer_len(h.clocks.len(), h.log.capacity() / 4);
-        let mut report_dest = vec![0_u8; report_buffer_size];
+        let mut report_dest_underlying = [0_u8; 256];
+        let mut report_dest = &mut report_dest_underlying[..report_buffer_size];
 
         let mut reported_log_entries = 0;
 

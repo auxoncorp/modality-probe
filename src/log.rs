@@ -183,19 +183,7 @@ impl fenced_ring_buffer::Entry for LogEntry {
 #[cfg(test)]
 pub(crate) mod log_tests {
     use super::*;
-    use crate::id::id_tests::*;
     use crate::{ProbeEpoch, ProbeId, ProbeTicks};
-    use proptest::prelude::*;
-
-    prop_compose! {
-        pub(crate) fn gen_clock()(
-            id in gen_probe_id(),
-            epoch in gen_probe_epoch(),
-            ticks in gen_probe_ticks()
-        ) -> LogicalClock {
-            LogicalClock { id, epoch, ticks }
-        }
-    }
 
     #[test]
     fn expected_representation() {
