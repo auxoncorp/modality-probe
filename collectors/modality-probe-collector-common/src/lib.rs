@@ -475,7 +475,7 @@ impl TryFrom<&[u8]> for Report {
         let mut owned_report = Report {
             probe_id: id,
             probe_clock: LogicalClock { id, epoch, ticks },
-            seq_num: report.seq_num().into(),
+            seq_num: report.seq_num(),
             persistent_epoch_counting: report.persistent_epoch_counting(),
             time_resolution: report.time_resolution(),
             wall_clock_id: report.wall_clock_id(),
