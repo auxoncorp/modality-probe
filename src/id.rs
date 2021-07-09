@@ -307,17 +307,17 @@ impl From<EventId> for u32 {
 }
 
 /// This module contains a proptest `Arbitrary` implementation for
-/// event ids. It is only present if the `"std"` feature is set.
-#[cfg(feature = "std")]
+/// event ids. It is only present if the `"test_support"` feature is set.
+#[cfg(feature = "test_support")]
 pub mod prop {
+    use super::*;
+    use proptest::prelude::*;
     use proptest::{
         num::u32::BinarySearch,
         prelude::{Arbitrary, RngCore},
         strategy::{NewTree, Strategy, ValueTree},
         test_runner::TestRunner,
     };
-
-    use super::*;
 
     /// A proptest value tree for event ids. It builds off of u32's
     /// binary search and clamps on valid _user_ values.
@@ -410,16 +410,48 @@ pub mod prop {
             AnyProbeId
         }
     }
+
+    prop_compose! {
+        pub(crate) fn gen_raw_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> u32 {
+            raw_id
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn gen_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> ProbeId {
+            raw_id.try_into().unwrap()
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn gen_raw_invalid_probe_id()(raw_id in (ProbeId::MAX_ID+1)..core::u32::MAX) -> u32 {
+            raw_id
+        }
+    }
+    prop_compose! {
+        pub(crate) fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
+            raw_id
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
+            raw_id
+        }
+    }
+    prop_compose! {
+        pub(crate) fn gen_raw_invalid_event_id()(raw_id in (EventId::MAX_INTERNAL_ID+1)..core::u32::MAX) -> u32 {
+            raw_id
+        }
+    }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "test_support")]
 pub use prop::*;
 
 #[cfg(test)]
 pub(crate) mod id_tests {
     use super::*;
-    use crate::{ProbeEpoch, ProbeTicks};
-    use proptest::prelude::*;
 
     #[test]
     fn new_ids_cannot_have_zero_values() {
@@ -437,32 +469,11 @@ pub(crate) mod id_tests {
         assert!(EventId::new_internal(EventId::MAX_USER_ID).is_none());
         assert!(EventId::new(EventId::MAX_INTERNAL_ID).is_none());
     }
-
-    prop_compose! {
-        pub(crate) fn gen_raw_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> u32 {
-            raw_id
-        }
-    }
-
-    prop_compose! {
-        pub(crate) fn gen_probe_id()(raw_id in 1..=ProbeId::MAX_ID) -> ProbeId {
-            raw_id.try_into().unwrap()
-        }
-    }
-
-    pub(crate) fn gen_probe_epoch() -> impl Strategy<Value = ProbeEpoch> {
-        any::<ProbeEpoch>()
-    }
-
-    pub(crate) fn gen_probe_ticks() -> impl Strategy<Value = ProbeTicks> {
-        any::<ProbeTicks>()
-    }
-
-    prop_compose! {
-        fn gen_raw_invalid_probe_id()(raw_id in (ProbeId::MAX_ID+1)..core::u32::MAX) -> u32 {
-            raw_id
-        }
-    }
+}
+#[cfg(all(test, feature = "test_support"))]
+mod advanced_tests {
+    use super::*;
+    use proptest::prelude::*;
 
     proptest! {
         #[test]
@@ -474,23 +485,6 @@ pub(crate) mod id_tests {
         #[test]
         fn invalid_probe_ids_are_rejected(raw_id in gen_raw_invalid_probe_id()) {
             assert_eq!(None, ProbeId::new(raw_id));
-        }
-    }
-
-    prop_compose! {
-        pub(crate) fn gen_raw_internal_event_id()(raw_id in (EventId::MAX_USER_ID + 1)..EventId::MAX_INTERNAL_ID) -> u32 {
-            raw_id
-        }
-    }
-
-    prop_compose! {
-        pub(crate) fn gen_raw_user_event_id()(raw_id in 1..=EventId::MAX_USER_ID) -> u32 {
-            raw_id
-        }
-    }
-    prop_compose! {
-        fn gen_raw_invalid_event_id()(raw_id in (EventId::MAX_INTERNAL_ID+1)..core::u32::MAX) -> u32 {
-            raw_id
         }
     }
 

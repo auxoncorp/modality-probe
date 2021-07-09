@@ -5,11 +5,12 @@ use std::{
 };
 
 use modality_probe::{LogicalClock, ProbeId};
-use modality_probe_collector_common::{LogEntryData, ReportLogEntry, SequenceNumber};
+use modality_probe_collector_common::{LogEntryData, ReportLogEntry};
 
 use crate::{error::CmdError, give_up, hopefully, hopefully_ok};
 
 use super::SortedProbes;
+use modality_probe::wire::SequenceNumber;
 
 #[derive(PartialEq, Debug)]
 pub struct Radius {

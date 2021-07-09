@@ -14,7 +14,8 @@ readme = "README.md"
 
 [features]
 default = []
-std = ["serde", "proptest", "schemars"]
+std = ["serde", "schemars"]
+test_support = ["proptest"]
 debug-collector-access = ["field-offset"]
 
 [workspace]
@@ -41,8 +42,11 @@ fenced-ring-buffer = { path = "./fenced-ring-buffer" }
 
 # Used if the std feature is enabled.
 serde = { version = "1.0", features = ["derive"], optional = true }
-proptest = { version = "1.0", optional = true , default-features = false, features = ["std"]}
+proptest = { version = "1.0", optional = true , default-features = false}
 schemars = { version = "0.6.5", optional = true }
 
 # Used if the debug-collector-access feature is enabled
 field-offset = { version = "0.3.1", optional = true }
+
+[dev-dependencies]
+proptest = { version = "1.0", default-features = false, features = ["std"]}

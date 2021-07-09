@@ -288,8 +288,6 @@ impl TryFrom<&[u8; 12]> for CausalSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::log::log_tests::gen_clock;
-    use proptest::prelude::*;
 
     #[test]
     fn causal_snapshot_bytes_conversion() {
@@ -325,45 +323,6 @@ mod tests {
             CausalSnapshot::from_le_bytes([0u8; 12]),
             Err(InvalidProbeId)
         );
-    }
-
-    proptest! {
-        #[test]
-        fn round_trip_causal_snapshot(
-            clock in gen_clock(),
-            reserved_0 in proptest::num::u16::ANY,
-            reserved_1 in proptest::num::u16::ANY) {
-            let snap_in = CausalSnapshot {
-                clock,
-                reserved_0: reserved_0.to_le_bytes(),
-                reserved_1: reserved_1.to_le_bytes(),
-            };
-
-            // Write out to new array variant
-            let bytes = snap_in.to_le_bytes();
-            let snap_out = CausalSnapshot::from_le_bytes(bytes).unwrap();
-            assert_eq!(snap_in.clock, snap_out.clock);
-            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
-            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
-
-            // Write out to extant slice variant
-            let mut bytes = [0xFF; 12];
-            let bytes_written = snap_in.write_into_le_bytes(&mut bytes[..]).unwrap();
-            assert_eq!(bytes_written, size_of::<crate::CausalSnapshot>());
-            let snap_out = CausalSnapshot::try_from(&bytes[..]).unwrap();
-            assert_eq!(snap_in.clock, snap_out.clock);
-            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
-            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
-
-            // Write out to extant exact-sized-array variant
-            let mut bytes = [0xFF; 12];
-            snap_in.write_into_le_bytes_exact(&mut bytes);
-            assert_eq!(bytes_written, size_of::<crate::CausalSnapshot>());
-            let snap_out = CausalSnapshot::try_from(&bytes).unwrap();
-            assert_eq!(snap_in.clock, snap_out.clock);
-            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
-            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
-        }
     }
 
     #[rustfmt::skip]
@@ -417,5 +376,69 @@ mod tests {
         );
         let s = WireCausalSnapshot::new(&bytes[..]);
         assert_eq!(s.unwrap_err(), MissingBytes);
+    }
+}
+#[cfg(all(test, feature = "test_support"))]
+mod advanced_tests {
+    use super::*;
+    use crate::id::prop::*;
+    use crate::{ProbeEpoch, ProbeTicks};
+    use proptest::prelude::*;
+
+    pub(crate) fn gen_probe_epoch() -> impl Strategy<Value = ProbeEpoch> {
+        any::<ProbeEpoch>()
+    }
+
+    pub(crate) fn gen_probe_ticks() -> impl Strategy<Value = ProbeTicks> {
+        any::<ProbeTicks>()
+    }
+
+    prop_compose! {
+        pub(crate) fn gen_clock()(
+            id in gen_probe_id(),
+            epoch in gen_probe_epoch(),
+            ticks in gen_probe_ticks()
+        ) -> LogicalClock {
+            LogicalClock { id, epoch, ticks }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn round_trip_causal_snapshot(
+            clock in gen_clock(),
+            reserved_0 in proptest::num::u16::ANY,
+            reserved_1 in proptest::num::u16::ANY) {
+            let snap_in = CausalSnapshot {
+                clock,
+                reserved_0: reserved_0.to_le_bytes(),
+                reserved_1: reserved_1.to_le_bytes(),
+            };
+
+            // Write out to new array variant
+            let bytes = snap_in.to_le_bytes();
+            let snap_out = CausalSnapshot::from_le_bytes(bytes).unwrap();
+            assert_eq!(snap_in.clock, snap_out.clock);
+            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
+            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
+
+            // Write out to extant slice variant
+            let mut bytes = [0xFF; 12];
+            let bytes_written = snap_in.write_into_le_bytes(&mut bytes[..]).unwrap();
+            assert_eq!(bytes_written, size_of::<crate::CausalSnapshot>());
+            let snap_out = CausalSnapshot::try_from(&bytes[..]).unwrap();
+            assert_eq!(snap_in.clock, snap_out.clock);
+            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
+            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
+
+            // Write out to extant exact-sized-array variant
+            let mut bytes = [0xFF; 12];
+            snap_in.write_into_le_bytes_exact(&mut bytes);
+            assert_eq!(bytes_written, size_of::<crate::CausalSnapshot>());
+            let snap_out = CausalSnapshot::try_from(&bytes).unwrap();
+            assert_eq!(snap_in.clock, snap_out.clock);
+            assert_eq!(snap_in.reserved_0, snap_out.reserved_0);
+            assert_eq!(snap_in.reserved_1, snap_out.reserved_1);
+        }
     }
 }

@@ -670,11 +670,12 @@ pub(crate) mod test {
     use chrono::Utc;
 
     use modality_probe::{EventId, NanosecondResolution, ProbeEpoch, ProbeTicks, WallClockId};
-    use modality_probe_collector_common::{SequenceNumber, SessionId};
+    use modality_probe_collector_common::SessionId;
 
     use crate::{log, visualize::graph};
 
     use super::*;
+    use modality_probe::wire::SequenceNumber;
 
     pub fn trace() -> Vec<ReportLogEntry> {
         let now = Utc::now();

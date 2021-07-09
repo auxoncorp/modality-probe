@@ -9,9 +9,10 @@ use std::path::PathBuf;
 use buf_redux::BufReader;
 use chrono::Utc;
 use log::{debug, warn};
+use modality_probe::wire::SequenceNumber;
 use modality_probe::{wire::WireReport, ProbeId};
 use modality_probe_collector_common::{
-    self as common, json, Report, ReportLogEntry, SequenceNumber, SessionId,
+    self as common, json, Report, ReportLogEntry, SequenceNumberExt, SessionId,
 };
 use structopt::{clap, StructOpt};
 

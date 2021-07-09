@@ -5,8 +5,8 @@ use std::{collections::HashMap, hash::Hash};
 
 use err_derive::Error;
 
-use modality_probe::{EventId, LogicalClock, ProbeId};
-use modality_probe_collector_common::{EventLogEntry, Report, SequenceNumber};
+use modality_probe::{wire::report::SequenceNumber, EventId, LogicalClock, ProbeId};
+use modality_probe_collector_common::{EventLogEntry, Report, SequenceNumberExt};
 
 /// A trait for the inner graph type of `EventDiagraph`. This enables
 /// a custom inner graph that can be purpose built for a use-case, but
@@ -241,11 +241,10 @@ pub mod test_support {
     use chrono::prelude::*;
 
     use modality_probe::{
-        EventId, LogicalClock, NanosecondResolution, ProbeEpoch, ProbeId, ProbeTicks, WallClockId,
+        wire::report::SequenceNumber, EventId, LogicalClock, NanosecondResolution, ProbeEpoch,
+        ProbeId, ProbeTicks, WallClockId,
     };
-    use modality_probe_collector_common::{
-        LogEntryData, ReportLogEntry, SequenceNumber, SessionId,
-    };
+    use modality_probe_collector_common::{LogEntryData, ReportLogEntry, SessionId};
 
     //   1
     //  / \   |
@@ -638,11 +637,10 @@ mod test {
     use chrono::prelude::*;
 
     use modality_probe::{
-        EventId, LogicalClock, NanosecondResolution, ProbeEpoch, ProbeId, ProbeTicks, WallClockId,
+        wire::report::SequenceNumber, EventId, LogicalClock, NanosecondResolution, ProbeEpoch,
+        ProbeId, ProbeTicks, WallClockId,
     };
-    use modality_probe_collector_common::{
-        LogEntryData, ReportIter, ReportLogEntry, SequenceNumber, SessionId,
-    };
+    use modality_probe_collector_common::{LogEntryData, ReportIter, ReportLogEntry, SessionId};
 
     use super::*;
 
