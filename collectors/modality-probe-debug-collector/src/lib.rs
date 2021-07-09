@@ -598,11 +598,12 @@ pub mod tests {
     use std::convert::TryInto;
     use std::ptr;
 
+    use modality_probe::wire::SequenceNumber;
     use modality_probe::{
         time::{NanosecondResolution, Nanoseconds, WallClockId},
         EventId, ModalityProbe, Probe, RestartCounterProvider,
     };
-    use modality_probe_collector_common::{EventLogEntry, SequenceNumber};
+    use modality_probe_collector_common::EventLogEntry;
     use std::mem::MaybeUninit;
 
     fn lc(probe_id: u32, epoch: u16, ticks: u16) -> LogicalClock {

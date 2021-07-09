@@ -2,6 +2,7 @@
 
 use core::mem;
 use core::mem::MaybeUninit;
+use modality_probe::wire::report::SequenceNumber;
 use modality_probe::*;
 use proptest::prelude::*;
 use std::convert::{TryFrom, TryInto};
@@ -119,7 +120,7 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     let log_report = wire::WireReport::new(&backend[..bytes_written.get()])
         .expect("Could not read from bulk report format bytes");
     assert_eq!(Ok(ProbeId::try_from(123).unwrap()), log_report.probe_id());
-    assert_eq!(log_report.seq_num(), 0);
+    assert_eq!(log_report.seq_num(), SequenceNumber::from(0));
 
     assert_eq!(
         log_report.n_clocks(),
@@ -156,7 +157,7 @@ fn happy_path_backend_service() -> Result<(), ModalityProbeError> {
     let bytes_written = probe.report(&mut backend)?.unwrap();
     let log_report = wire::WireReport::new(&backend[..bytes_written.get()]).unwrap();
     assert_eq!(Ok(ProbeId::try_from(123).unwrap()), log_report.probe_id());
-    assert_eq!(log_report.seq_num(), 1);
+    assert_eq!(log_report.seq_num(), SequenceNumber::from(1));
 
     Ok(())
 }

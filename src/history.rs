@@ -502,7 +502,7 @@ impl<'a> DynamicHistory<'a> {
         // We can't store at least the frontier clocks and a pair of
         // two-word items.
         if report.as_ref().len() < WireReport::<&[u8]>::buffer_len(self.clocks.len(), 4) {
-            report.set_seq_num(self.report_seq_num);
+            report.set_seq_num(self.report_seq_num.into());
             report.set_n_clocks(0);
             report.set_n_log_entries(1);
             let payload = report.payload_mut();
@@ -513,7 +513,7 @@ impl<'a> DynamicHistory<'a> {
             );
         } else {
             let clocks_len = self.clocks.len();
-            report.set_seq_num(self.report_seq_num);
+            report.set_seq_num(self.report_seq_num.into());
             report.set_n_clocks(clocks_len as u16);
 
             let payload = report.payload_mut();

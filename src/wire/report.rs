@@ -13,6 +13,29 @@ use static_assertions::assert_eq_size;
 
 assert_eq_size!(LogEntry, u32);
 
+/// A log report sequence number
+/// The nth report the probe has produced in its current
+/// instantiation.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+#[cfg_attr(
+    feature = "std",
+    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
+#[repr(transparent)]
+pub struct SequenceNumber(pub u64);
+
+impl From<u64> for SequenceNumber {
+    fn from(v: u64) -> Self {
+        SequenceNumber(v)
+    }
+}
+
+impl From<SequenceNumber> for u64 {
+    fn from(v: SequenceNumber) -> Self {
+        v.0
+    }
+}
+
 /// Everything that can go wrong when attempting to interpret a
 /// report from the wire representation
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -199,9 +222,9 @@ impl<T: AsRef<[u8]>> WireReport<T> {
 
     /// Return the `seq_num` field
     #[inline]
-    pub fn seq_num(&self) -> u64 {
+    pub fn seq_num(&self) -> SequenceNumber {
         let data = self.buffer.as_ref();
-        le_bytes::read_u64(&data[field::SEQ_NUM])
+        SequenceNumber(le_bytes::read_u64(&data[field::SEQ_NUM]))
     }
 
     /// Return the `persistent_epoch_counting` field
@@ -281,9 +304,9 @@ impl<T: AsRef<[u8]> + AsMut<[u8]>> WireReport<T> {
 
     /// Set the `seq_num` field
     #[inline]
-    pub fn set_seq_num(&mut self, value: u64) {
+    pub fn set_seq_num(&mut self, value: SequenceNumber) {
         let data = self.buffer.as_mut();
-        le_bytes::write_u64(&mut data[field::SEQ_NUM], value);
+        le_bytes::write_u64(&mut data[field::SEQ_NUM], value.0);
     }
 
     /// Set the `persistent_epoch_counting` field
@@ -411,7 +434,7 @@ mod tests {
         r.set_fingerprint();
         r.set_probe_id(ProbeId::new(1).unwrap());
         r.set_clock(2);
-        r.set_seq_num(8);
+        r.set_seq_num(8.into());
         r.set_persistent_epoch_counting(false);
         r.set_time_resolution(255.into());
         r.set_wall_clock_id(1.into());
@@ -429,7 +452,7 @@ mod tests {
         assert_eq!(r.fingerprint(), WireReport::<&[u8]>::FINGERPRINT);
         assert_eq!(r.probe_id().unwrap().get_raw(), 1);
         assert_eq!(r.clock(), 2);
-        assert_eq!(r.seq_num(), 8);
+        assert_eq!(r.seq_num(), SequenceNumber(8));
         assert_eq!(r.persistent_epoch_counting(), false);
         assert_eq!(r.time_resolution(), 255.into());
         assert_eq!(r.wall_clock_id(), 1.into());
@@ -465,7 +488,7 @@ mod tests {
             r.set_fingerprint();
             r.set_probe_id(ProbeId::new(100).unwrap());
             r.set_clock(0xAAAA_BBBB);
-            r.set_seq_num(123);
+            r.set_seq_num(123.into());
             r.set_persistent_epoch_counting(true);
             r.set_time_resolution(0xABAB.into());
             r.set_wall_clock_id(0xFF.into());
@@ -482,7 +505,7 @@ mod tests {
         assert_eq!(r.fingerprint(), WireReport::<&[u8]>::FINGERPRINT);
         assert_eq!(r.probe_id().unwrap().get_raw(), 100);
         assert_eq!(r.clock(), 0xAAAA_BBBB);
-        assert_eq!(r.seq_num(), 123);
+        assert_eq!(r.seq_num(), SequenceNumber::from(123));
         assert_eq!(r.persistent_epoch_counting(), true);
         assert_eq!(r.time_resolution(), 0xABAB.into());
         assert_eq!(r.wall_clock_id(), 0xFF.into());

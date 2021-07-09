@@ -6,6 +6,7 @@ use fenced_ring_buffer::WholeEntry;
 use serde::{Deserialize, Serialize};
 use static_assertions::assert_eq_size;
 
+use modality_probe::wire::SequenceNumber;
 use modality_probe::{
     log::LogEntry,
     time::{
@@ -48,15 +49,12 @@ newtype! {
     pub struct SessionId(pub u32);
 }
 
-newtype! {
-    /// A log report sequence number
-    #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Copy, Clone, Ord, PartialOrd)]
-    pub struct SequenceNumber(pub u64);
+pub trait SequenceNumberExt {
+    fn prev(&self) -> Self;
 }
-
-impl SequenceNumber {
+impl SequenceNumberExt for SequenceNumber {
     /// Get the sequence number which preceded this one.
-    pub fn prev(&self) -> Self {
+    fn prev(&self) -> Self {
         SequenceNumber(self.0.saturating_sub(1))
     }
 }
@@ -726,7 +724,7 @@ impl Report {
             self.probe_clock.epoch,
             self.probe_clock.ticks,
         ));
-        wire.set_seq_num(self.seq_num.0);
+        wire.set_seq_num(self.seq_num);
         wire.set_persistent_epoch_counting(self.persistent_epoch_counting);
         wire.set_time_resolution(self.time_resolution);
         wire.set_wall_clock_id(self.wall_clock_id);
