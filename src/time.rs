@@ -8,26 +8,46 @@
 ///
 /// This can represent approximately 73 years.
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[cfg_attr(
+feature = "std",
+derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
 #[repr(transparent)]
 pub struct Nanoseconds(u64);
 
 /// Nanosecond time resolution
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[cfg_attr(
+feature = "std",
+derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
 #[repr(transparent)]
 pub struct NanosecondResolution(pub u32);
 
 /// Nanosecond high bits
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+#[cfg_attr(
+feature = "std",
+derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
 #[repr(transparent)]
 pub struct NanosecondsHighBits(pub [u8; 4]);
 
 /// Nanosecond low bits
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+#[cfg_attr(
+feature = "std",
+derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
 #[repr(transparent)]
 pub struct NanosecondsLowBits(pub [u8; 4]);
 
 /// Wall clock identifier, indicates the time domain
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[cfg_attr(
+feature = "std",
+derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
+)]
 #[repr(transparent)]
 pub struct WallClockId(pub u16);
 
