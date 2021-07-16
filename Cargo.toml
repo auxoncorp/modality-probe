@@ -20,12 +20,6 @@ debug-collector-access = ["field-offset"]
 
 [workspace]
 members = [
-    "modality-probe-cli",
-    "modality-probe-graph",
-    "collectors/modality-probe-udp-collector",
-    "collectors/modality-probe-debug-collector",
-    "collectors/modality-probe-collector-common",
-    "collectors/modality-probe-offline-batch-collector",
     "fenced-ring-buffer",
 ]
 exclude = [

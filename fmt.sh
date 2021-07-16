@@ -8,7 +8,3 @@ cargo fmt --all
     cargo fmt
 )
 
-(
-    cd examples/rust-example/
-    cargo fmt
-)
