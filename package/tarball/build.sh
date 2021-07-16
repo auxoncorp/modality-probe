@@ -101,7 +101,6 @@ TARBALL_FILE="${PACKAGE_NAME}.tar.gz"
 
     mkdir -p "$PACKAGE_PATH/doc"
     cp -a LICENSE "$PACKAGE_PATH/doc/"
-    cp -a CHANGELOG.md "$PACKAGE_PATH/doc/"
 
     chmod 644 "$PACKAGE_PATH/doc/"*
 )

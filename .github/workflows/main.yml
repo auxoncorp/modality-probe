@@ -77,16 +77,6 @@ jobs:
       - name: Test
         run: ./test.sh
 
-      - name: Run cargo fmt (Rust example)
-        run: |
-          cd examples/rust-example
-          cargo fmt -- --check
-
-      - name: Run cargo clippy (Rust example)
-        run: |
-          cd examples/rust-example
-          cargo clippy --all
-
       - name: Test (armv7 target)
         uses: actions-rs/cargo@v1
         with:
