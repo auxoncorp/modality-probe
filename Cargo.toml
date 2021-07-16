@@ -24,9 +24,6 @@ members = [
 ]
 exclude = [
     "./package",
-    "./collectors",
-    "examples/rust-example",
-    "examples/c-example",
 ]
 
 [dependencies]
