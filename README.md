@@ -26,23 +26,15 @@ environments.
 ### This Repository
 
 - [C API](./modality-probe-capi): Interact with a Modality probe from C.
-- [CLI](./modality-probe-cli): The CLI used for code generation for
-  probes and the visualization of a trace.
-- [UDP Collector](./collectors/modality-probe-udp-collector): A
-  UDP-based service that collects probes' outgoing reports.
-- [Debug Collector](./collectors/modality-probe-debug-collector): A
-  collector that uses JTAG to retrieve data from the probes' logs.
-- [Batch Collector](./collectors/modality-probe-offline-batch-collector): A
-  utility for converting batches of binary report blobs into log
-  files.
+- [Rust library](./src): Interact with a Modality probe from Rust.
 
 
 ### Open-source `modality-probe` vs. Commercial [Modality](https://docs.auxon.io/modality/)
 This `modality-probe` repository represents a subset of Modality's toolset.
-- Instrumentation for probes and events are the same in `modality-probe` and Modality.
+- Instrumentation implementation for probes and events are the same in `modality-probe` and Modality.
+- `modality-probe` produces trace reports and sends them to Modality. Modality has a unified daemon which collects trace reports into a database.
+- `modality-probe` raw data, whereas Modality adds advanced metrics for risk analysis and a robust trace query language.
 -  Modality adds [mutators](https://docs.auxon.io/modality/reference/glossary.html#mutator), allowing you to precisely manipulate system state.
-- `modality-probe` produces trace reports and sends them to [UDP Collector](./collectors/modality-probe-udp-collector), [Debug Collector](./collectors/modality-probe-debug-collector), and [Batch Collector](./collectors/modality-probe-offline-batch-collector) to produce log files. Modality has a unified daemon which collects trace reports into a database.
-- `modality-probe` inspects trace data with `modality-probe log`, whereas Modality adds advanced metrics for risk analysis and a robust trace query language.
 
 
 ## Getting Started
@@ -70,15 +62,6 @@ $ cargo build --release
 ```
 
 ## Usage
-
-In the following sections we'll be using excerpts from the
-[C examples](./examples/c-example). You can actually run the
-complete example from inside that directory.
-
-```shell
-$ cd examples/c-example
-$ make test
-```
 
 The probe API consists of five behaviors: initialization, event
 recording, snapshot production and merging, report generation, and
@@ -231,75 +214,6 @@ err = modality_probe_merge_snapshot(
 assert(err == MODALITY_PROBE_ERROR_OK);
 ```
 
-### Generating Manifests and Headers
-
-In the samples above, a macro is used to initialize a probe and to
-record events. Modality Probe's CLI has a subcommand that explores
-your code base for uses of these macros and turns those uses into what
-Modality calls a Component. A component has a name of its own, a list
-of probes (`probes.csv`), and a list of events (`events.csv`). Altogether,
-a component looks like this:
-
-```shell
-$ tree my-component
-├── Component.toml
-├── events.csv
-└── probes.csv
-```
-
-First, install the cli and then use `manifest-gen` to do this.
-
-``` shell
-$ cd modality-probe-cli
-$ cargo install --path .
-$ cd ../
-$ modality-probe manifest-gen \
-    --lang c \
-    --file-extension c \
-    --component-name example-component \
-    --output-path example-component \
-    examples/c-example
-```
-
-Next, we'll want to generate the source code that gives those symbols
-we discussed in the code snippet examples in the previous section
-their definitions. To do that, we'll use `header-gen`:
-
-```shell
-$ modality-probe header-gen \
-    --lang c \
-    --output-path examples/c-example/include/component_definitions.h \
-    example-component
-```
-
-NOTE: It can be helpful to have the manifest and header generation tools run as
-part of your regular build process to automatically pick up changes to
-your instrumentation or alert you to potential issues in your instrumentation.
-
-
-### Setting up a Collector
-
-Modality Probe also ships with [a service that can collect reports via
-UDP](./collectors/modality-probe-udp-collector) the reports you
-generate from your probes. It writes those incoming reports as JSON
-lines to a file. Start it like so:
-
-```
-$ cd collectors/modality-probe-udp-collector
-$ cargo install --path .
-$ cd ../../
-$ modality-probe-udp-collector
-Using the configuration:
-    addr: 0.0.0.0:2718
-    session id: 0
-    output file: /home/me/src/modality-probe/session_0_log_entries.jsonl
-```
-
-When the service starts it prints the configuration it's using. In the
-example above it's using all defaults. You can also pass CLI arguments to
-direct the collector to listen on a certain port and write to a specific
-output file. Check `modality-probe-udp-collector --help` for details.
-
 ### Getting Trace Data Out of the System
 
 `modality-probe` is intended to be flexible in the kind of environments
@@ -334,142 +248,8 @@ static void send_report(modality_probe * const probe)
 }
 ```
 
-The second is to connect to your device over its JTAG/SWD debug interface using the
-`modality-probe-debug-collector` and pull data down over the debug interface to
-the host machine ([see here for details](./collectors/modality-probe-debug-collector/README.md)).
-
-### Running the Instrumented Example
-
-In one terminal, run the UDP collector.
-
-```shell
-$ modality-probe-udp-collector
-Using the configuration:
-    addr: 0.0.0.0:2718
-    session id: 0
-    output file: /home/me/src/modality-probe/session_0_log_entries.jsonl
-```
-
-Then, in another terminal, navigate to the Rust example and run it.
-
-```shell
-$ cd examples/c-examples
-$ make run
-Modality probe reports will be sent to 127.0.0.1:2718
-Sensor measurement producer starting
-Sensor measurement consumer starting
-Consumer recvd -1
-Shutting down
-All done
-```
-
-The `/home/me/src/modality-probe/session_0_log_entries.jsonl` file,
-which is in the working directory of where you ran the collector,
-should have been created with content that looks like something like
-this:
-
-```shell
-$ head session_0_log_entries.jsonl
-{"session_id":1,"sequence_number":0,"sequence_index":0,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":697885215,"epoch":0,"ticks":0}},"receive_time":"2020-09-14T15:10:35.938584823Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":1,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-14T15:10:35.938584823Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":2,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":1},"receive_time":"2020-09-14T15:10:35.938584823Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":3,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"EventWithPayload":[3,1]},"receive_time":"2020-09-14T15:10:35.938584823Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":4,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"TraceClock":{"id":697885215,"epoch":1,"ticks":1}},"receive_time":"2020-09-14T15:10:35.938584823Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":5,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"EventWithPayload":[4,1]},"receive_time":"2020-09-14T15:10:35.938584823Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":6,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":5},"receive_time":"2020-09-14T15:10:35.938584823Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":7,"probe_id":697885215,"persistent_epoch_counting":false,"data":{"Event":2},"receive_time":"2020-09-14T15:10:35.938584823Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":0,"probe_id":354168348,"persistent_epoch_counting":false,"data":{"FrontierClock":{"id":354168348,"epoch":0,"ticks":0}},"receive_time":"2020-09-14T15:10:35.939494439Z"}
-{"session_id":1,"sequence_number":0,"sequence_index":1,"probe_id":354168348,"persistent_epoch_counting":false,"data":{"Event":1073741817},"receive_time":"2020-09-14T15:10:35.939494439Z"}
-```
-
-### Inspecting a Trace from Your Terminal
-
-The Modality Probe CLI also provides a way to inspect a trace from
-your terminal with the `log` subcommand. Given the trace we generated
-in the “Running the Instrumented Example” section above, we can
-inspect that trace with the following command:
-
-```shell
-$ modality-probe log -vv --component-path ./example-component --report session_0_log_entries.jsonl
-```
-
-This command takes a path to the component's metadata and a path to
-the trace; it also asks `log` to provide its most verbose output
-(`-vv`). That output should look something like this:
-
-```
-Clock Tick @ CONSUMER_PROBE (1:30020207:0:1) clock=(0, 0)
-
-CONSUMER_STARTED @ CONSUMER_PROBE (1:30020207:0:3)
-    description: "Measurement consumer thread started"
-    payload: None
-    tags: consumer
-    event source: "c-example/src/main.rs#L196"
-    probe tags: c-example, measurement, consumer
-    probe source: "c-example/src/main.rs#L186"
-    component: example-component
-
-Clock Tick @ PRODUCER_PROBE (1:837318897:0:1) clock=(0, 0)
-
-PRODUCER_STARTED @ PRODUCER_PROBE (1:837318897:0:3)
-    description: "Measurement producer thread started"
-    payload: None
-    tags: producer
-    event source: "c-example/src/main.rs#L102"
-    probe tags: c-example, measurement, producer
-    probe source: "c-example/src/main.rs#L92"
-    component: example-component
-```
-
-Alternatively, you can pass `--graph` to `log` and it will *graph* the
-interactions and events across all of the probes. It should look
-something like this:
-
-```
-*   |   CONSUMER_STARTED @ CONSUMER_PROBE (1:30020207:0:3)
-|   |       description: "Measurement consumer thread started"
-|   |       tags: consumer
-|   |       event source: "c-example/src/main.rs#L196"
-|   |       probe tags: c-example, measurement, consumer
-|   |       probe source: "c-example/src/main.rs#L186"
-|   |       component: example-component
-|   |
-|   *   PRODUCER_STARTED @ PRODUCER_PROBE (1:837318897:0:3)
-|   |       description: "Measurement producer thread started"
-|   |       tags: producer
-|   |       event source: "c-example/src/main.rs#L102"
-|   |       probe tags: c-example, measurement, producer
-|   |       probe source: "c-example/src/main.rs#L92"
-|   |       component: example-component
-|   |
-|   *   PRODUCER_MEASUREMENT_SAMPLED @ PRODUCER_PROBE (1:837318897:0:4)
-|   |       description: "Measurement producer sampled a value for transmission"
-|   |       payload: 1
-|   |       tags: producer, measurement sample
-|   |       event source: "c-example/src/main.rs#L144"
-|   |       probe tags: c-example, measurement, producer
-|   |       probe source: "c-example/src/main.rs#L92"
-|   |       component: example-component
-|   |
-+<--+   CONSUMER_PROBE merged a snapshot from PRODUCER_PROBE
-```
-
-
-### Visualizing the Trace
-
-Now we can use this collected trace and visualize it as a graph with
-`modality-probe visualize` which will export the trace as a Graphviz
-DOT format file. The example below uses the `dot` command, and thus
-assumes you've already installed Graphviz which includes `dot`:
-
-```shell
-$ modality-probe visualize acyclic --component-path ./example-component --report session_0_log_entries.jsonl > trace.dot
-$ dot -Tpng trace.dot > trace.png
-```
-
-You can then open `trace.png` and see something like this:
-
-![trace](https://user-images.githubusercontent.com/1194436/95799022-4402b800-0ca8-11eb-9ad3-a8c0fab31fe5.png)
+The second is to connect to your device over its JTAG/SWD debug interface using
+the related capabilities from the Modality product.
 
 ### Associating Causality with your Existing Logging
 
