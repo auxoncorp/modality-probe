@@ -33,6 +33,9 @@ enum Op {
 struct NumEntry(u32);
 
 impl Entry for NumEntry {
+    fn is_mega_variable_prefix(&self) -> bool {
+        false
+    }
     /// Return true if entry is the first in a double entry
     fn is_prefix(&self) -> bool {
         self.0 & 0b10000000_00000000_00000000_00000000 != 0

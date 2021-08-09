@@ -257,14 +257,20 @@ impl<'a> DynamicHistory<'a> {
 
     #[inline]
     fn merge_overwritten_clock(&mut self, overwritten: Option<WholeEntry<LogEntry>>) {
-        if let Some(WholeEntry::Double(one, two)) = overwritten {
-            // If what we get out of the log is a clock, merge it into clocks list
-            if one.has_clock_bit_set() {
-                if let Some(id) = ProbeId::new(one.interpret_as_logical_clock_probe_id()) {
-                    let (epoch, ticks) = crate::unpack_clock_word(two.raw());
-                    self.merge_clock(LogicalClock { id, epoch, ticks });
+        match overwritten {
+            // Doubles are either a standalone WCT pair, a logical clock pair, or an event-and-payload pair
+            Some(WholeEntry::Double(one, two)) |
+            // Quads are WCT pair followed by either a logical clock pair or an event-and-payload pair
+            Some(WholeEntry::Quad(_, _, one, two))=> {
+                // If what we get out of the log is a clock, merge it into clocks list
+                if one.has_logical_clock_bit_set() {
+                    if let Some(id) = ProbeId::new(one.interpret_as_logical_clock_probe_id()) {
+                        let (epoch, ticks) = crate::unpack_clock_word(two.raw());
+                        self.merge_clock(LogicalClock { id, epoch, ticks });
+                    }
                 }
             }
+            _ => {}
         }
     }
 
@@ -284,57 +290,6 @@ impl<'a> DynamicHistory<'a> {
         // Fenced-ring-buffer keeps track of missed entries until the log is pop'd
         self.missed_log_entry_count =
             cmp::max(self.missed_log_entry_count, self.log.num_missed() as u32);
-
-        // Fenced-ring-buffer will yield overwritten entries regardless
-        // of whether or not the buffer is full, only increment probe-local
-        // missed counter when the log is actually full and overwriting the tail
-        let log_was_full = self.log.is_full();
-
-        if let Some(overwritten) = first_overwritten {
-            if overwritten.is_double()
-                && overwritten
-                    .first_entry()
-                    .has_wall_clock_time_paired_bit_set()
-                && log_was_full
-            {
-                // The buddy entry is either already pop'd in second_overwritten
-                // or the next tail entry in the log
-                if second_overwritten.is_none() {
-                    let buddy_entry = self.log.pop();
-
-                    if let Some(e) = buddy_entry {
-                        self.missed_log_entry_count =
-                            self.missed_log_entry_count.saturating_add(e.size().into());
-                    }
-
-                    self.merge_overwritten_clock(buddy_entry);
-                }
-
-                // All done, don't need to do anything with second_overwritten
-                return;
-            }
-        }
-
-        // first_overwritten was not a paired wall clock time entry,
-        // need to do the same checks on second_overwritten
-        if let Some(overwritten) = second_overwritten {
-            if overwritten.is_double()
-                && overwritten
-                    .first_entry()
-                    .has_wall_clock_time_paired_bit_set()
-                && log_was_full
-            {
-                // The buddy entry is the next tail entry in the log
-                let buddy_entry = self.log.pop();
-
-                if let Some(e) = buddy_entry {
-                    self.missed_log_entry_count =
-                        self.missed_log_entry_count.saturating_add(e.size().into());
-                }
-
-                self.merge_overwritten_clock(buddy_entry);
-            }
-        }
     }
 
     /// Isolated function for figuring out what the next epoch should be for the probe.
@@ -551,6 +506,88 @@ impl<'a> DynamicHistory<'a> {
             // since the size of the next entry isn't known until it is peeked
             while let Some(entry) = self.log.peek() {
                 match entry {
+                    WholeEntry::Quad(first, second, third, fourth) => {
+                        if n_copied > n_entries_possible - 4 {
+                            // Not enough space for the quad-item entry, break
+                            // out of the loop here, and don't consume the peeked entries
+                            break;
+                        }
+
+                        // A quad entry is a wall-clock time pair followed by either
+                        // a logical clock pair or an event-with-payload pair.
+
+                        // Write the wall-clock time pair
+                        let dest_bytes = &mut log_region[n_copied * size_of::<LogEntry>()
+                            ..(n_copied + 2) * size_of::<LogEntry>()];
+                        dest_bytes[0..4].copy_from_slice(&first.raw().to_le_bytes());
+                        dest_bytes[4..8].copy_from_slice(&second.raw().to_le_bytes());
+                        n_copied += 2;
+
+                        // Merge clocks into probe's clock list
+                        if third.has_logical_clock_bit_set() {
+                            // Safe to unwrap because entry was written into the log as a clock probe id
+                            let id =
+                                ProbeId::new(third.interpret_as_logical_clock_probe_id()).unwrap();
+
+                            let self_probe_id = self.probe_id;
+                            let next_entry_is_foreign_clock = self
+                                .log
+                                // four back to cover the whole trace-clock
+                                // we're currently peeking into.
+                                .peek_at(4)
+                                .map(|e| match e {
+                                    WholeEntry::Double(possible_clock, _)
+                                    | WholeEntry::Quad(_, _, possible_clock, _)
+                                        if possible_clock.has_logical_clock_bit_set() =>
+                                    {
+                                        ProbeId::new(
+                                            possible_clock.interpret_as_logical_clock_probe_id(),
+                                        )
+                                        .unwrap()
+                                            != self_probe_id
+                                    }
+                                    _ => false,
+                                })
+                                .unwrap_or(false);
+
+                            // Ensure we have enough room for the interaction clock following
+                            // a self clock
+                            if id == self_probe_id
+                                && next_entry_is_foreign_clock
+                                && (n_copied + 6 > n_entries_possible)
+                            {
+                                break;
+                            }
+
+                            let (epoch, ticks) = crate::unpack_clock_word(fourth.raw());
+                            if Self::merge_clocks(clocks, LogicalClock { id, epoch, ticks })
+                                .is_err()
+                            {
+                                did_clocks_overflow = true;
+                            }
+                        }
+
+                        let dest_bytes = &mut log_region[n_copied * size_of::<LogEntry>()
+                            ..(n_copied + 2) * size_of::<LogEntry>()];
+                        dest_bytes[0..4].copy_from_slice(&third.raw().to_le_bytes());
+                        dest_bytes[4..8].copy_from_slice(&fourth.raw().to_le_bytes());
+                        n_copied += 2;
+                    }
+                    WholeEntry::Triple(first, second, third) => {
+                        if n_copied > n_entries_possible - 3 {
+                            // Not enough space for the triple-item entry, break
+                            // out of the loop here, and don't consume the peeked entries
+                            break;
+                        }
+                        // A triple entry is always a WCT pair followed by a non-prefix event entry
+                        // with no following payload, so no need to do logical-clock handling.
+                        let dest_bytes = &mut log_region[n_copied * size_of::<LogEntry>()
+                            ..(n_copied + 3) * size_of::<LogEntry>()];
+                        dest_bytes[0..4].copy_from_slice(&first.raw().to_le_bytes());
+                        dest_bytes[4..8].copy_from_slice(&second.raw().to_le_bytes());
+                        dest_bytes[8..12].copy_from_slice(&third.raw().to_le_bytes());
+                        n_copied += 3;
+                    }
                     WholeEntry::Double(first, second) => {
                         if n_copied > n_entries_possible - 2 {
                             // Not enough space for the double-item entry, break
@@ -558,17 +595,8 @@ impl<'a> DynamicHistory<'a> {
                             break;
                         }
 
-                        // Ensure we never fragment a paired wall clock entry from its
-                        // associated other entry across reports
-                        if first.has_wall_clock_time_paired_bit_set() {
-                            // Bail out early if we don't have room another double-item entry
-                            if n_copied + 4 > n_entries_possible {
-                                break;
-                            }
-                        }
-
-                        // Merge clocks into probe's clock list
-                        if first.has_clock_bit_set() {
+                        // Merge clocks into probe's logical clock list
+                        if first.has_logical_clock_bit_set() {
                             // Safe to unwrap because entry was written into the log as a clock probe id
                             let id =
                                 ProbeId::new(first.interpret_as_logical_clock_probe_id()).unwrap();
@@ -576,13 +604,18 @@ impl<'a> DynamicHistory<'a> {
                             let self_probe_id = self.probe_id;
                             let next_entry_is_foreign_clock = self
                                 .log
-                                // two back to cover the whole clock
+                                // two back to cover the whole trace-clock
                                 // we're currently peeking into.
                                 .peek_at(2)
                                 .map(|e| match e {
-                                    WholeEntry::Double(first, _) if first.has_clock_bit_set() => {
-                                        ProbeId::new(first.interpret_as_logical_clock_probe_id())
-                                            .unwrap()
+                                    WholeEntry::Double(possible_clock, _)
+                                    | WholeEntry::Quad(_, _, possible_clock, _)
+                                        if possible_clock.has_logical_clock_bit_set() =>
+                                    {
+                                        ProbeId::new(
+                                            possible_clock.interpret_as_logical_clock_probe_id(),
+                                        )
+                                        .unwrap()
                                             != self_probe_id
                                     }
                                     _ => false,
@@ -834,6 +867,7 @@ mod test {
     use super::*;
     use crate::restart_counter::RestartSequenceIdUnavailable;
     use crate::{RestartCounter, RustRestartCounterProvider};
+    use fenced_ring_buffer::Entry;
 
     struct PersistentRestartProvider {
         next_seq_id: u16,
@@ -996,7 +1030,7 @@ mod test {
                 if let Some(ev) = log_entry.interpret_as_event_id() {
                     if ev == EventId::EVENT_NUM_CLOCKS_OVERFLOWED {
                         assert!(!log_entry.has_event_with_payload_bit_set());
-                        assert!(!log_entry.has_clock_bit_set());
+                        assert!(!log_entry.has_logical_clock_bit_set());
                         return true;
                     }
                 }
@@ -1429,13 +1463,22 @@ mod test {
 
     #[test]
     fn overwritten_paired_wall_clock_time_drops_buddy_entry() {
+        #[repr(align(4))]
+        struct AlignHelper {
+            #[cfg(target_pointer_width = "64")]
+            storage: [MaybeUninit<u8>; 512],
+            #[cfg(target_pointer_width = "32")]
+            storage: [MaybeUninit<u8>; 478],
+        }
         let probe_id = ProbeId::new(1).unwrap();
-        #[cfg(target_pointer_width = "64")]
-        let mut storage = [MaybeUninit::new(0u8); 512];
-        #[cfg(target_pointer_width = "32")]
-        let mut storage = [MaybeUninit::new(0u8); 478];
+        let mut outer_storage = AlignHelper {
+            #[cfg(target_pointer_width = "64")]
+            storage: [MaybeUninit::new(0u8); 512],
+            #[cfg(target_pointer_width = "32")]
+            storage: [MaybeUninit::new(0u8); 478],
+        };
         let h = DynamicHistory::new_at(
-            &mut storage,
+            &mut outer_storage.storage,
             probe_id,
             NanosecondResolution::UNSPECIFIED,
             WallClockId::local_only(),
@@ -1469,16 +1512,59 @@ mod test {
 
         // Room for 2 more entries since we've pop'd off buddy entries
         assert_eq!(h.log.capacity() - h.log.len(), 2);
+        // This will take up 4 entries, so we'll end up dropping 4 more and still having room for just 2
         h.record_event_with_payload_with_time(event_b, 1234, Nanoseconds::new(12345).unwrap());
+        assert_eq!(h.missed_log_entry_count, 3 + 4 + 4);
+        assert_eq!(h.log.capacity() - h.log.len(), 2);
 
-        // Next single entry should overwrite a double
+        // Next single entry should not over-write since there's room for 2 entries
         h.record_event(event_b);
-        assert_eq!(h.missed_log_entry_count, 3 + 4 + 2);
+        assert_eq!(h.missed_log_entry_count, 3 + 4 + 4);
+        assert_eq!(h.log.capacity() - h.log.len(), 1);
 
-        // Now search through the log entries, check that all paired time entries have a buddy
+        h.record_event(event_b);
+        assert_eq!(h.missed_log_entry_count, 3 + 4 + 4);
+        assert_eq!(h.log.capacity() - h.log.len(), 0);
+
+        // Record a triple (WCT start, WCT end, event id)
+        h.record_event_with_time(event_b, Nanoseconds::new(12345).unwrap());
+        // Overwrote one of the quads at the start of the log, dropping 4 and adding 3
+        assert_eq!(h.missed_log_entry_count, 3 + 4 + 4 + 4);
+        assert_eq!(h.log.capacity() - h.log.len(), 1);
+
+        // Now search through the log entries, check that the entries appear consistent
         while let Some(e) = h.log.pop() {
-            if e.is_double() && e.first_entry().has_wall_clock_time_paired_bit_set() {
-                assert!(h.log.peek().is_some());
+            match e {
+                WholeEntry::Single(first) => {
+                    // Basic events
+                    assert!(!first.is_mega_variable_prefix());
+                    assert!(!first.is_prefix());
+                }
+                WholeEntry::Double(first, _second) => {
+                    assert!(!first.is_mega_variable_prefix());
+                    assert!(first.is_prefix());
+                    // We know that we never recorded an event with a payload
+                    // without an associated time, so all of the doubles should
+                    // be logical clocks
+                    assert!(first.has_logical_clock_bit_set());
+                }
+                WholeEntry::Triple(first, _second, third) => {
+                    assert!(first.is_mega_variable_prefix());
+                    assert!(!first.is_fixed_size_prefix());
+                    // We never recorded logical clocks with paired WCTs, so the
+                    // third entry must be a simple event
+                    assert!(!third.is_mega_variable_prefix());
+                    assert!(!third.is_fixed_size_prefix());
+                    assert!(!third.has_logical_clock_bit_set());
+                }
+                WholeEntry::Quad(first, _second, third, _fourth) => {
+                    assert!(first.is_mega_variable_prefix());
+                    assert!(!first.is_fixed_size_prefix());
+                    // Must be an event-with-payload pair for the latter half
+                    assert!(!third.is_mega_variable_prefix());
+                    assert!(third.is_fixed_size_prefix());
+                    assert!(!third.has_logical_clock_bit_set());
+                }
             }
         }
     }

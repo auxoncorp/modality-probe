@@ -49,6 +49,10 @@ where
     storage_cap: usize,
     /// Vec used to store temporary snapshot of new entries in the buffer
     buf_snapshot: Vec<E>,
+    /// Cached mega-prefix, not put into buffer until suffix is successfully read
+    stored_mega_prefix: Option<E>,
+    /// Cached mega-prefix-associated content, not put into buffer until suffix is successfully read
+    stored_mega_prefix_content: Option<E>,
     /// Cached prefix, not put into buffer until suffix is successfully read
     stored_prefix: Option<E>,
 }
@@ -65,6 +69,8 @@ where
             read_seqn: 0.into(),
             storage_cap,
             buf_snapshot: Vec::new(),
+            stored_mega_prefix: None,
+            stored_mega_prefix_content: None,
             stored_prefix: None,
         }
     }
@@ -105,37 +111,81 @@ where
             (self.buf_snapshot.len() as u64).into(),
         );
         // If any entries were missed and there is a stored prefix, then the entry after
-        // the prefix was missed. The prefix is dropped and added to the missed
+        // the prefix was missed. The prefix-ish entries are dropped and added to the missed
         // count
-        if (u64::from(n_missed_before_read) > 0 || u64::from(n_overwritten_in_snap) > 0)
-            && self.drop_prefix()
-        {
-            n_missed_before_read += 1;
+        if u64::from(n_missed_before_read) > 0 || u64::from(n_overwritten_in_snap) > 0 {
+            n_missed_before_read += self.drop_prefixes();
         }
 
         // Store valid entries in read buffer
         for entry in &mut self.buf_snapshot[u64::from(n_overwritten_in_snap) as usize..] {
-            Self::store(&mut self.stored_prefix, *entry, out);
+            Self::store(
+                &mut self.stored_mega_prefix,
+                &mut self.stored_mega_prefix_content,
+                &mut self.stored_prefix,
+                *entry,
+                out,
+            );
         }
         Ok((n_missed_before_read + n_overwritten_in_snap).into())
     }
 
     /// Store given entry in given read buffer
     #[inline]
-    fn store(stored_prefix: &mut Option<E>, entry: E, out: &mut Vec<WholeEntry<E>>) {
-        if let Some(prefix) = stored_prefix.take() {
-            out.push(WholeEntry::Double(prefix, entry));
-        } else if entry.is_prefix() {
-            *stored_prefix = Some(entry);
-        } else {
-            out.push(WholeEntry::Single(entry));
+    fn store(
+        stored_mega_prefix: &mut Option<E>,
+        stored_mega_prefix_content: &mut Option<E>,
+        stored_prefix: &mut Option<E>,
+        entry: E,
+        out: &mut Vec<WholeEntry<E>>,
+    ) {
+        match (
+            stored_mega_prefix.take(),
+            stored_mega_prefix_content.take(),
+            stored_prefix.take(),
+        ) {
+            (Some(smp), Some(smpc), Some(sp)) => out.push(WholeEntry::Quad(smp, smpc, sp, entry)),
+            (Some(smp), Some(smpc), None) => {
+                if entry.is_fixed_size_prefix() {
+                    *stored_mega_prefix = Some(smp);
+                    *stored_mega_prefix_content = Some(smpc);
+                    *stored_prefix = Some(entry)
+                } else {
+                    out.push(WholeEntry::Triple(smp, smpc, entry))
+                }
+            }
+            (Some(smp), None, None) => {
+                *stored_mega_prefix = Some(smp);
+                *stored_mega_prefix_content = Some(entry);
+            }
+            (None, _ignore_without_mega_prefix, Some(sp)) => {
+                out.push(WholeEntry::Double(sp, entry));
+            }
+            (Some(_ignore_without_related_mega_content), None, Some(sp)) => {
+                out.push(WholeEntry::Double(sp, entry));
+            }
+            (None, _ignore, None) => {
+                if entry.is_mega_variable_prefix() {
+                    *stored_mega_prefix = Some(entry);
+                } else if entry.is_fixed_size_prefix() {
+                    *stored_prefix = Some(entry)
+                } else {
+                    out.push(WholeEntry::Single(entry))
+                }
+            }
         }
     }
 
-    /// Drop stored prefix, returning false if it was already None
+    /// Drop stored prefix-ish content, returning the number of entries lost
     #[inline]
-    fn drop_prefix(&mut self) -> bool {
-        self.stored_prefix.take().is_some()
+    fn drop_prefixes(&mut self) -> u64 {
+        self.stored_mega_prefix.take().map(|_| 1).unwrap_or(0)
+            + self
+                .stored_mega_prefix_content
+                .take()
+                .map(|_| 1)
+                .unwrap_or(0)
+            + self.stored_prefix.take().map(|_| 1).unwrap_or(0)
     }
 
     fn snap_storage(&self, index: usize) -> Result<E, S::Error> {

@@ -125,7 +125,31 @@ where
         } else {
             // Safe to read because read seq num is between overwrite and write seq nums
             let first_entry = unsafe { self.read_storage(read_seqn) };
-            if first_entry.is_prefix() {
+            if first_entry.is_mega_variable_prefix() {
+                // Safe because if prefix is present, suffix will also be present
+                let second_entry = unsafe { self.read_storage(read_seqn + 1) };
+
+                if read_seqn + 2 < self.overwrite_seqn || read_seqn + 2 >= self.write_seqn {
+                    // We've lost the associated content
+                    None
+                } else {
+                    debug_assert!(read_seqn <= self.write_seqn - 3);
+                    let third_entry = unsafe { self.read_storage(read_seqn + 2) };
+                    if third_entry.is_prefix() {
+                        debug_assert!(read_seqn <= self.write_seqn - 4);
+                        // Safe because if prefix is present, suffix will also be present
+                        let fourth_entry = unsafe { self.read_storage(read_seqn + 3) };
+                        Some(WholeEntry::Quad(
+                            first_entry,
+                            second_entry,
+                            third_entry,
+                            fourth_entry,
+                        ))
+                    } else {
+                        Some(WholeEntry::Triple(first_entry, second_entry, third_entry))
+                    }
+                }
+            } else if first_entry.is_prefix() {
                 debug_assert!(read_seqn <= self.write_seqn - 2);
                 // Safe because if prefix is present, suffix will also be present
                 let second_entry = unsafe { self.read_storage(read_seqn + 1) };
@@ -414,11 +438,9 @@ mod tests {
         let e = WholeEntry::Single(OrderedEntry::from_index(1));
         assert_eq!(e.size(), 1);
         assert_eq!(e.first_entry(), &OrderedEntry::from_index(1));
-        assert_eq!(e.is_double(), false);
         let e = WholeEntry::Double(OrderedEntry::from_index(2), OrderedEntry::from_index(3));
         assert_eq!(e.size(), 2);
         assert_eq!(e.first_entry(), &OrderedEntry::from_index(2));
-        assert_eq!(e.is_double(), true);
     }
 
     /// Test backing storage size rounding and minimum size enforcement
