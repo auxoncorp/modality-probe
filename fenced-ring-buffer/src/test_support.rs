@@ -8,6 +8,10 @@ use std::sync::atomic::{fence, Ordering};
 pub(crate) struct OrderedEntry(u32);
 
 impl Entry for OrderedEntry {
+    fn is_mega_variable_prefix(&self) -> bool {
+        false
+    }
+
     fn is_prefix(&self) -> bool {
         assert!(!self.is_suffix());
         self.is_prefix_unchecked()
@@ -74,6 +78,19 @@ impl OutputOrderedEntry {
                         assert_eq!(first.to_index() as u64, current_index);
                         assert_eq!(second.to_index() as u64, current_index + 1);
                         current_index += 2;
+                    }
+                    WholeEntry::Triple(first, second, third) => {
+                        assert_eq!(first.to_index() as u64, current_index);
+                        assert_eq!(second.to_index() as u64, current_index + 1);
+                        assert_eq!(third.to_index() as u64, current_index + 2);
+                        current_index += 3;
+                    }
+                    WholeEntry::Quad(first, second, third, fourth) => {
+                        assert_eq!(first.to_index() as u64, current_index);
+                        assert_eq!(second.to_index() as u64, current_index + 1);
+                        assert_eq!(third.to_index() as u64, current_index + 2);
+                        assert_eq!(fourth.to_index() as u64, current_index + 3);
+                        current_index += 4;
                     }
                 },
             }

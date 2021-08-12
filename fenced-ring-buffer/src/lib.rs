@@ -151,8 +151,25 @@ fn num_missed(read_seqn: SeqNum, overwrite_seqn: SeqNum) -> SeqNum {
 
 /// Entry that can be stored in a FencedRingBuffer
 pub trait Entry: Copy + PartialEq {
-    /// Return true if entry is the first in a double entry
+    /// Return true if the entry is the first in a pair of entries
+    /// that precede either one or two further entries.  Whether
+    /// there are three or four entries connected depends on if
+    /// the third entry `is_prefix`
+    ///
+    /// Possible valid patterns of entries:
+    /// * `[non-prefix opaque content]`
+    /// * `[prefix, opaque content]`
+    /// * `[mega-prefix, opaque content, non-prefix opaque content]`
+    /// * `[mega-prefix, opaque content, prefix, opaque content]`
+    fn is_mega_variable_prefix(&self) -> bool;
+    /// Return true if entry is the first in at least a double entry
     fn is_prefix(&self) -> bool;
+
+    /// Return true if entry definitely requires exactly one
+    /// following entry to be complete enough to understand.
+    fn is_fixed_size_prefix(&self) -> bool {
+        self.is_prefix() && !self.is_mega_variable_prefix()
+    }
 }
 
 /// An entry or double entry that has just been overwritten.
@@ -166,17 +183,23 @@ where
     Single(E),
     /// Double entry overwritten
     Double(E, E),
+    /// Triple entry overwritten (a mega-prefix, its content, then followed by a non-prefix entry)
+    Triple(E, E, E),
+    /// Quad entry overwritten (a mega-prefix, its content, a prefix entry, then followed by a non-prefix entry)
+    Quad(E, E, E, E),
 }
 
 impl<E> WholeEntry<E>
 where
     E: Entry,
 {
-    /// 1 if entry is single, 2 if double
+    /// 1 if entry is single, 2 if double, and so on
     pub fn size(&self) -> u8 {
         match self {
             Self::Single(_) => 1,
             Self::Double(_, _) => 2,
+            WholeEntry::Triple(_, _, _) => 3,
+            WholeEntry::Quad(_, _, _, _) => 4,
         }
     }
 
@@ -185,12 +208,9 @@ where
         match self {
             Self::Single(e) => e,
             Self::Double(e, _) => e,
+            Self::Triple(e, _, _) => e,
+            Self::Quad(e, _, _, _) => e,
         }
-    }
-
-    /// Returns true if this is a double entry
-    pub fn is_double(&self) -> bool {
-        matches!(self, Self::Double(_, _))
     }
 }
 

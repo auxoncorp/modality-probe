@@ -494,12 +494,12 @@ proptest! {
         let second_to_last_item = unsafe { log::LogEntry::new_unchecked(second_to_last_item) };
 
         // If the second-to-last item is not a two-item log entry
-        if !second_to_last_item.has_clock_bit_set()
+        if !second_to_last_item.has_logical_clock_bit_set()
             && !second_to_last_item.has_event_with_payload_bit_set()
             && !second_to_last_item.has_wall_clock_time_bits_set() {
             // Then the last item also must not be the start of a multi-item entry
             prop_assert!(
-                !last_item.has_clock_bit_set(),
+                !last_item.has_logical_clock_bit_set(),
                 "Last item has clock bit set: 0x{:X}",
                 last_item.raw()
             );
@@ -579,7 +579,7 @@ proptest! {
         ]);
         let second_to_last_item = unsafe { log::LogEntry::new_unchecked(second_to_last_item) };
 
-        if second_to_last_item.has_clock_bit_set() {
+        if second_to_last_item.has_logical_clock_bit_set() {
             // The first clock is always the self-clock, followed by an interaction clock
             prop_assert_eq!(
                 second_to_last_item.interpret_as_logical_clock_probe_id(),

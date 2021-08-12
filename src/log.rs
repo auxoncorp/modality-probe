@@ -3,7 +3,7 @@
 use crate::{pack_clock_word, time::Nanoseconds, EventId, LogicalClock};
 use fenced_ring_buffer::FencedRingBuffer;
 
-pub(crate) const CLOCK_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
+pub(crate) const LOGICAL_CLOCK_MASK: u32 = 0b1000_0000_0000_0000_0000_0000_0000_0000;
 pub(crate) const EVENT_WITH_PAYLOAD_MASK: u32 = 0b0100_0000_0000_0000_0000_0000_0000_0000;
 pub(crate) const WALL_CLOCK_TIME_MASK: u32 = 0b1100_0000_0000_0000_0000_0000_0000_0000;
 pub(crate) const PAIRED_WALL_CLOCK_TIME_MASK: u32 = 0b0010_0000_0000_0000_0000_0000_0000_0000;
@@ -53,7 +53,7 @@ impl LogEntry {
     pub fn clock(clock: LogicalClock) -> (Self, Self) {
         // Set the top bit for id to indicate that it is not an event but a logical clock bucket,
         // and to treat the next item as the count. Don't separate these two!
-        let id = clock.id.get_raw() | CLOCK_MASK;
+        let id = clock.id.get_raw() | LOGICAL_CLOCK_MASK;
         (
             LogEntry(id),
             LogEntry(pack_clock_word(clock.epoch, clock.ticks)),
@@ -115,8 +115,8 @@ impl LogEntry {
 
     /// Determine if the clock bit is set on this entry.
     #[inline]
-    pub fn has_clock_bit_set(self) -> bool {
-        (self.0 & RESERVED_BITS_MASK) == CLOCK_MASK
+    pub fn has_logical_clock_bit_set(self) -> bool {
+        (self.0 & RESERVED_BITS_MASK) == LOGICAL_CLOCK_MASK
     }
 
     /// Determine if the event with payload bit is set on this entry.
@@ -147,7 +147,7 @@ impl LogEntry {
     /// Unset the top reserved bits to get the original probe id back out.
     #[inline]
     pub fn interpret_as_logical_clock_probe_id(self) -> u32 {
-        self.0 & !CLOCK_MASK
+        self.0 & !LOGICAL_CLOCK_MASK
     }
 
     /// Convert to an event id.
@@ -173,6 +173,10 @@ impl core::fmt::Debug for LogEntry {
 }
 
 impl fenced_ring_buffer::Entry for LogEntry {
+    fn is_mega_variable_prefix(&self) -> bool {
+        self.has_wall_clock_time_bits_set() && self.has_wall_clock_time_paired_bit_set()
+    }
+
     // Payloads or clocks count entries could be interpreted as a prefix, but the FencedRingBuffer
     // will never call is_prefix on the entry after a prefix
     fn is_prefix(&self) -> bool {
@@ -184,19 +188,38 @@ impl fenced_ring_buffer::Entry for LogEntry {
 pub(crate) mod log_tests {
     use super::*;
     use crate::{ProbeEpoch, ProbeId, ProbeTicks};
+    use fenced_ring_buffer::Entry;
+
+    #[test]
+    fn sanity_check_paired_wall_clock_time_bits() {
+        let time = Nanoseconds::new(12345).unwrap();
+        let (first, _second) = LogEntry::paired_wall_clock_time(time);
+        assert!(first.is_mega_variable_prefix());
+        assert!(first.is_prefix());
+        assert!(!first.is_fixed_size_prefix());
+    }
+
+    #[test]
+    fn sanity_check_unpaired_wall_clock_time_bits() {
+        let time = Nanoseconds::new(12345).unwrap();
+        let (first, _second) = LogEntry::unpaired_wall_clock_time(time);
+        assert!(!first.is_mega_variable_prefix());
+        assert!(first.is_prefix());
+        assert!(first.is_fixed_size_prefix());
+    }
 
     #[test]
     fn expected_representation() {
         let e = LogEntry::event(EventId::new(4).expect("Could not make EventId"));
-        assert!(!e.has_clock_bit_set());
+        assert!(!e.has_logical_clock_bit_set());
 
         let (id, count) = LogEntry::clock(LogicalClock {
             id: ProbeId::new(4).unwrap(),
             epoch: ProbeEpoch(0),
             ticks: ProbeTicks(5),
         });
-        assert!(id.has_clock_bit_set());
-        assert!(!count.has_clock_bit_set());
+        assert!(id.has_logical_clock_bit_set());
+        assert!(!count.has_logical_clock_bit_set());
     }
 
     #[test]
