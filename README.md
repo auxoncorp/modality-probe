@@ -2,8 +2,6 @@
 
 Embedded-friendly causal event tracing.
 
-### Note: See [Modality Documentation](https://docs.auxon.io/modality/) for the full range of Modality's functionality.
-
 ## Overview
 
 `modality-probe` is an open source part of [Auxon](https://auxon.io)’s [Modality](https://docs.auxon.io/modality/)
@@ -15,6 +13,7 @@ provides a high-resolution lens into _what happened_. This history can
 then be used for testing, debugging, understanding emergent scenarios,
 and more.
 
+Note: See [Modality Documentation](https://docs.auxon.io/modality/) for the full range of Modality's functionality.
 
 ### Environment
 While `modality-probe` is written in Rust, it targets C environments,
