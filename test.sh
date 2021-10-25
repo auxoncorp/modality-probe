@@ -12,6 +12,10 @@ cargo test --workspace
 )
 
 # This is just to make sure that the fuzz tests actually /can/ build and run
-for target in `cargo fuzz list`; do
-     RUSTUP_TOOLCHAIN=nightly-2021-03-01 cargo fuzz run $target -- -max_total_time=1s
-done
+PINNED_NIGHTLY=`cat modality-probe-capi/rust-toolchain`
+(
+    export RUSTUP_TOOLCHAIN=$PINNED_NIGHTLY
+    for target in `cargo fuzz list`; do
+         cargo fuzz run $target -- -max_total_time=1s
+    done
+)
