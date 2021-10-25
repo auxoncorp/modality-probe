@@ -37,7 +37,7 @@ fn main() {
     );
 
     let lines = cdylib_link_lines::shared_object_link_args(
-        &name, &major, &minor, &micro, &arch, &os, &env, libdir, target_dir,
+        name, major, minor, micro, &arch, &os, &env, libdir, target_dir,
     );
     let link = "cargo:rustc-cdylib-link-arg=";
 
