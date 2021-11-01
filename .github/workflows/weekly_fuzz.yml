@@ -91,7 +91,7 @@ jobs:
       - name: Run fuzz tests (30 minutes per fuzz target)
         if: steps.check_sha.outputs.cache-hit != 'true'
         env:
-          RUSTUP_TOOLCHAIN=${{ steps.rust_nightly_version.outputs.toolchain }}
+          RUSTUP_TOOLCHAIN: ${{ steps.rust_nightly_version.outputs.toolchain }}
         run: |
           for target in `cargo fuzz list`; do
               cargo fuzz run $target -- -max_total_time=30m -timeout=35m
