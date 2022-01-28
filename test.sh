@@ -3,7 +3,9 @@
 set -ex
 
 cargo build --all
-cargo test --workspace --features "std, debug-collector-access"
+cargo test --features "serde"
+cargo test --features "std schemars"
+cargo test --features "debug-collector-access"
 cargo test --workspace
 
 (

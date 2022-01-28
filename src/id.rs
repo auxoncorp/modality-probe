@@ -12,10 +12,8 @@ use core::num::NonZeroU32;
 /// ProbeId::MAX_ID.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
-#[cfg_attr(
-    feature = "std",
-    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
-)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct ProbeId(
     /* Never make this inner field truly public */ pub(crate) NonZeroU32,
 );
@@ -174,10 +172,8 @@ fallible_sizing_try_from_impl_with_internal!(isize, EventId, InvalidEventId, Inv
 
 /// Uniquely identify an event or kind of event.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(
-    feature = "std",
-    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
-)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[repr(transparent)]
 pub struct EventId(NonZeroU32);
 

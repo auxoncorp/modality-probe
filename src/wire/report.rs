@@ -17,10 +17,8 @@ assert_eq_size!(LogEntry, u32);
 /// The nth report the probe has produced in its current
 /// instantiation.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-#[cfg_attr(
-    feature = "std",
-    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
-)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[repr(transparent)]
 pub struct SequenceNumber(pub u64);
 
