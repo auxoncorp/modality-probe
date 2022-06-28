@@ -3,7 +3,6 @@
 use crate::{get_seqn_index, num_missed, Entry, SeqNum, WholeEntry};
 use core::cmp::max;
 use core::fmt;
-use core::mem::size_of;
 use core::mem::MaybeUninit;
 use core::sync::atomic::fence;
 use core::sync::atomic::Ordering;
@@ -26,7 +25,7 @@ impl fmt::Debug for SizeError {
 #[inline]
 fn round_to_power_2(length: usize) -> usize {
     debug_assert!(length > 0);
-    let exp: usize = size_of::<usize>() * 8 - (length.leading_zeros() as usize) - 1;
+    let exp: usize = usize::BITS as usize - (length.leading_zeros() as usize) - 1;
     1 << exp
 }
 
