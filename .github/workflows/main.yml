@@ -36,6 +36,12 @@ jobs:
           override: true
           components: rustfmt, clippy
 
+      - name: Install cross
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: --version 0.2.1 cross
+
       - name: Fetch dependencies
         uses: actions-rs/cargo@v1
         with:
@@ -78,18 +84,10 @@ jobs:
         run: ./test.sh
 
       - name: Test (armv7 target)
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: test
-          args: --all --features "std, debug-collector-access" --target=armv7-unknown-linux-gnueabihf
+        run: cross test --all --features "std, debug-collector-access" --target=armv7-unknown-linux-gnueabihf
 
       - name: Test (big endian target)
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: test
-          args: --all --features "std, debug-collector-access" --target=mips64-unknown-linux-gnuabi64
+        run: cross test --all --features "std, debug-collector-access" --target=mips64-unknown-linux-gnuabi64
 
   windows:
     name: Windows
