@@ -20,8 +20,13 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
-      - uses: actions-rs/cargo@v1
+
+      - name: Install cross
+        if: steps.check_sha.outputs.cache-hit != 'true'
+        uses: actions-rs/cargo@v1
         with:
-          use-cross: true
-          command: build
-          args: --release --target=${{ matrix.target }}
+          command: install
+          args: --version 0.2.1 cross
+
+      - name: Build
+        run: cross build --release --target=${{ matrix.target }}

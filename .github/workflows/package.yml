@@ -52,7 +52,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: install
-          args: cross
+          args: --version 0.2.1 cross
 
       - name: Generate tarball package
         run: |
